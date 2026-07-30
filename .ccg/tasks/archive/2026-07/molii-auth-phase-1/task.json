@@ -1,0 +1,12 @@
+{
+  "id": "molii-auth-phase-1",
+  "title": "审计并完善 Molii 独立前端所需的 New API 第一阶段认证能力",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务记录并交付审计与实现结果",
+  "createdAt": "2026-07-30T10:33:20Z",
+  "branch": "feat/molii-auth"
+}
