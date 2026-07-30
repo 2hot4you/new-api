@@ -1,0 +1,12 @@
+{
+  "id": "restart-local-backend",
+  "title": "重新启动 Molii New API 本地后端",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已启动并验证，无后续操作",
+  "createdAt": "2026-07-30T12:01:03Z",
+  "branch": "feat/molii-auth"
+}
