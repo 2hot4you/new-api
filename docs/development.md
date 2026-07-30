@@ -1,6 +1,6 @@
-# Molii 本地开发
+# New API 本地二开环境
 
-Molii 的前端和 Go API 都直接运行在本机。Docker Compose 只启动 PostgreSQL
+New API 的前端和 Go API 都直接运行在本机。Docker Compose 只启动 PostgreSQL
 与 Redis，并且两个端口都只绑定到 `127.0.0.1`。
 
 ## 依赖
@@ -51,14 +51,8 @@ make dev-web
 <http://localhost:5173/setup/> 创建本地管理员并完成初始化。不要在生产环境复用
 本地管理员密码。
 
-初始化后可以从 <http://localhost:5173/sign-up> 注册普通用户，再到
-<http://localhost:5173/sign-in> 登录。Molii 认证页继续使用 New API 的
-Access Token、HttpOnly Refresh Cookie 和服务端登录 Session；注册开关、邮箱验证、
-Turnstile、OAuth、2FA 与 Passkey 仍由 New API 系统设置控制。
-
-认证页的品牌名称和 Logo 读取系统设置。需要在本地显示 Molii 品牌时，使用管理员
-账号进入“系统设置 → 站点设置”，将系统名称和 Logo URL 配置为 Molii 对应内容。
-上游 New API 与 QuantumNous 的许可、署名和项目链接仍必须保留。
+初始化后的用户名、密码、注册开关和站点信息均由你在 New API 初始化向导与管理后台
+自行配置。本次环境搭建不修改上游登录注册前端。
 
 ## 本地 URL
 
