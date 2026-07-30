@@ -1,78 +1,43 @@
-# Frontend Development - Backend built from local source
-#
-# Usage:
-#   1. docker compose -f docker-compose.dev.yml up -d
-#   2. make dev-web
-#   3. Open http://localhost:5173 (Rsbuild dev server, API auto-proxied to :3000)
-#
-# Rebuild backend after Go code changes:
-#   docker compose -f docker-compose.dev.yml up -d --build new-api
-#
-# Stop:
-#   docker compose -f docker-compose.dev.yml down
-#
-# Reset data:
-#   docker compose -f docker-compose.dev.yml down -v
+name: molii-new-api-dev
 
 services:
-  new-api:
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
-    image: new-api-dev:local
-    container_name: new-api-dev
+  postgres:
+    image: postgres:15-alpine
+    container_name: molii-new-api-dev-postgres
     restart: unless-stopped
-    ports:
-      - "3000:3000"
-    volumes:
-      - dev_data:/data
     environment:
-      - SQL_DSN=postgresql://root:123456@postgres:5432/new-api
-      - REDIS_CONN_STRING=redis://redis
-      - TZ=Asia/Shanghai
-      - BATCH_UPDATE_ENABLED=true
-      # Local HTTP dev mode: keep Secure=false and leave TRUSTED_URL unset. This disables the refresh/logout OriginGuard so the :5173 -> :3000 dev proxy works.
-      - SESSION_COOKIE_SECURE=false
-      # For HTTPS only: set Secure=true and list every exact trusted HTTPS browser Origin. This does not configure relay CORS.
-      # - SESSION_COOKIE_SECURE=true
-      # - SESSION_COOKIE_TRUSTED_URL=https://example.com,https://admin.example.com
-    depends_on:
-      redis:
-        condition: service_started
-      postgres:
-        condition: service_healthy
-    networks:
-      - dev-network
+      POSTGRES_DB: new_api
+      POSTGRES_USER: new_api
+      POSTGRES_PASSWORD: new_api_local
+    ports:
+      - "127.0.0.1:${MOLII_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   redis:
     image: redis:7-alpine
-    container_name: new-api-dev-redis
+    container_name: molii-new-api-dev-redis
     restart: unless-stopped
-    networks:
-      - dev-network
-
-  postgres:
-    image: postgres:15-alpine
-    container_name: new-api-dev-pg
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: new-api
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${MOLII_REDIS_PORT:-6379}:6379"
     volumes:
-      - dev_pg_data:/var/lib/postgresql/data
-    networks:
-      - dev-network
+      - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U root -d new-api"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+      start_period: 5s
 
 volumes:
-  dev_data:
-  dev_pg_data:
-
-networks:
-  dev-network:
-    driver: bridge
+  postgres_data:
+    name: molii-new-api-dev-postgres-data
+  redis_data:
+    name: molii-new-api-dev-redis-data

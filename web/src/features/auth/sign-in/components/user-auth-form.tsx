@@ -59,6 +59,13 @@ import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+const authInputClassName =
+  'h-12 rounded-[10px] border-[#24252B] bg-[#131417] px-3 text-[#F5F6FA] shadow-none placeholder:text-[#9499A8] hover:border-[#292B33] focus-visible:border-[#7566FF] focus-visible:ring-[#7566FF]/25 dark:bg-[#131417]'
+const authPasswordInputClassName =
+  '[&>input]:h-12 [&>input]:rounded-[10px] [&>input]:border-[#24252B] [&>input]:bg-[#131417] [&>input]:px-3 [&>input]:pe-10 [&>input]:text-[#F5F6FA] [&>input]:shadow-none [&>input]:placeholder:text-[#9499A8] [&>input]:hover:border-[#292B33] [&>input]:focus-visible:border-[#7566FF] [&>input]:focus-visible:ring-[#7566FF]/25 [&>input]:dark:bg-[#131417]'
+const oauthClassName =
+  '[&_button]:h-12 [&_button]:rounded-[10px] [&_button]:border-[#24252B] [&_button]:bg-[#131417] [&_button]:text-[#F5F6FA] [&_button]:shadow-none [&_button]:hover:border-[#292B33] [&_button]:hover:bg-[#17181D] [&_button]:focus-visible:border-[#7566FF] [&_button]:focus-visible:ring-[#7566FF]/25 [&_button]:dark:border-[#24252B] [&_button]:dark:bg-[#131417] [&_button]:dark:hover:bg-[#17181D] [&_span]:border-[#24252B] [&_span.bg-background]:bg-[#0E0F12] [&_span.bg-background]:text-[#9499A8]'
+
 export function UserAuthForm({
   className,
   redirectTo,
@@ -307,13 +314,13 @@ export function UserAuthForm({
   const alternativeLoginMethods = (
     <>
       {passkeyLoginEnabled && (
-        <div className='mt-2 space-y-1'>
+        <div className='space-y-2'>
           <Button
             type='button'
             variant='outline'
             disabled={passkeyButtonDisabled}
             onClick={handlePasskeyLogin}
-            className='h-11 w-full justify-center gap-2 rounded-lg'
+            className='h-12 w-full justify-center gap-2 rounded-[10px] border-[#24252B] bg-[#131417] text-[#F5F6FA] shadow-none hover:border-[#292B33] hover:bg-[#17181D] focus-visible:border-[#7566FF] focus-visible:ring-[#7566FF]/25 dark:border-[#24252B] dark:bg-[#131417] dark:hover:bg-[#17181D]'
           >
             {isPasskeyLoading ? (
               <Loader2 className='h-4 w-4 animate-spin' />
@@ -323,7 +330,7 @@ export function UserAuthForm({
             {t('Sign in with Passkey')}
           </Button>
           {!passkeySupported && (
-            <p className='text-muted-foreground text-xs'>
+            <p className='text-xs leading-5 text-[#9499A8]'>
               {t('Passkey is not supported on this device.')}
             </p>
           )}
@@ -337,6 +344,7 @@ export function UserAuthForm({
         disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
         onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
         isWeChatLoading={isWeChatSubmitting}
+        className={oauthClassName}
       />
     </>
   )
@@ -345,7 +353,7 @@ export function UserAuthForm({
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className={cn('grid gap-4', className)}
+        className={cn('grid gap-5', className)}
         {...props}
       >
         {hasAlternativeLogin && alternativeLoginMethods}
@@ -357,15 +365,18 @@ export function UserAuthForm({
               control={form.control}
               name='username'
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Username or Email')}</FormLabel>
+                <FormItem className='gap-2'>
+                  <FormLabel className='text-sm font-medium text-[#B8BAC9]'>
+                    {t('Username or Email')}
+                  </FormLabel>
                   <FormControl>
                     <Input
                       placeholder={t('Enter your username or email')}
+                      className={authInputClassName}
                       {...field}
                     />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className='text-xs leading-5' />
                 </FormItem>
               )}
             />
@@ -375,18 +386,21 @@ export function UserAuthForm({
               control={form.control}
               name='password'
               render={({ field }) => (
-                <FormItem className='relative'>
-                  <FormLabel>{t('Password')}</FormLabel>
+                <FormItem className='relative gap-2'>
+                  <FormLabel className='text-sm font-medium text-[#B8BAC9]'>
+                    {t('Password')}
+                  </FormLabel>
                   <FormControl>
                     <PasswordInput
                       placeholder={t('Enter password')}
+                      className={authPasswordInputClassName}
                       {...field}
                     />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className='text-xs leading-5' />
                   <Link
                     to='/forgot-password'
-                    className='text-muted-foreground absolute end-0 -top-0.5 z-10 text-sm font-medium hover:opacity-75'
+                    className='absolute end-0 -top-0.5 z-10 text-sm font-medium text-[#9A8FFF] transition-colors hover:text-[#B1A8FF] focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7566FF]'
                   >
                     {t('Forgot password?')}
                   </Link>
@@ -397,7 +411,7 @@ export function UserAuthForm({
             {/* Submit Button */}
             <Button
               type='submit'
-              className='mt-2 w-full justify-center gap-2'
+              className='mt-1 h-[52px] w-full justify-center gap-2 rounded-xl bg-[#7566FF] text-sm font-semibold text-white shadow-none hover:bg-[#6B5BF7] focus-visible:border-[#8C80FF] focus-visible:ring-[#7566FF]/30'
               disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
             >
               {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
@@ -406,7 +420,7 @@ export function UserAuthForm({
 
             {/* Turnstile */}
             {isTurnstileEnabled && (
-              <div className='mt-2'>
+              <div className='flex justify-center pt-1'>
                 <Turnstile
                   siteKey={turnstileSiteKey}
                   onVerify={setTurnstileToken}
@@ -420,7 +434,7 @@ export function UserAuthForm({
           status={status}
           checked={agreedToLegal}
           onCheckedChange={setAgreedToLegal}
-          className='mt-1'
+          className='border-[#24252B] bg-[#131417] text-[#9499A8] shadow-none [&_[data-slot=checkbox]]:border-[#3A3B43] [&_[data-slot=checkbox]]:data-[state=checked]:border-[#7566FF] [&_[data-slot=checkbox]]:data-[state=checked]:bg-[#7566FF] [&_a]:text-[#9A8FFF]'
         />
 
         {!hasAlternativeLogin && alternativeLoginMethods}
@@ -434,8 +448,8 @@ export function UserAuthForm({
           description={t(
             'Scan the QR code to follow the official account and reply with “验证码” to receive your verification code.'
           )}
-          contentClassName='max-w-sm'
-          headerClassName='text-left'
+          contentClassName='max-w-sm border-[#24252B] bg-[#0E0F12]'
+          headerClassName='text-left text-[#F5F6FA]'
           contentHeight='auto'
           bodyClassName='space-y-4'
           footer={
@@ -445,6 +459,7 @@ export function UserAuthForm({
                 variant='outline'
                 onClick={() => handleWeChatDialogChange(false)}
                 disabled={isWeChatSubmitting}
+                className='h-10 rounded-[10px] border-[#24252B] bg-[#131417] text-[#B8BAC9] shadow-none hover:bg-[#17181D] dark:border-[#24252B] dark:bg-[#131417] dark:hover:bg-[#17181D]'
               >
                 {t('Cancel')}
               </Button>
@@ -456,7 +471,7 @@ export function UserAuthForm({
                   !wechatCode.trim() ||
                   (requiresLegalConsent && !agreedToLegal)
                 }
-                className='gap-2'
+                className='h-10 gap-2 rounded-[10px] bg-[#7566FF] text-white shadow-none hover:bg-[#6B5BF7] focus-visible:ring-[#7566FF]/30'
               >
                 {isWeChatSubmitting ? (
                   <Loader2 className='h-4 w-4 animate-spin' />
@@ -471,22 +486,25 @@ export function UserAuthForm({
               <img
                 src={wechatQrCodeUrl}
                 alt={t('WeChat login QR code')}
-                className='h-40 w-40 rounded-md border object-contain'
+                className='h-40 w-40 rounded-[10px] border border-[#24252B] bg-[#131417] object-contain'
               />
             </div>
           ) : (
-            <p className='text-muted-foreground text-sm'>
+            <p className='text-sm leading-6 text-[#9499A8]'>
               {t('QR code is not configured. Please contact support.')}
             </p>
           )}
           <div className='grid gap-2'>
-            <Label htmlFor='wechat-code'>{t('Verification code')}</Label>
+            <Label htmlFor='wechat-code' className='text-[#B8BAC9]'>
+              {t('Verification code')}
+            </Label>
             <Input
               id='wechat-code'
               placeholder={t('Enter the verification code')}
               value={wechatCode}
               onChange={(event) => setWeChatCode(event.target.value)}
               autoComplete='one-time-code'
+              className={authInputClassName}
             />
           </div>
         </Dialog>

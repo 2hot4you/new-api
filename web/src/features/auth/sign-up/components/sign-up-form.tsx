@@ -54,6 +54,13 @@ import { isAuthBundle } from '@/lib/api'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
+const authInputClassName =
+  'h-12 rounded-[10px] border-[#24252B] bg-[#131417] px-3 text-[#F5F6FA] shadow-none placeholder:text-[#9499A8] hover:border-[#292B33] focus-visible:border-[#7566FF] focus-visible:ring-[#7566FF]/25 dark:bg-[#131417]'
+const authPasswordInputClassName =
+  '[&>input]:h-12 [&>input]:rounded-[10px] [&>input]:border-[#24252B] [&>input]:bg-[#131417] [&>input]:px-3 [&>input]:pe-10 [&>input]:text-[#F5F6FA] [&>input]:shadow-none [&>input]:placeholder:text-[#9499A8] [&>input]:hover:border-[#292B33] [&>input]:focus-visible:border-[#7566FF] [&>input]:focus-visible:ring-[#7566FF]/25 [&>input]:dark:bg-[#131417]'
+const oauthClassName =
+  'pt-1 [&_button]:h-12 [&_button]:rounded-[10px] [&_button]:border-[#24252B] [&_button]:bg-[#131417] [&_button]:text-[#F5F6FA] [&_button]:shadow-none [&_button]:hover:border-[#292B33] [&_button]:hover:bg-[#17181D] [&_button]:focus-visible:border-[#7566FF] [&_button]:focus-visible:ring-[#7566FF]/25 [&_button]:dark:border-[#24252B] [&_button]:dark:bg-[#131417] [&_button]:dark:hover:bg-[#17181D] [&_span]:border-[#24252B] [&_span.bg-background]:bg-[#0E0F12] [&_span.bg-background]:text-[#9499A8]'
+
 export function SignUpForm({
   className,
   ...props
@@ -244,7 +251,7 @@ export function SignUpForm({
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className={cn('grid gap-4', className)}
+        className={cn('grid gap-5', className)}
         {...props}
       >
         {/* Username Field */}
@@ -252,12 +259,18 @@ export function SignUpForm({
           control={form.control}
           name='username'
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t('Username')}</FormLabel>
+            <FormItem className='gap-2'>
+              <FormLabel className='text-sm font-medium text-[#B8BAC9]'>
+                {t('Username')}
+              </FormLabel>
               <FormControl>
-                <Input placeholder={t('Enter your username')} {...field} />
+                <Input
+                  placeholder={t('Enter your username')}
+                  className={authInputClassName}
+                  {...field}
+                />
               </FormControl>
-              <FormMessage />
+              <FormMessage className='text-xs leading-5' />
             </FormItem>
           )}
         />
@@ -267,15 +280,18 @@ export function SignUpForm({
           control={form.control}
           name='password'
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t('Password')}</FormLabel>
+            <FormItem className='gap-2'>
+              <FormLabel className='text-sm font-medium text-[#B8BAC9]'>
+                {t('Password')}
+              </FormLabel>
               <FormControl>
                 <PasswordInput
                   placeholder={t('Enter password (8-20 characters)')}
+                  className={authPasswordInputClassName}
                   {...field}
                 />
               </FormControl>
-              <FormMessage />
+              <FormMessage className='text-xs leading-5' />
             </FormItem>
           )}
         />
@@ -285,12 +301,18 @@ export function SignUpForm({
           control={form.control}
           name='confirmPassword'
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t('Confirm password')}</FormLabel>
+            <FormItem className='gap-2'>
+              <FormLabel className='text-sm font-medium text-[#B8BAC9]'>
+                {t('Confirm password')}
+              </FormLabel>
               <FormControl>
-                <PasswordInput placeholder={t('Confirm password')} {...field} />
+                <PasswordInput
+                  placeholder={t('Confirm password')}
+                  className={authPasswordInputClassName}
+                  {...field}
+                />
               </FormControl>
-              <FormMessage />
+              <FormMessage className='text-xs leading-5' />
             </FormItem>
           )}
         />
@@ -303,29 +325,32 @@ export function SignUpForm({
               control={form.control}
               name='email'
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
+                <FormItem className='gap-2'>
+                  <FormLabel className='text-sm font-medium text-[#B8BAC9]'>
                     {t('Email (required for verification)')}
                   </FormLabel>
                   <FormControl>
                     <Input
                       placeholder={t('name@example.com')}
                       type='email'
+                      className={authInputClassName}
                       {...field}
                     />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className='text-xs leading-5' />
                 </FormItem>
               )}
             />
 
             {/* Verification Code Field */}
-            <div className='flex items-end gap-2'>
+            <div className='flex items-center gap-2'>
               <div className='flex-1'>
                 <Input
+                  aria-label={t('Verification code')}
                   placeholder={t('Verification code')}
                   value={verificationCode}
                   onChange={(e) => setVerificationCode(e.target.value)}
+                  className={authInputClassName}
                 />
               </div>
               <Button
@@ -339,6 +364,7 @@ export function SignUpForm({
                   !turnstileReady
                 }
                 onClick={handleSendVerificationCode}
+                className='h-12 min-w-28 rounded-[10px] border-[#24252B] bg-[#17181D] px-4 text-[#B8BAC9] shadow-none hover:border-[#292B33] hover:bg-[#1D1E24] focus-visible:border-[#7566FF] focus-visible:ring-[#7566FF]/25 dark:border-[#24252B] dark:bg-[#17181D] dark:hover:bg-[#1D1E24]'
               >
                 {verificationCodeAction}
               </Button>
@@ -348,7 +374,7 @@ export function SignUpForm({
 
         {/* Turnstile */}
         {isTurnstileEnabled && (
-          <div className='mt-2'>
+          <div className='flex justify-center pt-1'>
             <Turnstile
               key={turnstileWidgetKey}
               siteKey={turnstileSiteKey}
@@ -361,13 +387,13 @@ export function SignUpForm({
           status={status}
           checked={agreedToLegal}
           onCheckedChange={setAgreedToLegal}
-          className='mt-1'
+          className='border-[#24252B] bg-[#131417] text-[#9499A8] shadow-none [&_[data-slot=checkbox]]:border-[#3A3B43] [&_[data-slot=checkbox]]:data-[state=checked]:border-[#7566FF] [&_[data-slot=checkbox]]:data-[state=checked]:bg-[#7566FF] [&_a]:text-[#9A8FFF]'
         />
 
         {/* Submit Button */}
         <Button
           type='submit'
-          className='mt-2 w-full justify-center gap-2'
+          className='mt-1 h-[52px] w-full justify-center gap-2 rounded-xl bg-[#7566FF] text-sm font-semibold text-white shadow-none hover:bg-[#6B5BF7] focus-visible:border-[#8C80FF] focus-visible:ring-[#7566FF]/30'
           disabled={
             isLoading ||
             (requiresLegalConsent && !agreedToLegal) ||
@@ -384,7 +410,7 @@ export function SignUpForm({
             disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
             onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
             isWeChatLoading={isWeChatSubmitting}
-            className='pt-2'
+            className={oauthClassName}
           />
         )}
       </form>
@@ -397,8 +423,8 @@ export function SignUpForm({
           description={t(
             'Scan the QR code to follow the official account and reply with “验证码” to receive your verification code.'
           )}
-          contentClassName='max-w-sm'
-          headerClassName='text-left'
+          contentClassName='max-w-sm border-[#24252B] bg-[#0E0F12]'
+          headerClassName='text-left text-[#F5F6FA]'
           contentHeight='auto'
           bodyClassName='space-y-4'
           footer={
@@ -408,6 +434,7 @@ export function SignUpForm({
                 variant='outline'
                 onClick={() => handleWeChatDialogChange(false)}
                 disabled={isWeChatSubmitting}
+                className='h-10 rounded-[10px] border-[#24252B] bg-[#131417] text-[#B8BAC9] shadow-none hover:bg-[#17181D] dark:border-[#24252B] dark:bg-[#131417] dark:hover:bg-[#17181D]'
               >
                 {t('Cancel')}
               </Button>
@@ -419,7 +446,7 @@ export function SignUpForm({
                   !wechatCode.trim() ||
                   (requiresLegalConsent && !agreedToLegal)
                 }
-                className='gap-2'
+                className='h-10 gap-2 rounded-[10px] bg-[#7566FF] text-white shadow-none hover:bg-[#6B5BF7] focus-visible:ring-[#7566FF]/30'
               >
                 {isWeChatSubmitting ? (
                   <Loader2 className='h-4 w-4 animate-spin' />
@@ -434,22 +461,25 @@ export function SignUpForm({
               <img
                 src={wechatQrCodeUrl}
                 alt={t('WeChat login QR code')}
-                className='h-40 w-40 rounded-md border object-contain'
+                className='h-40 w-40 rounded-[10px] border border-[#24252B] bg-[#131417] object-contain'
               />
             </div>
           ) : (
-            <p className='text-muted-foreground text-sm'>
+            <p className='text-sm leading-6 text-[#9499A8]'>
               {t('QR code is not configured. Please contact support.')}
             </p>
           )}
           <div className='grid gap-2'>
-            <Label htmlFor='wechat-code'>{t('Verification code')}</Label>
+            <Label htmlFor='wechat-code' className='text-[#B8BAC9]'>
+              {t('Verification code')}
+            </Label>
             <Input
               id='wechat-code'
               placeholder={t('Enter the verification code')}
               value={wechatCode}
               onChange={(event) => setWeChatCode(event.target.value)}
               autoComplete='one-time-code'
+              className={authInputClassName}
             />
           </div>
         </Dialog>

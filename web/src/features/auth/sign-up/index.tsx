@@ -31,16 +31,19 @@ export function SignUp() {
 
   return (
     <AuthLayout>
-      <div className='w-full space-y-8'>
-        <div className='space-y-2'>
-          <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>
+      <section aria-labelledby='sign-up-title' className='w-full space-y-8'>
+        <div className='space-y-3'>
+          <h1
+            id='sign-up-title'
+            className='text-2xl leading-[34px] font-bold tracking-[-0.02em] text-white'
+          >
             {t('Create an account')}
-          </h2>
-          <p className='text-muted-foreground text-left text-sm sm:text-base'>
+          </h1>
+          <p className='text-sm leading-[22px] text-[#9499A8]'>
             {t('Already have an account?')}{' '}
             <Link
               to='/sign-in'
-              className='hover:text-primary font-medium underline underline-offset-4'
+              className='font-semibold text-[#7566FF] underline-offset-4 hover:underline'
             >
               {t('Sign in')}
             </Link>
@@ -53,9 +56,9 @@ export function SignUp() {
         <TermsFooter
           variant='sign-up'
           status={status}
-          className='text-center'
+          className='text-center text-[#6B7080] [&_a]:text-[#B8BAC9] [&_a]:hover:text-white'
         />
-      </div>
+      </section>
     </AuthLayout>
   )
 }
