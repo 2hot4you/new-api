@@ -82,3 +82,39 @@ func InitSessionCookieSettings() error {
 	SessionCookieSecure = true
 	return nil
 }
+
+func InitDashboardCORSSettings() error {
+	allowedOriginsRaw := strings.TrimSpace(os.Getenv("DASHBOARD_CORS_ALLOWED_ORIGINS"))
+	DashboardCORSAllowedOrigins = nil
+	if allowedOriginsRaw == "" {
+		return nil
+	}
+
+	allowedOrigins := make([]string, 0)
+	for _, allowedOrigin := range strings.Split(allowedOriginsRaw, ",") {
+		allowedOrigin = strings.TrimSpace(allowedOrigin)
+		if allowedOrigin == "" {
+			return fmt.Errorf("DASHBOARD_CORS_ALLOWED_ORIGINS contains an empty origin")
+		}
+
+		parsedOrigin, err := url.Parse(allowedOrigin)
+		if err != nil {
+			return fmt.Errorf("invalid DASHBOARD_CORS_ALLOWED_ORIGINS: %w", err)
+		}
+		if parsedOrigin.Path != "" || parsedOrigin.RawPath != "" {
+			return fmt.Errorf("DASHBOARD_CORS_ALLOWED_ORIGINS must contain origins without paths")
+		}
+
+		normalizedOrigin, err := NormalizeOrigin(allowedOrigin)
+		if err != nil {
+			return fmt.Errorf("invalid DASHBOARD_CORS_ALLOWED_ORIGINS: %w", err)
+		}
+		if SessionCookieSecure && !strings.HasPrefix(normalizedOrigin, "https://") {
+			return fmt.Errorf("DASHBOARD_CORS_ALLOWED_ORIGINS must contain only https origins when SESSION_COOKIE_SECURE=true")
+		}
+		allowedOrigins = append(allowedOrigins, normalizedOrigin)
+	}
+
+	DashboardCORSAllowedOrigins = allowedOrigins
+	return nil
+}

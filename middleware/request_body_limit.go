@@ -9,6 +9,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func abortWithApplicationError(c *gin.Context, status int, code string, message string) {
+	c.AbortWithStatusJSON(status, gin.H{
+		"success": false,
+		"code":    code,
+		"message": message,
+	})
+}
+
 func AnonymousRequestBodyLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		maxBytes := common.GetAnonymousRequestBodyLimitBytes()
@@ -22,10 +30,10 @@ func AnonymousRequestBodyLimit() gin.HandlerFunc {
 		_ = originalBody.Close()
 		if err != nil {
 			if common.IsRequestBodyTooLargeError(err) {
-				c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+				abortWithApplicationError(c, http.StatusRequestEntityTooLarge, "REQUEST_BODY_TOO_LARGE", "request body too large")
 				return
 			}
-			c.AbortWithStatus(http.StatusBadRequest)
+			abortWithApplicationError(c, http.StatusBadRequest, "INVALID_REQUEST_BODY", "invalid request body")
 			return
 		}
 

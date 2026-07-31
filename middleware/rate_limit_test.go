@@ -64,6 +64,7 @@ func TestRedisIPRateLimiterThresholdTTLAndNamespace(t *testing.T) {
 	limitedResponse := performRateLimitRequest(router, "/limited", remoteAddr)
 	assert.Equal(t, http.StatusTooManyRequests, limitedResponse.Code)
 	assert.Equal(t, "37", limitedResponse.Header().Get("Retry-After"))
+	assert.Equal(t, "RATE_LIMITED", decodeMiddlewareApplicationError(t, limitedResponse).Code)
 
 	key := redisIPRateLimitKey("TEST", "192.0.2.10")
 	count, err := redisServer.Get(key)
@@ -71,6 +72,18 @@ func TestRedisIPRateLimiterThresholdTTLAndNamespace(t *testing.T) {
 	assert.Equal(t, "3", count)
 	assert.Equal(t, 37*time.Second, redisServer.TTL(key))
 	assert.True(t, redisServer.Exists(legacyKey), "the v2 counter must not touch an old list key")
+}
+
+func TestWriteRateLimitedClampsRetryAfterToOneSecond(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+
+	writeRateLimited(context, 0)
+
+	assert.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	assert.Equal(t, "1", recorder.Header().Get("Retry-After"))
+	assert.Equal(t, "RATE_LIMITED", decodeMiddlewareApplicationError(t, recorder).Code)
 }
 
 func TestRedisUserRateLimiterUsesSharedFixedWindow(t *testing.T) {
@@ -86,7 +99,9 @@ func TestRedisUserRateLimiterUsesSharedFixedWindow(t *testing.T) {
 	)
 
 	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/limited", "192.0.2.20:12345").Code)
-	assert.Equal(t, http.StatusTooManyRequests, performRateLimitRequest(router, "/limited", "198.51.100.20:12345").Code)
+	limitedResponse := performRateLimitRequest(router, "/limited", "198.51.100.20:12345")
+	assert.Equal(t, http.StatusTooManyRequests, limitedResponse.Code)
+	assert.Equal(t, "RATE_LIMITED", decodeMiddlewareApplicationError(t, limitedResponse).Code)
 
 	key := redisUserRateLimitKey("USER", 42)
 	assert.True(t, redisServer.Exists(key))
@@ -217,9 +232,9 @@ func TestRedisFailurePolicies(t *testing.T) {
 
 	ipResponse := performRateLimitRequest(router, "/ip", "192.0.2.60:12345")
 	assert.Equal(t, http.StatusInternalServerError, ipResponse.Code)
-	assert.Empty(t, ipResponse.Body.String())
+	assert.Equal(t, "INTERNAL_ERROR", decodeMiddlewareApplicationError(t, ipResponse).Code)
 	userResponse := performRateLimitRequest(router, "/user", "192.0.2.61:12345")
 	assert.Equal(t, http.StatusInternalServerError, userResponse.Code)
-	assert.Empty(t, userResponse.Body.String())
+	assert.Equal(t, "INTERNAL_ERROR", decodeMiddlewareApplicationError(t, userResponse).Code)
 	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/email", "192.0.2.62:12345").Code)
 }

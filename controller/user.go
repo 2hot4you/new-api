@@ -39,19 +39,19 @@ var (
 
 func Login(c *gin.Context) {
 	if !common.PasswordLoginEnabled {
-		common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
+		writeAuthErrorI18n(c, "AUTH_PASSWORD_LOGIN_DISABLED", i18n.MsgUserPasswordLoginDisabled)
 		return
 	}
 	var loginRequest LoginRequest
 	err := common.DecodeJson(c.Request.Body, &loginRequest)
 	if err != nil {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		writeAuthErrorI18n(c, "AUTH_INVALID_REQUEST", i18n.MsgInvalidParams)
 		return
 	}
 	username := loginRequest.Username
 	password := loginRequest.Password
 	if username == "" || password == "" {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		writeAuthErrorI18n(c, "AUTH_INVALID_REQUEST", i18n.MsgInvalidParams)
 		return
 	}
 	user := model.User{
@@ -62,12 +62,11 @@ func Login(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrDatabase):
-			common.SysLog(fmt.Sprintf("Login database error for user %s: %v", username, err))
-			common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+			writeAuthInternalErrorI18n(c, fmt.Sprintf("password login database error for user %q", username), err, i18n.MsgDatabaseError)
 		case errors.Is(err, model.ErrUserEmptyCredentials):
-			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			writeAuthErrorI18n(c, "AUTH_INVALID_REQUEST", i18n.MsgInvalidParams)
 		default:
-			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
+			writeAuthErrorI18n(c, "AUTH_INVALID_CREDENTIALS", i18n.MsgUserUsernameOrPasswordError)
 		}
 		return
 	}
@@ -75,15 +74,14 @@ func Login(c *gin.Context) {
 	// 检查是否启用2FA
 	twoFAEnabled, err := model.IsTwoFAEnabled(user.Id)
 	if err != nil {
-		common.SysLog(fmt.Sprintf("Login failed to load 2FA status for user %d: %v", user.Id, err))
-		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+		writeAuthInternalErrorI18n(c, fmt.Sprintf("password login failed to load 2FA status for user %d", user.Id), err, i18n.MsgDatabaseError)
 		return
 	}
 	if twoFAEnabled {
 		expiresAt := time.Now().Add(5 * time.Minute)
 		payload, err := common.Marshal(twoFALoginFlowPayload{AuthVersion: user.AuthVersion})
 		if err != nil {
-			common.ApiError(c, err)
+			writeAuthInternalErrorI18n(c, fmt.Sprintf("password login failed to encode 2FA flow for user %d", user.Id), err, i18n.MsgDatabaseError)
 			return
 		}
 		flowToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
@@ -93,7 +91,7 @@ func Login(c *gin.Context) {
 			ExpiresAt: expiresAt,
 		})
 		if err != nil {
-			common.ApiError(c, err)
+			writeAuthInternalErrorI18n(c, fmt.Sprintf("password login failed to create 2FA flow for user %d", user.Id), err, i18n.MsgDatabaseError)
 			return
 		}
 
@@ -157,12 +155,12 @@ func setupLogin(user *model.User, c *gin.Context) {
 
 func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin.Context) {
 	if user == nil || user.Id <= 0 || user.Status != common.UserStatusEnabled {
-		common.ApiErrorI18n(c, i18n.MsgAuthUserBanned)
+		writeAuthErrorI18n(c, "AUTH_USER_DISABLED", i18n.MsgAuthUserBanned)
 		return
 	}
 	currentUser, err := model.GetUserById(user.Id, false)
 	if err != nil {
-		common.ApiError(c, err)
+		writeAuthInternalErrorI18n(c, fmt.Sprintf("login failed to load user %d", user.Id), err, i18n.MsgDatabaseError)
 		return
 	}
 	var bundle *service.AuthBundle
@@ -205,44 +203,44 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 
 func Register(c *gin.Context) {
 	if !common.RegisterEnabled {
-		common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
+		writeAuthErrorI18n(c, "AUTH_REGISTRATION_DISABLED", i18n.MsgUserRegisterDisabled)
 		return
 	}
 	if !common.PasswordRegisterEnabled {
-		common.ApiErrorI18n(c, i18n.MsgUserPasswordRegisterDisabled)
+		writeAuthErrorI18n(c, "AUTH_PASSWORD_REGISTRATION_DISABLED", i18n.MsgUserPasswordRegisterDisabled)
 		return
 	}
 	var user model.User
 	err := common.DecodeJson(c.Request.Body, &user)
 	if err != nil {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		writeAuthErrorI18n(c, "AUTH_INVALID_REQUEST", i18n.MsgInvalidParams)
 		return
 	}
 	user.Username = strings.TrimSpace(user.Username)
 	user.Email = model.NormalizeEmail(user.Email)
 	if user.Username == "" {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		writeAuthErrorI18n(c, "AUTH_INVALID_REQUEST", i18n.MsgInvalidParams)
 		return
 	}
 	if err := common.Validate.Struct(&user); err != nil {
-		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
+		writeAuthErrorI18n(c, "AUTH_INVALID_REQUEST", i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
 	if common.EmailVerificationEnabled {
 		if user.Email == "" || user.VerificationCode == "" {
-			common.ApiErrorI18n(c, i18n.MsgUserEmailVerificationRequired)
+			writeAuthErrorI18n(c, "AUTH_EMAIL_VERIFICATION_REQUIRED", i18n.MsgUserEmailVerificationRequired)
 			return
 		}
 		if !common.VerifyCodeWithKey(user.Email, user.VerificationCode, common.EmailVerificationPurpose) {
-			common.ApiErrorI18n(c, i18n.MsgUserVerificationCodeError)
+			writeAuthErrorI18n(c, "AUTH_VERIFICATION_CODE_INVALID", i18n.MsgUserVerificationCodeError)
 			return
 		}
 		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
 			if errors.Is(err, model.ErrEmailAlreadyTaken) {
-				common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+				writeAuthErrorI18n(c, "AUTH_EMAIL_ALREADY_TAKEN", i18n.MsgUserEmailAlreadyTaken)
 				return
 			}
-			common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+			writeAuthInternalErrorI18n(c, "registration failed to check email availability", err, i18n.MsgDatabaseError)
 			return
 		}
 	}
@@ -252,12 +250,11 @@ func Register(c *gin.Context) {
 	}
 	exist, err := model.CheckUserExistOrDeleted(user.Username, emailForExistCheck)
 	if err != nil {
-		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
-		common.SysLog(fmt.Sprintf("CheckUserExistOrDeleted error: %v", err))
+		writeAuthInternalErrorI18n(c, "registration failed to check existing user", err, i18n.MsgDatabaseError)
 		return
 	}
 	if exist {
-		common.ApiErrorI18n(c, i18n.MsgUserExists)
+		writeAuthErrorI18n(c, "AUTH_USERNAME_TAKEN", i18n.MsgUserExists)
 		return
 	}
 	affCode := user.AffCode // this code is the inviter's code, not the user's own code
@@ -274,25 +271,24 @@ func Register(c *gin.Context) {
 	}
 	if err := cleanUser.Insert(inviterId); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
-			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+			writeAuthErrorI18n(c, "AUTH_EMAIL_ALREADY_TAKEN", i18n.MsgUserEmailAlreadyTaken)
 			return
 		}
-		common.ApiError(c, err)
+		writeAuthInternalErrorI18n(c, "registration failed to create user", err, i18n.MsgUserRegisterFailed)
 		return
 	}
 
 	// 获取插入后的用户ID
 	var insertedUser model.User
 	if err := model.DB.Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
-		common.ApiErrorI18n(c, i18n.MsgUserRegisterFailed)
+		writeAuthInternalErrorI18n(c, "registration failed to load created user", err, i18n.MsgUserRegisterFailed)
 		return
 	}
 	// 生成默认令牌
 	if constant.GenerateDefaultToken {
 		key, err := common.GenerateKey()
 		if err != nil {
-			common.ApiErrorI18n(c, i18n.MsgUserDefaultTokenFailed)
-			common.SysLog("failed to generate token key: " + err.Error())
+			writeAuthInternalErrorI18n(c, "registration failed to generate default token key", err, i18n.MsgUserDefaultTokenFailed)
 			return
 		}
 		// 生成默认令牌
@@ -311,7 +307,7 @@ func Register(c *gin.Context) {
 			token.Group = "auto"
 		}
 		if err := token.Insert(); err != nil {
-			common.ApiErrorI18n(c, i18n.MsgCreateDefaultTokenErr)
+			writeAuthInternalErrorI18n(c, "registration failed to create default token", err, i18n.MsgCreateDefaultTokenErr)
 			return
 		}
 	}

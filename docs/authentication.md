@@ -1,5 +1,8 @@
 # 用户鉴权与登录会话
 
+Molii 独立前端需要的精确请求与响应契约、启动状态机及部署示例见
+[`molii-auth-api.md`](./molii-auth-api.md)。
+
 面板鉴权采用短期 Access Token、HttpOnly Refresh Cookie 与服务端登录会话控制面的组合。面板请求不再依赖 Gin session，也不再要求 `New-Api-User` 请求头。
 
 ## 鉴权模型

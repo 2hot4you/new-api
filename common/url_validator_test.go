@@ -219,3 +219,75 @@ func TestInitSessionCookieSettingsRejectsNonOriginURLs(t *testing.T) {
 		})
 	}
 }
+
+func resetDashboardCORSSettingsAfterTest(t *testing.T) {
+	t.Helper()
+	originalSecure := SessionCookieSecure
+	originalAllowedOrigins := DashboardCORSAllowedOrigins
+	t.Cleanup(func() {
+		SessionCookieSecure = originalSecure
+		DashboardCORSAllowedOrigins = originalAllowedOrigins
+	})
+}
+
+func TestInitDashboardCORSSettingsDefaultsToSameOriginOnly(t *testing.T) {
+	resetDashboardCORSSettingsAfterTest(t)
+	t.Setenv("DASHBOARD_CORS_ALLOWED_ORIGINS", "")
+
+	require.NoError(t, InitDashboardCORSSettings())
+	assert.Empty(t, DashboardCORSAllowedOrigins)
+}
+
+func TestInitDashboardCORSSettingsNormalizesOrigins(t *testing.T) {
+	resetDashboardCORSSettingsAfterTest(t)
+	SessionCookieSecure = false
+	t.Setenv(
+		"DASHBOARD_CORS_ALLOWED_ORIGINS",
+		" https://DASHBOARD.example.com:443,http://localhost:3000 ",
+	)
+
+	require.NoError(t, InitDashboardCORSSettings())
+	assert.Equal(
+		t,
+		[]string{"https://dashboard.example.com", "http://localhost:3000"},
+		DashboardCORSAllowedOrigins,
+	)
+}
+
+func TestInitDashboardCORSSettingsRejectsEmptyOriginInList(t *testing.T) {
+	resetDashboardCORSSettingsAfterTest(t)
+	SessionCookieSecure = false
+	t.Setenv("DASHBOARD_CORS_ALLOWED_ORIGINS", "https://dashboard.example.com,")
+
+	require.Error(t, InitDashboardCORSSettings())
+	assert.Empty(t, DashboardCORSAllowedOrigins)
+}
+
+func TestInitDashboardCORSSettingsRejectsNonOrigins(t *testing.T) {
+	for _, allowedOrigin := range []string{
+		"https://*.example.com",
+		"https://user@example.com",
+		"https://example.com/",
+		"https://example.com/admin",
+		"https://example.com?next=admin",
+		"https://example.com#admin",
+	} {
+		t.Run(allowedOrigin, func(t *testing.T) {
+			resetDashboardCORSSettingsAfterTest(t)
+			SessionCookieSecure = false
+			t.Setenv("DASHBOARD_CORS_ALLOWED_ORIGINS", allowedOrigin)
+
+			require.Error(t, InitDashboardCORSSettings())
+			assert.Empty(t, DashboardCORSAllowedOrigins)
+		})
+	}
+}
+
+func TestInitDashboardCORSSettingsRequiresHTTPSForSecureCookies(t *testing.T) {
+	resetDashboardCORSSettingsAfterTest(t)
+	SessionCookieSecure = true
+	t.Setenv("DASHBOARD_CORS_ALLOWED_ORIGINS", "http://dashboard.example.com")
+
+	require.Error(t, InitDashboardCORSSettings())
+	assert.Empty(t, DashboardCORSAllowedOrigins)
+}

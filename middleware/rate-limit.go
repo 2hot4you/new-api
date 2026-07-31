@@ -115,8 +115,7 @@ func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark st
 	)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("rate limit check failed (mark=%s): %v", mark, err))
-		c.Status(http.StatusInternalServerError)
-		c.Abort()
+		abortWithApplicationError(c, http.StatusInternalServerError, "INTERNAL_ERROR", http.StatusText(http.StatusInternalServerError))
 		return
 	}
 	if !allowed {
@@ -137,11 +136,11 @@ func memoryRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark s
 // The in-memory limiter cannot report the remaining window, so callers
 // without a TTL pass the full window duration as a conservative upper bound.
 func writeRateLimited(c *gin.Context, retryAfterSeconds int64) {
-	if retryAfterSeconds > 0 {
-		c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	if retryAfterSeconds < 1 {
+		retryAfterSeconds = 1
 	}
-	c.Status(http.StatusTooManyRequests)
-	c.Abort()
+	c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	abortWithApplicationError(c, http.StatusTooManyRequests, "RATE_LIMITED", http.StatusText(http.StatusTooManyRequests))
 }
 
 func rateLimitFactory(maxRequestNum int, duration int64, mark string) func(c *gin.Context) {
@@ -194,8 +193,7 @@ func userRateLimitFactory(maxRequestNum int, duration int64, mark string) func(c
 		return func(c *gin.Context) {
 			userID := c.GetInt("id")
 			if userID == 0 {
-				c.Status(http.StatusUnauthorized)
-				c.Abort()
+				abortWithApplicationError(c, http.StatusUnauthorized, "AUTH_UNAUTHORIZED", http.StatusText(http.StatusUnauthorized))
 				return
 			}
 			userRedisRateLimiter(c, maxRequestNum, duration, redisUserRateLimitKey(mark, userID))
@@ -206,8 +204,7 @@ func userRateLimitFactory(maxRequestNum int, duration int64, mark string) func(c
 	return func(c *gin.Context) {
 		userID := c.GetInt("id")
 		if userID == 0 {
-			c.Status(http.StatusUnauthorized)
-			c.Abort()
+			abortWithApplicationError(c, http.StatusUnauthorized, "AUTH_UNAUTHORIZED", http.StatusText(http.StatusUnauthorized))
 			return
 		}
 		key := fmt.Sprintf("%s:user:%d", mark, userID)
@@ -224,8 +221,7 @@ func userRedisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, key
 	allowed, _, ttlSeconds, err := redisFixedWindowTake(c.Request.Context(), key, maxRequestNum, duration)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("rate limit check failed (key=%s): %v", key, err))
-		c.Status(http.StatusInternalServerError)
-		c.Abort()
+		abortWithApplicationError(c, http.StatusInternalServerError, "INTERNAL_ERROR", http.StatusText(http.StatusInternalServerError))
 		return
 	}
 	if !allowed {
