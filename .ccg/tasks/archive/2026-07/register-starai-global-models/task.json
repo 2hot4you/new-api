@@ -1,0 +1,12 @@
+{
+  "id": "register-starai-global-models",
+  "title": "将 StarAI Seedance 2.0 模型注册到全局模型目录",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已完成全局注册、测试和后端重启",
+  "createdAt": "2026-07-31T19:55:00+08:00",
+  "branch": "feat/molii-auth"
+}
