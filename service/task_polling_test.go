@@ -34,6 +34,45 @@ type sunoFailurePollingAdaptor struct {
 	failReason string
 }
 
+type starAISecurityPollingAdaptor struct {
+	responseBody []byte
+	parsedBody   []byte
+}
+
+func (a *starAISecurityPollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
+
+func (a *starAISecurityPollingAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(a.responseBody)),
+	}, nil
+}
+
+func (a *starAISecurityPollingAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error) {
+	a.parsedBody = append([]byte(nil), body...)
+	var response struct {
+		Data struct {
+			TaskID    string `json:"task_id"`
+			Status    string `json:"status"`
+			ResultURL string `json:"result_url"`
+			Progress  string `json:"progress"`
+		} `json:"data"`
+	}
+	if err := common.Unmarshal(body, &response); err != nil {
+		return nil, err
+	}
+	return &relaycommon.TaskInfo{
+		TaskID:   response.Data.TaskID,
+		Status:   response.Data.Status,
+		Url:      response.Data.ResultURL,
+		Progress: response.Data.Progress,
+	}, nil
+}
+
+func (a *starAISecurityPollingAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
+	return 0
+}
+
 func (a *sunoFailurePollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
 
 func (a *sunoFailurePollingAdaptor) FetchTask(_ string, _ string, body map[string]any, _ string) (*http.Response, error) {
@@ -370,6 +409,66 @@ func TestUpdateVideoTasksMixedChannelSleepSettings(t *testing.T) {
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.ElementsMatch(t, []string{"upstream_sleepy_1", "upstream_fast_1", "upstream_fast_2"}, adaptor.fetchedTaskIDs())
+}
+
+func TestUpdateVideoSingleTaskKeepsRawStarAIURLAndPersistsOnlySafeResponse(t *testing.T) {
+	truncate(t)
+
+	const (
+		publicTaskID   = "task_public_starai_polling"
+		upstreamTaskID = "starai_private_upstream_id"
+		signature      = "starai-signed-query-secret"
+		channelKey     = "sk-starai-channel-secret"
+	)
+	resultURL := "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/result.mp4?X-Amz-Signature=" + signature
+	responseBody := []byte(`{
+		"code":"success",
+		"authorization":"Bearer response-secret",
+		"data":{
+			"task_id":"` + upstreamTaskID + `",
+			"status":"SUCCESS",
+			"progress":"100%",
+			"result_url":"` + resultURL + `"
+		}
+	}`)
+	adaptor := &starAISecurityPollingAdaptor{responseBody: responseBody}
+	channel := &model.Channel{
+		Id:   351,
+		Type: constant.ChannelTypeStarAI,
+		Name: "starai_security_polling",
+		Key:  channelKey,
+	}
+	task := &model.Task{
+		TaskID:    publicTaskID,
+		Platform:  constant.TaskPlatform("61"),
+		UserId:    1,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusInProgress,
+		Progress:  "50%",
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: upstreamTaskID,
+		},
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	err := updateVideoSingleTask(context.Background(), adaptor, channel, upstreamTaskID, map[string]*model.Task{
+		upstreamTaskID: task,
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, string(adaptor.parsedBody), signature, "the adaptor must parse the original response")
+	assert.Equal(t, resultURL, task.PrivateData.ResultURL, "the original signed URL must remain available for downloading")
+	assert.EqualValues(t, model.TaskStatusSuccess, task.Status)
+	assert.NotContains(t, string(task.Data), upstreamTaskID)
+	assert.NotContains(t, string(task.Data), signature)
+	assert.NotContains(t, string(task.Data), "response-secret")
+	assert.NotContains(t, string(task.Data), channelKey)
+	assert.Contains(t, string(task.Data), publicTaskID)
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, task.Data, reloaded.Data)
+	assert.Equal(t, resultURL, reloaded.PrivateData.ResultURL)
 }
 
 func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {

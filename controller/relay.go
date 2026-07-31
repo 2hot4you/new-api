@@ -563,7 +563,7 @@ func RelayTask(c *gin.Context) {
 				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
 		}
 
-		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
+		if !shouldRetryTaskRelayForPlatform(c, relay.GetTaskPlatform(c), channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
 	}
@@ -656,4 +656,11 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 		return false
 	}
 	return true
+}
+
+func shouldRetryTaskRelayForPlatform(c *gin.Context, platform constant.TaskPlatform, channelID int, taskErr *taskdto.TaskError, retryTimes int) bool {
+	if !relay.TaskAdaptorAllowsRetry(platform) {
+		return false
+	}
+	return shouldRetryTaskRelay(c, channelID, taskErr, retryTimes)
 }

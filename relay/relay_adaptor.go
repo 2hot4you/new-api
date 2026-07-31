@@ -40,6 +40,7 @@ import (
 	taskjimeng "github.com/QuantumNous/new-api/relay/channel/task/jimeng"
 	"github.com/QuantumNous/new-api/relay/channel/task/kling"
 	tasksora "github.com/QuantumNous/new-api/relay/channel/task/sora"
+	taskstarai "github.com/QuantumNous/new-api/relay/channel/task/starai"
 	"github.com/QuantumNous/new-api/relay/channel/task/suno"
 	taskvertex "github.com/QuantumNous/new-api/relay/channel/task/vertex"
 	taskVidu "github.com/QuantumNous/new-api/relay/channel/task/vidu"
@@ -168,7 +169,19 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 			return &taskGemini.TaskAdaptor{}
 		case constant.ChannelTypeMiniMax:
 			return &hailuo.TaskAdaptor{}
+		case constant.ChannelTypeStarAI:
+			return &taskstarai.TaskAdaptor{}
 		}
 	}
 	return nil
+}
+
+// TaskAdaptorAllowsRetry returns the adaptor-specific submit retry policy.
+// The default preserves the historical retry behavior for existing channels.
+func TaskAdaptorAllowsRetry(platform constant.TaskPlatform) bool {
+	adaptor := GetTaskAdaptor(platform)
+	if policy, ok := adaptor.(channel.TaskRetryPolicy); ok {
+		return policy.AllowAutomaticTaskSubmitRetry()
+	}
+	return true
 }

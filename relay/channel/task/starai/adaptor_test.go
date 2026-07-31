@@ -1,0 +1,416 @@
+package starai
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func newTaskContext(t *testing.T, request relaycommon.TaskSubmitReq) (*gin.Context, *relaycommon.RelayInfo) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	requestBody, err := common.Marshal(request)
+	require.NoError(t, err)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", strings.NewReader(string(requestBody)))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	info := &relaycommon.RelayInfo{
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{},
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:    constant.ChannelTypeStarAI,
+			ChannelBaseUrl: "https://ai-api.lfxqai.com",
+			ApiKey:         "starai-secret",
+		},
+	}
+	return ctx, info
+}
+
+func TestChannelRegistrationConstants(t *testing.T) {
+	assert.Equal(t, 61, constant.ChannelTypeStarAI)
+	assert.Equal(t, "StarAI", constant.GetChannelTypeName(constant.ChannelTypeStarAI))
+	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeStarAI)
+	assert.Equal(t, "https://ai-api.lfxqai.com", constant.ChannelBaseURLs[constant.ChannelTypeStarAI])
+}
+
+func TestBuildRequestPreservesMetadataCapabilitiesAndMappedModel(t *testing.T) {
+	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{
+		Prompt: "cinematic tea ad",
+		Model:  ModelList[0],
+		Metadata: map[string]any{
+			"content": []any{
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/reference.png"}, "role": "reference_image"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/first.png"}, "role": "first_frame"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/last.png"}, "role": "last_frame"},
+				map[string]any{"type": "video_url", "video_url": map[string]any{"url": "https://example.com/reference.mp4"}, "role": "reference_video"},
+				map[string]any{"type": "audio_url", "audio_url": map[string]any{"url": "https://example.com/reference.mp3"}, "role": "reference_audio"},
+			},
+			"generate_audio": false,
+			"watermark":      false,
+			"duration":       0,
+			"resolution":     "720p",
+			"ratio":          "16:9",
+			"tools":          []any{map[string]any{"type": "web_search"}},
+		},
+	})
+	info.OriginModelName = ModelList[0]
+	info.UpstreamModelName = ModelList[1]
+	info.IsModelMapped = true
+
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	ctx.Set("task_request", relaycommon.TaskSubmitReq{
+		Prompt:   "cinematic tea ad",
+		Model:    ModelList[0],
+		Metadata: map[string]any{},
+	})
+	var original relaycommon.TaskSubmitReq
+	require.NoError(t, common.UnmarshalBodyReusable(ctx, &original))
+	ctx.Set("task_request", original)
+
+	reader, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	body, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	var payload requestPayload
+	require.NoError(t, common.Unmarshal(body, &payload))
+
+	assert.Equal(t, ModelList[1], payload.Model)
+	require.NotNil(t, payload.GenerateAudio)
+	assert.False(t, *payload.GenerateAudio)
+	require.NotNil(t, payload.Watermark)
+	assert.False(t, *payload.Watermark)
+	require.NotNil(t, payload.Duration)
+	assert.Zero(t, *payload.Duration)
+	assert.Equal(t, "720p", payload.Resolution)
+	assert.Equal(t, "16:9", payload.Ratio)
+	require.Len(t, payload.Tools, 1)
+	assert.Equal(t, "web_search", payload.Tools[0].Type)
+	require.Len(t, payload.Content, 6)
+	assert.Equal(t, "reference_image", payload.Content[0].Role)
+	assert.Equal(t, "first_frame", payload.Content[1].Role)
+	assert.Equal(t, "last_frame", payload.Content[2].Role)
+	assert.Equal(t, "reference_video", payload.Content[3].Role)
+	assert.Equal(t, "reference_audio", payload.Content[4].Role)
+	assert.Equal(t, contentItem{Type: "text", Text: "cinematic tea ad"}, payload.Content[5])
+}
+
+func TestBuildRequestPreservesExplicitTopLevelZeroDuration(t *testing.T) {
+	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{
+		Prompt:   "zero-duration fixture",
+		Model:    ModelList[0],
+		Duration: 0,
+	})
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", strings.NewReader(`{"prompt":"zero-duration fixture","model":"`+ModelList[0]+`","duration":0}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	reader, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	body, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	var payload requestPayload
+	require.NoError(t, common.Unmarshal(body, &payload))
+	require.NotNil(t, payload.Duration)
+	assert.Zero(t, *payload.Duration)
+}
+
+func TestBuildTextVideoFiveSecondDefaults(t *testing.T) {
+	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{
+		Prompt:   "a paper boat crossing a rainy street",
+		Model:    ModelList[0],
+		Duration: 5,
+	})
+	request := relaycommon.TaskSubmitReq{Prompt: "a paper boat crossing a rainy street", Model: ModelList[0], Duration: 5}
+	ctx.Set("task_request", request)
+	info.UpstreamModelName = ModelList[0]
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+
+	reader, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	body, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	var payload requestPayload
+	require.NoError(t, common.Unmarshal(body, &payload))
+
+	assert.Equal(t, ModelList[0], payload.Model)
+	require.Equal(t, []contentItem{{Type: "text", Text: request.Prompt}}, payload.Content)
+	require.NotNil(t, payload.Duration)
+	assert.Equal(t, 5, *payload.Duration)
+	assert.Equal(t, "720p", payload.Resolution)
+	assert.Equal(t, "16:9", payload.Ratio)
+	require.NotNil(t, payload.GenerateAudio)
+	assert.False(t, *payload.GenerateAudio)
+	require.NotNil(t, payload.Watermark)
+	assert.False(t, *payload.Watermark)
+}
+
+func TestValidateAllowsMediaOnlyAndMergesTopLevelImages(t *testing.T) {
+	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{
+		Model:  ModelList[0],
+		Images: []string{"https://example.com/top-level.png"},
+		Metadata: map[string]any{
+			"content": []any{
+				map[string]any{
+					"type":      "video_url",
+					"video_url": map[string]any{"url": "https://example.com/reference.mp4"},
+					"role":      "reference_video",
+				},
+			},
+		},
+	})
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	reader, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	body, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	var payload requestPayload
+	require.NoError(t, common.Unmarshal(body, &payload))
+	require.Len(t, payload.Content, 2)
+	assert.Equal(t, "https://example.com/top-level.png", payload.Content[0].ImageURL.URL)
+	assert.Equal(t, "https://example.com/reference.mp4", payload.Content[1].VideoURL.URL)
+}
+
+func TestValidateRejectsEmptyOrAudioOnlyContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		request relaycommon.TaskSubmitReq
+	}{
+		{name: "empty", request: relaycommon.TaskSubmitReq{Model: ModelList[0]}},
+		{
+			name: "audio only",
+			request: relaycommon.TaskSubmitReq{
+				Model: ModelList[0],
+				Metadata: map[string]any{
+					"content": []any{map[string]any{
+						"type":      "audio_url",
+						"audio_url": map[string]any{"url": "https://example.com/reference.mp3"},
+					}},
+				},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newTaskContext(t, test.request)
+			adaptor := &TaskAdaptor{}
+			adaptor.Init(info)
+			taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "invalid_request", taskErr.Code)
+			assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+		})
+	}
+}
+
+func TestBuildRequestURLAndHeaders(t *testing.T) {
+	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{Prompt: "prompt", Model: ModelList[0]})
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	requestURL, err := adaptor.BuildRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, "https://ai-api.lfxqai.com/v1/video/generations", requestURL)
+
+	req := httptest.NewRequest(http.MethodPost, requestURL, nil)
+	require.NoError(t, adaptor.BuildRequestHeader(ctx, req, info))
+	assert.Equal(t, "Bearer starai-secret", req.Header.Get("Authorization"))
+	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
+	assert.Equal(t, "application/json", req.Header.Get("Accept"))
+	assert.False(t, adaptor.AllowAutomaticTaskSubmitRetry())
+}
+
+func TestDoResponseExtractsTaskIDWithoutExposingIt(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "data task id", body: `{"code":"success","data":{"task_id":"up-data-task","id":"up-data-id"},"task_id":"up-top-task","id":"up-top-id"}`, want: "up-data-task"},
+		{name: "data id", body: `{"code":"success","data":{"id":"up-data-id"},"task_id":"up-top-task","id":"up-top-id"}`, want: "up-data-id"},
+		{name: "top task id", body: `{"code":"success","task_id":"up-top-task","id":"up-top-id"}`, want: "up-top-task"},
+		{name: "top id", body: `{"code":"success","id":"up-top-id"}`, want: "up-top-id"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(tt.body))}
+			info := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"}, OriginModelName: ModelList[0]}
+			adaptor := &TaskAdaptor{}
+
+			upstreamID, taskData, taskErr := adaptor.DoResponse(ctx, resp, info)
+			require.Nil(t, taskErr)
+			assert.Equal(t, tt.want, upstreamID)
+			assert.NotContains(t, recorder.Body.String(), tt.want)
+			assert.Contains(t, recorder.Body.String(), "task_public")
+			assert.NotContains(t, string(taskData), tt.want)
+			assert.Contains(t, string(taskData), "task_public")
+		})
+	}
+}
+
+func TestDoResponseRejectsFailureAndMissingID(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		wantCode string
+	}{
+		{name: "failure code", body: `{"code":"failed","message":"upstream rejected request"}`, wantCode: "starai_api_error"},
+		{name: "missing id", body: `{"code":"success","data":{}}`, wantCode: "invalid_response"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(tt.body))}
+			_, _, taskErr := (&TaskAdaptor{}).DoResponse(ctx, resp, &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"}})
+			require.NotNil(t, taskErr)
+			assert.Equal(t, tt.wantCode, taskErr.Code)
+		})
+	}
+}
+
+func TestSanitizeTaskSubmitErrorDoesNotExposeSecrets(t *testing.T) {
+	adaptor := &TaskAdaptor{apiKey: "starai-secret-key"}
+	message := adaptor.SanitizeTaskSubmitError([]byte(`{
+		"code":"failed",
+		"message":"request with starai-secret-key failed: https://example.com/video?X-Tos-Signature=signed-secret"
+	}`))
+	assert.NotContains(t, message, "starai-secret-key")
+	assert.NotContains(t, message, "signed-secret")
+	assert.Contains(t, message, "X-Tos-Signature=***")
+	assert.Equal(t, "StarAI request failed", adaptor.SanitizeTaskSubmitError([]byte(`not-json starai-secret-key`)))
+}
+
+func TestFetchTaskUsesEscapedUpstreamIDAndAuth(t *testing.T) {
+	const upstreamID = "task/upstream value"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/v1/video/generations/task%2Fupstream%20value", r.URL.EscapedPath())
+		assert.Equal(t, "Bearer fetch-secret", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":"success","data":{"status":"PENDING"}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	resp, err := (&TaskAdaptor{}).FetchTask(server.URL, "fetch-secret", map[string]any{"task_id": upstreamID}, "")
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	_ = resp.Body.Close()
+}
+
+func TestParseTaskResultStatusAndFields(t *testing.T) {
+	statusCases := map[string]string{
+		"NOT_START":   model.TaskStatusSubmitted,
+		"PENDING":     model.TaskStatusQueued,
+		"SUBMITTED":   model.TaskStatusSubmitted,
+		"QUEUED":      model.TaskStatusQueued,
+		"IN_PROGRESS": model.TaskStatusInProgress,
+		"running":     model.TaskStatusInProgress,
+		"SUCCESS":     model.TaskStatusSuccess,
+		"succeeded":   model.TaskStatusSuccess,
+		"FAILURE":     model.TaskStatusFailure,
+		"cancelled":   model.TaskStatusFailure,
+		"mystery":     model.TaskStatusInProgress,
+	}
+	for status, expected := range statusCases {
+		t.Run(status, func(t *testing.T) {
+			body := []byte(`{"code":"success","data":{"status":"` + status + `"}}`)
+			result, err := (&TaskAdaptor{}).ParseTaskResult(body)
+			require.NoError(t, err)
+			assert.Equal(t, expected, result.Status)
+		})
+	}
+
+	body := []byte(`{
+		"code":"success",
+		"data":{
+			"task_id":"upstream",
+			"status":"SUCCESS",
+			"progress":"87%",
+			"fail_reason":"outer reason",
+			"result_url":"https://example.com/preferred.mp4",
+			"data":{
+				"status":"succeeded",
+				"content":{"video_url":"https://example.com/nested.mp4"},
+				"usage":{"completion_tokens":731025,"total_tokens":731026},
+				"error":{"message":"nested reason"}
+			}
+		}
+	}`)
+	result, err := (&TaskAdaptor{}).ParseTaskResult(body)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusSuccess, result.Status)
+	assert.Equal(t, "87%", result.Progress)
+	assert.Equal(t, "https://example.com/preferred.mp4", result.Url)
+	assert.Equal(t, "outer reason", result.Reason)
+	assert.Equal(t, 731025, result.CompletionTokens)
+	assert.Equal(t, 731026, result.TotalTokens)
+
+	nestedZero := []byte(`{"code":"success","usage":{"completion_tokens":90,"total_tokens":100},"data":{"status":"SUCCESS","usage":{"completion_tokens":70,"total_tokens":80},"data":{"usage":{"completion_tokens":0,"total_tokens":0}}}}`)
+	result, err = (&TaskAdaptor{}).ParseTaskResult(nestedZero)
+	require.NoError(t, err)
+	assert.Zero(t, result.CompletionTokens)
+	assert.Zero(t, result.TotalTokens)
+
+	nestedOnly := []byte(`{"code":"success","data":{"status":"FAILED","data":{"content":{"video_url":"https://example.com/nested-only.mp4"},"error":{"message":"nested failure"}}}}`)
+	result, err = (&TaskAdaptor{}).ParseTaskResult(nestedOnly)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/nested-only.mp4", result.Url)
+	assert.Equal(t, "nested failure", result.Reason)
+}
+
+func TestValidateRejectsMetadataDurationOutsideBillingBoundary(t *testing.T) {
+	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{
+		Prompt: "prompt",
+		Model:  ModelList[0],
+		Metadata: map[string]any{
+			"duration": relaycommon.MaxTaskDurationSeconds + 1,
+		},
+	})
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+	assert.Equal(t, "invalid_seconds", taskErr.Code)
+}
+
+func TestConvertToOpenAIVideoUsesPublicID(t *testing.T) {
+	task := &model.Task{
+		TaskID:     "task_public",
+		Status:     model.TaskStatusSuccess,
+		Progress:   "100%",
+		CreatedAt:  10,
+		UpdatedAt:  20,
+		Properties: model.Properties{OriginModelName: ModelList[0]},
+		Data:       []byte(`{"code":"success","data":{"task_id":"task_public","status":"SUCCESS","result_url":"https://example.com/video.mp4"}}`),
+	}
+	body, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
+	require.NoError(t, err)
+	var video dto.OpenAIVideo
+	require.NoError(t, common.Unmarshal(body, &video))
+	assert.Equal(t, "task_public", video.ID)
+	assert.Equal(t, "task_public", video.TaskID)
+	assert.Equal(t, dto.VideoStatusCompleted, video.Status)
+	assert.Equal(t, taskcommon.BuildProxyURL("task_public"), video.Metadata["url"])
+}

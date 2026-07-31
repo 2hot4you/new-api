@@ -30,6 +30,16 @@ func videoProxyError(c *gin.Context, status int, errType, message string) {
 	})
 }
 
+func videoProxyCodedError(c *gin.Context, status int, code, message string) {
+	c.JSON(status, gin.H{
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+			"type":    "server_error",
+		},
+	})
+}
+
 func VideoProxy(c *gin.Context) {
 	taskID := c.Param("task_id")
 	if taskID == "" {
@@ -74,7 +84,7 @@ func VideoProxy(c *gin.Context) {
 		// 因此后面对 videoURL 保留请求前的一次性 SSRF 校验。
 		client, err = service.GetHttpClientWithProxy(proxy)
 		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create proxy client for task %s: %s", taskID, err.Error()))
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create proxy client for task %s", taskID))
 			videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy client")
 			return
 		}
@@ -125,6 +135,15 @@ func VideoProxy(c *gin.Context) {
 		videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
 		return
 	}
+	if channel.Type == constant.ChannelTypeStarAI && service.IsUnsignedStarAIPrivateTOSURL(videoURL) {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf(
+			"StarAI result URL rejected: public_task_id=%s reason=unsigned_private_tos host=%s",
+			taskID, "ark-acg-cn-beijing.tos-cn-beijing.volces.com",
+		))
+		videoProxyCodedError(c, http.StatusBadGateway, "upstream_invalid_result_url",
+			"StarAI returned an unsigned private TOS result URL")
+		return
+	}
 
 	if strings.HasPrefix(videoURL, "data:") {
 		if err := writeVideoDataURL(c, videoURL); err != nil {
@@ -142,28 +161,28 @@ func VideoProxy(c *gin.Context) {
 		validateErr = common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain)
 	}
 	if validateErr != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: %v", taskID, validateErr))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
 		videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("request blocked: %v", validateErr))
 		return
 	}
 
 	req.URL, err = url.Parse(videoURL)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse URL %s: %s", videoURL, err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse video URL for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video from %s: %s", videoURL, err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
 		videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for task %s: url=%s", resp.StatusCode, taskID, service.SanitizeURLForLog(videoURL)))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
 		return

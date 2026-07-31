@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CHANNEL_TYPES } from '../constants'
+import { CHANNEL_TYPES, STARAI_MODELS } from '../constants'
 
 // ============================================================================
 // Channel Type Configuration
@@ -162,6 +162,18 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       baseUrl: 'Base URL is required for this channel type',
       key: 'Enter API key for this channel',
       models: 'Models',
+    },
+  },
+  61: {
+    id: 61,
+    name: CHANNEL_TYPES[61],
+    icon: 'Doubao',
+    defaultBaseUrl: 'https://ai-api.lfxqai.com',
+    supportedModels: [...STARAI_MODELS],
+    hints: {
+      baseUrl: 'Default: https://ai-api.lfxqai.com',
+      key: 'Enter API key for this channel',
+      models: STARAI_MODELS.join(','),
     },
   },
 }

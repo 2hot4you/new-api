@@ -368,7 +368,11 @@ func UpdateVideoTasks(ctx context.Context, platform constant.TaskPlatform, taskC
 		gopool.Go(func() {
 			defer wg.Done()
 			if err := updateVideoTasks(ctx, platform, channelId, taskIds, taskM); err != nil {
-				logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update video async tasks: %s", channelId, err.Error()))
+				if platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) {
+					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update StarAI async tasks", channelId))
+				} else {
+					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update video async tasks: %s", channelId, err.Error()))
+				}
 			}
 		})
 	}
@@ -422,7 +426,15 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 			return ctx.Err()
 		}
 		if err := updateVideoSingleTask(ctx, adaptor, cacheGetChannel, taskId, taskM); err != nil {
-			logger.LogError(ctx, fmt.Sprintf("Failed to update video task %s: %s", taskId, err.Error()))
+			if cacheGetChannel.Type == constant.ChannelTypeStarAI {
+				publicTaskID := "unknown"
+				if task := taskM[taskId]; task != nil {
+					publicTaskID = task.TaskID
+				}
+				logger.LogError(ctx, fmt.Sprintf("Failed to update StarAI public task %s", publicTaskID))
+			} else {
+				logger.LogError(ctx, fmt.Sprintf("Failed to update video task %s: %s", taskId, err.Error()))
+			}
 		}
 		if disablePollingSleep || i == len(taskIds)-1 {
 			continue
@@ -450,9 +462,15 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	task := taskM[taskId]
 	if task == nil {
+		if ch.Type == constant.ChannelTypeStarAI {
+			logger.LogError(ctx, "Video polling response did not match a pending task")
+			return errors.New("video polling response did not match a pending task")
+		}
 		logger.LogError(ctx, fmt.Sprintf("Task %s not found in taskM", taskId))
 		return fmt.Errorf("task %s not found", taskId)
 	}
+	publicTaskID := task.TaskID
+	isStarAI := ch.Type == constant.ChannelTypeStarAI
 	key := ch.Key
 
 	privateData := task.PrivateData
@@ -464,22 +482,29 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		"action":  task.Action,
 	}, proxy)
 	if err != nil {
+		if isStarAI {
+			return fmt.Errorf("fetchTask failed for public task %s", publicTaskID)
+		}
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
 	}
 	defer resp.Body.Close()
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if isStarAI {
+			return fmt.Errorf("readAll failed for public task %s", publicTaskID)
+		}
 		return fmt.Errorf("readAll failed for task %s: %w", taskId, err)
 	}
-
-	logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
 
 	snap := task.Snapshot()
 
 	taskResult := &relaycommon.TaskInfo{}
 	// try parse as New API response format
 	var responseItems taskdto.TaskResponse[model.Task]
-	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
+	if !isStarAI {
+		err = common.Unmarshal(responseBody, &responseItems)
+	}
+	if !isStarAI && err == nil && responseItems.IsSuccess() {
 		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
 		t := responseItems.Data
 		taskResult.TaskID = t.TaskID
@@ -489,12 +514,24 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.Reason = t.FailReason
 		task.Data = t.Data
 	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
+		if isStarAI {
+			return fmt.Errorf("parseTaskResult failed for public task %s", publicTaskID)
+		}
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
 	}
 
-	task.Data = redactVideoResponseBody(responseBody)
-
-	logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
+	if isStarAI {
+		task.Data = SanitizeStarAIResponseBody(responseBody, publicTaskID)
+	} else {
+		task.Data = redactVideoResponseBody(responseBody)
+	}
+	if isStarAI {
+		logger.LogDebug(ctx, "updateVideoSingleTask safe response: %s", task.Data)
+		logger.LogDebug(ctx, "updateVideoSingleTask public task %s parsed with status %s", publicTaskID, taskResult.Status)
+	} else {
+		logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
+		logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
+	}
 
 	now := time.Now().Unix()
 	if taskResult.Status == "" {
@@ -512,8 +549,12 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 				// 其他错误认为是任务失败，记录错误信息并更新任务状态
 				taskResult = relaycommon.FailTaskInfo("upstream returned error")
 			} else {
-				// unknown error format, log original response
-				logger.LogError(ctx, fmt.Sprintf("Task %s returned empty status with unrecognized error format, response: %s", taskId, string(responseBody)))
+				if isStarAI {
+					// Only the already-sanitized StarAI response may be logged.
+					logger.LogError(ctx, fmt.Sprintf("Public task %s returned empty status with unrecognized error format, safe response: %s", publicTaskID, string(task.Data)))
+				} else {
+					logger.LogError(ctx, fmt.Sprintf("Task %s returned empty status with unrecognized error format, response: %s", taskId, string(responseBody)))
+				}
 				taskResult = relaycommon.FailTaskInfo("upstream returned unrecognized message")
 			}
 		}
@@ -551,14 +592,25 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 		shouldSettle = true
 	case model.TaskStatusFailure:
-		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
+		if isStarAI {
+			logger.LogInfo(ctx, fmt.Sprintf("StarAI public task %s reached failure status", publicTaskID))
+		} else {
+			logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
+		}
 		task.Status = model.TaskStatusFailure
 		task.Progress = taskcommon.ProgressComplete
 		if task.FinishTime == 0 {
 			task.FinishTime = now
 		}
 		task.FailReason = taskResult.Reason
-		logger.LogInfo(ctx, fmt.Sprintf("Task %s failed: %s", task.TaskID, task.FailReason))
+		if isStarAI {
+			task.FailReason = sanitizeStarAIText(taskResult.Reason, responseBody, publicTaskID)
+		}
+		if isStarAI {
+			logger.LogInfo(ctx, fmt.Sprintf("StarAI public task %s failed", task.TaskID))
+		} else {
+			logger.LogInfo(ctx, fmt.Sprintf("Task %s failed: %s", task.TaskID, task.FailReason))
+		}
 		taskResult.Progress = taskcommon.ProgressComplete
 		if quota != 0 {
 			shouldRefund = true

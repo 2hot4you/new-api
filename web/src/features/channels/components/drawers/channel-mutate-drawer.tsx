@@ -131,6 +131,7 @@ import {
   fetchModels,
   getAllModels,
   getChannel,
+  getChannelTypeModels,
   getChannelKey,
   getGroups,
   getPrefillGroups,
@@ -157,6 +158,7 @@ import {
   type ChannelFormValues,
   deduplicateKeys,
   getChannelTypeIcon,
+  getRelatedModelsForChannelType,
   getKeyPromptForType,
   parseModelsString,
   formatModelsArray,
@@ -676,6 +678,11 @@ export function ChannelMutateDrawer({
     queryFn: getAllModels,
   })
 
+  const { data: channelTypeModelsData } = useQuery({
+    queryKey: ['channel_type_models'],
+    queryFn: getChannelTypeModels,
+  })
+
   // Fetch prefill model groups
   const { data: prefillGroupsData } = useQuery({
     queryKey: ['prefill_groups', 'model'],
@@ -888,15 +895,12 @@ export function ChannelMutateDrawer({
 
   // Get basic models for the current channel type
   const basicModels = useMemo(() => {
-    if (!allModelsList.length) return []
-    // Filter models based on common patterns for specific types
-    if (currentType === 1) {
-      return allModelsList.filter(
-        (model) => model.startsWith('gpt-') || model.startsWith('text-')
-      )
-    }
-    return allModelsList
-  }, [allModelsList, currentType])
+    return getRelatedModelsForChannelType(
+      currentType,
+      allModelsList,
+      channelTypeModelsData?.data
+    )
+  }, [allModelsList, channelTypeModelsData, currentType])
 
   // Get prefill groups
   const prefillGroups = useMemo(

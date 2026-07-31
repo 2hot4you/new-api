@@ -88,6 +88,17 @@ func init() {
 			OwnedBy: "midjourney",
 		})
 	}
+	starAITaskAdaptor := relay.GetTaskAdaptor(constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)))
+	if starAITaskAdaptor != nil {
+		for _, modelName := range starAITaskAdaptor.GetModelList() {
+			openAIModels = append(openAIModels, dto.OpenAIModels{
+				Id:      modelName,
+				Object:  "model",
+				Created: 1626777600,
+				OwnedBy: starAITaskAdaptor.GetChannelName(),
+			})
+		}
+	}
 	openAIModelsMap = make(map[string]dto.OpenAIModels)
 	for _, aiModel := range openAIModels {
 		openAIModelsMap[aiModel.Id] = aiModel
@@ -104,6 +115,9 @@ func init() {
 		adaptor := relay.GetAdaptor(apiType)
 		adaptor.Init(meta)
 		channelId2Models[i] = adaptor.GetModelList()
+	}
+	if starAITaskAdaptor != nil {
+		channelId2Models[constant.ChannelTypeStarAI] = starAITaskAdaptor.GetModelList()
 	}
 	openAIModels = lo.UniqBy(openAIModels, func(m dto.OpenAIModels) string {
 		return m.Id

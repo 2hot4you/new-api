@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { getGroups as getUserGroups } from '@/features/users/api'
 import { api, type ApiRequestConfig } from '@/lib/api'
 
+import { CHANNEL_TYPE_STARAI, STARAI_MODELS } from './constants'
 import type {
   AddChannelRequest,
   BatchDeleteParams,
@@ -592,6 +593,34 @@ export async function getAllModels(): Promise<{
 }> {
   const res = await api.get('/api/channel/models')
   return res.data
+}
+
+export const TASK_ONLY_CHANNEL_MODELS: Record<number, string[]> = {
+  [CHANNEL_TYPE_STARAI]: [...STARAI_MODELS],
+}
+
+/**
+ * Get the channel-type model map used by related-model quick fill. Task-only
+ * channels are overlaid because they have no chat adaptor entry in this map.
+ */
+export async function getChannelTypeModels(): Promise<{
+  success: boolean
+  message?: string
+  data?: Record<number, string[]>
+}> {
+  const res = await api.get('/api/models')
+  const response = res.data as {
+    success: boolean
+    message?: string
+    data?: Record<number, string[]>
+  }
+  return {
+    ...response,
+    data: {
+      ...response.data,
+      ...TASK_ONLY_CHANNEL_MODELS,
+    },
+  }
 }
 
 /**

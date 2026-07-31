@@ -21,11 +21,13 @@ import { formatTimestampToDate } from '@/lib/format'
 
 import {
   CHANNEL_STATUS_CONFIG,
+  CHANNEL_TYPE_STARAI,
   CHANNEL_TYPES,
   MULTI_KEY_STATUS_CONFIG,
   RESPONSE_TIME_CONFIG,
   RESPONSE_TIME_THRESHOLDS,
   TYPE_TO_KEY_PROMPT,
+  STARAI_MODELS,
 } from '../constants'
 import type { Channel, ChannelSettings, ChannelOtherSettings } from '../types'
 
@@ -103,6 +105,7 @@ export function getChannelTypeIcon(type: number): string {
     36: 'Suno', // SunoAPI
     55: 'OpenAI', // Sora
     54: 'Doubao', // DoubaoVideo
+    61: 'Doubao', // StarAI
     56: 'Replicate', // Replicate
 
     // Tools & Platforms
@@ -121,6 +124,26 @@ export function getChannelTypeIcon(type: number): string {
   }
 
   return TYPE_TO_ICON[type] || 'OpenAI'
+}
+
+/**
+ * Get the models used by the "Fill Related Models" action without changing
+ * the existing broad matching behavior for chat channels.
+ */
+export function getRelatedModelsForChannelType(
+  type: number,
+  allModels: string[],
+  channelTypeModels: Record<number, string[]> = {}
+): string[] {
+  if (type === CHANNEL_TYPE_STARAI) {
+    return [...(channelTypeModels[type] || STARAI_MODELS)]
+  }
+  if (type === 1) {
+    return allModels.filter(
+      (model) => model.startsWith('gpt-') || model.startsWith('text-')
+    )
+  }
+  return allModels
 }
 
 // ============================================================================

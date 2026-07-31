@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -356,6 +358,44 @@ func updateChannelMoonshotBalance(channel *model.Channel) (float64, error) {
 	return availableBalanceUsd, nil
 }
 
+func updateChannelStarAIBalance(channel *model.Channel) (float64, error) {
+	url := strings.TrimRight(channel.GetBaseURL(), "/") + "/api/usage/balance/"
+	body, err := GetResponseBody(http.MethodGet, url, channel, GetAuthHeader(channel.Key))
+	if err != nil {
+		return 0, fmt.Errorf("failed to request StarAI balance: %w", err)
+	}
+
+	type starAIBalanceResponse struct {
+		Code bool `json:"code"`
+		Data struct {
+			BalanceCNY float64 `json:"balance_cny"`
+		} `json:"data"`
+	}
+
+	response := starAIBalanceResponse{}
+	if err := common.Unmarshal(body, &response); err != nil {
+		return 0, errors.New("failed to decode StarAI balance response")
+	}
+	if !response.Code {
+		return 0, errors.New("StarAI balance request failed")
+	}
+	if math.IsNaN(response.Data.BalanceCNY) || math.IsInf(response.Data.BalanceCNY, 0) || response.Data.BalanceCNY < 0 {
+		return 0, errors.New("StarAI returned an invalid balance")
+	}
+	if math.IsNaN(operation_setting.Price) || math.IsInf(operation_setting.Price, 0) || operation_setting.Price <= 0 {
+		return 0, errors.New("system price must be a finite positive number")
+	}
+
+	balance := decimal.NewFromFloat(response.Data.BalanceCNY).
+		Div(decimal.NewFromFloat(operation_setting.Price)).
+		InexactFloat64()
+	if math.IsNaN(balance) || math.IsInf(balance, 0) || balance < 0 {
+		return 0, errors.New("converted StarAI balance is invalid")
+	}
+	channel.UpdateBalance(balance)
+	return balance, nil
+}
+
 func updateChannelBalance(channel *model.Channel) (float64, error) {
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() == "" {
@@ -386,6 +426,8 @@ func updateChannelBalance(channel *model.Channel) (float64, error) {
 		return updateChannelOpenRouterBalance(channel)
 	case constant.ChannelTypeMoonshot:
 		return updateChannelMoonshotBalance(channel)
+	case constant.ChannelTypeStarAI:
+		return updateChannelStarAIBalance(channel)
 	default:
 		return 0, errors.New("尚未实现")
 	}

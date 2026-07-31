@@ -82,3 +82,16 @@ type TaskAdaptor interface {
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }
+
+// TaskRetryPolicy optionally controls whether a task submit may be retried on
+// another channel after an upstream failure. Adaptors that do not implement it
+// retain the existing automatic retry behavior.
+type TaskRetryPolicy interface {
+	AllowAutomaticTaskSubmitRetry() bool
+}
+
+// TaskSubmitErrorSanitizer optionally prevents raw non-2xx upstream response
+// bodies from being copied into task errors.
+type TaskSubmitErrorSanitizer interface {
+	SanitizeTaskSubmitError(responseBody []byte) string
+}
