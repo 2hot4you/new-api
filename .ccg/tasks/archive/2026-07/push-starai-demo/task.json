@@ -1,0 +1,12 @@
+{
+  "id": "push-starai-demo",
+  "title": "提交并推送 StarAI Demo",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已提交并推送 feat/molii-auth",
+  "createdAt": "2026-07-31T20:05:00+08:00",
+  "branch": "feat/molii-auth"
+}
