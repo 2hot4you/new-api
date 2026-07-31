@@ -1,0 +1,6 @@
+{"path":"../StarAI API 接口文档.md","role":"upstream_protocol"}
+{"path":"relay/channel/task/doubao/adaptor.go","role":"task_adaptor_reference"}
+{"path":"relay/relay_task.go","role":"billing_and_submit_pipeline"}
+{"path":"service/task_polling.go","role":"polling_settlement_and_refund"}
+{"path":"controller/video_proxy.go","role":"authenticated_video_delivery"}
+{"path":"controller/channel-billing.go","role":"channel_balance"}

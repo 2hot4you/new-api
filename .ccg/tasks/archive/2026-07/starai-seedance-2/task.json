@@ -1,0 +1,12 @@
+{
+  "id": "starai-seedance-2",
+  "title": "新增 StarAI 渠道并接入 Seedance 2.0 异步视频生成",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务记录",
+  "createdAt": "2026-07-31T11:08:48Z",
+  "branch": "feat/molii-auth"
+}
