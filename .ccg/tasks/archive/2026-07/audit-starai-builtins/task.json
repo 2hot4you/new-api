@@ -1,0 +1,12 @@
+{
+  "id": "audit-starai-builtins",
+  "title": "核对 StarAI 两个 Seedance 模型的内置注册状态",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已确认渠道内置但未进入全局模型目录和默认倍率表",
+  "createdAt": "2026-07-31T19:50:00+08:00",
+  "branch": "feat/molii-auth"
+}
