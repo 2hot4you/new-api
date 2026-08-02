@@ -22,6 +22,30 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(starAIResultCleanupHandler{})
+}
+
+type starAIResultCleanupHandler struct{}
+
+func (starAIResultCleanupHandler) Type() string {
+	return model.SystemTaskTypeStarAIResultCleanup
+}
+
+func (starAIResultCleanupHandler) Enabled() bool {
+	return constant.StarAIResultRetentionHours > 0
+}
+
+func (starAIResultCleanupHandler) Interval() time.Duration { return time.Hour }
+
+func (starAIResultCleanupHandler) NewPayload() any { return nil }
+
+func (starAIResultCleanupHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	result, err := service.CleanupExpiredStarAIResultMetadata(ctx)
+	status := model.SystemTaskStatusSucceeded
+	if err != nil {
+		status = model.SystemTaskStatusFailed
+	}
+	finishSystemTaskHandler(task, runnerID, status, result, err)
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and

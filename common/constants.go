@@ -197,6 +197,7 @@ var (
 // All duration's unit is seconds
 // Shouldn't larger then RateLimitKeyExpirationDuration
 var (
+	DisableAllRateLimit        bool
 	GlobalApiRateLimitEnable   bool
 	GlobalApiRateLimitNum      int
 	GlobalApiRateLimitDuration int64

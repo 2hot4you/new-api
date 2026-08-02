@@ -8,10 +8,17 @@ import (
 )
 
 func SetVideoRouter(router *gin.Engine) {
+	assetRouter := router.Group("/v1/assets")
+	assetRouter.Use(middleware.RouteTag("relay"), middleware.TokenAuth())
+	{
+		assetRouter.POST("", controller.CreateStarAIAsset)
+		assetRouter.GET("/:id", controller.GetStarAIAsset)
+		assetRouter.DELETE("/:id", controller.DeleteStarAIAsset)
+	}
 	// Video proxy: accepts either session auth (dashboard) or token auth (API clients)
 	videoProxyRouter := router.Group("/v1")
 	videoProxyRouter.Use(middleware.RouteTag("relay"))
-	videoProxyRouter.Use(middleware.TokenOrUserAuth())
+	videoProxyRouter.Use(middleware.VideoProxyAuth())
 	{
 		videoProxyRouter.GET("/videos/:task_id/content", controller.VideoProxy)
 	}

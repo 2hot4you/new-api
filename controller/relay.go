@@ -579,11 +579,6 @@ func RelayTask(c *gin.Context) {
 
 	// ── 成功：结算 + 日志 + 插入任务 ──
 	if taskErr == nil {
-		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
-			common.SysError("settle task billing error: " + settleErr.Error())
-		}
-		service.LogTaskConsumption(c, relayInfo)
-
 		task := model.InitTask(result.Platform, relayInfo)
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
 		task.PrivateData.BillingSource = relayInfo.BillingSource
@@ -591,24 +586,64 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
-			ModelPrice:      relayInfo.PriceData.ModelPrice,
-			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			ModelRatio:      relayInfo.PriceData.ModelRatio,
-			OtherRatios:     relayInfo.PriceData.OtherRatios(),
-			OriginModelName: relayInfo.OriginModelName,
-			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+			ModelPrice:          relayInfo.PriceData.ModelPrice,
+			GroupRatio:          relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+			ModelRatio:          relayInfo.PriceData.ModelRatio,
+			OtherRatios:         relayInfo.PriceData.OtherRatios(),
+			OriginModelName:     relayInfo.OriginModelName,
+			PerCallBilling:      common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+			EstimatedTokens:     relayInfo.EstimatedVideoTokens,
+			EstimatedPrice:      relayInfo.EstimatedVideoPrice,
+			EstimatedWidth:      relayInfo.EstimatedVideoWidth,
+			EstimatedHeight:     relayInfo.EstimatedVideoHeight,
+			EstimatedFPS:        relayInfo.EstimatedVideoFPS,
+			EstimatedSeconds:    relayInfo.EstimatedVideoSeconds,
+			EstimatedResolution: relayInfo.EstimatedVideoResolution,
+			EstimatedRatio:      relayInfo.EstimatedVideoRatio,
+			EstimatedHasVideo:   relayInfo.EstimatedVideoHasInput,
+			EstimatedUnitPrice:  relayInfo.EstimatedVideoUnitPrice,
 		}
 		task.Quota = result.Quota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action
-		if insertErr := task.Insert(); insertErr != nil {
-			common.SysError("insert task error: " + insertErr.Error())
+		if insertErr := insertTaskWithRetry(task); insertErr != nil {
+			common.SysError(fmt.Sprintf("CRITICAL: upstream task accepted but local persistence failed after retries (public_task_id=%s channel_id=%d): %s", task.TaskID, task.ChannelId, insertErr.Error()))
+			if relayInfo.Billing != nil {
+				relayInfo.Billing.Refund(c)
+			}
+		} else {
+			if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+				common.SysError("settle task billing error: " + settleErr.Error())
+			}
+			// StarAI 视频任务在轮询确认成功并拿到结果后再记录唯一一条
+			// 正式消费日志。提交阶段只预扣额度并持久化计费上下文。
+			if result.Platform != constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) {
+				service.LogTaskConsumption(c, relayInfo)
+			}
 		}
 	}
 
 	if taskErr != nil {
 		respondTaskError(c, taskErr)
 	}
+}
+
+func insertTaskWithRetry(task *model.Task) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err = task.Insert(); err == nil {
+			return nil
+		}
+		// A database timeout may hide a committed INSERT. Verify by public task
+		// ID before retrying so an ambiguous success cannot create duplicates.
+		if _, exists, lookupErr := model.GetByTaskId(task.UserId, task.TaskID); lookupErr == nil && exists {
+			return nil
+		}
+		if attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
+		}
+	}
+	return err
 }
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）

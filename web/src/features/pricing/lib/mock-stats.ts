@@ -315,8 +315,7 @@ export function buildGroupPerformance(model: PricingModel): GroupPerformance[] {
   const spec = PROFILE_SPECS[profile]
   const baseSeed = hashStringToSeed(model.model_name)
 
-  return targets
-    .slice()
+  return [...targets]
     .sort((a, b) => a.localeCompare(b))
     .map<GroupPerformance>((group) => {
       const rand = seededRandom(baseSeed ^ hashStringToSeed(group))
@@ -736,30 +735,57 @@ const IMAGE_PARAMS: SupportedParameter[] = [
 
 const VIDEO_PARAMS: SupportedParameter[] = [
   {
-    name: 'prompt',
+    name: 'model',
     type: 'string',
     required: true,
-    descriptionKey: 'Text description of the desired video',
+    descriptionKey: 'Seedance model ID',
+  },
+  {
+    name: 'content',
+    type: 'array',
+    required: true,
+    range: 'At least 1 item; up to 9 images, 3 videos, and 3 audio files',
+    descriptionKey: 'Structured text, image, video, or audio reference content',
+  },
+  {
+    name: 'generate_audio',
+    type: 'boolean',
+    defaultValue: true,
+    enumValues: ['true', 'false'],
+    descriptionKey: 'Generate synchronized sound and music',
+  },
+  {
+    name: 'resolution',
+    type: 'enum',
+    descriptionKey: 'Output video resolution; availability depends on model',
   },
   {
     name: 'duration',
     type: 'integer',
-    range: '1 ~ 60',
-    descriptionKey: 'Video length in seconds',
+    defaultValue: 5,
+    range: '-1 for smart duration, or 4–15 seconds',
+    descriptionKey: 'Video length in seconds; -1 enables smart duration',
   },
   {
-    name: 'aspect_ratio',
+    name: 'ratio',
     type: 'enum',
-    enumValues: ['16:9', '9:16', '1:1'],
-    defaultValue: '16:9',
+    enumValues: ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
+    defaultValue: 'adaptive',
     descriptionKey: 'Output aspect ratio',
   },
   {
-    name: 'fps',
-    type: 'integer',
-    range: '8 ~ 60',
-    defaultValue: 24,
-    descriptionKey: 'Frames per second',
+    name: 'watermark',
+    type: 'boolean',
+    defaultValue: false,
+    enumValues: ['true', 'false'],
+    descriptionKey: 'Add an upstream watermark to the generated video',
+  },
+  {
+    name: 'tools',
+    type: 'array',
+    range: '0 or more items; each type must be web_search',
+    enumValues: ['web_search'],
+    descriptionKey: 'Only the optional web_search tool is supported',
   },
 ]
 
@@ -772,6 +798,7 @@ type ApiCategory = 'reasoning' | 'embedding' | 'image' | 'video' | 'chat'
  * need to distinguish them so the request-parameter table is accurate.
  */
 function apiCategoryOf(model: PricingModel): ApiCategory {
+  if (model.supported_endpoint_types?.includes('openai-video')) return 'video'
   const profile = PROFILE_BY_NAME(model.model_name)
   if (profile === 'embedding' || profile === 'reasoning') return profile
   if (profile === 'image') {
@@ -794,49 +821,29 @@ export function buildSupportedParameters(
   if (cat === 'reasoning') return REASONING_PARAMS
   if (cat === 'embedding') return EMBEDDING_PARAMS
   if (cat === 'image') return IMAGE_PARAMS
-  if (cat === 'video') return VIDEO_PARAMS
-  return COMMON_CHAT_PARAMS
-}
-
-export type RateLimit = {
-  group: string
-  rpm: number
-  tpm: number
-  rpd: number
-}
-
-/** Build per-group RPM / TPM / RPD limits for the model. */
-export function buildRateLimits(model: PricingModel): RateLimit[] {
-  const groups = (model.enable_groups ?? []).filter((g) => g && g !== 'auto')
-  const targets = groups.length > 0 ? groups : ['default']
-  const cat = apiCategoryOf(model)
-  const baseSeed = hashStringToSeed(`${model.model_name}:rl`)
-  const isHeavy = cat === 'image' || cat === 'video'
-  const isLight = cat === 'embedding'
-  const baseRpm = isHeavy ? 60 : isLight ? 5_000 : 500
-  const baseTpm = isHeavy ? 0 : isLight ? 1_000_000 : 200_000
-  const baseRpd = isHeavy ? 1_000 : isLight ? 100_000 : 10_000
-
-  return targets
-    .slice()
-    .sort((a, b) => a.localeCompare(b))
-    .map((group) => {
-      const rand = seededRandom(baseSeed ^ hashStringToSeed(group))
-      const tier = 0.6 + rand() * 1.4
+  if (cat === 'video') {
+    let resolutions = model.video_pricing?.rows.flatMap(
+      (row) => row.resolutions
+    )
+    if (!resolutions || resolutions.length === 0) {
+      resolutions = ['480p', '720p', '1080p', '4K']
+    }
+    return VIDEO_PARAMS.map((parameter) => {
+      if (parameter.name === 'model') {
+        return {
+          ...parameter,
+          enumValues: [model.model_name],
+        }
+      }
+      if (parameter.name !== 'resolution') return parameter
       return {
-        group,
-        rpm: Math.round((baseRpm * tier) / 10) * 10,
-        tpm: baseTpm === 0 ? 0 : Math.round((baseTpm * tier) / 1_000) * 1_000,
-        rpd: Math.round((baseRpd * tier) / 100) * 100,
+        ...parameter,
+        enumValues: resolutions.map((resolution) =>
+          resolution.toLowerCase() === '4k' ? '4k' : resolution
+        ),
+        defaultValue: '720p',
       }
     })
-}
-
-/** Format an integer rate-limit value compactly. */
-export function formatRateLimit(value: number): string {
-  if (value <= 0) return '—'
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000)
-    return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`
-  return value.toLocaleString()
+  }
+  return COMMON_CHAT_PARAMS
 }

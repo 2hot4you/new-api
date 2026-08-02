@@ -106,9 +106,13 @@ func TestVideoProxyAllowsSignedStarAIPrivateTOSURLWithoutBearer(t *testing.T) {
 		reachedProxy.Store(true)
 		assert.Equal(t, "ark-acg-cn-beijing.tos-cn-beijing.volces.com", r.URL.Hostname())
 		assert.Empty(t, r.Header.Get("Authorization"))
+		assert.Equal(t, "bytes=0-4", r.Header.Get("Range"))
 		assert.Equal(t, "signed-secret", r.URL.Query().Get("X-Tos-Signature"))
 		w.Header().Set("Content-Type", "video/mp4")
-		_, _ = io.WriteString(w, "starai-video")
+		w.Header().Set("Content-Disposition", "attachment")
+		w.Header().Set("Content-Range", "bytes 0-4/12")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = io.WriteString(w, "stara")
 	}))
 	t.Cleanup(proxy.Close)
 
@@ -141,12 +145,15 @@ func TestVideoProxyAllowsSignedStarAIPrivateTOSURLWithoutBearer(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/"+publicTaskID+"/content", nil)
+	ctx.Request.Header.Set("Range", "bytes=0-4")
 	ctx.Params = gin.Params{{Key: "task_id", Value: publicTaskID}}
 	ctx.Set("id", userID)
 
 	VideoProxy(ctx)
 
 	assert.True(t, reachedProxy.Load())
-	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.Equal(t, "starai-video", recorder.Body.String())
+	assert.Equal(t, http.StatusPartialContent, recorder.Code)
+	assert.Equal(t, "bytes 0-4/12", recorder.Header().Get("Content-Range"))
+	assert.Equal(t, "inline", recorder.Header().Get("Content-Disposition"))
+	assert.Equal(t, "stara", recorder.Body.String())
 }

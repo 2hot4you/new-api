@@ -157,6 +157,9 @@ func rateLimitFactory(maxRequestNum int, duration int64, mark string) func(c *gi
 }
 
 func GlobalWebRateLimit() func(c *gin.Context) {
+	if common.DisableAllRateLimit {
+		return defNext
+	}
 	if common.GlobalWebRateLimitEnable {
 		return rateLimitFactory(common.GlobalWebRateLimitNum, common.GlobalWebRateLimitDuration, "GW")
 	}
@@ -164,6 +167,9 @@ func GlobalWebRateLimit() func(c *gin.Context) {
 }
 
 func GlobalAPIRateLimit() func(c *gin.Context) {
+	if common.DisableAllRateLimit {
+		return defNext
+	}
 	if common.GlobalApiRateLimitEnable {
 		return rateLimitFactory(common.GlobalApiRateLimitNum, common.GlobalApiRateLimitDuration, "GA")
 	}
@@ -171,6 +177,9 @@ func GlobalAPIRateLimit() func(c *gin.Context) {
 }
 
 func CriticalRateLimit() func(c *gin.Context) {
+	if common.DisableAllRateLimit {
+		return defNext
+	}
 	if common.CriticalRateLimitEnable {
 		return rateLimitFactory(common.CriticalRateLimitNum, common.CriticalRateLimitDuration, "CT")
 	}
@@ -178,10 +187,16 @@ func CriticalRateLimit() func(c *gin.Context) {
 }
 
 func DownloadRateLimit() func(c *gin.Context) {
+	if common.DisableAllRateLimit {
+		return defNext
+	}
 	return rateLimitFactory(common.DownloadRateLimitNum, common.DownloadRateLimitDuration, "DW")
 }
 
 func UploadRateLimit() func(c *gin.Context) {
+	if common.DisableAllRateLimit {
+		return defNext
+	}
 	return rateLimitFactory(common.UploadRateLimitNum, common.UploadRateLimitDuration, "UP")
 }
 
@@ -232,6 +247,9 @@ func userRedisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, key
 // SearchRateLimit returns a per-user rate limiter for search endpoints.
 // Configurable via SEARCH_RATE_LIMIT_ENABLE / SEARCH_RATE_LIMIT / SEARCH_RATE_LIMIT_DURATION.
 func SearchRateLimit() func(c *gin.Context) {
+	if common.DisableAllRateLimit {
+		return defNext
+	}
 	if !common.SearchRateLimitEnable {
 		return defNext
 	}

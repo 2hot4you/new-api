@@ -232,6 +232,19 @@ export interface LogOtherData {
   is_task?: boolean
   task_id?: string
   reason?: string
+  estimated_tokens?: number
+  estimated_price?: number
+  estimated_width?: number
+  estimated_height?: number
+  estimated_fps?: number
+  estimated_seconds?: number
+  estimated_resolution?: string
+  estimated_ratio?: string
+  estimated_has_video?: boolean
+  estimated_unit_price?: number
+  actual_tokens?: number
+  pre_consumed_quota?: number
+  actual_quota?: number
   // Subscription billing fields
   subscription_plan_id?: string
   subscription_plan_title?: string
@@ -296,8 +309,23 @@ export interface TaskLog {
   finish_time?: number // seconds
   progress?: string
   progress_message_en?: string
+  result_url?: string
+  properties?: {
+    origin_model_name?: string
+    [key: string]: unknown
+  }
   data?: string // JSON string
   fail_reason?: string
+  quota?: number
+  video_params?: {
+    resolution?: string
+    ratio?: string
+    seconds?: number
+    fps?: number
+    width?: number
+    height?: number
+    has_video: boolean
+  }
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
   other?: string
   created_at?: number

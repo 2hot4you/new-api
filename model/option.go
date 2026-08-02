@@ -76,6 +76,15 @@ func InitOptionMap() {
 	common.OptionMap["WorkerUrl"] = system_setting.WorkerUrl
 	common.OptionMap["WorkerValidKey"] = system_setting.WorkerValidKey
 	common.OptionMap["WorkerAllowHttpImageRequestEnabled"] = strconv.FormatBool(system_setting.WorkerAllowHttpImageRequestEnabled)
+	common.OptionMap["COSEnabled"] = "false"
+	common.OptionMap["COSBucket"] = ""
+	common.OptionMap["COSRegion"] = ""
+	common.OptionMap["COSSecretID"] = ""
+	common.OptionMap["COSSecretKey"] = ""
+	common.OptionMap["COSCustomDomain"] = ""
+	common.OptionMap["COSPathPrefix"] = operation_setting.COSDefaultPathPrefix
+	common.OptionMap["COSUploadExpiryMinutes"] = strconv.Itoa(operation_setting.COSDefaultUploadExpiryMinutes)
+	common.OptionMap["COSReadExpiryMinutes"] = strconv.Itoa(operation_setting.COSDefaultReadExpiryMinutes)
 	common.OptionMap["PayAddress"] = ""
 	common.OptionMap["CustomCallbackAddress"] = ""
 	common.OptionMap["EpayId"] = ""
@@ -633,7 +642,7 @@ func handleConfigUpdate(key, value string) bool {
 	// 特定配置的后处理
 	if configName == "performance_setting" {
 		performance_setting.UpdateAndSync()
-	} else if configName == "billing_setting" {
+	} else if configName == "billing_setting" || configName == "starai_video_price" {
 		InvalidatePricingCache()
 		ratio_setting.InvalidateExposedDataCache()
 	}

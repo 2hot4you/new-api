@@ -25,6 +25,7 @@ import {
   Key,
   LayoutDashboard,
   ListTodo,
+  Package,
   MessageSquare,
   Radio,
   ServerCog,
@@ -84,6 +85,11 @@ export function useSidebarData(): SidebarData {
             title: t('API Keys'),
             url: '/keys',
             icon: Key,
+          },
+          {
+            title: t('Temporary Assets'),
+            url: '/temporary-assets',
+            icon: Package,
           },
           {
             title: t('Usage Logs'),

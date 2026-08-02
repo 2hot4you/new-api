@@ -273,6 +273,14 @@ export type BillingSettings = {
   'billing_setting.billing_mode': string
   'billing_setting.billing_expr': string
   'tool_price_setting.prices': string
+  'starai_video_price.standard_720p': number
+  'starai_video_price.standard_720p_video': number
+  'starai_video_price.standard_1080p': number
+  'starai_video_price.standard_1080p_video': number
+  'starai_video_price.standard_4k': number
+  'starai_video_price.standard_4k_video': number
+  'starai_video_price.fast_720p': number
+  'starai_video_price.fast_720p_video': number
   TopupGroupRatio: string
   GroupRatio: string
   UserUsableGroups: string
@@ -362,6 +370,16 @@ export type OperationsSettings = {
   'perf_metrics_setting.flush_interval': number
   'perf_metrics_setting.bucket_time': 'hour' | 'minute' | '5min'
   'perf_metrics_setting.retention_days': number
+  COSEnabled: boolean
+  COSBucket: string
+  COSRegion: string
+  COSSecretID: string
+  COSSecretKey: string
+  COSSecretKeyConfigured: boolean
+  COSCustomDomain: string
+  COSPathPrefix: string
+  COSUploadExpiryMinutes: number
+  COSReadExpiryMinutes: number
 }
 
 export type SecuritySettings = {

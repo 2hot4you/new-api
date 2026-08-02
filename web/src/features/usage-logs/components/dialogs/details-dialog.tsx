@@ -49,6 +49,8 @@ import {
   UserCog,
   Info,
   LogIn,
+  Clapperboard,
+  Calculator,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -161,6 +163,124 @@ function DetailSection(props: {
         {props.children}
       </div>
     </div>
+  )
+}
+
+function BillingMetric(props: {
+  label: React.ReactNode
+  value: React.ReactNode
+  mono?: boolean
+}) {
+  return (
+    <div className='bg-background/70 min-w-0 rounded-md border px-2.5 py-2'>
+      <div className='text-muted-foreground truncate text-[11px] leading-4'>
+        {props.label}
+      </div>
+      <div
+        className={cn(
+          'mt-0.5 min-w-0 truncate text-xs font-medium leading-5',
+          props.mono && 'font-mono'
+        )}
+        title={typeof props.value === 'string' ? props.value : undefined}
+      >
+        {props.value}
+      </div>
+    </div>
+  )
+}
+
+function StarAIVideoBillingCard({ other }: { other: LogOtherData }) {
+  const { t } = useTranslation()
+  const estimatedTokens = other.estimated_tokens
+  if (estimatedTokens == null) return null
+
+  const fps = other.estimated_fps ?? 24
+  const seconds = other.estimated_seconds ?? 0
+  const width = other.estimated_width ?? 0
+  const height = other.estimated_height ?? 0
+  const formula = `${width} × ${height} × (${fps} × ${seconds} + 1) ÷ 1024`
+  const inputType = other.estimated_has_video
+    ? t('With reference video')
+    : t('Without reference video')
+
+  return (
+    <DetailSection
+      icon={<Clapperboard className='size-3.5' aria-hidden='true' />}
+      iconTone='chart-2'
+      label={t('Seedance Video Billing')}
+    >
+      <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
+        <BillingMetric
+          label={t('Resolution')}
+          value={other.estimated_resolution ?? '-'}
+          mono
+        />
+        <BillingMetric
+          label={t('Aspect Ratio')}
+          value={other.estimated_ratio ?? '-'}
+          mono
+        />
+        <BillingMetric label={t('Duration')} value={`${seconds}s`} mono />
+        <BillingMetric label={t('Input Type')} value={inputType} />
+        <BillingMetric label={t('Frame Rate')} value={`${fps} FPS`} mono />
+        <BillingMetric
+          label={t('Output Size')}
+          value={`${width} × ${height}`}
+          mono
+        />
+      </div>
+
+      <div className='mt-2 space-y-1.5 rounded-md border border-blue-200 bg-blue-50/70 p-2 dark:border-blue-900 dark:bg-blue-950/20'>
+        <div className='flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-300'>
+          <Calculator className='size-3.5' aria-hidden='true' />
+          {t('Token Calculation')}
+        </div>
+        <p className='overflow-x-auto font-mono text-xs whitespace-nowrap'>
+          {formula}
+        </p>
+        <p className='text-muted-foreground text-[11px] leading-relaxed'>
+          {t(
+            'Seedance generates one extra frame for playback, so one frame is added to the calculated frame count. Results are rounded up.'
+          )}
+        </p>
+      </div>
+
+      <div className='mt-2 space-y-1'>
+        <DetailRow
+          label={t('Estimated Tokens')}
+          value={estimatedTokens.toLocaleString('en-US')}
+          mono
+        />
+        {other.actual_tokens != null && (
+          <DetailRow
+            label={t('Actual Tokens')}
+            value={other.actual_tokens.toLocaleString('en-US')}
+            mono
+          />
+        )}
+        {other.estimated_unit_price != null && (
+          <DetailRow
+            label={t('Unit Price')}
+            value={`¥${other.estimated_unit_price.toFixed(2)} / 1M tokens`}
+            mono
+          />
+        )}
+        {other.estimated_price != null && (
+          <DetailRow
+            label={t('Estimated Price')}
+            value={`¥${other.estimated_price.toFixed(6)}`}
+            mono
+          />
+        )}
+        {other.actual_quota != null && (
+          <DetailRow
+            label={t('Final Charge')}
+            value={formatLogQuota(other.actual_quota)}
+            mono
+          />
+        )}
+      </div>
+    </DetailSection>
   )
 }
 
@@ -600,6 +720,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
     props.isAdmin &&
     props.log.type !== 6 &&
     (other?.request_path || conversionChain.length > 0)
+  const isStarAIVideoLog = other?.estimated_tokens != null
 
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
@@ -630,7 +751,11 @@ export function DetailsDialog(props: DetailsDialogProps) {
       contentClassName={cn(
         'min-w-0 overflow-hidden',
         'max-sm:max-h-[calc(100dvh-1.5rem)] max-sm:w-[calc(100vw-1.5rem)] max-sm:max-w-[calc(100vw-1.5rem)] max-sm:p-4',
-        isTieredBilling ? 'sm:max-w-4xl lg:max-w-5xl' : 'sm:max-w-lg'
+        isTieredBilling
+          ? 'sm:max-w-4xl lg:max-w-5xl'
+          : isStarAIVideoLog
+            ? 'sm:max-w-2xl'
+            : 'sm:max-w-lg'
       )}
       headerClassName='max-sm:gap-1'
       titleClassName='flex items-center gap-2 text-base'
@@ -713,7 +838,8 @@ export function DetailsDialog(props: DetailsDialogProps) {
                     timingTextColorClass(
                       getResponseTimeColor(
                         props.log.use_time,
-                        props.log.completion_tokens
+                        props.log.completion_tokens,
+                        isStarAIVideoLog
                       )
                     )
                   )}
@@ -1060,6 +1186,8 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Token breakdown (for consume/error types with token data) */}
+        {other && isStarAIVideoLog && <StarAIVideoBillingCard other={other} />}
+
         {isDisplayableType(props.log.type) && other && (
           <TokenBreakdown log={props.log} other={other} />
         )}
@@ -1227,7 +1355,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Content */}
-        {details && (
+        {details && !isStarAIVideoLog && (
           <div className='space-y-1.5'>
             <Label className='text-xs font-semibold'>{t('Content')}</Label>
             <div className='bg-muted/30 relative min-w-0 overflow-hidden rounded-md border p-2.5'>

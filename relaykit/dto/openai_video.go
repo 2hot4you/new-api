@@ -27,6 +27,7 @@ type OpenAIVideo struct {
 	Size               string            `json:"size,omitempty"`
 	RemixedFromVideoID string            `json:"remixed_from_video_id,omitempty"`
 	Error              *OpenAIVideoError `json:"error,omitempty"`
+	Usage              *OpenAIVideoUsage `json:"usage,omitempty"`
 	Metadata           map[string]any    `json:"metadata,omitempty"`
 }
 
@@ -50,4 +51,14 @@ func NewOpenAIVideo() *OpenAIVideo {
 type OpenAIVideoError struct {
 	Message string `json:"message"`
 	Code    string `json:"code"`
+}
+
+type OpenAIVideoUsage struct {
+	CompletionTokens int                  `json:"completion_tokens"`
+	TotalTokens      int                  `json:"total_tokens"`
+	ToolUsage        OpenAIVideoToolUsage `json:"tool_usage"`
+}
+
+type OpenAIVideoToolUsage struct {
+	WebSearch int `json:"web_search"`
 }

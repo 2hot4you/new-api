@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +42,79 @@ type testResult struct {
 	context     *gin.Context
 	localErr    error
 	newAPIError *types.NewAPIError
+}
+
+const starAIReachabilityTimeout = 5 * time.Second
+
+// testStarAIReachability checks only DNS resolution and TCP port
+// connectivity. It deliberately does not perform TLS negotiation or send an
+// HTTP request, so testing a StarAI channel cannot create a task or consume
+// upstream quota.
+func testStarAIReachability(ctx context.Context, channel *model.Channel) error {
+	baseURL := ""
+	if channel != nil {
+		baseURL = strings.TrimSpace(channel.GetBaseURL())
+		if baseURL == "" && channel.Type >= 0 && channel.Type < len(constant.ChannelBaseURLs) {
+			baseURL = strings.TrimSpace(constant.ChannelBaseURLs[channel.Type])
+		}
+	}
+	if baseURL == "" {
+		return errors.New("StarAI reachability test failed: upstream URL is empty")
+	}
+
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("StarAI reachability test failed: invalid upstream URL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("StarAI reachability test failed: unsupported URL scheme %q", parsed.Scheme)
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return errors.New("StarAI reachability test failed: upstream hostname is empty")
+	}
+	port := parsed.Port()
+	if port == "" {
+		if parsed.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	target := net.JoinHostPort(host, port)
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	testCtx, cancel := context.WithTimeout(ctx, starAIReachabilityTimeout)
+	defer cancel()
+	conn, err := (&net.Dialer{Timeout: starAIReachabilityTimeout}).DialContext(testCtx, "tcp", target)
+	if err != nil {
+		return fmt.Errorf("StarAI reachability test failed: cannot connect to %s: %w", target, err)
+	}
+	_ = conn.Close()
+	return nil
+}
+
+func testStarAIChannel(ctx context.Context, channel *model.Channel, testUserID int) testResult {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequestWithContext(ctx, http.MethodGet, "/channel/reachability", nil)
+	c.Set("id", testUserID)
+	c.Set("channel_id", channel.Id)
+	c.Set("channel_name", channel.Name)
+	c.Set("channel_type", channel.Type)
+	common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
+
+	if err := testStarAIReachability(ctx, channel); err != nil {
+		newAPIError := types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusServiceUnavailable)
+		return testResult{
+			context:     c,
+			localErr:    newAPIError,
+			newAPIError: newAPIError,
+		}
+	}
+	return testResult{context: c}
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
@@ -77,6 +152,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if channel != nil && channel.Type == constant.ChannelTypeStarAI {
+		return testStarAIChannel(ctx, channel, testUserID)
+	}
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
 		constant.ChannelTypeMidjourney,
@@ -86,7 +164,6 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		constant.ChannelTypeJimeng,
 		constant.ChannelTypeDoubaoVideo,
 		constant.ChannelTypeVidu,
-		constant.ChannelTypeStarAI,
 	}
 	if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
 		channelTypeName := constant.GetChannelTypeName(channel.Type)

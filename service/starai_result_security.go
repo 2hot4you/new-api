@@ -27,18 +27,34 @@ func IsUnsignedStarAIPrivateTOSURL(rawURL string) bool {
 		!strings.EqualFold(parsed.Hostname(), starAIPrivateTOSHost) {
 		return false
 	}
+	return !hasStarAIURLSignature(parsed)
+}
 
+// IsSignedStarAIPrivateTOSURL permits a narrowly scoped SSRF exception for
+// StarAI's exact HTTPS result host. The signature requirement prevents the
+// proxy from becoming an unrestricted fetcher for that host.
+func IsSignedStarAIPrivateTOSURL(rawURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	return err == nil && strings.EqualFold(parsed.Scheme, "https") &&
+		strings.EqualFold(parsed.Hostname(), starAIPrivateTOSHost) &&
+		hasStarAIURLSignature(parsed)
+}
+
+func hasStarAIURLSignature(parsed *url.URL) bool {
+	if parsed == nil {
+		return false
+	}
 	for key, values := range parsed.Query() {
 		if _, ok := starAISignatureQueryKeys[strings.ToLower(key)]; !ok {
 			continue
 		}
 		for _, value := range values {
 			if strings.TrimSpace(value) != "" {
-				return false
+				return true
 			}
 		}
 	}
-	return true
+	return false
 }
 
 // SanitizeStarAIResponseBody returns a safe JSON copy of an upstream StarAI
@@ -57,6 +73,49 @@ func SanitizeStarAIResponseBody(body []byte, publicTaskID string) []byte {
 		return []byte(`{"error":{"message":"upstream response unavailable"}}`)
 	}
 	return sanitized
+}
+
+// RewriteStarAIVideoResponseURLs replaces every public result/video URL in a
+// sanitized StarAI response with the same Molii playback URL. This prevents
+// callers from accidentally using a copied or redacted upstream TOS URL.
+func RewriteStarAIVideoResponseURLs(body []byte, playbackURL string) []byte {
+	if len(body) == 0 || strings.TrimSpace(playbackURL) == "" {
+		return body
+	}
+	var value any
+	if err := common.Unmarshal(body, &value); err != nil {
+		return body
+	}
+	value = rewriteStarAIVideoURLs(value, playbackURL)
+	rewritten, err := common.Marshal(value)
+	if err != nil {
+		return body
+	}
+	return rewritten
+}
+
+func rewriteStarAIVideoURLs(value any, playbackURL string) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			normalizedKey := normalizeSensitiveKey(key)
+			if normalizedKey == "resulturl" || normalizedKey == "videourl" {
+				if raw, ok := child.(string); ok && strings.TrimSpace(raw) != "" {
+					typed[key] = playbackURL
+					continue
+				}
+			}
+			typed[key] = rewriteStarAIVideoURLs(child, playbackURL)
+		}
+		return typed
+	case []any:
+		for index, child := range typed {
+			typed[index] = rewriteStarAIVideoURLs(child, playbackURL)
+		}
+		return typed
+	default:
+		return value
+	}
 }
 
 func sanitizeStarAIText(text string, responseBody []byte, publicTaskID string) string {

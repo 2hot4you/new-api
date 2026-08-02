@@ -62,6 +62,13 @@ func TestIsUnsignedStarAIPrivateTOSURL(t *testing.T) {
 	}
 }
 
+func TestIsSignedStarAIPrivateTOSURL(t *testing.T) {
+	assert.True(t, IsSignedStarAIPrivateTOSURL("https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/results/video.mp4?X-Tos-Signature=signed"))
+	assert.False(t, IsSignedStarAIPrivateTOSURL("https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/results/video.mp4"))
+	assert.False(t, IsSignedStarAIPrivateTOSURL("http://ark-acg-cn-beijing.tos-cn-beijing.volces.com/results/video.mp4?X-Tos-Signature=signed"))
+	assert.False(t, IsSignedStarAIPrivateTOSURL("https://ark-acg-cn-beijing.tos-cn-beijing.volces.com.evil.example/results/video.mp4?X-Tos-Signature=signed"))
+}
+
 func TestSanitizeStarAIResponseBodyRecursivelyRedactsSecretsAndIDs(t *testing.T) {
 	const (
 		publicTaskID   = "task_public_safe"

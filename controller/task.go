@@ -82,7 +82,29 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 				task.Username = user.Username
 			}
 		}
-		result[i] = relay.TaskModel2Dto(task)
+		item := relay.TaskModel2Dto(task)
+		if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)) {
+			// The URL is generated on demand and points to Molii's signed streaming
+			// proxy. No upstream URL or video content is persisted in the log DTO.
+			if task.Status != model.TaskStatusSuccess {
+				item.ResultURL = ""
+			}
+			item.Data = nil
+			if bc := task.PrivateData.BillingContext; bc != nil {
+				item.VideoParams = &dto.TaskVideoParams{
+					Resolution: bc.EstimatedResolution,
+					Ratio:      bc.EstimatedRatio,
+					Seconds:    bc.EstimatedSeconds,
+					FPS:        bc.EstimatedFPS,
+					Width:      bc.EstimatedWidth,
+					Height:     bc.EstimatedHeight,
+					HasVideo:   bc.EstimatedHasVideo,
+				}
+			}
+		} else {
+			item.ResultURL = ""
+		}
+		result[i] = item
 	}
 	return result
 }

@@ -301,8 +301,11 @@ func validateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string, re
 		}
 	}
 
-	if taskErr := validateTaskDurationBounds(req); taskErr != nil {
-		return taskErr
+	allowSmartDuration := info.GetChannelType() == constant.ChannelTypeStarAI && (req.Duration == -1 || req.Seconds == "-1")
+	if !allowSmartDuration {
+		if taskErr := validateTaskDurationBounds(req); taskErr != nil {
+			return taskErr
+		}
 	}
 
 	if len(req.Images) == 0 && strings.TrimSpace(req.Image) != "" {

@@ -25,6 +25,8 @@ const (
 
 var defaultModelRatio = map[string]float64{
 	//"midjourney":                50,
+	"doubao-seedance-2-0-260128":                46.0 / 2.0, // StarAI: ¥46 / 1M tokens; platform currency is 1:1
+	"doubao-seedance-2-0-fast-260128":           37.0 / 2.0, // StarAI: ¥37 / 1M tokens; platform currency is 1:1
 	"gpt-4-gizmo-*":                             15,
 	"gpt-4o-gizmo-*":                            2.5,
 	"gpt-4-all":                                 15,

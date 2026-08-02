@@ -295,6 +295,7 @@ function MobileStreamTimingField({ log }: { log: UsageLog }) {
         completionTokens={log.completion_tokens}
         frtMs={other?.frt}
         isStream={log.is_stream}
+        isSeedanceVideo={other?.estimated_tokens != null}
         indicator='dot'
         className='min-w-0 flex-1'
       />
@@ -390,6 +391,11 @@ function TaskLogsCard<TData>({
       <div className='grid grid-cols-2 gap-1.5'>
         <SummaryField label={t('Submit Time')} cell={submitTimeCell} />
         <SummaryField label={t('User')} cell={cells.get('user')} primaryOnly />
+        <SummaryField
+          label={t('Progress')}
+          cell={cells.get('progress')}
+          className='col-span-2 bg-transparent px-0 py-0'
+        />
         <SummaryField
           label={t('Result')}
           cell={cells.get('fail_reason')}

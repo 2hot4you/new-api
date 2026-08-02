@@ -68,6 +68,15 @@ var defaultVendorIcons = map[string]string{
 	"Azure":      "AzureAI",
 }
 
+var defaultModelDescriptionI18nKeys = map[string]string{
+	"doubao-seedance-2-0-260128":      "Seedance 2.0 standard model description",
+	"doubao-seedance-2-0-fast-260128": "Seedance 2.0 fast model description",
+}
+
+func getDefaultModelDescriptionI18nKey(modelName string) string {
+	return defaultModelDescriptionI18nKeys[modelName]
+}
+
 // initDefaultVendorMapping 简化的默认供应商映射
 func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vendor, enableAbilities []AbilityWithChannel) {
 	for _, ability := range enableAbilities {

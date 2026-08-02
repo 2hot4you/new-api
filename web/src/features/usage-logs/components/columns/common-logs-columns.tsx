@@ -718,6 +718,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
             completionTokens={log.completion_tokens}
             frtMs={other?.frt}
             isStream={log.is_stream}
+            isSeedanceVideo={other?.estimated_tokens != null}
           />
         )
       },

@@ -109,6 +109,11 @@ func GetOptions(c *gin.Context) {
 		Key:   "CompletionRatioMeta",
 		Value: buildCompletionRatioMetaValue(optionValues),
 	})
+	cosConfig := operation_setting.GetCOSConfig()
+	options = append(options, &model.Option{
+		Key:   "COSSecretKeyConfigured",
+		Value: strconv.FormatBool(cosConfig.SecretKey != ""),
+	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

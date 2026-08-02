@@ -23,6 +23,7 @@ import { PricingSection } from '../general/pricing-section'
 import { QuotaSettingsSection } from '../general/quota-settings-section'
 import { PaymentSettingsSection } from '../integrations/payment-settings-section'
 import { RatioSettingsCard } from '../models/ratio-settings-card'
+import { StarAIVideoPricingSection } from './starai-video-pricing-section'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 
@@ -112,6 +113,26 @@ const BILLING_SECTIONS = [
         groupDefaults={getGroupDefaults(settings)}
         toolPricesDefault={settings['tool_price_setting.prices']}
         visibleTabs={['models', 'unset-models', 'tool-prices', 'upstream-sync']}
+      />
+    ),
+  },
+  {
+    id: 'starai-video-pricing',
+    titleKey: 'StarAI Video Pricing',
+    build: (settings: BillingSettings) => (
+      <StarAIVideoPricingSection
+        defaultValues={{
+          standard_720p: settings['starai_video_price.standard_720p'],
+          standard_720p_video:
+            settings['starai_video_price.standard_720p_video'],
+          standard_1080p: settings['starai_video_price.standard_1080p'],
+          standard_1080p_video:
+            settings['starai_video_price.standard_1080p_video'],
+          standard_4k: settings['starai_video_price.standard_4k'],
+          standard_4k_video: settings['starai_video_price.standard_4k_video'],
+          fast_720p: settings['starai_video_price.fast_720p'],
+          fast_720p_video: settings['starai_video_price.fast_720p_video'],
+        }}
       />
     ),
   },

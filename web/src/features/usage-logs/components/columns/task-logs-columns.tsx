@@ -17,31 +17,33 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
-import { Music } from 'lucide-react'
+import { CirclePlay, Music } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { TASK_ACTIONS, TASK_STATUS } from '../../constants'
-import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
+import { TASK_PLATFORMS, TASK_STATUS } from '../../constants'
+import {
+  taskActionMapper,
+  taskPlatformMapper,
+  taskStatusMapper,
+} from '../../lib/mappers'
 import type { TaskLog } from '../../types'
 import {
   AudioPreviewDialog,
   type AudioClip,
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
+import { VideoPreviewDialog } from '../dialogs/video-preview-dialog'
 import { useUsageLogsContext } from '../usage-logs-provider'
-import {
-  createDurationColumn,
-  createChannelColumn,
-  createProgressColumn,
-} from './column-helpers'
+import { createDurationColumn, createChannelColumn } from './column-helpers'
 
 function parseTaskData(data: unknown): unknown[] {
   if (Array.isArray(data)) return data
@@ -87,6 +89,59 @@ function AudioPreviewCell({ log }: { log: TaskLog }) {
         clips={clips as AudioClip[]}
       />
     </>
+  )
+}
+
+function TaskProgressCell({ log }: { log: TaskLog }) {
+  const { t } = useTranslation()
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const isGeneratedVideo =
+    log.platform === TASK_PLATFORMS.STARAI && log.status === TASK_STATUS.SUCCESS
+
+  if (isGeneratedVideo) {
+    return (
+      <>
+        <div className='flex flex-wrap items-center gap-1.5'>
+          <StatusBadge
+            label={t('Generated')}
+            variant='green'
+            size='sm'
+            copyable={false}
+          />
+          {log.result_url ? (
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='h-7 gap-1.5 px-2 text-xs'
+              onClick={(event) => {
+                event.stopPropagation()
+                setPreviewOpen(true)
+              }}
+            >
+              <CirclePlay className='size-3.5' />
+              {t('Preview')}
+            </Button>
+          ) : null}
+        </div>
+        {log.result_url ? (
+          <VideoPreviewDialog
+            open={previewOpen}
+            onOpenChange={setPreviewOpen}
+            log={log}
+          />
+        ) : null}
+      </>
+    )
+  }
+
+  if (!log.progress) {
+    return <span className='text-muted-foreground/60 text-xs'>-</span>
+  }
+  return (
+    <span className='border-border/60 bg-muted/30 inline-flex items-center rounded-md border px-1.5 py-0.5 font-mono text-xs'>
+      {log.progress}
+    </span>
   )
 }
 
@@ -182,7 +237,8 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
               className='border-border/60 bg-muted/30 !text-foreground max-w-full truncate rounded-md border px-1.5 py-0.5 font-mono'
             />
             <span className='text-muted-foreground/60 truncate text-[11px]'>
-              {t(log.platform)} · {t(taskActionMapper.getLabel(log.action))}
+              {t(taskPlatformMapper.getLabel(log.platform, log.platform))} ·{' '}
+              {t(taskActionMapper.getLabel(log.action))}
             </span>
           </div>
         )
@@ -195,6 +251,8 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       unit: 'seconds',
       headerLabel: t('Duration'),
       warningThresholdSec: 300,
+      getWarningThresholdSec: (log) =>
+        log.platform === TASK_PLATFORMS.STARAI ? 10 * 60 : 300,
     }),
     {
       accessorKey: 'status',
@@ -212,7 +270,11 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
         )
       },
     },
-    createProgressColumn<TaskLog>({ headerLabel: t('Progress') }),
+    {
+      accessorKey: 'progress',
+      header: t('Progress'),
+      cell: ({ row }) => <TaskProgressCell log={row.original} />,
+    },
     {
       accessorKey: 'fail_reason',
       header: t('Details'),
@@ -221,6 +283,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
         const failReason = row.getValue('fail_reason') as string
         const status = log.status
         const [dialogOpen, setDialogOpen] = useState(false)
+        const videoParams = log.video_params
 
         const isSunoSuccess =
           log.platform === 'suno' && status === TASK_STATUS.SUCCESS
@@ -238,55 +301,87 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           }
         }
 
-        const isVideoTask =
-          log.action === TASK_ACTIONS.GENERATE ||
-          log.action === TASK_ACTIONS.TEXT_GENERATE ||
-          log.action === TASK_ACTIONS.FIRST_TAIL_GENERATE ||
-          log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
-          log.action === TASK_ACTIONS.REMIX_GENERATE
-        const isSuccess = status === TASK_STATUS.SUCCESS
-        const isUrl = failReason?.startsWith('http')
-
-        if (isSuccess && isVideoTask && isUrl) {
-          const videoUrl = `/v1/videos/${log.task_id}/content`
-          return (
-            <a
-              href={videoUrl}
-              target='_blank'
-              rel='noopener noreferrer'
-              className='text-foreground text-xs hover:underline'
-            >
-              {t('Click to preview video')}
-            </a>
-          )
-        }
-
-        if (!failReason) {
+        if (!failReason && !videoParams) {
           return <span className='text-muted-foreground/60 text-xs'>-</span>
         }
 
         return (
-          <>
-            <button
-              type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
-              onClick={() => setDialogOpen(true)}
-              title={t('Click to view full error message')}
-            >
-              <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
-                {failReason}
-              </span>
-            </button>
-            <FailReasonDialog
-              failReason={failReason}
-              open={dialogOpen}
-              onOpenChange={setDialogOpen}
-            />
-          </>
+          <div className='flex max-w-[280px] flex-col gap-1.5'>
+            {videoParams && (
+              <div className='flex flex-wrap gap-1'>
+                {videoParams.resolution && (
+                  <StatusBadge
+                    label={videoParams.resolution}
+                    variant='blue'
+                    size='sm'
+                    copyable={false}
+                    className='border-blue-200/70 bg-blue-100/80 !text-blue-700 dark:border-blue-800/70 dark:bg-blue-950/60 dark:!text-blue-300'
+                  />
+                )}
+                {videoParams.ratio && (
+                  <StatusBadge
+                    label={videoParams.ratio}
+                    variant='violet'
+                    size='sm'
+                    copyable={false}
+                    className='border-violet-200/70 bg-violet-100/80 !text-violet-700 dark:border-violet-800/70 dark:bg-violet-950/60 dark:!text-violet-300'
+                  />
+                )}
+                {videoParams.seconds != null && videoParams.seconds > 0 && (
+                  <StatusBadge
+                    label={`${videoParams.seconds}s`}
+                    variant='green'
+                    size='sm'
+                    copyable={false}
+                    className='border-emerald-200/70 bg-emerald-100/80 !text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/60 dark:!text-emerald-300'
+                  />
+                )}
+                {videoParams.fps != null && videoParams.fps > 0 && (
+                  <StatusBadge
+                    label={`${videoParams.fps} FPS`}
+                    variant='orange'
+                    size='sm'
+                    copyable={false}
+                    className='border-orange-200/70 bg-orange-100/80 !text-orange-700 dark:border-orange-800/70 dark:bg-orange-950/60 dark:!text-orange-300'
+                  />
+                )}
+                <StatusBadge
+                  label={t(
+                    videoParams.has_video
+                      ? 'With reference video'
+                      : 'Without reference video'
+                  )}
+                  variant='cyan'
+                  size='sm'
+                  copyable={false}
+                  className='border-cyan-200/70 bg-cyan-100/80 !text-cyan-700 dark:border-cyan-800/70 dark:bg-cyan-950/60 dark:!text-cyan-300'
+                />
+              </div>
+            )}
+            {failReason && (
+              <>
+                <button
+                  type='button'
+                  className='group flex max-w-[260px] items-center gap-1 text-left text-xs'
+                  onClick={() => setDialogOpen(true)}
+                  title={t('Click to view full error message')}
+                >
+                  <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
+                    {failReason}
+                  </span>
+                </button>
+                <FailReasonDialog
+                  failReason={failReason}
+                  open={dialogOpen}
+                  onOpenChange={setDialogOpen}
+                />
+              </>
+            )}
+          </div>
         )
       },
-      size: 200,
-      maxSize: 220,
+      size: 280,
+      maxSize: 320,
     }
   )
 

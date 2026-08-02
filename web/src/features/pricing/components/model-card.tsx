@@ -30,11 +30,13 @@ import {
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
+import { getPricingModelDescription } from '../lib/model-description'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
+import { VideoPricingMatrix } from './video-pricing-matrix'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -85,6 +87,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     Math.max(groups.length - 1, 0) +
     Math.max(endpoints.length - 2, 0) +
     Math.max(tags.length - 2, 0)
+  const description = getPricingModelDescription(props.model, t)
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -92,7 +95,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   }
 
   let priceSummary: ReactNode
-  if (dynamicSummary) {
+  if (props.model.video_pricing) {
+    priceSummary = (
+      <span className='text-muted-foreground text-xs font-medium'>
+        {t('Tiered by resolution and video input')}
+      </span>
+    )
+  } else if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
       priceSummary = (
         <span className='min-w-0'>
@@ -242,8 +251,17 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
 
       {/* Description */}
       <p className='text-muted-foreground mt-2 line-clamp-1 flex-1 text-[13px] leading-relaxed sm:mt-4 sm:line-clamp-2 sm:min-h-[2.5rem]'>
-        {props.model.description || t('No description available.')}
+        {description || t('No description available.')}
       </p>
+
+      {props.model.video_pricing && (
+        <VideoPricingMatrix
+          pricing={props.model.video_pricing}
+          compact
+          tokenUnit={tokenUnit}
+          className='mt-3'
+        />
+      )}
 
       {/* Footer: left metadata and right performance summary share row alignment */}
       <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>
@@ -263,9 +281,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               {item}
             </span>
           ))}
-          <span className='text-muted-foreground/50 text-xs'>
-            {tokenUnitLabel}
-          </span>
+          {!props.model.video_pricing && (
+            <span className='text-muted-foreground/50 text-xs'>
+              {tokenUnitLabel}
+            </span>
+          )}
           {hiddenCount > 0 && (
             <span className='text-muted-foreground/40 text-xs'>
               +{hiddenCount}

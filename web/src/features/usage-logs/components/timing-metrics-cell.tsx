@@ -55,6 +55,7 @@ interface TimingMetricsCellProps {
   completionTokens: number
   frtMs?: number
   isStream: boolean
+  isSeedanceVideo?: boolean
   className?: string
   /**
    * `bar` (default) draws a full-height color segment beside the labels,
@@ -77,7 +78,8 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
       : getFirstResponseTimeColor(firstTokenSeconds)
   const totalTimeVariant = getResponseTimeColor(
     props.useTimeSec,
-    props.completionTokens
+    props.completionTokens,
+    props.isSeedanceVideo
   )
   const firstTokenLabel =
     firstTokenSeconds == null ? t('N/A') : formatUseTime(firstTokenSeconds)

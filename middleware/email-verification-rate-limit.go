@@ -59,6 +59,9 @@ func memoryEmailVerificationRateLimiter(c *gin.Context) {
 }
 
 func EmailVerificationRateLimit() gin.HandlerFunc {
+	if common.DisableAllRateLimit {
+		return defNext
+	}
 	// Keep the fallback ready before requests arrive so a concurrent Redis
 	// outage cannot race the in-memory limiter's first initialization.
 	inMemoryRateLimiter.Init(common.RateLimitKeyExpirationDuration)

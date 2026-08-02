@@ -2,8 +2,11 @@ package starai
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -20,6 +23,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -55,6 +59,9 @@ type requestPayload struct {
 type usage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	ToolUsage        struct {
+		WebSearch int `json:"web_search"`
+	} `json:"tool_usage"`
 }
 
 type nestedTaskPayload struct {
@@ -70,12 +77,12 @@ type nestedTaskPayload struct {
 
 type taskPayload struct {
 	TaskID     string            `json:"task_id"`
-	ID         string            `json:"id"`
+	ID         any               `json:"id"`
 	Message    string            `json:"message"`
 	Status     string            `json:"status"`
 	FailReason string            `json:"fail_reason"`
 	ResultURL  string            `json:"result_url"`
-	Progress   string            `json:"progress"`
+	Progress   any               `json:"progress"`
 	Usage      *usage            `json:"usage"`
 	Error      any               `json:"error"`
 	Data       nestedTaskPayload `json:"data"`
@@ -87,10 +94,10 @@ type responseEnvelope struct {
 	Error      any         `json:"error"`
 	FailReason string      `json:"fail_reason"`
 	TaskID     string      `json:"task_id"`
-	ID         string      `json:"id"`
+	ID         any         `json:"id"`
 	Status     string      `json:"status"`
 	ResultURL  string      `json:"result_url"`
-	Progress   string      `json:"progress"`
+	Progress   any         `json:"progress"`
 	Usage      *usage      `json:"usage"`
 	Data       taskPayload `json:"data"`
 }
@@ -126,17 +133,23 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
-	payload, err := a.convertToRequestPayload(&req, info)
+	payload, err := a.convertToRequestPayload(c, &req, info)
 	if err != nil {
+		if errors.Is(err, service.ErrStarAIAssetExpired) {
+			return service.TaskErrorWrapperLocal(err, "temporary_asset_expired", http.StatusBadRequest)
+		}
+		if errors.Is(err, service.ErrStarAIAssetVerify) {
+			return service.TaskErrorWrapperLocal(err, "temporary_asset_verification_failed", http.StatusBadGateway)
+		}
+		if errors.Is(err, service.ErrStarAIAssetNotReady) {
+			return service.TaskErrorWrapperLocal(err, "temporary_asset_not_ready", http.StatusBadRequest)
+		}
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
-	}
-	if err := applyExplicitTopLevelDuration(c, req, payload); err != nil {
-		return service.TaskErrorWrapperLocal(err, "invalid_seconds", http.StatusBadRequest)
 	}
 	if err := validateDuration(payload.Duration); err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_seconds", http.StatusBadRequest)
 	}
-	if err := validateContent(payload.Content); err != nil {
+	if err := validatePayload(payload); err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
 	return nil
@@ -158,14 +171,14 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
-	payload, err := a.convertToRequestPayload(&req, info)
+	payload, err := a.convertToRequestPayload(c, &req, info)
 	if err != nil {
 		return nil, err
 	}
-	if err := applyExplicitTopLevelDuration(c, req, payload); err != nil {
+	if err := validateDuration(payload.Duration); err != nil {
 		return nil, err
 	}
-	if err := validateDuration(payload.Duration); err != nil {
+	if err := validatePayload(payload); err != nil {
 		return nil, err
 	}
 	body, err := common.Marshal(payload)
@@ -187,15 +200,19 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	_ = resp.Body.Close()
 
 	var starResp responseEnvelope
-	if err := common.Unmarshal(responseBody, &starResp); err != nil {
-		return "", nil, service.TaskErrorWrapper(fmt.Errorf("invalid StarAI response"), "unmarshal_response_body_failed", http.StatusBadGateway)
+	if err := decodeStarAIResponse(responseBody, &starResp); err != nil {
+		contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+		return "", nil, service.TaskErrorWrapper(
+			fmt.Errorf("invalid StarAI response (status=%d, content-type=%q, bytes=%d)", resp.StatusCode, contentType, len(responseBody)),
+			"unmarshal_response_body_failed", http.StatusBadGateway,
+		)
 	}
-	if !isSuccessCode(starResp.Code) {
+	if starResp.Code != nil && !isSuccessCode(starResp.Code) {
 		message := a.safeErrorMessage(responseMessage(starResp))
 		return "", nil, service.TaskErrorWrapper(fmt.Errorf("%s", message), "starai_api_error", upstreamErrorStatus(resp.StatusCode))
 	}
 
-	upstreamID := firstNonEmpty(starResp.Data.TaskID, starResp.Data.ID, starResp.TaskID, starResp.ID)
+	upstreamID := firstNonEmpty(starResp.Data.TaskID, stringValue(starResp.Data.ID), starResp.TaskID, stringValue(starResp.ID))
 	if upstreamID == "" {
 		return "", nil, service.TaskErrorWrapper(fmt.Errorf("StarAI response did not include a task ID"), "invalid_response", http.StatusBadGateway)
 	}
@@ -208,6 +225,39 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	c.JSON(http.StatusOK, openAIVideo)
 
 	return upstreamID, service.SanitizeStarAIResponseBody(responseBody, info.PublicTaskID), nil
+}
+
+func decodeStarAIResponse(body []byte, target any) error {
+	trimmed := bytes.TrimSpace(bytes.TrimPrefix(body, []byte{0xef, 0xbb, 0xbf}))
+	if err := common.Unmarshal(trimmed, target); err == nil {
+		return nil
+	}
+
+	text := strings.TrimSpace(string(trimmed))
+	if strings.HasPrefix(text, "```") {
+		lines := strings.Split(text, "\n")
+		if len(lines) >= 3 && strings.HasPrefix(strings.TrimSpace(lines[0]), "```") && strings.TrimSpace(lines[len(lines)-1]) == "```" {
+			text = strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+			if err := common.Unmarshal([]byte(text), target); err == nil {
+				return nil
+			}
+		}
+	}
+
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		if err := common.Unmarshal([]byte(payload), target); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("response is not valid JSON")
 }
 
 func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
@@ -236,7 +286,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	if err := common.Unmarshal(respBody, &starResp); err != nil {
 		return nil, fmt.Errorf("unmarshal StarAI task result failed: %w", err)
 	}
-	if !isSuccessCode(starResp.Code) {
+	if starResp.Code != nil && !isSuccessCode(starResp.Code) {
 		return nil, fmt.Errorf("StarAI task query failed: %s", a.safeErrorMessage(responseMessage(starResp)))
 	}
 
@@ -254,11 +304,11 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 
 	result := &relaycommon.TaskInfo{
 		Code:             0,
-		TaskID:           firstNonEmpty(starResp.Data.TaskID, starResp.Data.ID, starResp.TaskID, starResp.ID),
+		TaskID:           firstNonEmpty(starResp.Data.TaskID, stringValue(starResp.Data.ID), starResp.TaskID, stringValue(starResp.ID)),
 		Status:           mapStatus(status),
 		Reason:           reason,
 		Url:              resultURL,
-		Progress:         firstNonEmpty(starResp.Data.Progress, starResp.Progress, defaultProgress(status)),
+		Progress:         firstNonEmpty(stringValue(starResp.Data.Progress), stringValue(starResp.Progress), defaultProgress(status)),
 		CompletionTokens: resultUsage.CompletionTokens,
 		TotalTokens:      resultUsage.TotalTokens,
 	}
@@ -283,7 +333,17 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	video.CompletedAt = originTask.UpdatedAt
 	resultAvailable := firstNonEmpty(starResp.Data.ResultURL, starResp.Data.Data.Content.VideoURL, starResp.ResultURL, originTask.GetResultURL()) != ""
 	if resultAvailable {
-		video.SetMetadata("url", taskcommon.BuildProxyURL(originTask.TaskID))
+		video.SetMetadata("url", service.BuildSignedVideoProxyURL(originTask.TaskID, originTask.UserId))
+	}
+	resultUsage := firstUsage(starResp)
+	if resultUsage != nil {
+		video.Usage = &dto.OpenAIVideoUsage{
+			CompletionTokens: resultUsage.CompletionTokens,
+			TotalTokens:      resultUsage.TotalTokens,
+			ToolUsage: dto.OpenAIVideoToolUsage{
+				WebSearch: resultUsage.ToolUsage.WebSearch,
+			},
+		}
 	}
 	if originTask.Status == model.TaskStatusFailure {
 		reason := firstNonEmpty(originTask.FailReason, starResp.Data.FailReason, starResp.Data.Data.FailReason, messageFromAny(starResp.Data.Data.Error), responseMessage(starResp))
@@ -300,8 +360,93 @@ func (a *TaskAdaptor) GetChannelName() string {
 	return ChannelName
 }
 
-func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, info *relaycommon.RelayInfo) (*requestPayload, error) {
-	generateAudio := false
+// EstimateBilling applies StarAI's Seedance price tier for the requested
+// output resolution and whether the request contains reference video input.
+// Duration is intentionally not multiplied here: StarAI's returned
+// total_tokens already reflects the generated video quantity.
+func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil
+	}
+	payload, err := a.convertToRequestPayload(c, &req, info)
+	if err != nil {
+		return nil
+	}
+	hasVideo := false
+	for _, item := range payload.Content {
+		if strings.EqualFold(strings.TrimSpace(item.Type), "video_url") {
+			hasVideo = true
+			break
+		}
+	}
+	price, ok := ratio_setting.GetStarAIVideoPrice(info.OriginModelName, payload.Resolution, hasVideo)
+	if !ok {
+		return nil
+	}
+	modelRatio, ok, _ := ratio_setting.GetModelRatio(info.OriginModelName)
+	if !ok {
+		modelRatio, ok = ratio_setting.GetDefaultModelRatioMap()[info.OriginModelName]
+	}
+	if !ok || modelRatio <= 0 {
+		return nil
+	}
+	// A model ratio of 1 represents 2 platform-currency units per 1M tokens.
+	// Reverse the configured absolute price into an OtherRatio so the value in
+	// the StarAI form remains authoritative even if the generic ratio changes.
+	priceRatio := price / (2 * modelRatio)
+	width, height := seedanceDimensions(payload.Resolution, payload.Ratio)
+	seconds := 5
+	if payload.Duration != nil && *payload.Duration > 0 {
+		seconds = *payload.Duration
+	}
+	const fps = 24
+	estimatedTokens := int(math.Ceil(float64(width*height*(fps*seconds+1)) / 1024.0))
+	info.EstimatedVideoTokens = estimatedTokens
+	info.EstimatedVideoPrice = float64(estimatedTokens) * price / 1_000_000
+	info.EstimatedVideoWidth = width
+	info.EstimatedVideoHeight = height
+	info.EstimatedVideoFPS = fps
+	info.EstimatedVideoSeconds = seconds
+	info.EstimatedVideoResolution = payload.Resolution
+	info.EstimatedVideoRatio = payload.Ratio
+	info.EstimatedVideoHasInput = hasVideo
+	info.EstimatedVideoUnitPrice = price
+	inputTier := "no-video-input"
+	if hasVideo {
+		inputTier = "video-input"
+	}
+	return map[string]float64{
+		fmt.Sprintf("seedance-%s-%s", strings.ToLower(payload.Resolution), inputTier): priceRatio,
+	}
+}
+
+func seedanceDimensions(resolution, ratio string) (int, int) {
+	// StarAI documents exact values for 480p/720p. 1080p uses the
+	// corresponding standard canvas. adaptive cannot be known before task
+	// completion, so it deliberately falls back to the common 16:9 canvas.
+	if ratio == "adaptive" || ratio == "" {
+		ratio = "16:9"
+	}
+	table := map[string]map[string][2]int{
+		"480p":  {"16:9": {864, 496}, "4:3": {752, 560}, "1:1": {640, 640}, "3:4": {560, 752}, "9:16": {496, 864}, "21:9": {992, 432}},
+		"720p":  {"16:9": {1280, 720}, "4:3": {1112, 834}, "1:1": {960, 960}, "3:4": {834, 1112}, "9:16": {720, 1280}, "21:9": {1470, 630}},
+		"1080p": {"16:9": {1920, 1080}, "4:3": {1440, 1080}, "1:1": {1080, 1080}, "3:4": {1080, 1440}, "9:16": {1080, 1920}, "21:9": {2520, 1080}},
+		"4k":    {"16:9": {3840, 2160}, "4:3": {2880, 2160}, "1:1": {2160, 2160}, "3:4": {2160, 2880}, "9:16": {2160, 3840}, "21:9": {5040, 2160}},
+	}
+	byRatio, ok := table[strings.ToLower(strings.TrimSpace(resolution))]
+	if !ok {
+		return 0, 0
+	}
+	if size, ok := byRatio[ratio]; ok {
+		return size[0], size[1]
+	}
+	size := byRatio["16:9"]
+	return size[0], size[1]
+}
+
+func (a *TaskAdaptor) convertToRequestPayload(c *gin.Context, req *relaycommon.TaskSubmitReq, info *relaycommon.RelayInfo) (*requestPayload, error) {
+	generateAudio := true
 	watermark := false
 	duration := 5
 	payload := &requestPayload{
@@ -309,7 +454,7 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 		Content:       make([]contentItem, 0),
 		GenerateAudio: &generateAudio,
 		Resolution:    "720p",
-		Ratio:         "16:9",
+		Ratio:         "adaptive",
 		Duration:      &duration,
 		Watermark:     &watermark,
 	}
@@ -321,6 +466,9 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 	}
 	if err := taskcommon.UnmarshalMetadata(metadata, payload); err != nil {
 		return nil, fmt.Errorf("unmarshal metadata failed: %w", err)
+	}
+	if err := applyTopLevelFields(c, payload); err != nil {
+		return nil, err
 	}
 	content := make([]contentItem, 0, len(req.Images)+len(payload.Content)+1)
 	for _, imageURL := range req.Images {
@@ -351,80 +499,203 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 		payload.Model = ModelList[0]
 	}
 
-	content = payload.Content[:0]
-	for _, item := range payload.Content {
-		if !strings.EqualFold(item.Type, "text") {
-			content = append(content, item)
-		}
-	}
-	payload.Content = content
 	if strings.TrimSpace(req.Prompt) != "" {
 		payload.Content = append(payload.Content, contentItem{Type: "text", Text: req.Prompt})
+	}
+	if err := a.resolveTemporaryAssets(c, payload, info); err != nil {
+		return nil, err
 	}
 	return payload, nil
 }
 
-func validateContent(content []contentItem) error {
-	for _, item := range content {
-		switch strings.ToLower(strings.TrimSpace(item.Type)) {
-		case "text":
-			if strings.TrimSpace(item.Text) != "" {
-				return nil
-			}
-		case "image_url":
-			if item.ImageURL != nil && strings.TrimSpace(item.ImageURL.URL) != "" {
-				return nil
-			}
-		case "video_url":
-			if item.VideoURL != nil && strings.TrimSpace(item.VideoURL.URL) != "" {
-				return nil
-			}
+const starAIResolvedAssetCacheKey = "starai_resolved_asset_uris"
+
+func (a *TaskAdaptor) resolveTemporaryAssets(c *gin.Context, payload *requestPayload, info *relaycommon.RelayInfo) error {
+	resolvedAssets := make(map[string]string)
+	if cached, ok := c.Get(starAIResolvedAssetCacheKey); ok {
+		if typed, valid := cached.(map[string]string); valid {
+			resolvedAssets = typed
 		}
 	}
-	return fmt.Errorf("prompt or reference image/video is required")
+	userID := c.GetInt("id")
+	proxy := ""
+	if info != nil {
+		userID = info.UserId
+		proxy = info.ChannelSetting.Proxy
+	}
+	for i := range payload.Content {
+		item := &payload.Content[i]
+		for _, media := range []*mediaURL{item.ImageURL, item.VideoURL, item.AudioURL} {
+			if media == nil || !strings.HasPrefix(media.URL, "asset://") {
+				continue
+			}
+			if resolved, ok := resolvedAssets[media.URL]; ok {
+				media.URL = resolved
+				continue
+			}
+			originalURI := media.URL
+			resolved, err := service.ResolveStarAIAssetURI(c.Request.Context(), originalURI, userID, service.StarAIAssetVerificationConfig{
+				BaseURL: a.baseURL,
+				APIKey:  a.apiKey,
+				Proxy:   proxy,
+			})
+			if err != nil {
+				return fmt.Errorf("invalid temporary asset: %w", err)
+			}
+			resolvedAssets[originalURI] = resolved
+			media.URL = resolved
+		}
+	}
+	c.Set(starAIResolvedAssetCacheKey, resolvedAssets)
+	return nil
 }
 
 func validateDuration(duration *int) error {
 	if duration == nil {
 		return nil
 	}
-	if *duration < 0 || *duration > relaycommon.MaxTaskDurationSeconds {
-		return fmt.Errorf("duration must be between 0 and %d", relaycommon.MaxTaskDurationSeconds)
+	if *duration != -1 && (*duration < 4 || *duration > maxDurationSeconds) {
+		return fmt.Errorf("duration must be -1 or between 4 and %d", maxDurationSeconds)
 	}
 	return nil
 }
 
-func applyExplicitTopLevelDuration(c *gin.Context, req relaycommon.TaskSubmitReq, payload *requestPayload) error {
-	if req.Seconds != "" || !strings.HasPrefix(c.GetHeader("Content-Type"), "application/json") {
+func applyTopLevelFields(c *gin.Context, payload *requestPayload) error {
+	if !strings.HasPrefix(c.GetHeader("Content-Type"), "application/json") {
 		return nil
 	}
-	var rawRequest map[string]any
-	if err := common.UnmarshalBodyReusable(c, &rawRequest); err != nil {
-		return fmt.Errorf("read explicit duration: %w", err)
+	var topLevel struct {
+		Content       *[]contentItem `json:"content"`
+		GenerateAudio *bool          `json:"generate_audio"`
+		Resolution    *string        `json:"resolution"`
+		Ratio         *string        `json:"ratio"`
+		Duration      *int           `json:"duration"`
+		Watermark     *bool          `json:"watermark"`
+		Tools         *[]tool        `json:"tools"`
 	}
-	rawDuration, exists := rawRequest["duration"]
-	if !exists || rawDuration == nil {
-		return nil
+	if err := common.UnmarshalBodyReusable(c, &topLevel); err != nil {
+		return fmt.Errorf("read StarAI request fields: %w", err)
+	}
+	if topLevel.Content != nil {
+		payload.Content = *topLevel.Content
+	}
+	if topLevel.GenerateAudio != nil {
+		payload.GenerateAudio = topLevel.GenerateAudio
+	}
+	if topLevel.Resolution != nil {
+		payload.Resolution = *topLevel.Resolution
+	}
+	if topLevel.Ratio != nil {
+		payload.Ratio = *topLevel.Ratio
+	}
+	if topLevel.Duration != nil {
+		payload.Duration = topLevel.Duration
+	}
+	if topLevel.Watermark != nil {
+		payload.Watermark = topLevel.Watermark
+	}
+	if topLevel.Tools != nil {
+		payload.Tools = *topLevel.Tools
+	}
+	return nil
+}
+
+func validatePayload(payload *requestPayload) error {
+	if payload.Resolution != "480p" && payload.Resolution != "720p" && payload.Resolution != "1080p" && payload.Resolution != "4k" {
+		return fmt.Errorf("resolution must be one of 480p, 720p, 1080p, or 4k")
+	}
+	if payload.Model == ModelList[1] && (payload.Resolution == "1080p" || payload.Resolution == "4k") {
+		return fmt.Errorf("%s is not supported by %s", payload.Resolution, ModelList[1])
+	}
+	validRatios := map[string]struct{}{"16:9": {}, "4:3": {}, "1:1": {}, "3:4": {}, "9:16": {}, "21:9": {}, "adaptive": {}}
+	if _, ok := validRatios[payload.Ratio]; !ok {
+		return fmt.Errorf("unsupported ratio %q", payload.Ratio)
+	}
+	for _, item := range payload.Tools {
+		if item.Type != "web_search" {
+			return fmt.Errorf("unsupported tool type %q", item.Type)
+		}
 	}
 
-	var duration int
-	switch value := rawDuration.(type) {
-	case float64:
-		if value < 0 || value > relaycommon.MaxTaskDurationSeconds || value != float64(int(value)) {
-			return fmt.Errorf("duration must be an integer between 0 and %d", relaycommon.MaxTaskDurationSeconds)
+	var textCount, imageCount, videoCount, audioCount int
+	var firstFrameCount, lastFrameCount, referenceImageCount int
+	for _, item := range payload.Content {
+		switch strings.ToLower(strings.TrimSpace(item.Type)) {
+		case "text":
+			if strings.TrimSpace(item.Text) == "" {
+				return fmt.Errorf("text content must not be empty")
+			}
+			textCount++
+		case "image_url":
+			if item.ImageURL == nil || strings.TrimSpace(item.ImageURL.URL) == "" {
+				return fmt.Errorf("image_url content requires a URL")
+			}
+			imageCount++
+			switch item.Role {
+			case "", "first_frame":
+				firstFrameCount++
+			case "last_frame":
+				lastFrameCount++
+			case "reference_image":
+				referenceImageCount++
+			default:
+				return fmt.Errorf("unsupported image role %q", item.Role)
+			}
+		case "video_url":
+			if item.VideoURL == nil || strings.TrimSpace(item.VideoURL.URL) == "" {
+				return fmt.Errorf("video_url content requires a URL")
+			}
+			if item.Role != "reference_video" {
+				return fmt.Errorf("video role must be reference_video")
+			}
+			videoCount++
+		case "audio_url":
+			if item.AudioURL == nil || strings.TrimSpace(item.AudioURL.URL) == "" {
+				return fmt.Errorf("audio_url content requires a URL")
+			}
+			if item.Role != "reference_audio" {
+				return fmt.Errorf("audio role must be reference_audio")
+			}
+			audioCount++
+		default:
+			return fmt.Errorf("unsupported content type %q", item.Type)
 		}
-		duration = int(value)
-	case string:
-		parsed, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("invalid duration: %w", err)
-		}
-		duration = parsed
-	default:
-		return fmt.Errorf("duration must be an integer")
 	}
-	payload.Duration = &duration
+	if textCount+imageCount+videoCount+audioCount == 0 || (imageCount+videoCount == 0 && textCount == 0) {
+		return fmt.Errorf("prompt or reference image/video is required")
+	}
+	if imageCount > 9 || videoCount > 3 || audioCount > 3 {
+		return fmt.Errorf("at most 9 images, 3 videos, and 3 audio files are supported")
+	}
+	frameScene := firstFrameCount > 0 || lastFrameCount > 0
+	referenceScene := referenceImageCount > 0 || videoCount > 0 || audioCount > 0
+	if frameScene && referenceScene {
+		return fmt.Errorf("frame-based and multimodal reference content cannot be mixed")
+	}
+	if frameScene {
+		if firstFrameCount != 1 || lastFrameCount > 1 || imageCount > 2 {
+			return fmt.Errorf("frame-based generation requires one first frame and at most one last frame")
+		}
+	}
+	if referenceScene {
+		if imageCount != referenceImageCount {
+			return fmt.Errorf("multimodal images must use role reference_image")
+		}
+		if audioCount > 0 && imageCount+videoCount == 0 {
+			return fmt.Errorf("audio requires at least one reference image or video")
+		}
+	}
 	return nil
+}
+
+func firstUsage(resp responseEnvelope) *usage {
+	if resp.Data.Data.Usage != nil {
+		return resp.Data.Data.Usage
+	}
+	if resp.Data.Usage != nil {
+		return resp.Data.Usage
+	}
+	return resp.Usage
 }
 
 func isSuccessCode(code any) bool {
@@ -499,6 +770,27 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func stringValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(typed), 'f', -1, 32)
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case json.Number:
+		return typed.String()
+	default:
+		return ""
+	}
 }
 
 var sensitiveQueryPattern = regexp.MustCompile(`(?i)(x-tos-signature|x-amz-signature|signature|x-amz-credential|credential|access_token|token|api_key)=([^&\s]+)`)

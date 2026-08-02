@@ -158,6 +158,19 @@ type RelayInfo struct {
 
 	PriceData hosttypes.PriceData
 
+	// StarAI Seedance estimation values are persisted into the async task's
+	// billing snapshot and surfaced in usage logs.
+	EstimatedVideoTokens     int
+	EstimatedVideoPrice      float64
+	EstimatedVideoWidth      int
+	EstimatedVideoHeight     int
+	EstimatedVideoFPS        int
+	EstimatedVideoSeconds    int
+	EstimatedVideoResolution string
+	EstimatedVideoRatio      string
+	EstimatedVideoHasInput   bool
+	EstimatedVideoUnitPrice  float64
+
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
 	// int32 bound (or NaN fallback) while computing this request's charge.
 	// It is surfaced onto the consume/task log's admin_info for auditing.

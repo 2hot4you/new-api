@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,10 +45,6 @@ func setupChannelBillingTestDB(t *testing.T) *gorm.DB {
 
 func TestUpdateChannelStarAIBalance(t *testing.T) {
 	db := setupChannelBillingTestDB(t)
-	originalPrice := operation_setting.Price
-	operation_setting.Price = 7.3
-	t.Cleanup(func() { operation_setting.Price = originalPrice })
-
 	const key = "starai-secret-key"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
@@ -67,33 +61,26 @@ func TestUpdateChannelStarAIBalance(t *testing.T) {
 
 	balance, err := updateChannelStarAIBalance(channel)
 	require.NoError(t, err)
-	assert.InDelta(t, 10, balance, 1e-12)
+	assert.InDelta(t, 73, balance, 1e-12)
 
 	var saved model.Channel
 	require.NoError(t, db.First(&saved, channel.Id).Error)
-	assert.InDelta(t, 10, saved.Balance, 1e-12)
+	assert.InDelta(t, 73, saved.Balance, 1e-12)
 }
 
 func TestUpdateChannelStarAIBalanceRejectsInvalidResponsesWithoutLeakingKey(t *testing.T) {
 	setupChannelBillingTestDB(t)
-	originalPrice := operation_setting.Price
-	t.Cleanup(func() { operation_setting.Price = originalPrice })
-
 	tests := []struct {
-		name  string
-		price float64
-		body  string
+		name string
+		body string
 	}{
-		{name: "unsuccessful code", price: 7.3, body: `{"code":false,"message":"starai-secret-key"}`},
-		{name: "negative balance", price: 7.3, body: `{"code":true,"data":{"balance_cny":-1}}`},
-		{name: "non-finite balance", price: 7.3, body: `{"code":true,"data":{"balance_cny":1e999}}`},
-		{name: "zero price", price: 0, body: `{"code":true,"data":{"balance_cny":10}}`},
-		{name: "non-finite price", price: math.Inf(1), body: `{"code":true,"data":{"balance_cny":10}}`},
+		{name: "unsuccessful code", body: `{"code":false,"message":"starai-secret-key"}`},
+		{name: "negative balance", body: `{"code":true,"data":{"balance_cny":-1}}`},
+		{name: "non-finite balance", body: `{"code":true,"data":{"balance_cny":1e999}}`},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			operation_setting.Price = tt.price
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = w.Write([]byte(tt.body))
 			}))

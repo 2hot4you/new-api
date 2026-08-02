@@ -382,13 +382,7 @@ func updateChannelStarAIBalance(channel *model.Channel) (float64, error) {
 	if math.IsNaN(response.Data.BalanceCNY) || math.IsInf(response.Data.BalanceCNY, 0) || response.Data.BalanceCNY < 0 {
 		return 0, errors.New("StarAI returned an invalid balance")
 	}
-	if math.IsNaN(operation_setting.Price) || math.IsInf(operation_setting.Price, 0) || operation_setting.Price <= 0 {
-		return 0, errors.New("system price must be a finite positive number")
-	}
-
-	balance := decimal.NewFromFloat(response.Data.BalanceCNY).
-		Div(decimal.NewFromFloat(operation_setting.Price)).
-		InexactFloat64()
+	balance := response.Data.BalanceCNY
 	if math.IsNaN(balance) || math.IsInf(balance, 0) || balance < 0 {
 		return 0, errors.New("converted StarAI balance is invalid")
 	}

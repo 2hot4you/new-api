@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -269,6 +270,37 @@ func TokenOrUserAuth() func(c *gin.Context) {
 		}
 		// Opaque credentials are relay API keys here, never dashboard PATs.
 		TokenAuth()(c)
+	}
+}
+
+// VideoProxyAuth accepts a short-lived signed playback URL, falling back to
+// the normal dashboard/API-token authentication flow when no signature is
+// present. The signed URL never contains or exposes the user's API key.
+func VideoProxyAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		signature := strings.TrimSpace(c.Query("signature"))
+		if signature == "" {
+			TokenOrUserAuth()(c)
+			return
+		}
+		userID, err := service.VerifyVideoPlaybackSignature(
+			c.Param("task_id"),
+			c.Query("user_id"),
+			c.Query("expires"),
+			signature,
+			time.Now(),
+		)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": gin.H{
+					"message": "Video playback link is invalid or expired",
+					"type":    "invalid_request_error",
+				},
+			})
+			return
+		}
+		c.Set("id", userID)
+		c.Next()
 	}
 }
 

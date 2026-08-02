@@ -27,10 +27,25 @@ export type PricingVendor = {
   description?: string
 }
 
+export type VideoPricingRow = {
+  resolutions: string[]
+  without_video: number
+  with_video: number
+}
+
+export type VideoPricing = {
+  unit: string
+  fps: number
+  extra_frames: number
+  rows: VideoPricingRow[]
+  unsupported_resolutions?: string[]
+}
+
 export type PricingModel = {
   id: number
   model_name: string
   description?: string
+  description_i18n_key?: string
   icon?: string
   vendor_id?: number
   vendor_name?: string
@@ -56,6 +71,8 @@ export type PricingModel = {
   billing_expr?: string
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
+  /** Resolution and reference-video aware pricing for video generation. */
+  video_pricing?: VideoPricing
   /**
    * Optional model metadata fields reserved for backend-provided catalog data.
    * Keep them data-driven; do not synthesize display values on the client.
@@ -95,7 +112,7 @@ export type PricingData = {
   vendors: PricingVendor[]
   group_ratio: Record<string, number>
   usable_group: Record<string, { desc: string; ratio: number }>
-  supported_endpoint: Record<string, string>
+  supported_endpoint: Record<string, { path?: string; method?: string }>
   auto_groups: string[]
 }
 

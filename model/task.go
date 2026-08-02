@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -114,12 +115,23 @@ type TaskPrivateData struct {
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 type TaskBillingContext struct {
-	ModelPrice      float64            `json:"model_price,omitempty"`       // 模型单价
-	GroupRatio      float64            `json:"group_ratio,omitempty"`       // 分组倍率
-	ModelRatio      float64            `json:"model_ratio,omitempty"`       // 模型倍率
-	OtherRatios     map[string]float64 `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
-	OriginModelName string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
-	PerCallBilling  bool               `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	ModelPrice          float64            `json:"model_price,omitempty"`       // 模型单价
+	GroupRatio          float64            `json:"group_ratio,omitempty"`       // 分组倍率
+	ModelRatio          float64            `json:"model_ratio,omitempty"`       // 模型倍率
+	OtherRatios         map[string]float64 `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
+	OriginModelName     string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
+	PerCallBilling      bool               `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	EstimatedTokens     int                `json:"estimated_tokens,omitempty"`
+	EstimatedPrice      float64            `json:"estimated_price,omitempty"`
+	EstimatedWidth      int                `json:"estimated_width,omitempty"`
+	EstimatedHeight     int                `json:"estimated_height,omitempty"`
+	EstimatedFPS        int                `json:"estimated_fps,omitempty"`
+	EstimatedSeconds    int                `json:"estimated_seconds,omitempty"`
+	EstimatedResolution string             `json:"estimated_resolution,omitempty"`
+	EstimatedRatio      string             `json:"estimated_ratio,omitempty"`
+	EstimatedHasVideo   bool               `json:"estimated_has_video,omitempty"`
+	EstimatedUnitPrice  float64            `json:"estimated_unit_price,omitempty"`
+	ActualTokens        int                `json:"actual_tokens,omitempty"`
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
@@ -317,6 +329,41 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 		return nil
 	}
 	return tasks
+}
+
+// ClearExpiredStarAIResultMetadata removes deliverable result URLs and the
+// sanitized upstream response after the retention window. Billing metadata,
+// status, timings and token usage remain intact for accounting.
+func ClearExpiredStarAIResultMetadata(cutoffUnix int64, limit int) (int64, error) {
+	if cutoffUnix <= 0 || limit <= 0 {
+		return 0, nil
+	}
+	var tasks []*Task
+	platform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
+	if err := DB.Where("platform = ?", platform).
+		Where("status = ?", TaskStatusSuccess).
+		Where("finish_time > 0 AND finish_time < ?", cutoffUnix).
+		Where("data IS NOT NULL").
+		Order("id").Limit(limit).Find(&tasks).Error; err != nil {
+		return 0, err
+	}
+	var cleared int64
+	for _, task := range tasks {
+		if task.PrivateData.ResultURL == "" && len(task.Data) == 0 {
+			continue
+		}
+		task.PrivateData.ResultURL = ""
+		task.Data = nil
+		result := DB.Model(&Task{}).Where("id = ?", task.ID).Updates(map[string]any{
+			"private_data": task.PrivateData,
+			"data":         nil,
+		})
+		if result.Error != nil {
+			return cleared, result.Error
+		}
+		cleared += result.RowsAffected
+	}
+	return cleared, nil
 }
 
 // HasUnfinishedSyncTasks reports whether at least one async (Suno/video) task is

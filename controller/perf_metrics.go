@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -66,6 +67,44 @@ func GetPerfMetrics(c *gin.Context) {
 	}
 
 	result.Groups = filterActiveGroups(result.Groups)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+	})
+}
+
+func GetVideoPerfMetrics(c *gin.Context) {
+	modelName := c.Query("model")
+	if modelName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "model is required",
+		})
+		return
+	}
+
+	hours := 24
+	if rawHours := c.Query("hours"); rawHours != "" {
+		if parsed, err := strconv.Atoi(rawHours); err == nil {
+			hours = parsed
+		}
+	}
+	if hours <= 0 {
+		hours = 24
+	}
+	if hours > 24*30 {
+		hours = 24 * 30
+	}
+
+	result, err := model.GetStarAIVideoPerformance(modelName, hours)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

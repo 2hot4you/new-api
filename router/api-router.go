@@ -36,6 +36,7 @@ func SetApiRouter(router *gin.Engine) {
 		perfMetricsRoute.Use(middleware.HeaderNavModulePublicOrUserAuth("pricing"))
 		{
 			perfMetricsRoute.GET("/summary", controller.GetPerfMetricsSummary)
+			perfMetricsRoute.GET("/video", controller.GetVideoPerfMetrics)
 			perfMetricsRoute.GET("", controller.GetPerfMetrics)
 		}
 		apiRouter.GET("/rankings", middleware.HeaderNavModuleAuth("rankings"), controller.GetRankings)
@@ -328,6 +329,29 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
 			taskRoute.GET("/", middleware.AdminAuth(), controller.GetAllTask)
+		}
+
+		assetRoute := apiRouter.Group("/assets/self")
+		assetRoute.Use(middleware.UserAuth())
+		{
+			assetRoute.GET("", controller.ListStarAIAssets)
+			assetRoute.POST("", controller.CreateStarAIAsset)
+			assetRoute.GET("/upload-config", controller.GetStarAICOSUploadConfig)
+			assetRoute.POST("/upload-intent", controller.CreateStarAICOSUploadIntent)
+			assetRoute.POST("/upload-complete", controller.CompleteStarAICOSUpload)
+			assetRoute.GET("/:id", controller.GetStarAIAsset)
+			assetRoute.PATCH("/:id/source-url", controller.UpdateStarAIAssetSourceURL)
+			assetRoute.DELETE("/:id", controller.DeleteStarAIAsset)
+		}
+		assetAdminRoute := apiRouter.Group("/assets/admin")
+		assetAdminRoute.Use(middleware.AdminAuth())
+		{
+			assetAdminRoute.GET("", controller.ListStarAIAssetsForAdmin)
+			assetAdminRoute.GET("/stats", controller.GetStarAIAssetStats)
+			assetAdminRoute.POST("/cos/test", controller.TestStarAICOSStorage)
+			assetAdminRoute.GET("/:id", controller.GetStarAIAssetForAdmin)
+			assetAdminRoute.PATCH("/:id/source-url", controller.UpdateStarAIAssetSourceURLForAdmin)
+			assetAdminRoute.DELETE("/:id", controller.DeleteStarAIAssetForAdmin)
 		}
 
 		vendorRoute := apiRouter.Group("/vendors")

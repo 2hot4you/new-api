@@ -85,6 +85,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 		if !isLegacy && task.Quota != 0 {
 			RefundTaskQuota(ctx, task, reason)
 		}
+		LogFailedStarAITask(task)
 	}
 
 	if timedOutCount > 0 {
@@ -562,6 +563,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	shouldRefund := false
 	shouldSettle := false
+	shouldLogFailure := false
 	quota := task.Quota
 
 	task.Status = model.TaskStatus(taskResult.Status)
@@ -592,6 +594,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 		shouldSettle = true
 	case model.TaskStatusFailure:
+		shouldLogFailure = true
 		if isStarAI {
 			logger.LogInfo(ctx, fmt.Sprintf("StarAI public task %s reached failure status", publicTaskID))
 		} else {
@@ -629,10 +632,12 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			logger.LogError(ctx, fmt.Sprintf("UpdateWithStatus failed for task %s: %s", task.TaskID, err.Error()))
 			shouldRefund = false
 			shouldSettle = false
+			shouldLogFailure = false
 		} else if !won {
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
 			shouldRefund = false
 			shouldSettle = false
+			shouldLogFailure = false
 		}
 	} else if !snap.Equal(task.Snapshot()) {
 		if _, err := task.UpdateWithStatus(snap.Status); err != nil {
@@ -644,10 +649,15 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	if shouldSettle {
+		preConsumedQuota := task.Quota
 		settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+		LogSuccessfulStarAITask(task, preConsumedQuota)
 	}
 	if shouldRefund {
 		RefundTaskQuota(ctx, task, task.FailReason)
+	}
+	if shouldLogFailure {
+		LogFailedStarAITask(task)
 	}
 
 	return nil

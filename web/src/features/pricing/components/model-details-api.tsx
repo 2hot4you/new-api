@@ -41,12 +41,12 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useStatus } from '@/hooks/use-status'
 
 import {
-  buildRateLimits,
   buildSupportedParameters,
-  formatRateLimit,
   type SupportedParameter,
 } from '../lib/mock-stats'
 import { replaceModelInPath } from '../lib/model-helpers'
+import { buildVideoSample } from '../lib/video-api-sample'
+import { isOpenAIVideoModel } from '../lib/video-model'
 import type { PricingModel } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ function buildChatSample(lang: Lang, ctx: SampleContext): string {
       `curl ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${bodyJson.replace(/\n/g, '\n     ')}'`,
+      `  -d '${bodyJson.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
 
@@ -177,7 +177,7 @@ function buildAnthropicSample(lang: Lang, ctx: SampleContext): string {
       `  -H "x-api-key: $${ctx.apiKeyEnv}" \\`,
       `  -H "anthropic-version: 2023-06-01" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -249,7 +249,7 @@ function buildGeminiSample(lang: Lang, ctx: SampleContext): string {
     return [
       `curl '${url}' \\`,
       `  -H 'Content-Type: application/json' \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -299,7 +299,7 @@ function buildEmbeddingSample(lang: Lang, ctx: SampleContext): string {
       `curl ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -365,7 +365,7 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
       `curl ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -430,9 +430,11 @@ function buildSample(
 ): string {
   if (endpointType === 'anthropic') return buildAnthropicSample(lang, ctx)
   if (endpointType === 'gemini') return buildGeminiSample(lang, ctx)
-  if (endpointType === 'embeddings' || endpointType === 'jina-rerank')
+  if (endpointType === 'embeddings' || endpointType === 'jina-rerank') {
     return buildEmbeddingSample(lang, ctx)
+  }
   if (endpointType === 'image-generation') return buildImageSample(lang, ctx)
+  if (endpointType === 'openai-video') return buildVideoSample(lang, ctx)
   return buildChatSample(lang, ctx)
 }
 
@@ -606,8 +608,8 @@ function SupportedParametersSection(props: { model: PricingModel }) {
           },
           {
             id: 'range',
-            header: t('Default / range'),
-            className: 'h-9 w-32',
+            header: t('Default / allowed values'),
+            className: 'h-9 min-w-64',
             cellClassName: tableStyles.topCell,
             cell: (p) => <ParamRangeCell param={p} />,
           },
@@ -624,37 +626,154 @@ function SupportedParametersSection(props: { model: PricingModel }) {
   )
 }
 
-function ParamRangeCell(props: { param: SupportedParameter }) {
-  const { defaultValue, range, enumValues } = props.param
-  if (defaultValue !== undefined) {
-    return (
-      <div className='flex flex-wrap items-center gap-1'>
-        <span className='text-muted-foreground text-sm'>=</span>
-        <code className='bg-muted rounded px-1.5 py-0.5 font-mono text-sm'>
-          {String(defaultValue)}
-        </code>
-        {range && (
-          <span className='text-muted-foreground text-sm'>{range}</span>
+function VideoContentFormatSection() {
+  const { t } = useTranslation()
+  const rows = [
+    {
+      kind: t('Prompt text'),
+      type: 'text',
+      role: '—',
+      description: t('The text field is required and cannot be empty.'),
+    },
+    {
+      kind: t('First or last frame'),
+      type: 'image_url',
+      role: 'first_frame / last_frame',
+      description: t(
+        'Frame mode requires exactly one first frame and at most one last frame.'
+      ),
+    },
+    {
+      kind: t('Reference image'),
+      type: 'image_url',
+      role: 'reference_image',
+      description: t(
+        'Up to 9 images; every image in reference mode must use this role.'
+      ),
+    },
+    {
+      kind: t('Reference video'),
+      type: 'video_url',
+      role: 'reference_video',
+      description: t(
+        'Up to 3 videos; this input selects the video-input price tier.'
+      ),
+    },
+    {
+      kind: t('Reference audio'),
+      type: 'audio_url',
+      role: 'reference_audio',
+      description: t(
+        'Audio must be used with at least one reference image or video; audio alone does not select the video-input price tier.'
+      ),
+    },
+  ]
+
+  return (
+    <section>
+      <SectionTitle icon={ScrollText}>{t('Content item format')}</SectionTitle>
+      <StaticDataTable
+        className={tableStyles.sectionContainer}
+        headerRowClassName={tableStyles.mutedHeaderRow}
+        data={rows}
+        getRowKey={(row) => `${row.type}:${row.role}`}
+        columns={[
+          {
+            id: 'kind',
+            header: t('Input type'),
+            className: 'h-9 w-32',
+            cellClassName: tableStyles.topCell,
+            cell: (row) => row.kind,
+          },
+          {
+            id: 'type',
+            header: 'type',
+            className: 'h-9 w-24',
+            cellClassName: tableStyles.topCell,
+            cell: (row) => (
+              <code className='font-mono text-xs'>{row.type}</code>
+            ),
+          },
+          {
+            id: 'role',
+            header: 'role',
+            className: 'h-9 w-44',
+            cellClassName: tableStyles.topCell,
+            cell: (row) => (
+              <code className='font-mono text-xs'>{row.role}</code>
+            ),
+          },
+          {
+            id: 'description',
+            header: t('Description'),
+            className: 'h-9 min-w-52',
+            cellClassName: `${tableStyles.topMutedCell} whitespace-normal`,
+            cell: (row) => (
+              <div className='text-sm leading-relaxed whitespace-normal'>
+                <span>{row.description}</span>
+              </div>
+            ),
+          },
+        ]}
+      />
+      <p className='text-muted-foreground mt-2 text-xs'>
+        {t(
+          'Frame-based input and multimodal reference input cannot be mixed in one request.'
+        )}{' '}
+        {t(
+          'Task creation is asynchronous. Query the returned task ID until the status is completed or failed.'
         )}
-      </div>
-    )
-  }
-  if (range) {
+      </p>
+    </section>
+  )
+}
+
+function ParamRangeCell(props: { param: SupportedParameter }) {
+  const { t } = useTranslation()
+  const { defaultValue, range, enumValues } = props.param
+  const hasDefault = defaultValue !== undefined
+  const hasEnums = Boolean(enumValues?.length)
+
+  if (hasDefault || range || hasEnums) {
     return (
-      <span className='text-muted-foreground font-mono text-sm'>{range}</span>
-    )
-  }
-  if (enumValues && enumValues.length > 0) {
-    return (
-      <div className='flex flex-wrap gap-0.5'>
-        {enumValues.map((v) => (
-          <code
-            key={v}
-            className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-sm'
-          >
-            {v}
-          </code>
-        ))}
+      <div className='space-y-1.5'>
+        {hasDefault && (
+          <div className='flex flex-wrap items-center gap-1.5'>
+            <span className='text-muted-foreground text-xs'>
+              {t('Default')}
+            </span>
+            <code className='bg-muted rounded px-1.5 py-0.5 font-mono text-sm'>
+              {String(defaultValue)}
+            </code>
+          </div>
+        )}
+        {range && (
+          <div className='flex items-start gap-1.5'>
+            <span className='text-muted-foreground shrink-0 text-xs'>
+              {t('Range')}
+            </span>
+            <span className='text-muted-foreground text-sm'>{t(range)}</span>
+          </div>
+        )}
+        {hasEnums && (
+          <div className='flex items-start gap-1.5'>
+            <span className='text-muted-foreground shrink-0 pt-0.5 text-xs'>
+              {t('Allowed values')}
+            </span>
+            <div className='flex flex-wrap gap-1'>
+              {enumValues?.map((value) => (
+                <code
+                  key={value}
+                  className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-sm'
+                >
+                  {value === 'adaptive'
+                    ? `${value} · ${t('Automatic aspect ratio')}`
+                    : value}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -665,57 +784,25 @@ function ParamRangeCell(props: { param: SupportedParameter }) {
 // Rate-limits table
 // ---------------------------------------------------------------------------
 
-function RateLimitsSection(props: { model: PricingModel }) {
+function RateLimitsSection() {
   const { t } = useTranslation()
-  const limits = useMemo(() => buildRateLimits(props.model), [props.model])
-
-  if (limits.length === 0) return null
 
   return (
     <section>
       <SectionTitle icon={Gauge}>{t('Rate limits')}</SectionTitle>
-      <StaticDataTable
-        className={tableStyles.sectionContainer}
-        headerRowClassName={tableStyles.mutedHeaderRow}
-        data={limits}
-        getRowKey={(limit) => limit.group}
-        getRowClassName={() => 'hover:bg-muted/20'}
-        columns={[
-          {
-            id: 'group',
-            header: t('Group'),
-            className: 'h-9',
-            cellClassName: 'py-2 font-mono',
-            cell: (limit) => limit.group,
-          },
-          {
-            id: 'rpm',
-            header: 'RPM',
-            className: 'h-9 text-right',
-            cellClassName: tableStyles.topNumericCell,
-            cell: (limit) => formatRateLimit(limit.rpm),
-          },
-          {
-            id: 'tpm',
-            header: 'TPM',
-            className: 'h-9 text-right',
-            cellClassName: tableStyles.topNumericCell,
-            cell: (limit) => formatRateLimit(limit.tpm),
-          },
-          {
-            id: 'rpd',
-            header: 'RPD',
-            className: 'h-9 text-right',
-            cellClassName: tableStyles.topNumericCell,
-            cell: (limit) => formatRateLimit(limit.rpd),
-          },
-        ]}
-      />
-      <p className='text-muted-foreground mt-2 text-[11px] leading-relaxed'>
-        {t(
-          'RPM = requests per minute, TPM = tokens per minute, RPD = requests per day. Limits apply per token group.'
-        )}
-      </p>
+      <div className='border-border/60 bg-muted/20 flex items-center justify-between gap-3 rounded-lg border p-3'>
+        <div>
+          <div className='text-sm font-semibold'>{t('Unlimited')}</div>
+          <p className='text-muted-foreground mt-0.5 text-xs'>
+            {t(
+              'No platform-level RPM, TPM, or daily request limit is applied.'
+            )}
+          </p>
+        </div>
+        <Badge variant='secondary' className='shrink-0 rounded-full px-3'>
+          {t('No limit')}
+        </Badge>
+      </div>
     </section>
   )
 }
@@ -724,7 +811,7 @@ function RateLimitsSection(props: { model: PricingModel }) {
 // Authentication preview
 // ---------------------------------------------------------------------------
 
-function AuthSection() {
+function AuthSection(props: { videoOnly: boolean }) {
   const { t } = useTranslation()
   return (
     <section>
@@ -732,17 +819,27 @@ function AuthSection() {
       <div className='border-border/60 bg-muted/20 flex items-start gap-2 rounded-lg border p-3'>
         <ChevronRight className='text-muted-foreground mt-0.5 size-3.5 shrink-0' />
         <div className='space-y-1.5 text-xs leading-relaxed'>
-          <p>
-            {t('All requests must include')}{' '}
-            <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
-              Authorization: Bearer &lt;TOKEN&gt;
-            </code>{' '}
-            {t('header. Anthropic-formatted endpoints accept the')}{' '}
-            <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
-              x-api-key
-            </code>{' '}
-            {t('header instead.')}
-          </p>
+          {props.videoOnly ? (
+            <p>
+              {t('Video requests must include the')}{' '}
+              <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
+                Authorization: Bearer &lt;TOKEN&gt;
+              </code>{' '}
+              {t('request header.')}
+            </p>
+          ) : (
+            <p>
+              {t('All requests must include')}{' '}
+              <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
+                Authorization: Bearer &lt;TOKEN&gt;
+              </code>{' '}
+              {t('header. Anthropic-formatted endpoints accept the')}{' '}
+              <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
+                x-api-key
+              </code>{' '}
+              {t('header instead.')}
+            </p>
+          )}
           <p className='text-muted-foreground'>
             {t(
               'Generate tokens from the Tokens page; you can scope them to specific models, groups, IPs, and rate-limits.'
@@ -762,12 +859,14 @@ export function ModelDetailsApi(props: {
   model: PricingModel
   endpointMap: Record<string, { path?: string; method?: string }>
 }) {
+  const videoOnly = isOpenAIVideoModel(props.model)
   return (
     <div className='space-y-6'>
       <CodeSamplesSection model={props.model} endpointMap={props.endpointMap} />
-      <AuthSection />
+      <AuthSection videoOnly={videoOnly} />
       <SupportedParametersSection model={props.model} />
-      <RateLimitsSection model={props.model} />
+      {videoOnly && <VideoContentFormatSection />}
+      <RateLimitsSection />
     </div>
   )
 }

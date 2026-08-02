@@ -193,6 +193,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			info.PriceData.AddOtherRatio(k, v)
 		}
 	}
+	applyEstimatedVideoQuota(info)
 
 	// 6. 将 OtherRatios 应用到基础额度（饱和转换，防止溢出成负数）
 	if !common.StringsContains(constant.TaskPricePatches, modelName) {
@@ -262,6 +263,19 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Platform:       platform,
 		Quota:          finalQuota,
 	}, nil
+}
+
+// applyEstimatedVideoQuota replaces the generic half-million-token task
+// precharge with the Seedance request estimate. OtherRatios are applied by the
+// caller immediately afterwards, preserving resolution/input pricing tiers.
+func applyEstimatedVideoQuota(info *relaycommon.RelayInfo) {
+	if info == nil || info.EstimatedVideoTokens <= 0 || info.PriceData.UsePrice {
+		return
+	}
+	baseQuota := float64(info.EstimatedVideoTokens) * info.PriceData.ModelRatio * info.PriceData.GroupRatioInfo.GroupRatio
+	quota, clamp := common.QuotaFromFloatChecked(baseQuota)
+	info.PriceData.Quota = quota
+	noteTaskQuotaClamp(info, clamp)
 }
 
 // recalcQuotaFromRatios 根据 adjustedRatios 重新计算 quota。
@@ -553,6 +567,12 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 }
 
 func TaskModel2Dto(task *model.Task) *dto.TaskDto {
+	resultURL := task.GetResultURL()
+	taskData := task.Data
+	if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)) && task.Status == model.TaskStatusSuccess {
+		resultURL = service.BuildSignedVideoProxyURL(task.TaskID, task.UserId)
+		taskData = service.RewriteStarAIVideoResponseURLs(task.Data, resultURL)
+	}
 	return &dto.TaskDto{
 		ID:         task.ID,
 		CreatedAt:  task.CreatedAt,
@@ -566,13 +586,13 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Action:     task.Action,
 		Status:     string(task.Status),
 		FailReason: task.FailReason,
-		ResultURL:  task.GetResultURL(),
+		ResultURL:  resultURL,
 		SubmitTime: task.SubmitTime,
 		StartTime:  task.StartTime,
 		FinishTime: task.FinishTime,
 		Progress:   task.Progress,
 		Properties: task.Properties,
 		Username:   task.Username,
-		Data:       task.Data,
+		Data:       taskData,
 	}
 }

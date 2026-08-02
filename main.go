@@ -363,6 +363,7 @@ func InitResources() error {
 	}
 
 	service.StartAuthArtifactCleanup()
+	service.StartStarAICOSObjectCleanup()
 
 	return nil
 }

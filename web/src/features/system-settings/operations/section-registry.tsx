@@ -25,6 +25,7 @@ import { PerformanceSection } from '../maintenance/performance-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { ObjectStorageSection } from './object-storage-section'
 
 const OPERATIONS_SECTIONS = [
   {
@@ -98,6 +99,26 @@ const OPERATIONS_SECTIONS = [
     build: (settings: OperationsSettings) => (
       <LogSettingsSection
         defaultEnabled={Boolean(settings.LogConsumeEnabled)}
+      />
+    ),
+  },
+  {
+    id: 'object-storage',
+    titleKey: 'Object Storage',
+    build: (settings: OperationsSettings) => (
+      <ObjectStorageSection
+        defaultValues={{
+          COSEnabled: settings.COSEnabled,
+          COSBucket: settings.COSBucket,
+          COSRegion: settings.COSRegion,
+          COSSecretID: settings.COSSecretID,
+          COSSecretKey: '',
+          COSCustomDomain: settings.COSCustomDomain,
+          COSPathPrefix: settings.COSPathPrefix,
+          COSUploadExpiryMinutes: settings.COSUploadExpiryMinutes,
+          COSReadExpiryMinutes: settings.COSReadExpiryMinutes,
+        }}
+        secretConfigured={settings.COSSecretKeyConfigured}
       />
     ),
   },

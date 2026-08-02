@@ -67,8 +67,10 @@ import {
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
+import { getPricingModelDescription } from '../lib/model-description'
 import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
+import { isOpenAIVideoModel } from '../lib/video-model'
 import type {
   ModelCapability,
   PriceType,
@@ -79,6 +81,9 @@ import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { ModelDetailsVideoOverview } from './model-details-video-overview'
+import { ModelDetailsVideoPerformance } from './model-details-video-performance'
+import { VideoPricingMatrix } from './video-pricing-matrix'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -528,7 +533,8 @@ function ModelHeader(props: { model: PricingModel }) {
   const model = props.model
   const modelIconKey = model.icon || model.vendor_icon
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 20) : null
-  const description = model.description || model.vendor_description || null
+  const description =
+    getPricingModelDescription(model, t) || model.vendor_description || null
 
   return (
     <header className='pb-4'>
@@ -585,6 +591,19 @@ function PriceSection(props: {
     usdExchangeRate: props.usdExchangeRate,
     groupRatioMultiplier: 1,
   })
+
+  if (props.model.video_pricing) {
+    return (
+      <section>
+        <SectionTitle>{t('Video generation pricing')}</SectionTitle>
+        <VideoPricingMatrix
+          pricing={props.model.video_pricing}
+          tokenUnit={props.tokenUnit}
+          showFormula
+        />
+      </section>
+    )
+  }
 
   const primaryPriceTypes: { label: string; type: PriceType }[] = [
     { label: t('Input'), type: 'input' },
@@ -1144,6 +1163,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const isDynamic =
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
+  const isVideoModel = isOpenAIVideoModel(props.model)
 
   return (
     <div className='@container/details space-y-4'>
@@ -1167,7 +1187,11 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
         </TabsList>
 
         <TabsContent value='overview' className='space-y-6 outline-none'>
-          <OverviewSummaryGrid model={props.model} />
+          {isVideoModel ? (
+            <ModelDetailsVideoOverview model={props.model} />
+          ) : (
+            <OverviewSummaryGrid model={props.model} />
+          )}
 
           <section className='bg-card/60 space-y-5 rounded-xl border p-4 shadow-sm'>
             <SectionTitle>{t('Pricing')}</SectionTitle>
@@ -1181,23 +1205,29 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             {isDynamic && (
               <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
             )}
-            <GroupPricingSection
-              model={props.model}
-              groupRatio={props.groupRatio}
-              usableGroup={props.usableGroup}
-              autoGroups={props.autoGroups}
-              priceRate={props.priceRate}
-              usdExchangeRate={props.usdExchangeRate}
-              tokenUnit={props.tokenUnit}
-              showRechargePrice={showRechargePrice}
-            />
+            {!props.model.video_pricing && (
+              <GroupPricingSection
+                model={props.model}
+                groupRatio={props.groupRatio}
+                usableGroup={props.usableGroup}
+                autoGroups={props.autoGroups}
+                priceRate={props.priceRate}
+                usdExchangeRate={props.usdExchangeRate}
+                tokenUnit={props.tokenUnit}
+                showRechargePrice={showRechargePrice}
+              />
+            )}
           </section>
 
           <ModelBackendDetailsSection model={props.model} />
         </TabsContent>
 
         <TabsContent value='performance' className='outline-none'>
-          <ModelDetailsPerformance model={props.model} />
+          {isVideoModel ? (
+            <ModelDetailsVideoPerformance model={props.model} />
+          ) : (
+            <ModelDetailsPerformance model={props.model} />
+          )}
         </TabsContent>
 
         <TabsContent value='api' className='outline-none'>

@@ -59,7 +59,7 @@ import {
 } from '@/lib/admin-permissions'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { MODEL_FETCHABLE_TYPES } from '../constants'
+import { CHANNEL_TYPE_STARAI, MODEL_FETCHABLE_TYPES } from '../constants'
 import {
   channelsQueryKeys,
   handleDeleteChannel,
@@ -90,6 +90,10 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   const isEnabled = isChannelEnabled(channel)
   const isMultiKey = isMultiKeyChannel(channel)
+  const isReachabilityTest = channel.type === CHANNEL_TYPE_STARAI
+  const testActionLabel = t(
+    isReachabilityTest ? 'Reachability Test' : 'Test Connection'
+  )
   const canEditSensitive = hasPermission(
     currentUser,
     ADMIN_PERMISSION_RESOURCES.CHANNEL,
@@ -101,13 +105,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     setOpen('update-channel')
   }
 
-  const handleTest = () => {
-    setCurrentRow(channel)
-    setOpen('test-channel')
-  }
-
-  const handleDirectTest = async (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation()
+  const runDirectTest = async () => {
     setIsTesting(true)
     try {
       await handleTestChannel(channel.id, { channelName: channel.name }, () => {
@@ -116,6 +114,20 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     } finally {
       setIsTesting(false)
     }
+  }
+
+  const handleTest = () => {
+    if (isReachabilityTest) {
+      void runDirectTest()
+      return
+    }
+    setCurrentRow(channel)
+    setOpen('test-channel')
+  }
+
+  const handleDirectTest = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    await runDirectTest()
   }
 
   const handleQueryBalance = () => {
@@ -193,7 +205,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
               size='icon-sm'
               onClick={handleDirectTest}
               disabled={isTesting}
-              aria-label={t('Test Connection')}
+              aria-label={testActionLabel}
             />
           }
         >
@@ -203,10 +215,10 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             <Gauge className='size-4' />
           )}
         </TooltipTrigger>
-        <TooltipContent>{t('Test Connection')}</TooltipContent>
+        <TooltipContent>{testActionLabel}</TooltipContent>
       </Tooltip>
 
-      {layout === 'card' && (
+      {layout === 'card' && !isReachabilityTest && (
         <Tooltip>
           <TooltipTrigger
             render={
@@ -274,8 +286,8 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           )}
 
           {/* Test Connection */}
-          <DropdownMenuItem onClick={handleTest}>
-            {t('Test Connection')}
+          <DropdownMenuItem onClick={handleTest} disabled={isTesting}>
+            {testActionLabel}
             <DropdownMenuShortcut>
               <PlugZap size={16} />
             </DropdownMenuShortcut>

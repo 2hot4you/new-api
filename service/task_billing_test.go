@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
@@ -330,6 +332,110 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	assert.Equal(t, "test-model", log.ModelName)
 	assert.Zero(t, task.Quota)
 	assert.Zero(t, getTaskQuota(t, task.ID))
+}
+
+func TestRefundTaskQuota_StarAIRefundsWithoutLog(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 101, 101, 101
+	const initQuota, preConsumed, tokenRemain = 10000, 3000, 5000
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-starai-test", tokenRemain)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.Platform = constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI))
+	require.NoError(t, model.DB.Create(task).Error)
+
+	assert.True(t, RefundTaskQuota(ctx, task, "upstream failed"))
+	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestLogSuccessfulStarAITaskCreatesSingleFinalConsumption(t *testing.T) {
+	truncate(t)
+	const userID, tokenID, channelID = 102, 102, 102
+	seedUser(t, userID, 10000)
+	seedToken(t, tokenID, userID, "sk-starai-success", 5000)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, 2800, tokenID, BillingSourceWallet, 0)
+	task.Platform = constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI))
+	task.PrivateData.ResultURL = "https://example.com/video.mp4"
+	task.SubmitTime = 1000
+	task.FinishTime = 1017
+	task.PrivateData.BillingContext.EstimatedTokens = 40595
+	task.PrivateData.BillingContext.ActualTokens = 40594
+	task.PrivateData.BillingContext.EstimatedResolution = "480p"
+	task.PrivateData.BillingContext.EstimatedRatio = "16:9"
+	task.PrivateData.BillingContext.EstimatedSeconds = 4
+	task.PrivateData.BillingContext.EstimatedWidth = 864
+	task.PrivateData.BillingContext.EstimatedHeight = 496
+	task.PrivateData.BillingContext.EstimatedFPS = 24
+	task.PrivateData.BillingContext.EstimatedUnitPrice = 37
+	task.PrivateData.BillingContext.EstimatedPrice = 1.502015
+
+	LogSuccessfulStarAITask(task, 3000)
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeConsume, log.Type)
+	assert.Equal(t, 2800, log.Quota)
+	assert.Equal(t, 40594, log.CompletionTokens)
+	assert.Contains(t, log.Content, "生成视频")
+	assert.Contains(t, log.Content, "Seedance 会额外生成 1 帧")
+	assert.Equal(t, 17, log.UseTime)
+	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestLogFailedStarAITaskRecordsSanitizedReasonAndElapsedTime(t *testing.T) {
+	truncate(t)
+	const userID, tokenID, channelID = 103, 103, 103
+	seedUser(t, userID, 10000)
+	seedToken(t, tokenID, userID, "sk-starai-error", 5000)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, 0, tokenID, BillingSourceWallet, 0)
+	task.Platform = constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI))
+	task.SubmitTime = 2000
+	task.FinishTime = 2042
+	task.FailReason = "上游内容审核未通过"
+
+	LogFailedStarAITask(task)
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeError, log.Type)
+	assert.Equal(t, "上游内容审核未通过", log.Content)
+	assert.Equal(t, 42, log.UseTime)
+	assert.Zero(t, log.Quota)
+	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestClearExpiredStarAIResultMetadataPreservesBillingContext(t *testing.T) {
+	truncate(t)
+	task := makeTask(201, 0, 1234, 0, BillingSourceWallet, 0)
+	task.Platform = constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI))
+	task.Status = model.TaskStatusSuccess
+	task.FinishTime = time.Now().Add(-25 * time.Hour).Unix()
+	task.PrivateData.ResultURL = "https://example.com/private-video.mp4?signature=secret"
+	task.Data = json.RawMessage(`{"result_url":"https://example.com/private-video.mp4"}`)
+	task.PrivateData.BillingContext.ActualTokens = 40594
+	require.NoError(t, model.DB.Create(task).Error)
+
+	cleared, err := model.ClearExpiredStarAIResultMetadata(time.Now().Add(-24*time.Hour).Unix(), 100)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), cleared)
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.Empty(t, reloaded.PrivateData.ResultURL)
+	assert.Empty(t, reloaded.Data)
+	require.NotNil(t, reloaded.PrivateData.BillingContext)
+	assert.Equal(t, 40594, reloaded.PrivateData.BillingContext.ActualTokens)
+	assert.Equal(t, 1234, reloaded.Quota)
 }
 
 func TestRefundTaskQuota_Subscription(t *testing.T) {

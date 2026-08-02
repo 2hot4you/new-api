@@ -153,12 +153,21 @@ func VideoProxy(c *gin.Context) {
 		return
 	}
 
+	trustedSignedStarAITOSURL := channel.Type == constant.ChannelTypeStarAI && service.IsSignedStarAIPrivateTOSURL(videoURL)
+	if trustedSignedStarAITOSURL && proxy == "" {
+		// The exact signed TOS host is operator-controlled and TLS-verified. Use
+		// the normal relay client so local proxy DNS modes (198.18.0.0/15) do not
+		// trip the protected dialer's private-IP rejection.
+		client = service.GetHttpClient()
+	}
 	var validateErr error
-	if proxy == "" {
-		validateErr = service.ValidateSSRFProtectedFetchURL(videoURL)
-	} else {
-		fetchSetting := system_setting.GetFetchSetting()
-		validateErr = common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain)
+	if !trustedSignedStarAITOSURL {
+		if proxy == "" {
+			validateErr = service.ValidateSSRFProtectedFetchURL(videoURL)
+		} else {
+			fetchSetting := system_setting.GetFetchSetting()
+			validateErr = common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain)
+		}
 	}
 	if validateErr != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
@@ -172,6 +181,12 @@ func VideoProxy(c *gin.Context) {
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
 	}
+	if rangeHeader := strings.TrimSpace(c.GetHeader("Range")); rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+	if ifRangeHeader := strings.TrimSpace(c.GetHeader("If-Range")); ifRangeHeader != "" {
+		req.Header.Set("If-Range", ifRangeHeader)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -181,7 +196,7 @@ func VideoProxy(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for task %s: url=%s", resp.StatusCode, taskID, service.SanitizeURLForLog(videoURL)))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
@@ -192,6 +207,9 @@ func VideoProxy(c *gin.Context) {
 		for _, value := range values {
 			c.Writer.Header().Add(key, value)
 		}
+	}
+	if strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "video/") {
+		c.Writer.Header().Set("Content-Disposition", "inline")
 	}
 
 	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")

@@ -40,6 +40,7 @@ import {
   formatRequestPrice,
   stripTrailingZeros,
 } from '../lib/price'
+import { formatVideoPrice } from '../lib/video-pricing'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 
@@ -114,6 +115,32 @@ export function usePricingColumns(
       ),
       cell: ({ row }) => {
         const model = row.original
+        const videoPricing = model.video_pricing
+        if (videoPricing?.rows.length) {
+          const firstTier = videoPricing.rows[0]
+          return (
+            <div className='max-w-full min-w-0'>
+              <div className='text-muted-foreground text-[10px] font-medium'>
+                {firstTier.resolutions.join(' / ')}
+              </div>
+              <div className='font-mono text-xs tabular-nums'>
+                <span>{t('Without video input')}</span>{' '}
+                <strong>
+                  {formatVideoPrice(firstTier.without_video, tokenUnit)}
+                </strong>
+                <span className='text-muted-foreground/40 mx-1'>/</span>
+                <span>{t('With video input')}</span>{' '}
+                <strong>
+                  {formatVideoPrice(firstTier.with_video, tokenUnit)}
+                </strong>
+              </div>
+              <div className='text-muted-foreground/50 text-[10px]'>
+                ¥ / {tokenUnit === 'K' ? '1,000' : '1,000,000'} Token ·{' '}
+                {t('View details for all tiers')}
+              </div>
+            </div>
+          )
+        }
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
           showRechargePrice,
@@ -233,7 +260,7 @@ export function usePricingColumns(
           </div>
         )
       },
-      size: 180,
+      size: 260,
       enableSorting: false,
     },
 

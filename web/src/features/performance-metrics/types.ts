@@ -59,3 +59,35 @@ export type PerfSummaryAllData = {
     models: PerfModelSummary[]
   }
 }
+
+export type VideoPerformanceAggregate = {
+  submitted_count: number
+  success_count: number
+  failure_count: number
+  pending_count: number
+  success_rate: number
+  average_duration_seconds: number
+  p50_duration_seconds: number
+  p95_duration_seconds: number
+  slow_task_count: number
+}
+
+export type VideoPerformanceGroup = VideoPerformanceAggregate & {
+  group: string
+}
+
+export type VideoPerformancePoint = VideoPerformanceAggregate & {
+  ts: number
+}
+
+export type VideoPerformanceMetricsData = {
+  success: boolean
+  message?: string
+  data: {
+    model_name: string
+    hours: number
+    summary: VideoPerformanceAggregate
+    groups: VideoPerformanceGroup[]
+    series: VideoPerformancePoint[]
+  }
+}

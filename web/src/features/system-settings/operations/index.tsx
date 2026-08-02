@@ -56,6 +56,16 @@ const defaultOperationsSettings: OperationsSettings = {
   'perf_metrics_setting.flush_interval': 5,
   'perf_metrics_setting.bucket_time': 'hour',
   'perf_metrics_setting.retention_days': 0,
+  COSEnabled: false,
+  COSBucket: '',
+  COSRegion: '',
+  COSSecretID: '',
+  COSSecretKey: '',
+  COSSecretKeyConfigured: false,
+  COSCustomDomain: '',
+  COSPathPrefix: 'users',
+  COSUploadExpiryMinutes: 30,
+  COSReadExpiryMinutes: 60,
 }
 
 export function OperationsSettings() {

@@ -205,8 +205,14 @@ export function getThroughputColor(
  */
 export function getResponseTimeColor(
   seconds: number,
-  completionTokens: number
+  completionTokens: number,
+  isSeedanceVideo = false
 ): 'success' | 'warning' | 'danger' {
+  if (isSeedanceVideo) {
+    if (seconds < 5 * 60) return 'success'
+    if (seconds <= 10 * 60) return 'warning'
+    return 'danger'
+  }
   if (completionTokens < 100 || seconds <= 0) return getTimeColor(seconds)
   return getThroughputColor(completionTokens / seconds)
 }

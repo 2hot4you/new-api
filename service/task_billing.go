@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -44,6 +45,19 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["model_ratio"] = info.PriceData.ModelRatio
 	}
 	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
+	if info.EstimatedVideoTokens > 0 {
+		other["estimated_tokens"] = info.EstimatedVideoTokens
+		other["estimated_price"] = info.EstimatedVideoPrice
+		other["estimated_width"] = info.EstimatedVideoWidth
+		other["estimated_height"] = info.EstimatedVideoHeight
+		other["estimated_fps"] = info.EstimatedVideoFPS
+		other["estimated_seconds"] = info.EstimatedVideoSeconds
+		other["estimated_resolution"] = info.EstimatedVideoResolution
+		other["estimated_ratio"] = info.EstimatedVideoRatio
+		other["estimated_has_video"] = info.EstimatedVideoHasInput
+		other["estimated_unit_price"] = info.EstimatedVideoUnitPrice
+		logContent = seedanceEstimateLogContent(info)
+	}
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
 	}
@@ -64,6 +78,21 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	})
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
+}
+
+func seedanceEstimateLogContent(info *relaycommon.RelayInfo) string {
+	inputDescription := "不含视频输入"
+	if info.EstimatedVideoHasInput {
+		inputDescription = "包含视频输入"
+	}
+	return fmt.Sprintf(
+		"生成视频\n参数：%s · %s · %d 秒 · %s\n预估 Token：%d\n计算：%d × %d × (%d × %d + 1) ÷ 1024，结果向上取整\n提示：Seedance 会额外生成 1 帧用于起播，因此总帧数按 %d × %d + 1 计算\n预估价格：%d × ¥%.2f ÷ 1,000,000 = ¥%.6f",
+		info.EstimatedVideoResolution, info.EstimatedVideoRatio, info.EstimatedVideoSeconds, inputDescription,
+		info.EstimatedVideoTokens,
+		info.EstimatedVideoWidth, info.EstimatedVideoHeight, info.EstimatedVideoFPS, info.EstimatedVideoSeconds,
+		info.EstimatedVideoFPS, info.EstimatedVideoSeconds,
+		info.EstimatedVideoTokens, info.EstimatedVideoUnitPrice, info.EstimatedVideoPrice,
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +156,21 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 			other["model_ratio"] = bc.ModelRatio
 		}
 		other["group_ratio"] = bc.GroupRatio
+		if bc.EstimatedTokens > 0 {
+			other["estimated_tokens"] = bc.EstimatedTokens
+			other["estimated_price"] = bc.EstimatedPrice
+			other["estimated_width"] = bc.EstimatedWidth
+			other["estimated_height"] = bc.EstimatedHeight
+			other["estimated_fps"] = bc.EstimatedFPS
+			other["estimated_seconds"] = bc.EstimatedSeconds
+			other["estimated_resolution"] = bc.EstimatedResolution
+			other["estimated_ratio"] = bc.EstimatedRatio
+			other["estimated_has_video"] = bc.EstimatedHasVideo
+			other["estimated_unit_price"] = bc.EstimatedUnitPrice
+		}
+		if bc.ActualTokens > 0 {
+			other["actual_tokens"] = bc.ActualTokens
+		}
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
 				other[k] = v
@@ -160,6 +204,89 @@ func taskModelName(task *model.Task) string {
 	return task.Properties.OriginModelName
 }
 
+func isStarAITask(task *model.Task) bool {
+	return task != nil && task.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI))
+}
+
+func seedanceTaskLogContent(task *model.Task) string {
+	bc := task.PrivateData.BillingContext
+	if bc == nil {
+		return "生成视频"
+	}
+	inputDescription := "不含视频输入"
+	if bc.EstimatedHasVideo {
+		inputDescription = "包含视频输入"
+	}
+	return fmt.Sprintf(
+		"生成视频\n参数：%s · %s · %d 秒 · %s\n预估 Token：%d\n计算：%d × %d × (%d × %d + 1) ÷ 1024，结果向上取整\n提示：Seedance 会额外生成 1 帧用于起播，因此总帧数按 %d × %d + 1 计算\n预估价格：%d × ¥%.2f ÷ 1,000,000 = ¥%.6f",
+		bc.EstimatedResolution, bc.EstimatedRatio, bc.EstimatedSeconds, inputDescription,
+		bc.EstimatedTokens,
+		bc.EstimatedWidth, bc.EstimatedHeight, bc.EstimatedFPS, bc.EstimatedSeconds,
+		bc.EstimatedFPS, bc.EstimatedSeconds,
+		bc.EstimatedTokens, bc.EstimatedUnitPrice, bc.EstimatedPrice,
+	)
+}
+
+func taskElapsedSeconds(task *model.Task) int {
+	if task == nil || task.SubmitTime <= 0 || task.FinishTime <= task.SubmitTime {
+		return 0
+	}
+	elapsed := task.FinishTime - task.SubmitTime
+	if elapsed > int64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(elapsed)
+}
+
+// LogSuccessfulStarAITask records the single user-facing billing log only after
+// polling has confirmed success. Balance changes remain precharged/settled in
+// the background, but intermediate precharge, refund and delta logs stay hidden.
+func LogSuccessfulStarAITask(task *model.Task, preConsumedQuota int) {
+	if !isStarAITask(task) {
+		return
+	}
+	other := taskBillingOther(task)
+	other["is_task"] = true
+	other["task_id"] = task.TaskID
+	other["pre_consumed_quota"] = preConsumedQuota
+	other["actual_quota"] = task.Quota
+	actualTokens := 0
+	if bc := task.PrivateData.BillingContext; bc != nil {
+		actualTokens = bc.ActualTokens
+	}
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+		UserId: task.UserId, LogType: model.LogTypeConsume, Content: seedanceTaskLogContent(task),
+		ChannelId: task.ChannelId, ModelName: taskModelName(task), Quota: task.Quota,
+		CompletionTokens: actualTokens,
+		TokenId:          task.PrivateData.TokenId, Group: task.Group, Other: other,
+		UseTimeSeconds: taskElapsedSeconds(task), NodeName: task.PrivateData.NodeName,
+	})
+	model.UpdateUserUsedQuotaAndRequestCount(task.UserId, task.Quota)
+	model.UpdateChannelUsedQuota(task.ChannelId, task.Quota)
+}
+
+// LogFailedStarAITask records one sanitized error log after the terminal
+// failure transition wins its CAS. Refunds remain an internal balance action.
+func LogFailedStarAITask(task *model.Task) {
+	if !isStarAITask(task) {
+		return
+	}
+	reason := strings.TrimSpace(task.FailReason)
+	if reason == "" {
+		reason = "上游任务失败"
+	}
+	other := taskBillingOther(task)
+	other["is_task"] = true
+	other["task_id"] = task.TaskID
+	other["reason"] = reason
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+		UserId: task.UserId, LogType: model.LogTypeError, Content: reason,
+		ChannelId: task.ChannelId, ModelName: taskModelName(task), Quota: 0,
+		TokenId: task.PrivateData.TokenId, Group: task.Group, Other: other,
+		UseTimeSeconds: taskElapsedSeconds(task), NodeName: task.PrivateData.NodeName,
+	})
+}
+
 // RefundTaskQuota 统一的任务失败退款逻辑。
 // 当异步任务失败时，将预扣的 quota 退还给用户（支持钱包和订阅），并退还令牌额度。
 // 返回资金来源是否已成功退还；失败时保留 quota，供显式重试或人工对账。
@@ -178,21 +305,23 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	// 2. 退还令牌额度
 	taskAdjustTokenQuota(ctx, task, -quota)
 
-	// 3. 记录日志
-	other := taskBillingOther(task)
-	other["task_id"] = task.TaskID
-	other["reason"] = reason
-	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   model.LogTypeRefund,
-		Content:   "",
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     quota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
-	})
+	// 3. StarAI 的预扣和退款属于任务内部资金流，不展示给用户。
+	if !isStarAITask(task) {
+		other := taskBillingOther(task)
+		other["task_id"] = task.TaskID
+		other["reason"] = reason
+		model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+			UserId:    task.UserId,
+			LogType:   model.LogTypeRefund,
+			Content:   "",
+			ChannelId: task.ChannelId,
+			ModelName: taskModelName(task),
+			Quota:     quota,
+			TokenId:   task.PrivateData.TokenId,
+			Group:     task.Group,
+			Other:     other,
+		})
+	}
 
 	// 4. 资金退款完成后再清除持久化标记。
 	// 回写失败必须显式告警，避免漏掉潜在的重复退款风险。
@@ -217,6 +346,18 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	if quotaDelta == 0 {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
 			task.TaskID, logger.LogQuota(actualQuota), reason))
+		if bc := task.PrivateData.BillingContext; !isStarAITask(task) && bc != nil && bc.ActualTokens > 0 {
+			other := taskBillingOther(task)
+			other["task_id"] = task.TaskID
+			other["pre_consumed_quota"] = preConsumedQuota
+			other["actual_quota"] = actualQuota
+			model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+				UserId: task.UserId, LogType: model.LogTypeConsume, Content: reason,
+				ChannelId: task.ChannelId, ModelName: taskModelName(task), Quota: 0,
+				TokenId: task.PrivateData.TokenId, Group: task.Group, Other: other,
+				NodeName: task.PrivateData.NodeName,
+			})
+		}
 		return
 	}
 
@@ -240,6 +381,12 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	task.Quota = actualQuota
 	if err := task.UpdateQuota(); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
+	}
+
+	// StarAI 成功后会统一记录完整消费；这里不展示内部差额流水，
+	// 也不按 delta 更新统计，避免与最终完整消费重复累计。
+	if isStarAITask(task) {
+		return
 	}
 
 	var logType int
@@ -286,6 +433,13 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 
 	// 获取模型价格和倍率
 	modelRatio, hasRatioSetting, _ := ratio_setting.GetModelRatio(modelName)
+	if bc := task.PrivateData.BillingContext; bc != nil {
+		bc.ActualTokens = totalTokens
+		if bc.ModelRatio > 0 {
+			modelRatio = bc.ModelRatio
+			hasRatioSetting = true
+		}
+	}
 	// 只有配置了倍率(非固定价格)时才按 token 重新计费
 	if !hasRatioSetting || modelRatio <= 0 {
 		return
@@ -307,7 +461,9 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
 
 	var finalGroupRatio float64
-	if hasUserGroupRatio {
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.GroupRatio > 0 {
+		finalGroupRatio = bc.GroupRatio
+	} else if hasUserGroupRatio {
 		finalGroupRatio = userGroupRatio
 	} else {
 		finalGroupRatio = groupRatio
