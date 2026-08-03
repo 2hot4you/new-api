@@ -1,0 +1,12 @@
+{
+  "id": "fix-model-performance-500",
+  "title": "修复模型广场详情性能接口 500",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已部署并通过 API、全量 Go 测试和浏览器回归",
+  "createdAt": "2026-08-03T10:50:00+08:00",
+  "branch": "feat/molii-auth"
+}
