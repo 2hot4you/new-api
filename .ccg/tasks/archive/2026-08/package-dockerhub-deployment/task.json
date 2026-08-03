@@ -1,0 +1,12 @@
+{
+  "id": "package-dockerhub-deployment",
+  "title": "提供数据库迁移并发布 Docker Hub 部署镜像",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并推送归档提交",
+  "createdAt": "2026-08-03T15:45:00+08:00",
+  "branch": "feat/molii-auth"
+}
