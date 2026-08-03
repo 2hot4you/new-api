@@ -1,0 +1,12 @@
+{
+  "id": "audit-customer-test-readiness",
+  "title": "审计 New API 客户测试交付就绪度",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并向用户报告交付结论",
+  "createdAt": "2026-08-03T12:10:00+08:00",
+  "branch": "feat/molii-auth"
+}
