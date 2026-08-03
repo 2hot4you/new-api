@@ -1,0 +1,12 @@
+{
+  "id": "upgrade-security-dependencies",
+  "title": "升级 New API 安全相关依赖",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并重新构建干净版本的常驻二进制",
+  "createdAt": "2026-08-03T12:35:00+08:00",
+  "branch": "feat/molii-auth"
+}
