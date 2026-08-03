@@ -106,7 +106,12 @@ func videoPerformanceTaskModel(task *Task) string {
 }
 
 func GetStarAIVideoPerformance(modelName string, hours int) (VideoPerformanceResult, error) {
-	result := VideoPerformanceResult{ModelName: modelName, Hours: hours}
+	result := VideoPerformanceResult{
+		ModelName: modelName,
+		Hours:     hours,
+		Groups:    make([]VideoPerformanceGroup, 0),
+		Series:    make([]VideoPerformancePoint, 0),
+	}
 	if hours <= 0 {
 		return result, nil
 	}

@@ -82,6 +82,8 @@ func TestGetStarAIVideoPerformanceExcludesTasksOutsideWindow(t *testing.T) {
 	result, err := GetStarAIVideoPerformance("doubao-seedance-2-0-260128", 24)
 	require.NoError(t, err)
 	assert.Zero(t, result.Summary.SubmittedCount)
+	assert.NotNil(t, result.Groups)
+	assert.NotNil(t, result.Series)
 	assert.Empty(t, result.Groups)
 	assert.Empty(t, result.Series)
 }
