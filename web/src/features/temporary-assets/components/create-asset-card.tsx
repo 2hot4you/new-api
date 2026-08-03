@@ -161,7 +161,7 @@ export function CreateAssetCard(props: CreateAssetCardProps) {
       const authorization = intentResponse.data?.data as UploadAuthorization
       setUploadStage(t('Uploading to COS...'))
       await uploadFile(authorization, file, setUploadProgress)
-      setUploadStage(t('Submitting to StarAI...'))
+      setUploadStage(t('Submitting to Molii AIGC...'))
       await api.post('/api/assets/self/upload-complete', {
         upload_id: authorization.upload_id,
       })

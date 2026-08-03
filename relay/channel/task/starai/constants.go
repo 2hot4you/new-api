@@ -1,6 +1,6 @@
 package starai
 
-const ChannelName = "starai"
+const ChannelName = "molii-aigc"
 
 const maxDurationSeconds = 15
 

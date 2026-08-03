@@ -126,6 +126,14 @@ func init() {
 }
 
 func channelOwnerName(channelType int) string {
+	if channelType == constant.ChannelTypeStarAI {
+		platform := constant.TaskPlatform(fmt.Sprintf("%d", channelType))
+		if adaptor := relay.GetTaskAdaptor(platform); adaptor != nil {
+			if name := strings.TrimSpace(adaptor.GetChannelName()); name != "" {
+				return name
+			}
+		}
+	}
 	apiType, success := common.ChannelType2APIType(channelType)
 	if !success {
 		return strings.ToLower(constant.GetChannelTypeName(channelType))

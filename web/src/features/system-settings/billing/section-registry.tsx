@@ -117,8 +117,8 @@ const BILLING_SECTIONS = [
     ),
   },
   {
-    id: 'starai-video-pricing',
-    titleKey: 'StarAI Video Pricing',
+    id: 'molii-aigc-video-pricing',
+    titleKey: 'Molii AIGC Video Pricing',
     build: (settings: BillingSettings) => (
       <StarAIVideoPricingSection
         defaultValues={{

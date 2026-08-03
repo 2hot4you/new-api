@@ -186,7 +186,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeAdvancedCustom: "Advanced Custom",
 	ChannelTypeSub2API:        "Sub2API",
 	ChannelTypeNewAPI:         "New API",
-	ChannelTypeStarAI:         "StarAI",
+	ChannelTypeStarAI:         "Molii AIGC",
 }
 
 func GetChannelTypeName(channelType int) string {

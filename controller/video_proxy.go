@@ -137,11 +137,11 @@ func VideoProxy(c *gin.Context) {
 	}
 	if channel.Type == constant.ChannelTypeStarAI && service.IsUnsignedStarAIPrivateTOSURL(videoURL) {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf(
-			"StarAI result URL rejected: public_task_id=%s reason=unsigned_private_tos host=%s",
+			"Molii AIGC result URL rejected: public_task_id=%s reason=unsigned_private_tos host=%s",
 			taskID, "ark-acg-cn-beijing.tos-cn-beijing.volces.com",
 		))
 		videoProxyCodedError(c, http.StatusBadGateway, "upstream_invalid_result_url",
-			"StarAI returned an unsigned private TOS result URL")
+			"Molii AIGC returned an unsigned private TOS result URL")
 		return
 	}
 

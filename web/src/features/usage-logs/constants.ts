@@ -321,7 +321,7 @@ export const TASK_STATUS_MAPPINGS: Record<string, StatusMapping> = {
  */
 export const TASK_PLATFORM_MAPPINGS: Record<string, StatusMapping> = {
   [TASK_PLATFORMS.SUNO]: { label: 'suno', variant: 'green' },
-  [TASK_PLATFORMS.STARAI]: { label: 'StarAI', variant: 'blue' },
+  [TASK_PLATFORMS.STARAI]: { label: 'Molii AIGC', variant: 'blue' },
   [TASK_PLATFORMS.KLING]: { label: 'kling', variant: 'blue' },
   [TASK_PLATFORMS.RUNWAY]: { label: 'runway', variant: 'violet' },
   [TASK_PLATFORMS.LUMA]: { label: 'luma', variant: 'orange' },

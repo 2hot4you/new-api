@@ -87,7 +87,7 @@ export const CHANNEL_TYPES = {
   58: 'Advanced Custom',
   59: 'Sub2API',
   60: 'New API',
-  61: 'StarAI',
+  61: 'Molii AIGC',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [

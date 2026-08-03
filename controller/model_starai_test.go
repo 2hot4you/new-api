@@ -32,6 +32,10 @@ func TestDashboardListModelsIncludesTaskOnlyStarAIModels(t *testing.T) {
 	}, response.Data[strconv.Itoa(constant.ChannelTypeStarAI)])
 }
 
+func TestChannelOwnerNameUsesMoliiBrandForStarAI(t *testing.T) {
+	assert.Equal(t, "molii-aigc", channelOwnerName(constant.ChannelTypeStarAI))
+}
+
 func TestChannelListModelsIncludesStarAIGlobalModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
@@ -57,7 +61,7 @@ func TestChannelListModelsIncludesStarAIGlobalModels(t *testing.T) {
 		assert.False(t, wanted[item.Id], "global model must not be duplicated: %s", item.Id)
 		wanted[item.Id] = true
 		assert.Equal(t, "model", item.Object)
-		assert.Equal(t, "starai", item.OwnedBy)
+		assert.Equal(t, "molii-aigc", item.OwnedBy)
 	}
 	for modelName, found := range wanted {
 		assert.True(t, found, "global model is missing: %s", modelName)

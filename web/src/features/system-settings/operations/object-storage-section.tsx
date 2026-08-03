@@ -252,7 +252,7 @@ export function ObjectStorageSection(props: ObjectStorageSectionProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Objects use the pattern prefix/userId/starai-assets/type/year/month/uuid.ext.'
+                    'Objects are organized automatically under the configured prefix and user ID.'
                   )}
                 </FormDescription>
                 <FormMessage />

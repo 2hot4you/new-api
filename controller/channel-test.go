@@ -59,19 +59,19 @@ func testStarAIReachability(ctx context.Context, channel *model.Channel) error {
 		}
 	}
 	if baseURL == "" {
-		return errors.New("StarAI reachability test failed: upstream URL is empty")
+		return errors.New("Molii AIGC reachability test failed: upstream URL is empty")
 	}
 
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
-		return fmt.Errorf("StarAI reachability test failed: invalid upstream URL: %w", err)
+		return fmt.Errorf("Molii AIGC reachability test failed: invalid upstream URL: %w", err)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("StarAI reachability test failed: unsupported URL scheme %q", parsed.Scheme)
+		return fmt.Errorf("Molii AIGC reachability test failed: unsupported URL scheme %q", parsed.Scheme)
 	}
 	host := parsed.Hostname()
 	if host == "" {
-		return errors.New("StarAI reachability test failed: upstream hostname is empty")
+		return errors.New("Molii AIGC reachability test failed: upstream hostname is empty")
 	}
 	port := parsed.Port()
 	if port == "" {
@@ -90,7 +90,7 @@ func testStarAIReachability(ctx context.Context, channel *model.Channel) error {
 	defer cancel()
 	conn, err := (&net.Dialer{Timeout: starAIReachabilityTimeout}).DialContext(testCtx, "tcp", target)
 	if err != nil {
-		return fmt.Errorf("StarAI reachability test failed: cannot connect to %s: %w", target, err)
+		return fmt.Errorf("Molii AIGC reachability test failed: cannot connect to %s: %w", target, err)
 	}
 	_ = conn.Close()
 	return nil

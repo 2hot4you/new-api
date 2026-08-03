@@ -56,7 +56,7 @@ func TestUpdateChannelStarAIBalance(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	baseURL := server.URL + "/"
-	channel := &model.Channel{Name: "StarAI", Key: key, BaseURL: &baseURL}
+	channel := &model.Channel{Name: "Molii AIGC", Key: key, BaseURL: &baseURL}
 	require.NoError(t, db.Create(channel).Error)
 
 	balance, err := updateChannelStarAIBalance(channel)

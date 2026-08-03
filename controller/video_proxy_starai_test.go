@@ -75,7 +75,7 @@ func TestVideoProxyRejectsUnsignedStarAIPrivateTOSURL(t *testing.T) {
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	assert.Equal(t, "upstream_invalid_result_url", response.Error.Code)
-	assert.Equal(t, "StarAI returned an unsigned private TOS result URL", response.Error.Message)
+	assert.Equal(t, "Molii AIGC returned an unsigned private TOS result URL", response.Error.Message)
 	assert.Equal(t, "server_error", response.Error.Type)
 
 	var unchanged model.Task

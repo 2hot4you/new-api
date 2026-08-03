@@ -78,6 +78,7 @@ func TestSanitizeStarAIResponseBodyRecursivelyRedactsSecretsAndIDs(t *testing.T)
 	)
 	body := []byte(`{
 		"id":"top-level-upstream-id",
+		"message":"StarAI task failed",
 		"authorization":"Bearer top-secret",
 		"data":{
 			"task_id":"starai_upstream_secret_id",
@@ -104,10 +105,12 @@ func TestSanitizeStarAIResponseBodyRecursivelyRedactsSecretsAndIDs(t *testing.T)
 	assert.NotContains(t, string(sanitized), "top-secret")
 	assert.NotContains(t, string(sanitized), "access-secret")
 	assert.NotContains(t, string(sanitized), "client-secret")
+	assert.NotContains(t, string(sanitized), "StarAI")
 
 	var decoded map[string]any
 	require.NoError(t, common.Unmarshal(sanitized, &decoded))
 	assert.Equal(t, publicTaskID, decoded["id"])
+	assert.Equal(t, "Molii AIGC task failed", decoded["message"])
 	assert.Equal(t, "[REDACTED]", decoded["authorization"])
 
 	data := decoded["data"].(map[string]any)
@@ -130,11 +133,11 @@ func TestSanitizeStarAIResponseBodyRecursivelyRedactsSecretsAndIDs(t *testing.T)
 	assert.EqualValues(t, 731025, usage["total_tokens"])
 
 	sanitizedReason := sanitizeStarAIText(
-		"task "+upstreamTaskID+" failed while using "+apiKey,
+		"StarAI task "+upstreamTaskID+" failed while using "+apiKey,
 		body,
 		publicTaskID,
 	)
-	assert.Equal(t, "task task_public_safe failed while using [REDACTED]", sanitizedReason)
+	assert.Equal(t, "Molii AIGC task task_public_safe failed while using [REDACTED]", sanitizedReason)
 }
 
 func TestSanitizeStarAIResponseBodyFailsClosed(t *testing.T) {

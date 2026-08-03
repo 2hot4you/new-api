@@ -370,7 +370,7 @@ func UpdateVideoTasks(ctx context.Context, platform constant.TaskPlatform, taskC
 			defer wg.Done()
 			if err := updateVideoTasks(ctx, platform, channelId, taskIds, taskM); err != nil {
 				if platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) {
-					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update StarAI async tasks", channelId))
+					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update Molii AIGC async tasks", channelId))
 				} else {
 					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update video async tasks: %s", channelId, err.Error()))
 				}
@@ -432,7 +432,7 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 				if task := taskM[taskId]; task != nil {
 					publicTaskID = task.TaskID
 				}
-				logger.LogError(ctx, fmt.Sprintf("Failed to update StarAI public task %s", publicTaskID))
+				logger.LogError(ctx, fmt.Sprintf("Failed to update Molii AIGC public task %s", publicTaskID))
 			} else {
 				logger.LogError(ctx, fmt.Sprintf("Failed to update video task %s: %s", taskId, err.Error()))
 			}
@@ -596,7 +596,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	case model.TaskStatusFailure:
 		shouldLogFailure = true
 		if isStarAI {
-			logger.LogInfo(ctx, fmt.Sprintf("StarAI public task %s reached failure status", publicTaskID))
+			logger.LogInfo(ctx, fmt.Sprintf("Molii AIGC public task %s reached failure status", publicTaskID))
 		} else {
 			logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
 		}
@@ -610,7 +610,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.FailReason = sanitizeStarAIText(taskResult.Reason, responseBody, publicTaskID)
 		}
 		if isStarAI {
-			logger.LogInfo(ctx, fmt.Sprintf("StarAI public task %s failed", task.TaskID))
+			logger.LogInfo(ctx, fmt.Sprintf("Molii AIGC public task %s failed", task.TaskID))
 		} else {
 			logger.LogInfo(ctx, fmt.Sprintf("Task %s failed: %s", task.TaskID, task.FailReason))
 		}

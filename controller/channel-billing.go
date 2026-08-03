@@ -362,7 +362,7 @@ func updateChannelStarAIBalance(channel *model.Channel) (float64, error) {
 	url := strings.TrimRight(channel.GetBaseURL(), "/") + "/api/usage/balance/"
 	body, err := GetResponseBody(http.MethodGet, url, channel, GetAuthHeader(channel.Key))
 	if err != nil {
-		return 0, fmt.Errorf("failed to request StarAI balance: %w", err)
+		return 0, fmt.Errorf("failed to request Molii AIGC balance: %w", err)
 	}
 
 	type starAIBalanceResponse struct {
@@ -374,17 +374,17 @@ func updateChannelStarAIBalance(channel *model.Channel) (float64, error) {
 
 	response := starAIBalanceResponse{}
 	if err := common.Unmarshal(body, &response); err != nil {
-		return 0, errors.New("failed to decode StarAI balance response")
+		return 0, errors.New("failed to decode Molii AIGC balance response")
 	}
 	if !response.Code {
-		return 0, errors.New("StarAI balance request failed")
+		return 0, errors.New("Molii AIGC balance request failed")
 	}
 	if math.IsNaN(response.Data.BalanceCNY) || math.IsInf(response.Data.BalanceCNY, 0) || response.Data.BalanceCNY < 0 {
-		return 0, errors.New("StarAI returned an invalid balance")
+		return 0, errors.New("Molii AIGC returned an invalid balance")
 	}
 	balance := response.Data.BalanceCNY
 	if math.IsNaN(balance) || math.IsInf(balance, 0) || balance < 0 {
-		return 0, errors.New("converted StarAI balance is invalid")
+		return 0, errors.New("converted Molii AIGC balance is invalid")
 	}
 	channel.UpdateBalance(balance)
 	return balance, nil

@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -18,6 +19,8 @@ var starAISignatureQueryKeys = map[string]struct{}{
 	"x-amz-signature": {},
 	"signature":       {},
 }
+
+var starAIUpstreamBrandPattern = regexp.MustCompile(`(?i)\bstar[\s_-]*ai\b`)
 
 // IsUnsignedStarAIPrivateTOSURL reports whether rawURL targets StarAI's exact
 // private Ark TOS host without a non-empty supported signature parameter.
@@ -201,7 +204,8 @@ func sanitizeStarAIValue(value any, publicTaskID string, upstreamIDs, secrets []
 		for _, upstreamID := range upstreamIDs {
 			typed = strings.ReplaceAll(typed, upstreamID, publicTaskID)
 		}
-		return sanitizeURLQueryValues(typed)
+		typed = sanitizeURLQueryValues(typed)
+		return starAIUpstreamBrandPattern.ReplaceAllString(typed, "Molii AIGC")
 	default:
 		return value
 	}

@@ -74,7 +74,7 @@ export function StarAIVideoPricingSection({ defaultValues }: { defaultValues: Va
     }
 
   return (
-    <SettingsSection title={t('StarAI Video Pricing')}>
+    <SettingsSection title={t('Molii AIGC Video Pricing')}>
       <FormNavigationGuard when={isDirty} />
       <Form {...form}>
         <SettingsForm onSubmit={handleSubmit}>

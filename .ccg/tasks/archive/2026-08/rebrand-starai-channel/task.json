@@ -1,0 +1,12 @@
+{
+  "id": "rebrand-starai-channel",
+  "title": "将用户可见 StarAI 渠道品牌改为 Molii AIGC",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地变更",
+  "createdAt": "2026-08-03T10:25:00Z",
+  "branch": "feat/molii-auth"
+}

@@ -33,13 +33,13 @@ import {
   getRelatedModelsForChannelType,
 } from '../channel-utils'
 
-describe('StarAI channel', () => {
+describe('Molii AIGC channel', () => {
   test('registers channel 61 as a video provider with Doubao icon metadata', () => {
     assert.equal(CHANNEL_TYPE_STARAI, 61)
-    assert.equal(CHANNEL_TYPES[CHANNEL_TYPE_STARAI], 'StarAI')
+    assert.equal(CHANNEL_TYPES[CHANNEL_TYPE_STARAI], 'Molii AIGC')
     assert.deepEqual(
       CHANNEL_TYPE_OPTIONS.find((item) => item.value === CHANNEL_TYPE_STARAI),
-      { value: CHANNEL_TYPE_STARAI, label: 'StarAI' }
+      { value: CHANNEL_TYPE_STARAI, label: 'Molii AIGC' }
     )
     assert.equal(
       CHANNEL_TYPE_OPTIONS.findIndex(

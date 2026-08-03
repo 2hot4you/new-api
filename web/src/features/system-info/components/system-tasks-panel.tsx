@@ -84,10 +84,12 @@ const TYPE_LABEL: Record<string, string> = {
   model_update: 'Batch upstream model update',
   midjourney_poll: 'Drawing task polling',
   async_task_poll: 'Async task polling',
+  starai_result_cleanup: 'Video result cleanup',
 }
 
 const TYPE_DISPLAY_ID: Record<string, string> = {
   midjourney_poll: 'drawing_task_poll',
+  starai_result_cleanup: 'video_result_cleanup',
 }
 
 function isActiveStatus(status: SystemTaskStatus) {

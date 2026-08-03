@@ -34,22 +34,24 @@ func TestParseStarAIAssetUpstreamFailure(t *testing.T) {
 	failure := parseStarAIAssetUpstreamFailure("create", http.StatusBadRequest, []byte(`{
 		"error": {
 			"code": "invalid_image_size",
-			"message": "image https://cdn.example.com/private.webp must be at least 300px; token=secret-value asset-20260616115348-9df57"
+			"message": "StarAI image https://cdn.example.com/private.webp must be at least 300px; token=secret-value asset-20260616115348-9df57"
 		}
 	}`), nil)
 	require.Equal(t, "invalid_image_size", failure.Code)
 	require.NotContains(t, failure.Reason, "cdn.example.com")
 	require.NotContains(t, failure.Reason, "secret-value")
 	require.NotContains(t, failure.Reason, "asset-20260616115348-9df57")
+	require.NotContains(t, failure.Reason, "StarAI")
+	require.Contains(t, failure.Reason, "Molii AIGC")
 	require.Contains(t, failure.Reason, "300px")
 	require.Equal(t, http.StatusBadRequest, starAIAssetClientStatus(failure.Status))
 }
 
 func TestParseStarAIAssetUpstreamFailureFallbacks(t *testing.T) {
 	failure := parseStarAIAssetUpstreamFailure("create", http.StatusUnsupportedMediaType, []byte(`not-json`), nil)
-	require.Equal(t, "StarAI 不支持该素材格式", failure.Reason)
+	require.Equal(t, "Molii AIGC 不支持该素材格式", failure.Reason)
 
 	failure = parseStarAIAssetUpstreamFailure("create", 0, nil, errors.New("dial failed"))
-	require.Equal(t, "无法连接 StarAI 上游服务", failure.Reason)
+	require.Equal(t, "无法连接 Molii AIGC 服务", failure.Reason)
 	require.Equal(t, http.StatusBadGateway, starAIAssetClientStatus(failure.Status))
 }
