@@ -1,0 +1,12 @@
+{
+  "id": "export-seedance-api-pdf",
+  "title": "导出 Molii Seedance API 文档 PDF",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地文件",
+  "createdAt": "2026-08-03T09:40:00Z",
+  "branch": "feat/molii-auth"
+}

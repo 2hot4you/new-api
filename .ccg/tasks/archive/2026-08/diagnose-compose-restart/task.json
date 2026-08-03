@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-compose-restart",
+  "title": "诊断生产服务器 New API 容器重启循环",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-03T16:45:00+08:00",
+  "branch": "feat/molii-auth"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "user-api-documentation",
+  "title": "为 aigc.claudeye.com 编写用户侧 API 接口文档",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-03T08:31:24Z",
+  "branch": "feat/molii-auth"
+}

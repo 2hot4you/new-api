@@ -1,0 +1,12 @@
+{
+  "id": "segmented-seedance-curl",
+  "title": "提供分段 Seedance cURL 示例",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-03T09:10:00Z",
+  "branch": "feat/molii-auth"
+}

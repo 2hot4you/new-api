@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-bare-asset-id",
+  "title": "诊断 Seedance 临时素材参数错误",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-03T09:15:00Z",
+  "branch": "feat/molii-auth"
+}

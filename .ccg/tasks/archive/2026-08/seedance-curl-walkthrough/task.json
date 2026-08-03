@@ -1,0 +1,12 @@
+{
+  "id": "seedance-curl-walkthrough",
+  "title": "提供完整 Seedance cURL 端到端示例",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-03T09:05:00Z",
+  "branch": "feat/molii-auth"
+}

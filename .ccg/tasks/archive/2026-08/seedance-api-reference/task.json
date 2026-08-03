@@ -1,0 +1,12 @@
+{
+  "id": "seedance-api-reference",
+  "title": "编写 Molii Seedance 2.0 专项 API 接口文档",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-03T08:54:58Z",
+  "branch": "feat/molii-auth"
+}

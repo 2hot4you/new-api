@@ -1,0 +1,12 @@
+{
+  "id": "compact-seedance-markdown",
+  "title": "精简 Seedance API 文档空格与行间距",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地变更",
+  "createdAt": "2026-08-03T09:25:00Z",
+  "branch": "feat/molii-auth"
+}

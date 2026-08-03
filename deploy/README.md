@@ -55,15 +55,19 @@ docker compose --env-file .env up -d
 docker compose --env-file .env ps
 ```
 
-## 配置 HTTPS 后
+## 配置 HTTPS
 
 反向代理可用后，将 `.env` 至少调整为：
 
 ```env
 SESSION_COOKIE_SECURE=true
-SESSION_COOKIE_TRUSTED_URL=https://your-domain.example
+SESSION_COOKIE_TRUSTED_URL=https://aigc.claudeye.com
 TRUSTED_PROXIES=<实际反向代理的 IP 或 CIDR>
 ```
+
+登录管理后台，在系统设置中将“服务器地址”设置为
+`https://aigc.claudeye.com`。该数据库配置会用于 OAuth/支付回调及视频签名播放地址；
+它不是环境变量。
 
 如果独立前端与 API 不同 Origin，再设置精确的
 `DASHBOARD_CORS_ALLOWED_ORIGINS`。以上 Origin 配置不支持通配符。
