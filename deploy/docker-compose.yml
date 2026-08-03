@@ -1,0 +1,131 @@
+name: molii-new-api
+
+services:
+  postgres:
+    image: postgres:15-alpine@sha256:3d0f7584ed7d04e27fa050d6683a74746608faf21f202be78460d679cc56461f
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    command:
+      [
+        'sh',
+        '-ec',
+        'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"',
+      ]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping | grep -q PONG',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      - backend
+
+  migrate:
+    image: postgres:15-alpine@sha256:3d0f7584ed7d04e27fa050d6683a74746608faf21f202be78460d679cc56461f
+    restart: 'no'
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - |
+        export PGPASSWORD="$${POSTGRES_PASSWORD}"
+        exec psql \
+          --host=postgres \
+          --username="$${POSTGRES_USER}" \
+          --dbname="$${POSTGRES_DB}" \
+          --set=ON_ERROR_STOP=1 \
+          --file=/migrations/20260803_molii_postgres.sql
+    volumes:
+      - ./migrations/20260803_molii_postgres.sql:/migrations/20260803_molii_postgres.sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  new-api:
+    image: ${NEW_API_IMAGE:-pangmaom1/new-api:latest}
+    pull_policy: always
+    restart: unless-stopped
+    init: true
+    environment:
+      SQL_DSN: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}?sslmode=disable
+      REDIS_CONN_STRING: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SESSION_COOKIE_TRUSTED_URL: ${SESSION_COOKIE_TRUSTED_URL:-}
+      DASHBOARD_CORS_ALLOWED_ORIGINS: ${DASHBOARD_CORS_ALLOWED_ORIGINS:-}
+      GIN_MODE: ${GIN_MODE:-release}
+      DEBUG: ${DEBUG:-false}
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_TYPE: ${NODE_TYPE:-master}
+      NODE_NAME: ${NODE_NAME:-molii-new-api-1}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-none}
+      ERROR_LOG_ENABLED: ${ERROR_LOG_ENABLED:-true}
+      BATCH_UPDATE_ENABLED: ${BATCH_UPDATE_ENABLED:-true}
+      SYNC_FREQUENCY: ${SYNC_FREQUENCY:-60}
+    ports:
+      - ${NEW_API_BIND_ADDRESS:-127.0.0.1}:${NEW_API_PORT:-3000}:3000
+    volumes:
+      - app_data:/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -q -O - http://localhost:3000/api/status | grep -q ''"success":true''',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+volumes:
+  app_data:
+  postgres_data:
+  redis_data:
+
+networks:
+  backend:
+    driver: bridge
