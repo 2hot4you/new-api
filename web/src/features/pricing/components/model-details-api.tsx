@@ -534,7 +534,11 @@ function CodeSamplesSection(props: {
       </div>
 
       <div className='mt-3'>
-        <CodeBlock code={code} language={LANG_HIGHLIGHT[lang]}>
+        <CodeBlock
+          className='[&_.cm-content]:!pl-4'
+          code={code}
+          language={LANG_HIGHLIGHT[lang]}
+        >
           <CodeBlockCopyButton />
         </CodeBlock>
       </div>

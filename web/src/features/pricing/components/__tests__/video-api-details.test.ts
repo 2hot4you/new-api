@@ -64,6 +64,35 @@ describe('Seedance API details', () => {
     assert.doesNotMatch(sample, /temperature/)
   })
 
+  test('annotates each asynchronous video workflow step', () => {
+    const context = {
+      baseUrl: 'https://api.molii.co',
+      apiKeyEnv: 'MOLII_TOKEN',
+      modelName: seedanceModel.model_name,
+      endpointPath: '/v1/video/generations',
+    }
+
+    const curl = buildVideoSample('curl', context)
+    const python = buildVideoSample('python', context)
+    const typescript = buildVideoSample('typescript', context)
+    const javascript = buildVideoSample('javascript', context)
+
+    assert.match(curl, /# Create an asynchronous video task/)
+    assert.match(curl, /# Query the task status with the public task ID/)
+    assert.match(python, /# Create an asynchronous video task/)
+    assert.match(python, /# Query the task status with the public task ID/)
+    assert.match(typescript, /\/\/ Create an asynchronous video task/)
+    assert.match(
+      typescript,
+      /\/\/ Query the task status with the public task ID/
+    )
+    assert.match(javascript, /\/\/ Create an asynchronous video task/)
+    assert.match(
+      javascript,
+      /\/\/ Query the task status with the public task ID/
+    )
+  })
+
   test('shows only resolutions supported by the selected Seedance model', () => {
     const parameters = buildSupportedParameters(seedanceModel)
     const names = parameters.map((parameter) => parameter.name)
