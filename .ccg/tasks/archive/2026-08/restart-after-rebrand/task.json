@@ -1,0 +1,12 @@
+{
+  "id": "restart-after-rebrand",
+  "title": "使用最新品牌改名代码重启本地后端",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务记录",
+  "createdAt": "2026-08-03T11:05:00Z",
+  "branch": "feat/molii-auth"
+}
