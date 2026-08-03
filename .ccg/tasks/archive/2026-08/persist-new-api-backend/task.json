@@ -1,0 +1,12 @@
+{
+  "id": "persist-new-api-backend",
+  "title": "使用 launchd 持久后台运行 New API",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已验证 launchd KeepAlive 自动重启和 API 健康状态",
+  "createdAt": "2026-08-03T10:45:00+08:00",
+  "branch": "feat/molii-auth"
+}
