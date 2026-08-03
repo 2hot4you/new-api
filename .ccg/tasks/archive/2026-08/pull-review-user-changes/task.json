@@ -1,0 +1,12 @@
+{
+  "id": "pull-review-user-changes",
+  "title": "拉取并审阅用户远端代码更改记录",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "向用户汇报拉取结果、变更摘要与审阅发现",
+  "createdAt": "2026-08-03T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
