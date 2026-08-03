@@ -1,0 +1,12 @@
+{
+  "id": "improve-model-api-example",
+  "title": "优化模型详情 API 示例边距与注释",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-03T11:40:00+08:00",
+  "branch": "feat/molii-auth"
+}
