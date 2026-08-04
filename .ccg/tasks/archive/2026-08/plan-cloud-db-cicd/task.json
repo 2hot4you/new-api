@@ -1,0 +1,12 @@
+{
+  "id": "plan-cloud-db-cicd",
+  "title": "规划云数据库迁移与 GitHub Actions 自动部署",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "devops",
+  "currentPhase": "completed",
+  "nextAction": "等待用户选择云厂商并授权实施仓库侧部署改造",
+  "createdAt": "2026-08-04T00:30:00Z",
+  "branch": "feat/molii-auth"
+}
