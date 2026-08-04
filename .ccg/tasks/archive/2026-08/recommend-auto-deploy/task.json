@@ -1,0 +1,12 @@
+{
+  "id": "recommend-auto-deploy",
+  "title": "评估 Git push 后自动部署服务器方案",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "devops",
+  "currentPhase": "completed",
+  "nextAction": "等待用户确认生产部署分支后实施 GitHub Actions 自动部署",
+  "createdAt": "2026-08-04T00:10:00Z",
+  "branch": "feat/molii-auth"
+}
