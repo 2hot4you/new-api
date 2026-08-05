@@ -1,6 +1,7 @@
 package moliigrok
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,10 +17,18 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
 const validatedImageCountContextKey = "molii_grok_validated_image_count"
+
+const (
+	imageBillingOutputPriceContextKey = "molii_grok_image_output_price"
+	imageBillingInputPriceContextKey  = "molii_grok_image_input_price"
+	imageBillingInputCountContextKey  = "molii_grok_image_input_count"
+	imageBillingBasePriceContextKey   = "molii_grok_image_base_price"
+)
 
 var allowedAspectRatios = map[string]struct{}{
 	"1:1": {}, "16:9": {}, "9:16": {}, "4:3": {}, "3:4": {}, "3:2": {}, "2:3": {},
@@ -54,10 +63,6 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	if info == nil {
 		return nil, errors.New("request context is missing")
 	}
-	if info.RelayMode == relayconstant.RelayModeImagesEdits {
-		return nil, errors.New("image edits are not supported by Molii Grok Imagine API")
-	}
-
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
 		return nil, fmt.Errorf("read image request: %w", err)
@@ -120,13 +125,118 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	}
 
 	c.Set(validatedImageCountContextKey, n)
-	return imageRequestPayload{
+	payload := imageRequestPayload{
 		Model:       upstreamModel,
 		Prompt:      prompt,
 		AspectRatio: aspectRatio,
 		Resolution:  resolution,
 		N:           n,
-	}, nil
+	}
+	if info.RelayMode == relayconstant.RelayModeImagesEdits {
+		media, err := normalizeImageMedia(raw.Image, raw.Images)
+		if err != nil {
+			return nil, err
+		}
+		if len(media) == 1 {
+			payload.Image = &media[0]
+		} else {
+			payload.Images = media
+		}
+	}
+	return payload, nil
+}
+
+func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (map[string]float64, error) {
+	if info == nil {
+		return nil, errors.New("request context is missing")
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return nil, err
+	}
+	body, err := storage.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	var raw rawImageRequest
+	if err := common.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("invalid image request: %w", err)
+	}
+	modelName := strings.TrimSpace(raw.Model)
+	if modelName == "" {
+		modelName = strings.TrimSpace(request.Model)
+	}
+	resolution := strings.ToLower(strings.TrimSpace(raw.Resolution))
+	if resolution == "" {
+		resolution = "1k"
+	}
+	outputPrice, inputPrice, ok := ratio_setting.GetMoliiGrokImagePrices(modelName, resolution)
+	if !ok {
+		return nil, errors.New("Molii Grok image pricing is not configured")
+	}
+	n := 1
+	if raw.N != nil {
+		n = *raw.N
+	}
+	if n < 1 || n > 4 {
+		return nil, errors.New("n must be an integer between 1 and 4")
+	}
+	inputCount := 0
+	if info.RelayMode == relayconstant.RelayModeImagesEdits {
+		media, err := normalizeImageMedia(raw.Image, raw.Images)
+		if err != nil {
+			return nil, err
+		}
+		inputCount = len(media)
+	}
+	basePrice, ok := ratio_setting.GetModelPrice(modelName, false)
+	if !ok {
+		basePrice, ok = ratio_setting.GetDefaultModelPriceMap()[modelName]
+	}
+	if !ok || basePrice <= 0 {
+		return nil, errors.New("Molii Grok image pricing anchor is invalid")
+	}
+	c.Set(imageBillingOutputPriceContextKey, outputPrice)
+	c.Set(imageBillingInputPriceContextKey, inputPrice)
+	c.Set(imageBillingInputCountContextKey, inputCount)
+	c.Set(imageBillingBasePriceContextKey, basePrice)
+	cost := outputPrice*float64(n) + inputPrice*float64(inputCount)
+	return map[string]float64{"molii_grok_direct_cost": cost / basePrice}, nil
+}
+
+func normalizeImageMedia(imageRaw, imagesRaw []byte) ([]imageMediaInput, error) {
+	rawItems := make([][]byte, 0, 3)
+	if len(imageRaw) > 0 && string(imageRaw) != "null" {
+		rawItems = append(rawItems, imageRaw)
+	}
+	if len(imagesRaw) > 0 && string(imagesRaw) != "null" {
+		var items []json.RawMessage
+		if err := common.Unmarshal(imagesRaw, &items); err != nil {
+			return nil, errors.New("images must be an array")
+		}
+		for _, item := range items {
+			rawItems = append(rawItems, item)
+		}
+	}
+	if len(rawItems) < 1 || len(rawItems) > 3 {
+		return nil, errors.New("image edits require between 1 and 3 input images")
+	}
+	media := make([]imageMediaInput, 0, len(rawItems))
+	for _, raw := range rawItems {
+		var direct string
+		if err := common.Unmarshal(raw, &direct); err == nil && strings.TrimSpace(direct) != "" {
+			media = append(media, imageMediaInput{URL: strings.TrimSpace(direct)})
+			continue
+		}
+		var item imageMediaInput
+		if err := common.Unmarshal(raw, &item); err != nil || (strings.TrimSpace(item.URL) == "" && strings.TrimSpace(item.FileID) == "") {
+			return nil, errors.New("each input image must contain url or file_id")
+		}
+		item.URL = strings.TrimSpace(item.URL)
+		item.FileID = strings.TrimSpace(item.FileID)
+		media = append(media, item)
+	}
+	return media, nil
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
@@ -159,7 +269,14 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		data = append(data, dto.ImageData{Url: item.URL})
 	}
 	if info != nil && info.PriceData.UsePrice {
-		info.PriceData.AddOtherRatio("n", float64(actualCount))
+		outputPrice := c.GetFloat64(imageBillingOutputPriceContextKey)
+		inputPrice := c.GetFloat64(imageBillingInputPriceContextKey)
+		inputCount := c.GetInt(imageBillingInputCountContextKey)
+		basePrice := c.GetFloat64(imageBillingBasePriceContextKey)
+		if outputPrice >= 0 && inputPrice >= 0 && basePrice > 0 {
+			actualCost := outputPrice*float64(actualCount) + inputPrice*float64(inputCount)
+			info.PriceData.AddOtherRatio("molii_grok_direct_cost", actualCost/basePrice)
+		}
 	}
 	c.JSON(http.StatusOK, dto.ImageResponse{Data: data})
 	return &dto.Usage{}, nil

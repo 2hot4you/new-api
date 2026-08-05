@@ -122,6 +122,18 @@ type ImageRequestLoggingPolicy interface {
 	AllowImageRequestBodyLog() bool
 }
 
+// ImageBillingEstimator lets a provider replace generic image count ratios
+// with a direct media-cost ratio before pre-consumption.
+type ImageBillingEstimator interface {
+	EstimateImageBilling(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (map[string]float64, error)
+}
+
 type TaskTransportErrorMapper interface {
 	MapTaskTransportError(err error) *taskdto.TaskError
+}
+
+// PerCallTaskCompletionAdjuster opts a fixed-price task into completion-time
+// delta settlement. Most per-call tasks remain immutable after submit.
+type PerCallTaskCompletionAdjuster interface {
+	AllowPerCallCompletionAdjustment() bool
 }

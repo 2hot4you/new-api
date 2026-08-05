@@ -66,6 +66,20 @@ func TestCountBillableToolCallFunctionCallSkipsReservedNames(t *testing.T) {
 	}
 }
 
+func TestCountBillableXAIToolCallsUseSuccessfulOutputTypes(t *testing.T) {
+	info := &RelayInfo{OriginModelName: "grok-4.5", ResponsesUsageInfo: &ResponsesUsageInfo{BuiltInTools: map[string]*BuildInToolInfo{
+		dto.BuildInToolCollectionsSearch: {ToolName: dto.BuildInToolCollectionsSearch},
+	}}}
+	info.CountBillableToolCall(dto.BuildInCallXSearchCall, "")
+	info.CountBillableToolCall(dto.BuildInCallCodeInterpreterCall, "")
+	info.CountBillableToolCall(dto.BuildInCallFileSearchCall, "")
+	assert.Equal(t, 1, info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolXSearch].CallCount)
+	assert.Equal(t, 1, info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolCodeInterpreter].CallCount)
+	assert.Equal(t, 1, info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolCollectionsSearch].CallCount)
+	assert.False(t, IsBillableToolOutput(&dto.ResponsesOutput{Status: "failed"}))
+	assert.True(t, IsBillableToolOutput(&dto.ResponsesOutput{Status: "completed"}))
+}
+
 func TestImageGenerationCallCounterCompletedOutputs(t *testing.T) {
 	t.Parallel()
 

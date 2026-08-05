@@ -34,6 +34,10 @@ type TaskPollingAdaptor interface {
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
 }
 
+type perCallTaskCompletionAdjuster interface {
+	AllowPerCallCompletionAdjustment() bool
+}
+
 // PrivateTaskPollingAdaptor is implemented by providers whose polling payload
 // contains private upstream identifiers, result URLs, costs, or credentials.
 // The polling loop then persists only adaptor-produced safe data and never
@@ -761,8 +765,11 @@ func truncateBase64(s string) string {
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
 	// 0. 按次计费的任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
-		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
-		return
+		adjuster, ok := adaptor.(perCallTaskCompletionAdjuster)
+		if !ok || !adjuster.AllowPerCallCompletionAdjustment() {
+			logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
+			return
+		}
 	}
 	// 1. 优先让 adaptor 决定最终额度
 	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {

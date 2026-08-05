@@ -12,11 +12,16 @@ import (
 )
 
 var reservedBillableToolNames = map[string]struct{}{
-	dto.BuildInToolWebSearchPreview: {},
-	dto.BuildInToolWebSearch:        {},
-	dto.BuildInToolFileSearch:       {},
-	dto.BuildInToolGoogleSearch:     {},
-	dto.BuildInToolImageGeneration:  {},
+	dto.BuildInToolWebSearchPreview:  {},
+	dto.BuildInToolWebSearch:         {},
+	dto.BuildInToolFileSearch:        {},
+	dto.BuildInToolGoogleSearch:      {},
+	dto.BuildInToolImageGeneration:   {},
+	dto.BuildInToolXSearch:           {},
+	dto.BuildInToolCodeInterpreter:   {},
+	dto.BuildInToolCodeExecution:     {},
+	dto.BuildInToolAttachmentSearch:  {},
+	dto.BuildInToolCollectionsSearch: {},
 }
 
 // CountBillableToolCall is the single entry point for per-call tool billing counts.
@@ -38,7 +43,11 @@ func (info *RelayInfo) CountBillableToolCall(itemType string, functionName strin
 	case dto.BuildInCallWebSearchCall:
 		info.incrementBillableToolCall(resolveWebSearchToolName(info.ResponsesUsageInfo.BuiltInTools))
 	case dto.BuildInCallFileSearchCall:
-		info.incrementBillableToolCall(dto.BuildInToolFileSearch)
+		info.incrementBillableToolCall(resolveFileSearchToolName(info.ResponsesUsageInfo.BuiltInTools))
+	case dto.BuildInCallXSearchCall:
+		info.incrementBillableToolCall(dto.BuildInToolXSearch)
+	case dto.BuildInCallCodeInterpreterCall:
+		info.incrementBillableToolCall(dto.BuildInToolCodeInterpreter)
 	case dto.BuildInCallFunctionCall, dto.BuildInCallToolUse:
 		if functionName == "" {
 			return
@@ -50,6 +59,30 @@ func (info *RelayInfo) CountBillableToolCall(itemType string, functionName strin
 			return
 		}
 		info.incrementBillableToolCall(functionName)
+	}
+}
+
+func resolveFileSearchToolName(tools map[string]*BuildInToolInfo) string {
+	if _, ok := tools[dto.BuildInToolAttachmentSearch]; ok {
+		return dto.BuildInToolAttachmentSearch
+	}
+	if _, ok := tools[dto.BuildInToolCollectionsSearch]; ok {
+		return dto.BuildInToolCollectionsSearch
+	}
+	return dto.BuildInToolFileSearch
+}
+
+// IsBillableToolOutput rejects terminal failed/cancelled tool items. Empty
+// status remains billable for providers that omit status on completed items.
+func IsBillableToolOutput(item *dto.ResponsesOutput) bool {
+	if item == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(item.Status)) {
+	case "failed", "cancelled", "canceled", "incomplete", "partial":
+		return false
+	default:
+		return true
 	}
 }
 

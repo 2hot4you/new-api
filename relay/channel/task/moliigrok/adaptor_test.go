@@ -50,13 +50,13 @@ func TestVideoRequestUsesDirectFieldsAndDefaults(t *testing.T) {
 	}{
 		{
 			name: "explicit",
-			body: `{"model":"grok-imagine-video-1.5","prompt":" rainy cat ","duration":5,"aspect_ratio":"16:9","resolution":"480p"}`,
-			want: `{"model":"grok-imagine-video-1.5","prompt":"rainy cat","duration":5,"aspect_ratio":"16:9","resolution":"480p"}`,
+			body: `{"model":"grok-imagine-video-1.5","prompt":" rainy cat ","image":"https://images.example/cat.png","duration":5,"aspect_ratio":"16:9","resolution":"480p"}`,
+			want: `{"model":"grok-imagine-video-1.5","prompt":"rainy cat","image":{"url":"https://images.example/cat.png"},"duration":5,"aspect_ratio":"16:9","resolution":"480p"}`,
 		},
 		{
 			name: "defaults",
-			body: `{"model":"grok-imagine-video-1.5","prompt":"rainy cat"}`,
-			want: `{"model":"grok-imagine-video-1.5","prompt":"rainy cat","duration":5,"aspect_ratio":"16:9","resolution":"480p"}`,
+			body: `{"model":"grok-imagine-video-1.5","prompt":"rainy cat","image":"https://images.example/cat.png"}`,
+			want: `{"model":"grok-imagine-video-1.5","prompt":"rainy cat","image":{"url":"https://images.example/cat.png"},"duration":5,"aspect_ratio":"16:9","resolution":"480p"}`,
 		},
 	}
 
@@ -82,7 +82,7 @@ func TestVideoRequestUsesDirectFieldsAndDefaults(t *testing.T) {
 func TestVideoRequestRejectsUnsupportedModelAndLongPrompt(t *testing.T) {
 	tests := []string{
 		`{"model":"grok-imagine-image","prompt":"cat","duration":5}`,
-		`{"model":"grok-imagine-video-1.5","prompt":"` + strings.Repeat("猫", 10001) + `","duration":5}`,
+		`{"model":"grok-imagine-video-1.5","prompt":"` + strings.Repeat("猫", 10001) + `","image":"https://images.example/cat.png","duration":5}`,
 	}
 	for _, body := range tests {
 		c, _ := taskContext(t, body)
@@ -107,6 +107,97 @@ func TestVideoBuildURLAndHeaders(t *testing.T) {
 	assert.Equal(t, "Bearer secret-key", req.Header.Get("Authorization"))
 	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
 	assert.Equal(t, "application/json", req.Header.Get("Accept"))
+}
+
+func TestGrokImagineVideoGenerationSupportsImageObject(t *testing.T) {
+	c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"animate","image":{"url":"https://images.example/cat.png"},"duration":6,"aspect_ratio":"9:16","resolution":"720p"}`)
+	info := taskInfo()
+	info.OriginModelName = LegacyVideoModel
+	info.ChannelMeta.UpstreamModelName = LegacyVideoModel
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	adaptor.EstimateBilling(c, info)
+	body, err := adaptor.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	encoded, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"model":"grok-imagine-video","prompt":"animate","duration":6,"aspect_ratio":"9:16","resolution":"720p","image":{"url":"https://images.example/cat.png"}}`, string(encoded))
+	assert.InDelta(t, 0.422, info.EstimatedVideoPrice, 0.000001)
+}
+
+func TestGrokImagineVideoPreservesFileIDInput(t *testing.T) {
+	c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"animate","image":{"file_id":"file_abc"},"duration":5,"resolution":"480p"}`)
+	info := taskInfo()
+	info.OriginModelName = LegacyVideoModel
+	info.ChannelMeta.UpstreamModelName = LegacyVideoModel
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	body, err := adaptor.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	encoded, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"model":"grok-imagine-video","prompt":"animate","duration":5,"aspect_ratio":"16:9","resolution":"480p","image":{"file_id":"file_abc"}}`, string(encoded))
+}
+
+func TestGrokImagineVideoEditUsesOfficialEndpointAndPayload(t *testing.T) {
+	c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"add rain","video":{"url":"https://videos.example/source.mp4"}}`)
+	c.Request.URL.Path = "/v1/videos/edits"
+	info := taskInfo()
+	info.OriginModelName = LegacyVideoModel
+	info.ChannelMeta.UpstreamModelName = LegacyVideoModel
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	adaptor.EstimateBilling(c, info)
+	requestURL, err := adaptor.BuildRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, "https://provider.invalid/xai/v1/videos/edits", requestURL)
+	body, err := adaptor.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	encoded, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"model":"grok-imagine-video","prompt":"add rain","video":{"url":"https://videos.example/source.mp4"}}`, string(encoded))
+	assert.True(t, info.EstimatedVideoHasInput)
+	assert.InDelta(t, 0.696, info.EstimatedVideoPrice, 0.000001)
+}
+
+func TestGrokImagineVideo15RequiresImageAndRejectsOldModel1080p(t *testing.T) {
+	tests := []struct {
+		body string
+		path string
+	}{
+		{body: `{"model":"grok-imagine-video-1.5","prompt":"cat"}`, path: "/v1/videos"},
+		{body: `{"model":"grok-imagine-video","prompt":"cat","resolution":"1080p"}`, path: "/v1/videos"},
+		{body: `{"model":"grok-imagine-video-1.5","prompt":"cat","video":{"url":"https://videos.example/a.mp4"}}`, path: "/v1/videos/edits"},
+	}
+	for _, tt := range tests {
+		c, _ := taskContext(t, tt.body)
+		c.Request.URL.Path = tt.path
+		var modelName string
+		if strings.Contains(tt.body, `"grok-imagine-video-1.5"`) {
+			modelName = VideoModel
+		} else {
+			modelName = LegacyVideoModel
+		}
+		info := taskInfo()
+		info.OriginModelName = modelName
+		info.ChannelMeta.UpstreamModelName = modelName
+		adaptor := &TaskAdaptor{}
+		adaptor.Init(info)
+		require.NotNil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	}
+}
+
+func TestVideoEditCompletionUsesActualDurationAndResolutionTier(t *testing.T) {
+	task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+		ModelPrice: 1, GroupRatio: 2, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
+		EstimatedInputUnitPrice: 0.01, EstimatedOutputUnitPrices: map[string]float64{"480p": 0.05, "720p": 0.07},
+	}}}
+	result := &relaycommon.TaskInfo{ActualDurationSeconds: 5, ProviderCost: 0.4}
+	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, result)
+	assert.Equal(t, 400000, quota)
 }
 
 func TestVideoSubmitReturnsOnlyPublicTaskID(t *testing.T) {
@@ -143,13 +234,15 @@ func TestParseVideoTaskStatusesAndClampProgress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.status, func(t *testing.T) {
-			body := `{"status":"` + tt.status + `","progress":` + strconv.Itoa(tt.progress) + `,"video":{"url":"https://videos.example/result.mp4"},"usage":{"cost_in_usd_ticks":4000000000}}`
+			body := `{"status":"` + tt.status + `","progress":` + strconv.Itoa(tt.progress) + `,"video":{"url":"https://videos.example/result.mp4","duration":5},"usage":{"cost_in_usd_ticks":4000000000}}`
 			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(body))
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, result.Status)
 			assert.Equal(t, tt.wantProgress, result.Progress)
 			if tt.wantURL {
 				assert.Equal(t, "https://videos.example/result.mp4", result.Url)
+				assert.Equal(t, 5.0, result.ActualDurationSeconds)
+				assert.Equal(t, 0.4, result.ProviderCost)
 			} else {
 				assert.Empty(t, result.Url)
 			}

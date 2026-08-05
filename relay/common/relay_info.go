@@ -160,16 +160,18 @@ type RelayInfo struct {
 
 	// StarAI Seedance estimation values are persisted into the async task's
 	// billing snapshot and surfaced in usage logs.
-	EstimatedVideoTokens     int
-	EstimatedVideoPrice      float64
-	EstimatedVideoWidth      int
-	EstimatedVideoHeight     int
-	EstimatedVideoFPS        int
-	EstimatedVideoSeconds    int
-	EstimatedVideoResolution string
-	EstimatedVideoRatio      string
-	EstimatedVideoHasInput   bool
-	EstimatedVideoUnitPrice  float64
+	EstimatedVideoTokens           int
+	EstimatedVideoPrice            float64
+	EstimatedVideoWidth            int
+	EstimatedVideoHeight           int
+	EstimatedVideoFPS              int
+	EstimatedVideoSeconds          int
+	EstimatedVideoResolution       string
+	EstimatedVideoRatio            string
+	EstimatedVideoHasInput         bool
+	EstimatedVideoUnitPrice        float64
+	EstimatedVideoInputUnitPrice   float64
+	EstimatedVideoOutputUnitPrices map[string]float64
 
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
 	// int32 bound (or NaN fallback) while computing this request's charge.
@@ -853,7 +855,10 @@ type TaskSubmitReq struct {
 	Model          string                 `json:"model,omitempty"`
 	Mode           string                 `json:"mode,omitempty"`
 	Image          string                 `json:"image,omitempty"`
+	ImageFileID    string                 `json:"-"`
 	Images         []string               `json:"images,omitempty"`
+	Video          string                 `json:"video,omitempty"`
+	VideoFileID    string                 `json:"-"`
 	Size           string                 `json:"size,omitempty"`
 	Duration       int                    `json:"duration,omitempty"`
 	Seconds        string                 `json:"seconds,omitempty"`
@@ -876,6 +881,8 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	aux := &struct {
 		Metadata json.RawMessage `json:"metadata,omitempty"`
 		Duration json.RawMessage `json:"duration,omitempty"`
+		Image    json.RawMessage `json:"image,omitempty"`
+		Video    json.RawMessage `json:"video,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(t),
@@ -899,6 +906,20 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		}
 	}
 
+	var err error
+	if len(aux.Image) > 0 {
+		t.Image, t.ImageFileID, err = parseTaskMediaReference(aux.Image)
+		if err != nil {
+			return fmt.Errorf("invalid image: %w", err)
+		}
+	}
+	if len(aux.Video) > 0 {
+		t.Video, t.VideoFileID, err = parseTaskMediaReference(aux.Video)
+		if err != nil {
+			return fmt.Errorf("invalid video: %w", err)
+		}
+	}
+
 	if len(aux.Metadata) > 0 {
 		var metadataStr string
 		if err := common.Unmarshal(aux.Metadata, &metadataStr); err == nil && metadataStr != "" {
@@ -917,6 +938,30 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
+
+func parseTaskMediaReference(raw json.RawMessage) (value string, fileID string, err error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", "", nil
+	}
+	var direct string
+	if err := common.Unmarshal(raw, &direct); err == nil {
+		return strings.TrimSpace(direct), "", nil
+	}
+	var object struct {
+		URL    string `json:"url"`
+		FileID string `json:"file_id"`
+	}
+	if err := common.Unmarshal(raw, &object); err != nil {
+		return "", "", errors.New("must be a string or an object containing url or file_id")
+	}
+	if value := strings.TrimSpace(object.URL); value != "" {
+		return value, "", nil
+	}
+	if value := strings.TrimSpace(object.FileID); value != "" {
+		return value, value, nil
+	}
+	return "", "", errors.New("url or file_id is required")
+}
 func (t *TaskSubmitReq) UnmarshalMetadata(v any) error {
 	metadata := t.Metadata
 	if metadata != nil {
@@ -933,15 +978,17 @@ func (t *TaskSubmitReq) UnmarshalMetadata(v any) error {
 }
 
 type TaskInfo struct {
-	Code             int    `json:"code"`
-	TaskID           string `json:"task_id"`
-	Status           string `json:"status"`
-	Reason           string `json:"reason,omitempty"`
-	Url              string `json:"url,omitempty"`
-	RemoteUrl        string `json:"remote_url,omitempty"`
-	Progress         string `json:"progress,omitempty"`
-	CompletionTokens int    `json:"completion_tokens,omitempty"` // 用于按倍率计费
-	TotalTokens      int    `json:"total_tokens,omitempty"`      // 用于按倍率计费
+	Code                  int     `json:"code"`
+	TaskID                string  `json:"task_id"`
+	Status                string  `json:"status"`
+	Reason                string  `json:"reason,omitempty"`
+	Url                   string  `json:"url,omitempty"`
+	RemoteUrl             string  `json:"remote_url,omitempty"`
+	Progress              string  `json:"progress,omitempty"`
+	CompletionTokens      int     `json:"completion_tokens,omitempty"` // 用于按倍率计费
+	TotalTokens           int     `json:"total_tokens,omitempty"`      // 用于按倍率计费
+	ActualDurationSeconds float64 `json:"actual_duration_seconds,omitempty"`
+	ProviderCost          float64 `json:"provider_cost,omitempty"`
 }
 
 func FailTaskInfo(reason string) *TaskInfo {

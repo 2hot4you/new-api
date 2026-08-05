@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -134,6 +135,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		meta = request.GetTokenCountMeta()
 	} else {
 		meta = fastTokenCountMetaForPricing(request)
+	}
+	if imageRequest, ok := request.(*dto.ImageRequest); ok {
+		adaptor := relay.GetAdaptor(relayInfo.ApiType)
+		if estimator, ok := adaptor.(channel.ImageBillingEstimator); ok {
+			adaptor.Init(relayInfo)
+			ratios, estimateErr := estimator.EstimateImageBilling(c, relayInfo, *imageRequest)
+			if estimateErr != nil {
+				newAPIError = types.NewErrorWithStatusCode(estimateErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+				return
+			}
+			if meta == nil {
+				meta = &types.TokenCountMeta{}
+			}
+			meta.BillingRatios = ratios
+		}
 	}
 
 	if needSensitiveCheck && meta != nil {
@@ -586,22 +602,24 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
-			ModelPrice:          relayInfo.PriceData.ModelPrice,
-			GroupRatio:          relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			ModelRatio:          relayInfo.PriceData.ModelRatio,
-			OtherRatios:         relayInfo.PriceData.OtherRatios(),
-			OriginModelName:     relayInfo.OriginModelName,
-			PerCallBilling:      common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
-			EstimatedTokens:     relayInfo.EstimatedVideoTokens,
-			EstimatedPrice:      relayInfo.EstimatedVideoPrice,
-			EstimatedWidth:      relayInfo.EstimatedVideoWidth,
-			EstimatedHeight:     relayInfo.EstimatedVideoHeight,
-			EstimatedFPS:        relayInfo.EstimatedVideoFPS,
-			EstimatedSeconds:    relayInfo.EstimatedVideoSeconds,
-			EstimatedResolution: relayInfo.EstimatedVideoResolution,
-			EstimatedRatio:      relayInfo.EstimatedVideoRatio,
-			EstimatedHasVideo:   relayInfo.EstimatedVideoHasInput,
-			EstimatedUnitPrice:  relayInfo.EstimatedVideoUnitPrice,
+			ModelPrice:                relayInfo.PriceData.ModelPrice,
+			GroupRatio:                relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+			ModelRatio:                relayInfo.PriceData.ModelRatio,
+			OtherRatios:               relayInfo.PriceData.OtherRatios(),
+			OriginModelName:           relayInfo.OriginModelName,
+			PerCallBilling:            common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+			EstimatedTokens:           relayInfo.EstimatedVideoTokens,
+			EstimatedPrice:            relayInfo.EstimatedVideoPrice,
+			EstimatedWidth:            relayInfo.EstimatedVideoWidth,
+			EstimatedHeight:           relayInfo.EstimatedVideoHeight,
+			EstimatedFPS:              relayInfo.EstimatedVideoFPS,
+			EstimatedSeconds:          relayInfo.EstimatedVideoSeconds,
+			EstimatedResolution:       relayInfo.EstimatedVideoResolution,
+			EstimatedRatio:            relayInfo.EstimatedVideoRatio,
+			EstimatedHasVideo:         relayInfo.EstimatedVideoHasInput,
+			EstimatedUnitPrice:        relayInfo.EstimatedVideoUnitPrice,
+			EstimatedInputUnitPrice:   relayInfo.EstimatedVideoInputUnitPrice,
+			EstimatedOutputUnitPrices: relayInfo.EstimatedVideoOutputUnitPrices,
 		}
 		task.Quota = result.Quota
 		task.Data = result.TaskData

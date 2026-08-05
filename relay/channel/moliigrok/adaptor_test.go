@@ -94,13 +94,36 @@ func TestConvertImageRequestRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
-func TestConvertImageRequestRejectsEdits(t *testing.T) {
+func TestConvertImageRequestSupportsOfficialEditPayload(t *testing.T) {
 	info := imageInfo()
 	info.RelayMode = relayconstant.RelayModeImagesEdits
-	_, err := (&Adaptor{}).ConvertImageRequest(imageContext(t, `{}`), info, dto.ImageRequest{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not supported")
-	assert.Equal(t, http.StatusBadRequest, (&Adaptor{}).SanitizeImageRequestError(err).StatusCode)
+	info.OriginModelName = "grok-imagine-image-quality"
+	info.ChannelMeta.UpstreamModelName = "grok-imagine-image-quality"
+	body := `{"model":"grok-imagine-image-quality","prompt":"oil painting","resolution":"2k","image":{"url":"https://images.example/input.png"}}`
+	c := imageContext(t, body)
+	c.Request.URL.Path = "/v1/images/edits"
+	var request dto.ImageRequest
+	require.NoError(t, common.Unmarshal([]byte(body), &request))
+	converted, err := (&Adaptor{}).ConvertImageRequest(c, info, request)
+	require.NoError(t, err)
+	encoded, err := common.Marshal(converted)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"model":"grok-imagine-image-quality","prompt":"oil painting","aspect_ratio":"16:9","resolution":"2k","n":1,"image":{"url":"https://images.example/input.png"}}`, string(encoded))
+}
+
+func TestEstimateImageBillingSeparatesInputAndOutputUnits(t *testing.T) {
+	body := `{"model":"grok-imagine-image-quality","prompt":"edit","resolution":"2k","n":2,"images":[{"url":"https://images.example/a.png"},{"url":"https://images.example/b.png"}]}`
+	c := imageContext(t, body)
+	c.Request.URL.Path = "/v1/images/edits"
+	info := imageInfo()
+	info.RelayMode = relayconstant.RelayModeImagesEdits
+	info.OriginModelName = "grok-imagine-image-quality"
+	info.ChannelMeta.UpstreamModelName = "grok-imagine-image-quality"
+	var request dto.ImageRequest
+	require.NoError(t, common.Unmarshal([]byte(body), &request))
+	ratios, err := (&Adaptor{}).EstimateImageBilling(c, info, request)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.16, ratios["molii_grok_direct_cost"], 0.000001)
 }
 
 func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {
@@ -108,8 +131,12 @@ func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	info := imageInfo()
 	info.PriceData = hosttypes.PriceData{UsePrice: true}
-	info.PriceData.AddOtherRatio("n", 4)
+	info.PriceData.AddOtherRatio("molii_grok_direct_cost", 0.08)
 	c.Set(validatedImageCountContextKey, 4)
+	c.Set(imageBillingOutputPriceContextKey, 0.02)
+	c.Set(imageBillingInputPriceContextKey, 0.0)
+	c.Set(imageBillingInputCountContextKey, 0)
+	c.Set(imageBillingBasePriceContextKey, 1.0)
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
@@ -125,7 +152,7 @@ func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {
 	assert.NotContains(t, recorder.Body.String(), "cost_in_usd_ticks")
 	assert.NotContains(t, recorder.Body.String(), "mime_type")
 	assert.JSONEq(t, `{"created":0,"data":[{"url":"https://images.example/a.jpg","b64_json":"","revised_prompt":""},{"url":"https://images.example/b.jpg","b64_json":"","revised_prompt":""}]}`, recorder.Body.String())
-	assert.Equal(t, 2.0, info.PriceData.OtherRatios()["n"])
+	assert.Equal(t, 0.04, info.PriceData.OtherRatios()["molii_grok_direct_cost"])
 }
 
 func TestSanitizeImageErrorNeverReturnsRawProviderDetails(t *testing.T) {

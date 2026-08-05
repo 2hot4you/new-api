@@ -1,0 +1,12 @@
+{
+  "id": "add-grok-imagine-video-pricing",
+  "title": "新增 grok-imagine-video 并实现 Molii Grok 分项计费",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "review",
+  "nextAction": "提交已验证变更并归档任务",
+  "createdAt": "2026-08-05T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -22,6 +23,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -41,6 +43,8 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 
 func (a *TaskAdaptor) AllowAutomaticTaskSubmitRetry() bool { return false }
 
+func (a *TaskAdaptor) AllowPerCallCompletionAdjustment() bool { return true }
+
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError {
 	if taskErr := relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate); taskErr != nil {
 		return taskErr
@@ -53,17 +57,44 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if modelName == "" {
 		modelName = strings.TrimSpace(info.OriginModelName)
 	}
-	if modelName != VideoModel || (info.UpstreamModelName != "" && info.UpstreamModelName != VideoModel) {
+	if modelName != VideoModel && modelName != LegacyVideoModel {
 		return service.TaskErrorWrapperLocal(errors.New("model is not supported by Molii Grok Imagine API"), "invalid_model", http.StatusBadRequest)
+	}
+	if info.UpstreamModelName != "" && info.UpstreamModelName != VideoModel && info.UpstreamModelName != LegacyVideoModel {
+		return service.TaskErrorWrapperLocal(errors.New("mapped model is not supported by Molii Grok Imagine API"), "invalid_model", http.StatusBadRequest)
 	}
 	prompt := strings.TrimSpace(req.Prompt)
 	if utf8.RuneCountInString(prompt) > 10000 {
 		return service.TaskErrorWrapperLocal(errors.New("prompt must not exceed 10000 characters"), "invalid_prompt", http.StatusBadRequest)
 	}
-	req.Model = VideoModel
+	req.Model = modelName
 	req.Prompt = prompt
+	isEdit := strings.HasSuffix(c.Request.URL.Path, "/videos/edits")
+	if isEdit {
+		if modelName != LegacyVideoModel {
+			return service.TaskErrorWrapperLocal(errors.New("video editing requires grok-imagine-video"), "invalid_model", http.StatusBadRequest)
+		}
+		if strings.TrimSpace(req.Video) == "" {
+			return service.TaskErrorWrapperLocal(errors.New("video is required"), "invalid_video", http.StatusBadRequest)
+		}
+		if req.Duration != 0 || strings.TrimSpace(req.AspectRatio) != "" || strings.TrimSpace(req.Resolution) != "" {
+			return service.TaskErrorWrapperLocal(errors.New("duration, aspect_ratio and resolution are not supported for video edits"), "invalid_request", http.StatusBadRequest)
+		}
+		c.Set("task_request", req)
+		info.Action = videoEditAction
+		info.EstimatedVideoSeconds = 9
+		info.EstimatedVideoResolution = "720p"
+		info.EstimatedVideoHasInput = true
+		return nil
+	}
+	if modelName == VideoModel && strings.TrimSpace(req.Image) == "" && len(req.Images) == 0 {
+		return service.TaskErrorWrapperLocal(errors.New("grok-imagine-video-1.5 requires an image"), "invalid_image", http.StatusBadRequest)
+	}
 	if req.Duration == 0 {
 		req.Duration = 5
+	}
+	if req.Duration < 1 || req.Duration > 15 {
+		return service.TaskErrorWrapperLocal(errors.New("duration must be between 1 and 15 seconds"), "invalid_duration", http.StatusBadRequest)
 	}
 	if strings.TrimSpace(req.AspectRatio) == "" {
 		req.AspectRatio = "16:9"
@@ -74,6 +105,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if len(req.AspectRatio) > 32 || len(req.Resolution) > 32 {
 		return service.TaskErrorWrapperLocal(errors.New("invalid video parameters"), "invalid_request", http.StatusBadRequest)
 	}
+	if _, _, _, ok := ratio_setting.GetMoliiGrokVideoPrices(modelName, req.Resolution); !ok {
+		return service.TaskErrorWrapperLocal(errors.New("resolution is not supported by the selected model"), "invalid_resolution", http.StatusBadRequest)
+	}
 	c.Set("task_request", req)
 	info.Action = constant.TaskActionGenerate
 	info.EstimatedVideoSeconds = req.Duration
@@ -82,9 +116,12 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	return nil
 }
 
-func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
+func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if a.baseURL == "" {
 		return "", errors.New("Molii Grok Imagine API configuration is incomplete")
+	}
+	if info != nil && info.Action == videoEditAction {
+		return a.baseURL + "/v1/videos/edits", nil
 	}
 	return a.baseURL + "/v1/videos/generations", nil
 }
@@ -101,9 +138,24 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
-	modelName := VideoModel
+	modelName := strings.TrimSpace(req.Model)
+	if modelName == "" {
+		modelName = VideoModel
+	}
 	if info != nil && strings.TrimSpace(info.UpstreamModelName) != "" {
 		modelName = strings.TrimSpace(info.UpstreamModelName)
+	}
+	if info != nil && info.Action == videoEditAction {
+		payload := videoEditRequestPayload{
+			Model:  modelName,
+			Prompt: strings.TrimSpace(req.Prompt),
+			Video:  buildMediaInput(req.Video, req.VideoFileID),
+		}
+		body, err := common.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		return bytes.NewReader(body), nil
 	}
 	payload := videoRequestPayload{
 		Model:       modelName,
@@ -112,11 +164,105 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		AspectRatio: strings.TrimSpace(req.AspectRatio),
 		Resolution:  strings.TrimSpace(req.Resolution),
 	}
+	imageURL := strings.TrimSpace(req.Image)
+	if imageURL == "" && len(req.Images) > 0 {
+		imageURL = strings.TrimSpace(req.Images[0])
+	}
+	if imageURL != "" {
+		media := buildMediaInput(imageURL, req.ImageFileID)
+		payload.Image = &media
+	}
 	body, err := common.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
 	return bytes.NewReader(body), nil
+}
+
+func buildMediaInput(value, fileID string) mediaInput {
+	if strings.TrimSpace(fileID) != "" {
+		return mediaInput{FileID: strings.TrimSpace(fileID)}
+	}
+	return mediaInput{URL: strings.TrimSpace(value)}
+}
+
+func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	if info == nil {
+		return nil
+	}
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil
+	}
+	modelName := strings.TrimSpace(info.OriginModelName)
+	basePrice, ok := ratio_setting.GetModelPrice(modelName, false)
+	if !ok {
+		basePrice, ok = ratio_setting.GetDefaultModelPriceMap()[modelName]
+	}
+	if !ok || basePrice <= 0 {
+		return nil
+	}
+	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
+	seconds := float64(req.Duration)
+	if info.Action == videoEditAction {
+		resolution = "720p"
+		seconds = 8.7
+	}
+	outputPrice, imageInputPrice, videoInputPrice, ok := ratio_setting.GetMoliiGrokVideoPrices(modelName, resolution)
+	if !ok {
+		return nil
+	}
+	cost := seconds * outputPrice
+	if info.Action == videoEditAction {
+		cost += seconds * videoInputPrice
+	} else if strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 {
+		cost += imageInputPrice
+	}
+	info.EstimatedVideoPrice = cost
+	info.EstimatedVideoUnitPrice = outputPrice
+	if info.Action == videoEditAction {
+		info.EstimatedVideoInputUnitPrice = videoInputPrice
+		info.EstimatedVideoOutputUnitPrices = make(map[string]float64, 2)
+		for _, candidate := range []string{"480p", "720p"} {
+			candidateOutput, _, _, configured := ratio_setting.GetMoliiGrokVideoPrices(modelName, candidate)
+			if configured {
+				info.EstimatedVideoOutputUnitPrices[candidate] = candidateOutput
+			}
+		}
+	} else if strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 {
+		info.EstimatedVideoInputUnitPrice = imageInputPrice
+	}
+	return map[string]float64{"molii_grok_direct_cost": cost / basePrice}
+}
+
+func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int {
+	if task == nil || taskResult == nil || task.PrivateData.BillingContext == nil {
+		return 0
+	}
+	bc := task.PrivateData.BillingContext
+	if !bc.EstimatedHasVideo || bc.OriginModelName != LegacyVideoModel || taskResult.ActualDurationSeconds <= 0 {
+		return 0
+	}
+	duration := taskResult.ActualDurationSeconds
+	resolution := "720p"
+	if taskResult.ProviderCost > 0 {
+		officialRate := taskResult.ProviderCost / duration
+		resolution = "480p"
+		if math.Abs(officialRate-0.08) < math.Abs(officialRate-0.06) {
+			resolution = "720p"
+		}
+	}
+	outputPrice, ok := bc.EstimatedOutputUnitPrices[resolution]
+	videoInputPrice := bc.EstimatedInputUnitPrice
+	if !ok || outputPrice < 0 || videoInputPrice < 0 {
+		var configured bool
+		outputPrice, _, videoInputPrice, configured = ratio_setting.GetMoliiGrokVideoPrices(LegacyVideoModel, resolution)
+		if !configured {
+			return 0
+		}
+	}
+	quota, _ := common.QuotaFromFloatChecked(duration * (outputPrice + videoInputPrice) * common.QuotaPerUnit * bc.GroupRatio)
+	return quota
 }
 
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
@@ -195,6 +341,8 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.Status = model.TaskStatusSuccess
 		result.Progress = "100%"
 		result.Url = strings.TrimSpace(upstream.Video.URL)
+		result.ActualDurationSeconds = upstream.Video.Duration
+		result.ProviderCost = float64(upstream.Usage.CostInUSDTicks) / 10_000_000_000
 		parsedURL, err := url.Parse(result.Url)
 		if err != nil || !strings.EqualFold(parsedURL.Scheme, "https") || strings.TrimSpace(parsedURL.Host) == "" {
 			return nil, errors.New("Molii Grok Imagine API returned an invalid video result")

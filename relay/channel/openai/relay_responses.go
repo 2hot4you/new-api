@@ -50,6 +50,9 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	// Count actual tool invocations from Output (not tool declarations).
 	for _, output := range responsesResponse.Output {
+		if !relaycommon.IsBillableToolOutput(&output) {
+			continue
+		}
 		switch output.Type {
 		case dto.BuildInCallWebSearchCall:
 			info.CountBillableToolCall(dto.BuildInCallWebSearchCall, "")
@@ -57,6 +60,10 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			info.CountBillableToolCall(dto.BuildInCallFileSearchCall, "")
 		case dto.BuildInCallFunctionCall:
 			info.CountBillableToolCall(dto.BuildInCallFunctionCall, output.Name)
+		case dto.BuildInCallXSearchCall:
+			info.CountBillableToolCall(dto.BuildInCallXSearchCall, "")
+		case dto.BuildInCallCodeInterpreterCall:
+			info.CountBillableToolCall(dto.BuildInCallCodeInterpreterCall, "")
 		}
 	}
 
@@ -141,7 +148,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			// 处理输出文本
 			responseTextBuilder.WriteString(streamResponse.Delta)
 		case dto.ResponsesOutputTypeItemDone:
-			if streamResponse.Item != nil {
+			if relaycommon.IsBillableToolOutput(streamResponse.Item) {
 				switch streamResponse.Item.Type {
 				case dto.BuildInCallWebSearchCall:
 					info.CountBillableToolCall(dto.BuildInCallWebSearchCall, "")
@@ -149,6 +156,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 					info.CountBillableToolCall(dto.BuildInCallFileSearchCall, "")
 				case dto.BuildInCallFunctionCall:
 					info.CountBillableToolCall(dto.BuildInCallFunctionCall, streamResponse.Item.Name)
+				case dto.BuildInCallXSearchCall:
+					info.CountBillableToolCall(dto.BuildInCallXSearchCall, "")
+				case dto.BuildInCallCodeInterpreterCall:
+					info.CountBillableToolCall(dto.BuildInCallCodeInterpreterCall, "")
 				case dto.ResponsesOutputTypeImageGenerationCall:
 					if !imageCommitted {
 						imageCounter.Observe(streamResponse.Item, streamResponse.OutputIndex)

@@ -16,6 +16,7 @@ import (
 var moliiGrokModels = []string{
 	"grok-imagine-image",
 	"grok-imagine-image-quality",
+	"grok-imagine-video",
 	"grok-imagine-video-1.5",
 }
 

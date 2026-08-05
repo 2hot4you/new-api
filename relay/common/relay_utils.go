@@ -273,6 +273,7 @@ func isKnownTaskField(field string) bool {
 		"mode":            true,
 		"image":           true,
 		"images":          true,
+		"video":           true,
 		"size":            true,
 		"duration":        true,
 		"aspect_ratio":    true,

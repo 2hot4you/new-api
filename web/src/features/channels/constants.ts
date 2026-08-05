@@ -33,6 +33,7 @@ export const STARAI_MODELS = [
 export const MOLII_GROK_AIGC_MODELS = [
   'grok-imagine-image',
   'grok-imagine-image-quality',
+  'grok-imagine-video',
   'grok-imagine-video-1.5',
 ] as const
 

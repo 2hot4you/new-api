@@ -857,6 +857,12 @@ type mockAdaptor struct {
 	adjustReturn int
 }
 
+type adjustingPerCallAdaptor struct {
+	mockAdaptor
+}
+
+func (a *adjustingPerCallAdaptor) AllowPerCallCompletionAdjustment() bool { return true }
+
 func (m *mockAdaptor) Init(_ *relaycommon.RelayInfo) {}
 func (m *mockAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
 	return nil, nil
@@ -895,6 +901,29 @@ func TestSettle_PerCallBilling_SkipsAdaptorAdjust(t *testing.T) {
 	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, preConsumed, task.Quota)
 	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestSettle_PerCallBilling_AllowsOptInAdaptorAdjust(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 33, 33, 33
+	const initQuota, preConsumed = 10000, 5000
+	const tokenRemain = 8000
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-percall-opt-in", tokenRemain)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.PerCallBilling = true
+
+	adaptor := &adjustingPerCallAdaptor{mockAdaptor{adjustReturn: 2000}}
+	settleTaskBillingOnComplete(ctx, adaptor, task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+
+	assert.Equal(t, initQuota+3000, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+3000, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, 2000, task.Quota)
 }
 
 func TestSettle_PerCallBilling_SkipsTotalTokens(t *testing.T) {

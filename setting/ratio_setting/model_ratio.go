@@ -272,6 +272,12 @@ var defaultModelRatio = map[string]float64{
 }
 
 var defaultModelPrice = map[string]float64{
+	// Molii Grok adaptors convert configured direct media cost into an
+	// OtherRatio against these internal ¥1 anchors.
+	"grok-imagine-image":             1,
+	"grok-imagine-image-quality":     1,
+	"grok-imagine-video":             1,
+	"grok-imagine-video-1.5":         1,
 	"suno_music":                     0.1,
 	"suno_lyrics":                    0.01,
 	"dall-e-3":                       0.04,

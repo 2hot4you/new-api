@@ -281,6 +281,26 @@ export type BillingSettings = {
   'starai_video_price.standard_4k_video': number
   'starai_video_price.fast_720p': number
   'starai_video_price.fast_720p_video': number
+  'molii_grok_price.image_standard_input': number
+  'molii_grok_price.image_standard_1k': number
+  'molii_grok_price.image_standard_2k': number
+  'molii_grok_price.image_quality_input': number
+  'molii_grok_price.image_quality_1k': number
+  'molii_grok_price.image_quality_2k': number
+  'molii_grok_price.video_15_image_input': number
+  'molii_grok_price.video_15_480p': number
+  'molii_grok_price.video_15_720p': number
+  'molii_grok_price.video_15_1080p': number
+  'molii_grok_price.video_image_input': number
+  'molii_grok_price.video_video_input': number
+  'molii_grok_price.video_480p': number
+  'molii_grok_price.video_720p': number
+  'molii_grok_tool_price.web_search': number
+  'molii_grok_tool_price.x_search': number
+  'molii_grok_tool_price.code_execution': number
+  'molii_grok_tool_price.attachment_search': number
+  'molii_grok_tool_price.collections_search': number
+  'molii_grok_tool_price.image_generation': number
   TopupGroupRatio: string
   GroupRatio: string
   UserUsableGroups: string

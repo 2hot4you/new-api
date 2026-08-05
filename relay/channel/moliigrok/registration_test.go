@@ -31,9 +31,10 @@ func TestMoliiGrokChannelRegistration(t *testing.T) {
 	videoAdaptor := relay.GetTaskAdaptor(platform)
 	require.NotNil(t, videoAdaptor)
 	assert.Equal(t, "Molii Grok Imagine API", videoAdaptor.GetChannelName())
-	assert.Equal(t, []string{"grok-imagine-video-1.5"}, videoAdaptor.GetModelList())
+	assert.ElementsMatch(t, []string{"grok-imagine-video", "grok-imagine-video-1.5"}, videoAdaptor.GetModelList())
 	assert.False(t, relay.TaskAdaptorAllowsRetry(platform))
 
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeImageGeneration}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-image"))
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-video-1.5"))
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-video"))
 }

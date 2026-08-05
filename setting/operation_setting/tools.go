@@ -190,6 +190,9 @@ func RebuildToolPriceIndex() {
 // GetToolPriceForModel returns the price ($/1K calls) for a tool given a model name.
 // Lookup: longest prefix match → tool default → 0.
 func GetToolPriceForModel(toolName, modelName string) float64 {
+	if price, ok := getMoliiGrokToolPrice(toolName, modelName); ok {
+		return price
+	}
 	idx := currentIndex.Load()
 	if idx == nil {
 		RebuildToolPriceIndex()

@@ -1,11 +1,23 @@
 package moliigrok
 
 type videoRequestPayload struct {
-	Model       string `json:"model"`
-	Prompt      string `json:"prompt"`
-	Duration    int    `json:"duration"`
-	AspectRatio string `json:"aspect_ratio"`
-	Resolution  string `json:"resolution"`
+	Model       string      `json:"model"`
+	Prompt      string      `json:"prompt"`
+	Duration    int         `json:"duration"`
+	AspectRatio string      `json:"aspect_ratio"`
+	Resolution  string      `json:"resolution"`
+	Image       *mediaInput `json:"image,omitempty"`
+}
+
+type videoEditRequestPayload struct {
+	Model  string     `json:"model"`
+	Prompt string     `json:"prompt"`
+	Video  mediaInput `json:"video"`
+}
+
+type mediaInput struct {
+	URL    string `json:"url,omitempty"`
+	FileID string `json:"file_id,omitempty"`
 }
 
 type videoSubmitResponse struct {
@@ -24,9 +36,12 @@ type videoPollResponse struct {
 	Progress int    `json:"progress"`
 	Model    string `json:"model,omitempty"`
 	Video    struct {
-		URL      string `json:"url"`
-		Duration int    `json:"duration"`
+		URL      string  `json:"url"`
+		Duration float64 `json:"duration"`
 	} `json:"video,omitempty"`
+	Usage struct {
+		CostInUSDTicks int64 `json:"cost_in_usd_ticks"`
+	} `json:"usage,omitempty"`
 	Error *videoProviderError `json:"error,omitempty"`
 }
 
