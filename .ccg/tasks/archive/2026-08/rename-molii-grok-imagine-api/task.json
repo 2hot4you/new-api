@@ -1,0 +1,12 @@
+{
+  "id": "rename-molii-grok-imagine-api",
+  "title": "将新渠道显示名称改为 Molii Grok Imagine API",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-05T19:05:00+08:00",
+  "branch": "feat/molii-auth"
+}

@@ -1,8 +1,8 @@
-# Molii Grok AIGC 渠道需求
+# Molii Grok Imagine API 渠道需求
 
 ## 范围
 
-- 新增独立渠道类型 `Molii Grok AIGC`，不修改或复用 Molii AIGC 与官方 xAI 渠道业务逻辑。
+- 新增独立渠道类型 `Molii Grok Imagine API`，不修改或复用 Molii AIGC 与官方 xAI 渠道业务逻辑。
 - 支持两个图片模型和一个异步视频模型。
 - 接入管理后台渠道配置、模型目录、固定价格计费、错误脱敏与测试。
 

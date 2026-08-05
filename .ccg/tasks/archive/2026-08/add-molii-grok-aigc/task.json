@@ -1,0 +1,12 @@
+{
+  "id": "add-molii-grok-aigc",
+  "title": "新增 Molii Grok Imagine API 图片与视频渠道",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-05T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
