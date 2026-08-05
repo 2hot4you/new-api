@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	"github.com/QuantumNous/new-api/relay/channel/mistral"
 	"github.com/QuantumNous/new-api/relay/channel/mokaai"
+	"github.com/QuantumNous/new-api/relay/channel/moliigrok"
 	"github.com/QuantumNous/new-api/relay/channel/moonshot"
 	"github.com/QuantumNous/new-api/relay/channel/newapi"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
@@ -39,6 +40,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/task/hailuo"
 	taskjimeng "github.com/QuantumNous/new-api/relay/channel/task/jimeng"
 	"github.com/QuantumNous/new-api/relay/channel/task/kling"
+	taskmoliigrok "github.com/QuantumNous/new-api/relay/channel/task/moliigrok"
 	tasksora "github.com/QuantumNous/new-api/relay/channel/task/sora"
 	taskstarai "github.com/QuantumNous/new-api/relay/channel/task/starai"
 	"github.com/QuantumNous/new-api/relay/channel/task/suno"
@@ -130,6 +132,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &sub2api.Adaptor{}
 	case constant.APITypeNewAPI:
 		return &newapi.Adaptor{}
+	case constant.APITypeMoliiGrokAIGC:
+		return &moliigrok.Adaptor{}
 	}
 	return nil
 }
@@ -171,6 +175,8 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 			return &hailuo.TaskAdaptor{}
 		case constant.ChannelTypeStarAI:
 			return &taskstarai.TaskAdaptor{}
+		case constant.ChannelTypeMoliiGrokAIGC:
+			return &taskmoliigrok.TaskAdaptor{}
 		}
 	}
 	return nil

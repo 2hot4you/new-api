@@ -100,6 +100,27 @@ func init() {
 			})
 		}
 	}
+	moliiGrokTaskAdaptor := relay.GetTaskAdaptor(constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeMoliiGrokAIGC)))
+	if moliiGrokTaskAdaptor != nil {
+		for _, modelName := range moliiGrokTaskAdaptor.GetModelList() {
+			openAIModels = append(openAIModels, dto.OpenAIModels{
+				Id:      modelName,
+				Object:  "model",
+				Created: 1626777600,
+				OwnedBy: moliiGrokTaskAdaptor.GetChannelName(),
+			})
+		}
+		// The official xAI catalog may contain models with the same public IDs.
+		// The dedicated Molii channel is the preferred owner for these image and
+		// video entries without modifying the official xAI adaptor itself.
+		for i := range openAIModels {
+			for _, modelName := range []string{"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-video-1.5"} {
+				if openAIModels[i].Id == modelName {
+					openAIModels[i].OwnedBy = moliiGrokTaskAdaptor.GetChannelName()
+				}
+			}
+		}
+	}
 	openAIModelsMap = make(map[string]dto.OpenAIModels)
 	for _, aiModel := range openAIModels {
 		openAIModelsMap[aiModel.Id] = aiModel
@@ -119,6 +140,9 @@ func init() {
 	}
 	if starAITaskAdaptor != nil {
 		channelId2Models[constant.ChannelTypeStarAI] = starAITaskAdaptor.GetModelList()
+	}
+	if moliiGrokTaskAdaptor != nil {
+		channelId2Models[constant.ChannelTypeMoliiGrokAIGC] = lo.Uniq(append(channelId2Models[constant.ChannelTypeMoliiGrokAIGC], moliiGrokTaskAdaptor.GetModelList()...))
 	}
 	openAIModels = lo.UniqBy(openAIModels, func(m dto.OpenAIModels) string {
 		return m.Id

@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CHANNEL_TYPES, STARAI_MODELS } from '../constants'
+import {
+  CHANNEL_TYPES,
+  CHANNEL_TYPE_MOLII_GROK_AIGC,
+  MOLII_GROK_AIGC_MODELS,
+  STARAI_MODELS,
+} from '../constants'
 
 // ============================================================================
 // Channel Type Configuration
@@ -176,6 +181,21 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: STARAI_MODELS.join(','),
     },
   },
+  [CHANNEL_TYPE_MOLII_GROK_AIGC]: {
+    id: CHANNEL_TYPE_MOLII_GROK_AIGC,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_MOLII_GROK_AIGC],
+    icon: 'XAI',
+    supportedModels: [...MOLII_GROK_AIGC_MODELS],
+    hints: {
+      key: 'Enter API key for this channel',
+      models: MOLII_GROK_AIGC_MODELS.join(','),
+      other: 'Configuration check only; no paid generation request is sent',
+    },
+  },
+}
+
+export function shouldShowBaseUrlField(type: number): boolean {
+  return ![3, 8, 22, 36, 45, CHANNEL_TYPE_MOLII_GROK_AIGC].includes(type)
 }
 
 /**

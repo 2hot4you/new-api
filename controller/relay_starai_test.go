@@ -25,3 +25,13 @@ func TestStarAITaskSubmitPolicyBlocksRetryableStatuses(t *testing.T) {
 		assert.False(t, shouldRetryTaskRelayForPlatform(ctx, platform, 1, taskErr, 3), "status %d must not retry", status)
 	}
 }
+
+func TestMoliiGrokTaskSubmitPolicyBlocksAllAutomaticRetries(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(nil)
+	platform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
+	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusBadGateway, http.StatusGatewayTimeout} {
+		taskErr := &taskdto.TaskError{Error: errors.New("sanitized failure"), StatusCode: status}
+		assert.False(t, shouldRetryTaskRelayForPlatform(ctx, platform, 1, taskErr, 3), "status %d must not resubmit a paid task", status)
+	}
+}

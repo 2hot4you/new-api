@@ -95,3 +95,33 @@ type TaskRetryPolicy interface {
 type TaskSubmitErrorSanitizer interface {
 	SanitizeTaskSubmitError(responseBody []byte) string
 }
+
+// TaskSubmitErrorMapper optionally supplies a fully sanitized task error with
+// a stable public code and type for non-2xx submit responses.
+type TaskSubmitErrorMapper interface {
+	MapTaskSubmitError(statusCode int, responseBody []byte) *taskdto.TaskError
+}
+
+// ImageRequestErrorSanitizer optionally maps provider-specific image request
+// validation errors to a safe API error with the correct HTTP status.
+type ImageRequestErrorSanitizer interface {
+	SanitizeImageRequestError(err error) *types.NewAPIError
+}
+
+// ImageErrorSanitizer optionally replaces raw non-2xx image response bodies
+// with a provider-safe error before the generic relay error parser runs.
+type ImageErrorSanitizer interface {
+	SanitizeImageError(statusCode int, responseBody []byte) *types.NewAPIError
+}
+
+type ImageTransportErrorSanitizer interface {
+	SanitizeImageTransportError(err error) *types.NewAPIError
+}
+
+type ImageRequestLoggingPolicy interface {
+	AllowImageRequestBodyLog() bool
+}
+
+type TaskTransportErrorMapper interface {
+	MapTaskTransportError(err error) *taskdto.TaskError
+}

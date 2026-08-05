@@ -21,6 +21,7 @@ import { formatTimestampToDate } from '@/lib/format'
 
 import {
   CHANNEL_STATUS_CONFIG,
+  CHANNEL_TYPE_MOLII_GROK_AIGC,
   CHANNEL_TYPE_STARAI,
   CHANNEL_TYPES,
   MULTI_KEY_STATUS_CONFIG,
@@ -28,6 +29,7 @@ import {
   RESPONSE_TIME_THRESHOLDS,
   TYPE_TO_KEY_PROMPT,
   STARAI_MODELS,
+  MOLII_GROK_AIGC_MODELS,
 } from '../constants'
 import type { Channel, ChannelSettings, ChannelOtherSettings } from '../types'
 
@@ -106,6 +108,7 @@ export function getChannelTypeIcon(type: number): string {
     55: 'OpenAI', // Sora
     54: 'Doubao', // DoubaoVideo
     61: 'Doubao', // Molii AIGC
+    62: 'XAI', // Molii Grok Imagine API
     56: 'Replicate', // Replicate
 
     // Tools & Platforms
@@ -138,12 +141,28 @@ export function getRelatedModelsForChannelType(
   if (type === CHANNEL_TYPE_STARAI) {
     return [...(channelTypeModels[type] || STARAI_MODELS)]
   }
+  if (type === CHANNEL_TYPE_MOLII_GROK_AIGC) {
+    return [...(channelTypeModels[type] || MOLII_GROK_AIGC_MODELS)]
+  }
   if (type === 1) {
     return allModels.filter(
       (model) => model.startsWith('gpt-') || model.startsWith('text-')
     )
   }
   return allModels
+}
+
+export function getChannelTestAction(type: number): {
+  direct: boolean
+  label: string
+} {
+  if (type === CHANNEL_TYPE_STARAI) {
+    return { direct: true, label: 'Reachability Test' }
+  }
+  if (type === CHANNEL_TYPE_MOLII_GROK_AIGC) {
+    return { direct: true, label: 'Configuration Check' }
+  }
+  return { direct: false, label: 'Test Connection' }
 }
 
 // ============================================================================

@@ -648,6 +648,14 @@ func insertTaskWithRetry(task *model.Task) error {
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）
 func respondTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
+	if taskErr.Type != "" {
+		c.JSON(taskErr.StatusCode, gin.H{"error": gin.H{
+			"message": taskErr.Message,
+			"type":    taskErr.Type,
+			"code":    taskErr.Code,
+		}})
+		return
+	}
 	if taskErr.StatusCode == http.StatusTooManyRequests {
 		taskErr.Message = "当前分组上游负载已饱和，请稍后再试"
 	}

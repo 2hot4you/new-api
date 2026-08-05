@@ -59,7 +59,7 @@ import {
 } from '@/lib/admin-permissions'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { CHANNEL_TYPE_STARAI, MODEL_FETCHABLE_TYPES } from '../constants'
+import { MODEL_FETCHABLE_TYPES } from '../constants'
 import {
   channelsQueryKeys,
   handleDeleteChannel,
@@ -67,6 +67,7 @@ import {
   handleToggleChannelStatus,
   isChannelEnabled,
   isMultiKeyChannel,
+  getChannelTestAction,
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
@@ -90,10 +91,8 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   const isEnabled = isChannelEnabled(channel)
   const isMultiKey = isMultiKeyChannel(channel)
-  const isReachabilityTest = channel.type === CHANNEL_TYPE_STARAI
-  const testActionLabel = t(
-    isReachabilityTest ? 'Reachability Test' : 'Test Connection'
-  )
+  const testAction = getChannelTestAction(channel.type)
+  const testActionLabel = t(testAction.label)
   const canEditSensitive = hasPermission(
     currentUser,
     ADMIN_PERMISSION_RESOURCES.CHANNEL,
@@ -117,7 +116,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   }
 
   const handleTest = () => {
-    if (isReachabilityTest) {
+    if (testAction.direct) {
       void runDirectTest()
       return
     }
@@ -218,7 +217,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         <TooltipContent>{testActionLabel}</TooltipContent>
       </Tooltip>
 
-      {layout === 'card' && !isReachabilityTest && (
+      {layout === 'card' && !testAction.direct && (
         <Tooltip>
           <TooltipTrigger
             render={

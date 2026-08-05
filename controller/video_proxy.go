@@ -135,6 +135,14 @@ func VideoProxy(c *gin.Context) {
 		videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
 		return
 	}
+	if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+		parsedResultURL, parseErr := url.Parse(videoURL)
+		if parseErr != nil || !strings.EqualFold(parsedResultURL.Scheme, "https") {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Molii Grok Imagine API result URL rejected: public_task_id=%s reason=https_required", taskID))
+			videoProxyCodedError(c, http.StatusBadGateway, "upstream_invalid_result_url", "Molii Grok Imagine API video result must use HTTPS")
+			return
+		}
+	}
 	if channel.Type == constant.ChannelTypeStarAI && service.IsUnsignedStarAIPrivateTOSURL(videoURL) {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf(
 			"Molii AIGC result URL rejected: public_task_id=%s reason=unsigned_private_tos host=%s",
@@ -170,14 +178,23 @@ func VideoProxy(c *gin.Context) {
 		}
 	}
 	if validateErr != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
-		videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("request blocked: %v", validateErr))
+		if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Molii Grok Imagine API video URL blocked for public task %s", taskID))
+			videoProxyError(c, http.StatusForbidden, "server_error", "Molii Grok Imagine API video result was blocked")
+		} else {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
+			videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("request blocked: %v", validateErr))
+		}
 		return
 	}
 
 	req.URL, err = url.Parse(videoURL)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse video URL for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
+		if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse Molii Grok Imagine API video URL for public task %s", taskID))
+		} else {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse video URL for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
+		}
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
 	}
@@ -190,23 +207,37 @@ func VideoProxy(c *gin.Context) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
+		if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch Molii Grok Imagine API video for public task %s", taskID))
+		} else {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video for task %s: url=%s", taskID, service.SanitizeURLForLog(videoURL)))
+		}
 		videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for task %s: url=%s", resp.StatusCode, taskID, service.SanitizeURLForLog(videoURL)))
+		if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Molii Grok Imagine API video fetch returned status %d for public task %s", resp.StatusCode, taskID))
+		} else {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for task %s: url=%s", resp.StatusCode, taskID, service.SanitizeURLForLog(videoURL)))
+		}
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
 		return
 	}
 
 	for key, values := range resp.Header {
+		if channel.Type == constant.ChannelTypeMoliiGrokAIGC && !isMoliiGrokVideoResponseHeaderAllowed(key) {
+			continue
+		}
 		for _, value := range values {
 			c.Writer.Header().Add(key, value)
 		}
+	}
+	if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+		applyMoliiGrokVideoResponseHeaders(c.Writer.Header())
 	}
 	if strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "video/") {
 		c.Writer.Header().Set("Content-Disposition", "inline")
@@ -217,6 +248,21 @@ func VideoProxy(c *gin.Context) {
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
 	}
+}
+
+func isMoliiGrokVideoResponseHeaderAllowed(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	switch normalized {
+	case "content-length", "content-range", "accept-ranges", "etag", "last-modified":
+		return true
+	default:
+		return false
+	}
+}
+
+func applyMoliiGrokVideoResponseHeaders(header http.Header) {
+	header.Set("Content-Type", "video/mp4")
+	header.Set("Content-Disposition", "inline")
 }
 
 func writeVideoDataURL(c *gin.Context, dataURL string) error {

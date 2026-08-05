@@ -34,6 +34,22 @@ type TaskPollingAdaptor interface {
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
 }
 
+// PrivateTaskPollingAdaptor is implemented by providers whose polling payload
+// contains private upstream identifiers, result URLs, costs, or credentials.
+// The polling loop then persists only adaptor-produced safe data and never
+// includes the upstream task ID or raw body in normal logs and errors.
+type PrivateTaskPollingAdaptor interface {
+	IsPrivateTaskPolling() bool
+	IsTaskPollingStatusAccepted(statusCode int) bool
+	SafePollingData(taskResult *relaycommon.TaskInfo) []byte
+	SafePollingError(statusCode int) error
+}
+
+func privateTaskPollingAdaptor(adaptor TaskPollingAdaptor) (PrivateTaskPollingAdaptor, bool) {
+	privacy, ok := adaptor.(PrivateTaskPollingAdaptor)
+	return privacy, ok && privacy.IsPrivateTaskPolling()
+}
+
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
@@ -369,8 +385,12 @@ func UpdateVideoTasks(ctx context.Context, platform constant.TaskPlatform, taskC
 		gopool.Go(func() {
 			defer wg.Done()
 			if err := updateVideoTasks(ctx, platform, channelId, taskIds, taskM); err != nil {
+				adaptor := GetTaskAdaptorFunc(platform)
+				_, privatePolling := privateTaskPollingAdaptor(adaptor)
 				if platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) {
 					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update Molii AIGC async tasks", channelId))
+				} else if privatePolling {
+					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update private async tasks", channelId))
 				} else {
 					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update video async tasks: %s", channelId, err.Error()))
 				}
@@ -422,6 +442,7 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	info.ApiKey = cacheGetChannel.Key
 	adaptor.Init(info)
 	disablePollingSleep := cacheGetChannel.GetOtherSettings().DisableTaskPollingSleep
+	_, privatePolling := privateTaskPollingAdaptor(adaptor)
 	for i, taskId := range taskIds {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -433,6 +454,12 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 					publicTaskID = task.TaskID
 				}
 				logger.LogError(ctx, fmt.Sprintf("Failed to update Molii AIGC public task %s", publicTaskID))
+			} else if privatePolling {
+				publicTaskID := "unknown"
+				if task := taskM[taskId]; task != nil {
+					publicTaskID = task.TaskID
+				}
+				logger.LogError(ctx, fmt.Sprintf("Failed to update private public task %s", publicTaskID))
 			} else {
 				logger.LogError(ctx, fmt.Sprintf("Failed to update video task %s: %s", taskId, err.Error()))
 			}
@@ -461,11 +488,16 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 	proxy := ch.GetSetting().Proxy
 
+	privacy, privatePolling := privateTaskPollingAdaptor(adaptor)
 	task := taskM[taskId]
 	if task == nil {
 		if ch.Type == constant.ChannelTypeStarAI {
 			logger.LogError(ctx, "Video polling response did not match a pending task")
 			return errors.New("video polling response did not match a pending task")
+		}
+		if privatePolling {
+			logger.LogError(ctx, "Private video polling response did not match a pending task")
+			return errors.New("private video polling response did not match a pending task")
 		}
 		logger.LogError(ctx, fmt.Sprintf("Task %s not found in taskM", taskId))
 		return fmt.Errorf("task %s not found", taskId)
@@ -486,6 +518,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		if isStarAI {
 			return fmt.Errorf("fetchTask failed for public task %s", publicTaskID)
 		}
+		if privatePolling {
+			return fmt.Errorf("fetchTask failed for public task %s", publicTaskID)
+		}
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
 	}
 	defer resp.Body.Close()
@@ -494,7 +529,13 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		if isStarAI {
 			return fmt.Errorf("readAll failed for public task %s", publicTaskID)
 		}
+		if privatePolling {
+			return fmt.Errorf("readAll failed for public task %s", publicTaskID)
+		}
 		return fmt.Errorf("readAll failed for task %s: %w", taskId, err)
+	}
+	if privatePolling && !privacy.IsTaskPollingStatusAccepted(resp.StatusCode) {
+		return privacy.SafePollingError(resp.StatusCode)
 	}
 
 	snap := task.Snapshot()
@@ -502,10 +543,10 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	taskResult := &relaycommon.TaskInfo{}
 	// try parse as New API response format
 	var responseItems taskdto.TaskResponse[model.Task]
-	if !isStarAI {
+	if !isStarAI && !privatePolling {
 		err = common.Unmarshal(responseBody, &responseItems)
 	}
-	if !isStarAI && err == nil && responseItems.IsSuccess() {
+	if !isStarAI && !privatePolling && err == nil && responseItems.IsSuccess() {
 		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
 		t := responseItems.Data
 		taskResult.TaskID = t.TaskID
@@ -518,16 +559,23 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		if isStarAI {
 			return fmt.Errorf("parseTaskResult failed for public task %s", publicTaskID)
 		}
+		if privatePolling {
+			return fmt.Errorf("parseTaskResult failed for public task %s", publicTaskID)
+		}
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
 	}
 
 	if isStarAI {
 		task.Data = SanitizeStarAIResponseBody(responseBody, publicTaskID)
+	} else if privatePolling {
+		task.Data = privacy.SafePollingData(taskResult)
 	} else {
 		task.Data = redactVideoResponseBody(responseBody)
 	}
 	if isStarAI {
 		logger.LogDebug(ctx, "updateVideoSingleTask safe response: %s", task.Data)
+		logger.LogDebug(ctx, "updateVideoSingleTask public task %s parsed with status %s", publicTaskID, taskResult.Status)
+	} else if privatePolling {
 		logger.LogDebug(ctx, "updateVideoSingleTask public task %s parsed with status %s", publicTaskID, taskResult.Status)
 	} else {
 		logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
@@ -553,6 +601,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 				if isStarAI {
 					// Only the already-sanitized StarAI response may be logged.
 					logger.LogError(ctx, fmt.Sprintf("Public task %s returned empty status with unrecognized error format, safe response: %s", publicTaskID, string(task.Data)))
+				} else if privatePolling {
+					logger.LogError(ctx, fmt.Sprintf("Public task %s returned empty status", publicTaskID))
 				} else {
 					logger.LogError(ctx, fmt.Sprintf("Task %s returned empty status with unrecognized error format, response: %s", taskId, string(responseBody)))
 				}
@@ -597,6 +647,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		shouldLogFailure = true
 		if isStarAI {
 			logger.LogInfo(ctx, fmt.Sprintf("Molii AIGC public task %s reached failure status", publicTaskID))
+		} else if privatePolling {
+			logger.LogInfo(ctx, fmt.Sprintf("Private public task %s reached failure status", publicTaskID))
 		} else {
 			logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
 		}
@@ -608,9 +660,13 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		task.FailReason = taskResult.Reason
 		if isStarAI {
 			task.FailReason = sanitizeStarAIText(taskResult.Reason, responseBody, publicTaskID)
+		} else if privatePolling {
+			task.FailReason = "Molii Grok Imagine API task failed"
 		}
 		if isStarAI {
 			logger.LogInfo(ctx, fmt.Sprintf("Molii AIGC public task %s failed", task.TaskID))
+		} else if privatePolling {
+			logger.LogInfo(ctx, fmt.Sprintf("Private public task %s failed", task.TaskID))
 		} else {
 			logger.LogInfo(ctx, fmt.Sprintf("Task %s failed: %s", task.TaskID, task.FailReason))
 		}

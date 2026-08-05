@@ -1,8 +1,8 @@
-# Molii Grok AIGC Channel Design
+# Molii Grok Imagine API Channel Design
 
 ## Goal
 
-Add a server-side-only `Molii Grok AIGC` channel that supports two synchronous image models and one asynchronous video model while keeping the existing Molii AIGC and official xAI implementations unchanged.
+Add a server-side-only `Molii Grok Imagine API` channel that supports two synchronous image models and one asynchronous video model while keeping the existing Molii AIGC and official xAI implementations unchanged.
 
 ## Chosen approach
 
@@ -61,7 +61,7 @@ Rejected alternatives:
 
 ## Admin frontend
 
-- Add a new channel option named exactly `Molii Grok AIGC` with a Grok/xAI-style icon.
+- Add a new channel option named exactly `Molii Grok Imagine API` with a Grok/xAI-style icon.
 - Hide Base URL for this type and never put the server default URL in frontend source.
 - Require only Key and fill all three models.
 - Channel testing performs local configuration validation only and reports that no paid request was sent.

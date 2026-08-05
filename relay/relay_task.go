@@ -220,11 +220,17 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 9. 发送请求
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
+		if mapper, ok := adaptor.(channel.TaskTransportErrorMapper); ok {
+			return nil, mapper.MapTaskTransportError(err)
+		}
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
 	if resp != nil && resp.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
+		if mapper, ok := adaptor.(channel.TaskSubmitErrorMapper); ok {
+			return nil, mapper.MapTaskSubmitError(resp.StatusCode, responseBody)
+		}
 		errorMessage := string(responseBody)
 		if sanitizer, ok := adaptor.(channel.TaskSubmitErrorSanitizer); ok {
 			errorMessage = sanitizer.SanitizeTaskSubmitError(responseBody)
@@ -569,9 +575,13 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	resultURL := task.GetResultURL()
 	taskData := task.Data
-	if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)) && task.Status == model.TaskStatusSuccess {
+	isStarAI := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
+	isMoliiGrok := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
+	if (isStarAI || isMoliiGrok) && task.Status == model.TaskStatusSuccess {
 		resultURL = service.BuildSignedVideoProxyURL(task.TaskID, task.UserId)
-		taskData = service.RewriteStarAIVideoResponseURLs(task.Data, resultURL)
+		if isStarAI {
+			taskData = service.RewriteStarAIVideoResponseURLs(task.Data, resultURL)
+		}
 	}
 	return &dto.TaskDto{
 		ID:         task.ID,

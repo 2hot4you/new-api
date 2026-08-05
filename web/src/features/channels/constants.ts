@@ -23,10 +23,17 @@ For commercial licensing, please contact support@quantumnous.com
 
 export const CHANNEL_TYPE_NEW_API = 60
 export const CHANNEL_TYPE_STARAI = 61
+export const CHANNEL_TYPE_MOLII_GROK_AIGC = 62
 
 export const STARAI_MODELS = [
   'doubao-seedance-2-0-260128',
   'doubao-seedance-2-0-fast-260128',
+] as const
+
+export const MOLII_GROK_AIGC_MODELS = [
+  'grok-imagine-image',
+  'grok-imagine-image-quality',
+  'grok-imagine-video-1.5',
 ] as const
 
 export const CHANNEL_TYPES = {
@@ -88,12 +95,13 @@ export const CHANNEL_TYPES = {
   59: 'Sub2API',
   60: 'New API',
   61: 'Molii AIGC',
+  62: 'Molii Grok Imagine API',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 33, 24, 43, 3, 41, 48, 60, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15,
   46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 59, 22, 21, 44, 2,
-  5, 36, 50, 51, 52, 53, 54, 61, 55, 56,
+  5, 36, 50, 51, 52, 53, 54, 61, 62, 55, 56,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
@@ -411,6 +419,7 @@ export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   59: 'Enter API key for this channel',
   60: 'Enter API key for this channel',
   61: 'Enter API key for this channel',
+  62: 'Enter API key for this channel',
 }
 
 export const CHANNEL_TYPE_WARNINGS: Record<number, string> = {

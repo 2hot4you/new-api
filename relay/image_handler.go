@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -46,7 +47,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 
 	var requestBody io.Reader
 
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+	allowPassThrough := info.ApiType != constant.APITypeMoliiGrokAIGC &&
+		(model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled)
+	if allowPassThrough {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -55,6 +58,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	} else {
 		convertedRequest, err := adaptor.ConvertImageRequest(c, info, *request)
 		if err != nil {
+			if sanitizer, ok := adaptor.(channel.ImageRequestErrorSanitizer); ok {
+				return sanitizer.SanitizeImageRequestError(err)
+			}
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed)
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
@@ -69,14 +75,20 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 			}
 
 			// apply param override
-			if len(info.ParamOverride) > 0 {
+			if len(info.ParamOverride) > 0 && info.ApiType != constant.APITypeMoliiGrokAIGC {
 				jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 				if err != nil {
 					return newAPIErrorFromParamOverride(err)
 				}
 			}
 
-			logger.LogDebug(c, "image request body: %s", jsonData)
+			allowRequestBodyLog := true
+			if policy, ok := adaptor.(channel.ImageRequestLoggingPolicy); ok {
+				allowRequestBodyLog = policy.AllowImageRequestBodyLog()
+			}
+			if allowRequestBodyLog {
+				logger.LogDebug(c, "image request body: %s", jsonData)
+			}
 			body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 			if err != nil {
 				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
@@ -92,6 +104,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
+		if sanitizer, ok := adaptor.(channel.ImageTransportErrorSanitizer); ok {
+			return sanitizer.SanitizeImageTransportError(err)
+		}
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}
 	var httpResp *http.Response
@@ -103,6 +118,16 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				// replicate channel returns 201 Created when using Prefer: wait, treat it as success.
 				httpResp.StatusCode = http.StatusOK
 			} else {
+				if sanitizer, ok := adaptor.(channel.ImageErrorSanitizer); ok {
+					responseBody, readErr := io.ReadAll(httpResp.Body)
+					_ = httpResp.Body.Close()
+					if readErr != nil {
+						return types.NewOpenAIError(fmt.Errorf("Molii image response could not be read"), types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway)
+					}
+					newAPIError = sanitizer.SanitizeImageError(httpResp.StatusCode, responseBody)
+					service.ResetStatusCode(newAPIError, statusCodeMappingStr)
+					return newAPIError
+				}
 				newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 				// reset status code 重置状态码
 				service.ResetStatusCode(newAPIError, statusCodeMappingStr)

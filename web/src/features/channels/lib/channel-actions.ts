@@ -302,15 +302,17 @@ export async function handleTestChannel(
     const target = getChannelTestLabel(options)
     if (response.success) {
       if (!options?.silent) {
+        let successDescription: string | undefined
+        if (response.message) {
+          successDescription = i18next.t(response.message)
+        } else if (duration) {
+          successDescription = i18next.t('Response time: {{duration}}', {
+            duration,
+          })
+        }
         toast.success(
           i18next.t('{{target}} test succeeded', { target }),
-          duration
-            ? {
-                description: i18next.t('Response time: {{duration}}', {
-                  duration,
-                }),
-              }
-            : undefined
+          successDescription ? { description: successDescription } : undefined
         )
       }
       onTestComplete?.(true, responseTime)

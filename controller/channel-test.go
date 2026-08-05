@@ -39,9 +39,10 @@ import (
 )
 
 type testResult struct {
-	context     *gin.Context
-	localErr    error
-	newAPIError *types.NewAPIError
+	context        *gin.Context
+	localErr       error
+	newAPIError    *types.NewAPIError
+	successMessage string
 }
 
 const starAIReachabilityTimeout = 5 * time.Second
@@ -117,6 +118,19 @@ func testStarAIChannel(ctx context.Context, channel *model.Channel, testUserID i
 	return testResult{context: c}
 }
 
+func testMoliiGrokChannel(channel *model.Channel) testResult {
+	if channel == nil {
+		return testResult{localErr: errors.New("Molii Grok Imagine API channel configuration is missing")}
+	}
+	if strings.TrimSpace(channel.Key) == "" {
+		return testResult{localErr: errors.New("Molii Grok Imagine API Key is required")}
+	}
+	if strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return testResult{localErr: errors.New("Molii Grok Imagine API server configuration is incomplete")}
+	}
+	return testResult{successMessage: "配置校验通过，未发起付费请求"}
+}
+
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {
@@ -154,6 +168,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeStarAI {
 		return testStarAIChannel(ctx, channel, testUserID)
+	}
+	if channel != nil && channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+		return testMoliiGrokChannel(channel)
 	}
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
@@ -963,7 +980,7 @@ func TestChannel(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "",
+		"message": result.successMessage,
 		"time":    consumedTime,
 	})
 }

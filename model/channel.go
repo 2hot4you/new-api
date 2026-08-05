@@ -495,6 +495,9 @@ func (channel *Channel) GetWeight() int {
 }
 
 func (channel *Channel) GetBaseURL() string {
+	if channel.Type == constant.ChannelTypeMoliiGrokAIGC && channel.Type < len(constant.ChannelBaseURLs) {
+		return constant.ChannelBaseURLs[channel.Type]
+	}
 	if channel.BaseURL == nil {
 		return ""
 	}

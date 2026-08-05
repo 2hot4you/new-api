@@ -83,7 +83,9 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 			}
 		}
 		item := relay.TaskModel2Dto(task)
-		if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)) {
+		isPrivateVideoPlatform := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)) ||
+			task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
+		if isPrivateVideoPlatform {
 			// The URL is generated on demand and points to Molii's signed streaming
 			// proxy. No upstream URL or video content is persisted in the log DTO.
 			if task.Status != model.TaskStatusSuccess {

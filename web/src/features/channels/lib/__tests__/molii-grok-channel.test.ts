@@ -1,0 +1,120 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { describe, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+
+import {
+  CHANNEL_TYPES,
+  CHANNEL_TYPE_MOLII_GROK_AIGC,
+  CHANNEL_TYPE_OPTIONS,
+  MOLII_GROK_AIGC_MODELS,
+} from '../../constants'
+import { channelFormSchema } from '../channel-form'
+import {
+  getChannelTypeConfig,
+  shouldShowBaseUrlField,
+} from '../channel-type-config'
+import {
+  getChannelTestAction,
+  getChannelTypeIcon,
+  getRelatedModelsForChannelType,
+} from '../channel-utils'
+
+describe('Molii Grok Imagine API channel', () => {
+  test('registers channel 62 without changing Molii AIGC', () => {
+    assert.equal(CHANNEL_TYPE_MOLII_GROK_AIGC, 62)
+    assert.equal(CHANNEL_TYPES[61], 'Molii AIGC')
+    assert.equal(CHANNEL_TYPES[62], 'Molii Grok Imagine API')
+    assert.deepEqual(
+      CHANNEL_TYPE_OPTIONS.find(
+        (item) => item.value === CHANNEL_TYPE_MOLII_GROK_AIGC
+      ),
+      { value: CHANNEL_TYPE_MOLII_GROK_AIGC, label: 'Molii Grok Imagine API' }
+    )
+    assert.equal(getChannelTypeIcon(CHANNEL_TYPE_MOLII_GROK_AIGC), 'XAI')
+  })
+
+  test('fills exactly the two image models and one video model', () => {
+    assert.deepEqual(
+      getRelatedModelsForChannelType(CHANNEL_TYPE_MOLII_GROK_AIGC, []),
+      [...MOLII_GROK_AIGC_MODELS]
+    )
+    assert.deepEqual(getChannelTypeConfig(CHANNEL_TYPE_MOLII_GROK_AIGC), {
+      id: CHANNEL_TYPE_MOLII_GROK_AIGC,
+      name: 'Molii Grok Imagine API',
+      icon: 'XAI',
+      supportedModels: [...MOLII_GROK_AIGC_MODELS],
+      hints: {
+        key: 'Enter API key for this channel',
+        models: MOLII_GROK_AIGC_MODELS.join(','),
+        other: 'Configuration check only; no paid generation request is sent',
+      },
+    })
+  })
+
+  test('hides Base URL and uses a configuration-only test action', () => {
+    assert.equal(shouldShowBaseUrlField(CHANNEL_TYPE_MOLII_GROK_AIGC), false)
+    assert.deepEqual(getChannelTestAction(CHANNEL_TYPE_MOLII_GROK_AIGC), {
+      direct: true,
+      label: 'Configuration Check',
+    })
+  })
+
+  test('requires Key but does not require Base URL or provider-specific fields', () => {
+    const valid = {
+      name: 'Grok',
+      type: CHANNEL_TYPE_MOLII_GROK_AIGC,
+      base_url: '',
+      key: 'sk-placeholder',
+      models: MOLII_GROK_AIGC_MODELS.join(','),
+      group: ['default'],
+      status: 1,
+    }
+    assert.equal(channelFormSchema.safeParse(valid).success, true)
+    const invalid = channelFormSchema.safeParse({ ...valid, key: '   ' })
+    assert.equal(invalid.success, false)
+    assert.equal(
+      invalid.error?.issues.some((issue) => issue.path[0] === 'key'),
+      true
+    )
+  })
+
+  test('does not embed the private upstream brand or domain in frontend files', () => {
+    const files = [
+      '../../constants.ts',
+      '../channel-type-config.ts',
+      '../channel-utils.ts',
+    ]
+    const source = files
+      .map((relativePath) =>
+        readFileSync(
+          fileURLToPath(new URL(relativePath, import.meta.url)),
+          'utf8'
+        )
+      )
+      .join('\n')
+      .toLowerCase()
+    const privateBrand = ['wxi', 'ai'].join('')
+    const privateDomain = ['api', privateBrand, 'com'].join('.')
+    assert.equal(source.includes(privateBrand), false)
+    assert.equal(source.includes(privateDomain), false)
+  })
+})

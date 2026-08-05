@@ -45,6 +45,15 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["model_ratio"] = info.PriceData.ModelRatio
 	}
 	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
+	if info.EstimatedVideoSeconds > 0 {
+		other["estimated_seconds"] = info.EstimatedVideoSeconds
+	}
+	if info.EstimatedVideoResolution != "" {
+		other["estimated_resolution"] = info.EstimatedVideoResolution
+	}
+	if info.EstimatedVideoRatio != "" {
+		other["estimated_ratio"] = info.EstimatedVideoRatio
+	}
 	if info.EstimatedVideoTokens > 0 {
 		other["estimated_tokens"] = info.EstimatedVideoTokens
 		other["estimated_price"] = info.EstimatedVideoPrice
@@ -57,6 +66,8 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["estimated_has_video"] = info.EstimatedVideoHasInput
 		other["estimated_unit_price"] = info.EstimatedVideoUnitPrice
 		logContent = seedanceEstimateLogContent(info)
+	} else if info.EstimatedVideoSeconds > 0 || info.EstimatedVideoResolution != "" || info.EstimatedVideoRatio != "" {
+		logContent = fmt.Sprintf("生成视频，参数：%s · %s · %d 秒", info.EstimatedVideoResolution, info.EstimatedVideoRatio, info.EstimatedVideoSeconds)
 	}
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
@@ -156,6 +167,15 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 			other["model_ratio"] = bc.ModelRatio
 		}
 		other["group_ratio"] = bc.GroupRatio
+		if bc.EstimatedSeconds > 0 {
+			other["estimated_seconds"] = bc.EstimatedSeconds
+		}
+		if bc.EstimatedResolution != "" {
+			other["estimated_resolution"] = bc.EstimatedResolution
+		}
+		if bc.EstimatedRatio != "" {
+			other["estimated_ratio"] = bc.EstimatedRatio
+		}
 		if bc.EstimatedTokens > 0 {
 			other["estimated_tokens"] = bc.EstimatedTokens
 			other["estimated_price"] = bc.EstimatedPrice

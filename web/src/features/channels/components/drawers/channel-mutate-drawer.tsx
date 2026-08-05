@@ -158,6 +158,7 @@ import {
   type ChannelFormValues,
   deduplicateKeys,
   getChannelTypeIcon,
+  shouldShowBaseUrlField,
   getRelatedModelsForChannelType,
   getKeyPromptForType,
   parseModelsString,
@@ -2771,7 +2772,7 @@ export function ChannelMutateDrawer({
                             )}
 
                             {/* General base_url for other types */}
-                            {![3, 8, 22, 36, 45].includes(currentType) && (
+                            {shouldShowBaseUrlField(currentType) && (
                               <FormField
                                 control={form.control}
                                 name='base_url'
@@ -4237,9 +4238,7 @@ export function ChannelMutateDrawer({
                                         <SelectValue />
                                       </SelectTrigger>
                                     </FormControl>
-                                    <SelectContent
-                                      alignItemWithTrigger={false}
-                                    >
+                                    <SelectContent alignItemWithTrigger={false}>
                                       <SelectGroup>
                                         <SelectItem value='auto'>
                                           {t('Auto')}
