@@ -1,12 +1,12 @@
 {
   "id": "localize-aigc-pricing-units",
   "title": "优化 Molii AIGC 价格输入框单位与中文显示",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "low",
   "domain": "frontend",
-  "currentPhase": "review",
-  "nextAction": "提交实现并归档 CCG 任务",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
   "createdAt": "2026-08-05T00:00:00+08:00",
   "branch": "feat/molii-auth"
 }
