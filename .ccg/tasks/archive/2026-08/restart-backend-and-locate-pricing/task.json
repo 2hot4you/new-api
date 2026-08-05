@@ -1,0 +1,12 @@
+{
+  "id": "restart-backend-and-locate-pricing",
+  "title": "确认本地后端版本、重启服务并说明价格配置入口",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-05T20:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
