@@ -1,0 +1,12 @@
+{
+  "id": "add-molii-grok-aigc",
+  "title": "新增 Molii Grok AIGC 图片与视频渠道",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "implementation",
+  "nextAction": "按 TDD 完成渠道注册、图片适配器、视频任务与管理后台",
+  "createdAt": "2026-08-05T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
