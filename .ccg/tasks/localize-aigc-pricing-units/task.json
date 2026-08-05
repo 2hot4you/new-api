@@ -5,8 +5,8 @@
   "complexity": "M",
   "risk": "low",
   "domain": "frontend",
-  "currentPhase": "planning",
-  "nextAction": "按测试驱动计划实现价格输入框右侧单位与中文文案",
+  "currentPhase": "review",
+  "nextAction": "提交实现并归档 CCG 任务",
   "createdAt": "2026-08-05T00:00:00+08:00",
   "branch": "feat/molii-auth"
 }

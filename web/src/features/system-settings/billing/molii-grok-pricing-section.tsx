@@ -13,7 +13,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
-import { Input } from '@/components/ui/input'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
@@ -25,6 +24,7 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { PricingUnitInput } from './pricing-unit-input'
 
 const schema = z.object({
   image_standard_input: z.coerce.number().min(0),
@@ -260,10 +260,11 @@ export function MoliiGrokPricingSection({
                   <FormItem>
                     <FormLabel>{t(item.label)}</FormLabel>
                     <FormControl>
-                      <Input
+                      <PricingUnitInput
                         type='number'
                         min={0}
                         step='0.001'
+                        unit={t(item.unit)}
                         value={field.value ?? ''}
                         onChange={onNumberChange(field.onChange)}
                         name={field.name}
@@ -271,7 +272,6 @@ export function MoliiGrokPricingSection({
                         ref={field.ref}
                       />
                     </FormControl>
-                    <FormDescription>{t(item.unit)}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
