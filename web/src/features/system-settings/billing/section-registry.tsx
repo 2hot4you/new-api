@@ -25,6 +25,7 @@ import { PaymentSettingsSection } from '../integrations/payment-settings-section
 import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { MoliiAigcPricingTabs } from './molii-aigc-pricing-tabs'
 import { MoliiGrokPricingSection } from './molii-grok-pricing-section'
 import { StarAIVideoPricingSection } from './starai-video-pricing-section'
 
@@ -121,53 +122,58 @@ const BILLING_SECTIONS = [
     id: 'molii-aigc-video-pricing',
     titleKey: 'Molii AIGC Pricing',
     build: (settings: BillingSettings) => (
-      <div className='space-y-6'>
-        <StarAIVideoPricingSection
-          defaultValues={{
-            standard_720p: settings['starai_video_price.standard_720p'],
-            standard_720p_video:
-              settings['starai_video_price.standard_720p_video'],
-            standard_1080p: settings['starai_video_price.standard_1080p'],
-            standard_1080p_video:
-              settings['starai_video_price.standard_1080p_video'],
-            standard_4k: settings['starai_video_price.standard_4k'],
-            standard_4k_video: settings['starai_video_price.standard_4k_video'],
-            fast_720p: settings['starai_video_price.fast_720p'],
-            fast_720p_video: settings['starai_video_price.fast_720p_video'],
-          }}
-        />
-        <MoliiGrokPricingSection
-          defaultValues={{
-            image_standard_input:
-              settings['molii_grok_price.image_standard_input'],
-            image_standard_1k: settings['molii_grok_price.image_standard_1k'],
-            image_standard_2k: settings['molii_grok_price.image_standard_2k'],
-            image_quality_input:
-              settings['molii_grok_price.image_quality_input'],
-            image_quality_1k: settings['molii_grok_price.image_quality_1k'],
-            image_quality_2k: settings['molii_grok_price.image_quality_2k'],
-            video_15_image_input:
-              settings['molii_grok_price.video_15_image_input'],
-            video_15_480p: settings['molii_grok_price.video_15_480p'],
-            video_15_720p: settings['molii_grok_price.video_15_720p'],
-            video_15_1080p: settings['molii_grok_price.video_15_1080p'],
-            video_image_input: settings['molii_grok_price.video_image_input'],
-            video_video_input: settings['molii_grok_price.video_video_input'],
-            video_480p: settings['molii_grok_price.video_480p'],
-            video_720p: settings['molii_grok_price.video_720p'],
-            tool_web_search: settings['molii_grok_tool_price.web_search'],
-            tool_x_search: settings['molii_grok_tool_price.x_search'],
-            tool_code_execution:
-              settings['molii_grok_tool_price.code_execution'],
-            tool_attachment_search:
-              settings['molii_grok_tool_price.attachment_search'],
-            tool_collections_search:
-              settings['molii_grok_tool_price.collections_search'],
-            tool_image_generation:
-              settings['molii_grok_tool_price.image_generation'],
-          }}
-        />
-      </div>
+      <MoliiAigcPricingTabs
+        seedance={
+          <StarAIVideoPricingSection
+            defaultValues={{
+              standard_720p: settings['starai_video_price.standard_720p'],
+              standard_720p_video:
+                settings['starai_video_price.standard_720p_video'],
+              standard_1080p: settings['starai_video_price.standard_1080p'],
+              standard_1080p_video:
+                settings['starai_video_price.standard_1080p_video'],
+              standard_4k: settings['starai_video_price.standard_4k'],
+              standard_4k_video:
+                settings['starai_video_price.standard_4k_video'],
+              fast_720p: settings['starai_video_price.fast_720p'],
+              fast_720p_video: settings['starai_video_price.fast_720p_video'],
+            }}
+          />
+        }
+        grokImagine={
+          <MoliiGrokPricingSection
+            defaultValues={{
+              image_standard_input:
+                settings['molii_grok_price.image_standard_input'],
+              image_standard_1k: settings['molii_grok_price.image_standard_1k'],
+              image_standard_2k: settings['molii_grok_price.image_standard_2k'],
+              image_quality_input:
+                settings['molii_grok_price.image_quality_input'],
+              image_quality_1k: settings['molii_grok_price.image_quality_1k'],
+              image_quality_2k: settings['molii_grok_price.image_quality_2k'],
+              video_15_image_input:
+                settings['molii_grok_price.video_15_image_input'],
+              video_15_480p: settings['molii_grok_price.video_15_480p'],
+              video_15_720p: settings['molii_grok_price.video_15_720p'],
+              video_15_1080p: settings['molii_grok_price.video_15_1080p'],
+              video_image_input: settings['molii_grok_price.video_image_input'],
+              video_video_input: settings['molii_grok_price.video_video_input'],
+              video_480p: settings['molii_grok_price.video_480p'],
+              video_720p: settings['molii_grok_price.video_720p'],
+              tool_web_search: settings['molii_grok_tool_price.web_search'],
+              tool_x_search: settings['molii_grok_tool_price.x_search'],
+              tool_code_execution:
+                settings['molii_grok_tool_price.code_execution'],
+              tool_attachment_search:
+                settings['molii_grok_tool_price.attachment_search'],
+              tool_collections_search:
+                settings['molii_grok_tool_price.collections_search'],
+              tool_image_generation:
+                settings['molii_grok_tool_price.image_generation'],
+            }}
+          />
+        }
+      />
     ),
   },
   {
