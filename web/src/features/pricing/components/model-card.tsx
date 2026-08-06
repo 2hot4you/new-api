@@ -34,6 +34,7 @@ import { getPricingModelDescription } from '../lib/model-description'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
+import { GrokPricingMatrix } from './grok-pricing-matrix'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 import { VideoPricingMatrix } from './video-pricing-matrix'
@@ -67,6 +68,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const isDynamicPricing =
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
+  const grokPricing = props.model.molii_grok_pricing
   const hasCachedPrice = isTokenBased && props.model.cache_ratio != null
   const dynamicSummary = isDynamicPricing
     ? getDynamicPricingSummary(props.model, {
@@ -95,7 +97,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   }
 
   let priceSummary: ReactNode
-  if (props.model.video_pricing) {
+  if (grokPricing) {
+    priceSummary = (
+      <span className='text-muted-foreground text-xs font-medium'>
+        {t('Tiered by resolution and input type')}
+      </span>
+    )
+  } else if (props.model.video_pricing) {
     priceSummary = (
       <span className='text-muted-foreground text-xs font-medium'>
         {t('Tiered by resolution and video input')}
@@ -254,6 +262,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         {description || t('No description available.')}
       </p>
 
+      {grokPricing && <GrokPricingMatrix pricing={grokPricing} />}
+
       {props.model.video_pricing && (
         <VideoPricingMatrix
           pricing={props.model.video_pricing}
@@ -281,7 +291,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               {item}
             </span>
           ))}
-          {!props.model.video_pricing && (
+          {!props.model.video_pricing && !grokPricing && (
             <span className='text-muted-foreground/50 text-xs'>
               {tokenUnitLabel}
             </span>
