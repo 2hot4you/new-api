@@ -39,19 +39,25 @@ import {
   USAGE_LOGS_DEFAULT_SECTION,
   type UsageLogsSectionId,
 } from './section-registry'
+import {
+  GENERATION_LOG_META,
+  GENERATION_LOG_SOURCES,
+  resolveUsageLogSource,
+  type GenerationLogSection,
+} from './source-registry'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
-const TASK_LOG_SECTIONS = ['drawing', 'task'] as const
+const GENERATION_LOG_SECTIONS = ['drawing', 'task'] as const
 
 const SECTION_META: Record<UsageLogsSectionId, { titleKey: string }> = {
   common: {
     titleKey: 'Common Logs',
   },
   drawing: {
-    titleKey: 'Drawing Logs',
+    titleKey: 'Image Generation',
   },
   task: {
-    titleKey: 'Task Logs',
+    titleKey: 'Video Generation',
   },
 }
 
@@ -76,8 +82,8 @@ function UsageLogsContent() {
   const tabNavGroups = useMemo<NavGroup[]>(
     () => [
       {
-        title: 'Task Logs',
-        items: TASK_LOG_SECTIONS.map((section) => ({
+        title: GENERATION_LOG_META.titleKey,
+        items: GENERATION_LOG_SECTIONS.map((section) => ({
           title: SECTION_META[section].titleKey,
           url: `/usage-logs/${section}`,
         })),
@@ -101,12 +107,30 @@ function UsageLogsContent() {
 
   const handleSectionChange = useCallback(
     (section: string) => {
+      if (section !== 'drawing' && section !== 'task') return
+      const nextSection = section as GenerationLogSection
       void navigate({
         to: '/usage-logs/$section',
-        params: { section: section as UsageLogsSectionId },
+        params: { section: nextSection },
+        search: {
+          ...search,
+          source: resolveUsageLogSource(nextSection),
+          page: 1,
+          filter: undefined,
+          ...(nextSection === 'task'
+            ? {
+                type: undefined,
+                model: undefined,
+                token: undefined,
+                group: undefined,
+                requestId: undefined,
+                upstreamRequestId: undefined,
+              }
+            : {}),
+        },
       })
     },
-    [navigate]
+    [navigate, search]
   )
 
   const handleViewScopeChange = useCallback(
@@ -118,33 +142,39 @@ function UsageLogsContent() {
     [setViewScope]
   )
 
-  const drawingSource = search.source ?? 'image'
-  const handleDrawingSourceChange = useCallback(
+  const activeGenerationSection: GenerationLogSection | null =
+    activeCategory === 'drawing' || activeCategory === 'task'
+      ? activeCategory
+      : null
+  const activeSource = activeGenerationSection
+    ? resolveUsageLogSource(activeGenerationSection, search.source)
+    : undefined
+  const handleSourceChange = useCallback(
     (source: string) => {
-      if (source !== 'image' && source !== 'midjourney') return
+      if (!activeGenerationSection) return
+      const nextSource = resolveUsageLogSource(activeGenerationSection, source)
+      if (nextSource !== source) return
       void navigate({
         to: '/usage-logs/$section',
-        params: { section: 'drawing' },
+        params: { section: activeGenerationSection },
         search: {
           ...search,
-          source,
+          source: nextSource,
           page: 1,
-          ...(source === 'midjourney' ? { type: undefined } : {}),
         },
         replace: true,
       })
     },
-    [navigate, search]
+    [activeGenerationSection, navigate, search]
   )
 
   const pageMeta =
-    activeCategory === 'common' ? SECTION_META.common : SECTION_META.task
+    activeCategory === 'common'
+      ? SECTION_META.common
+      : { titleKey: GENERATION_LOG_META.titleKey }
   const showTaskSwitcher =
     activeCategory !== 'common' && visibleSections.length > 1
-  const tableCategory =
-    activeCategory === 'drawing' && drawingSource === 'image'
-      ? 'image'
-      : activeCategory
+  const tableCategory = activeCategory === 'drawing' ? 'image' : activeCategory
 
   return (
     <>
@@ -175,21 +205,24 @@ function UsageLogsContent() {
                 </TabsList>
               </Tabs>
             )}
-            {activeCategory === 'drawing' && (
-              <Tabs
-                value={drawingSource}
-                onValueChange={handleDrawingSourceChange}
-              >
+            {activeGenerationSection && activeSource && (
+              <Tabs value={activeSource} onValueChange={handleSourceChange}>
                 <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
-                  <TabsTrigger value='image'>{t('Image API')}</TabsTrigger>
-                  <TabsTrigger value='midjourney'>
-                    {t('Midjourney')}
-                  </TabsTrigger>
+                  {GENERATION_LOG_SOURCES[activeGenerationSection].map(
+                    (source) => (
+                      <TabsTrigger key={source.id} value={source.id}>
+                        {t(source.labelKey)}
+                      </TabsTrigger>
+                    )
+                  )}
                 </TabsList>
               </Tabs>
             )}
             <div className='min-h-0 flex-1'>
-              <UsageLogsTable logCategory={tableCategory} />
+              <UsageLogsTable
+                logCategory={tableCategory}
+                source={activeSource}
+              />
             </div>
           </div>
         </SectionPageLayout.Content>

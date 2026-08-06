@@ -95,13 +95,13 @@ export function SidebarModulesCard() {
         },
         {
           key: 'midjourney',
-          title: t('Drawing Logs'),
-          description: t('Drawing task records'),
+          title: t('Image Generation'),
+          description: t('Image generation records'),
         },
         {
           key: 'task',
-          title: t('Task Logs'),
-          description: t('System task records'),
+          title: t('Video Generation'),
+          description: t('Video generation records'),
         },
       ],
     },

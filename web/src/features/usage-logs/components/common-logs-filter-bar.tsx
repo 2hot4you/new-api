@@ -108,7 +108,7 @@ function buildSearchSourceKey(values: {
 interface CommonLogsFilterBarProps<TData> {
   table: Table<TData>
   section?: 'common' | 'drawing'
-  source?: 'image'
+  source?: 'grok-image'
   showStats?: boolean
 }
 

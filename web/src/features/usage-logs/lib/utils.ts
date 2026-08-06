@@ -29,18 +29,19 @@ import {
   getAllVideoTaskLogs,
   getUserVideoTaskLogs,
 } from '../api'
-import { resolveUsageLogSource, type VideoLogSource } from '../source-registry'
 import {
   LOG_TYPES,
   DISPLAYABLE_LOG_TYPES,
   TIMING_LOG_TYPES,
 } from '../constants'
+import { resolveVideoLogSource, type UsageLogSource } from '../source-registry'
 import type {
   GetLogsParams,
   GetLogsResponse,
   FetchLogsConfig,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
+  UsageLogsDataSource,
 } from '../types'
 
 // ============================================================================
@@ -73,6 +74,14 @@ export function getLogTypeConfig(type: number) {
  */
 export function isPerCallBilling(modelPrice?: number): boolean {
   return (modelPrice ?? 0) > 0
+}
+
+export function shouldReuseLogPlaceholder(
+  previousQueryKey: readonly unknown[],
+  logCategory: UsageLogsDataSource,
+  source?: UsageLogSource
+): boolean {
+  return previousQueryKey[1] === logCategory && previousQueryKey[2] === source
 }
 
 /**
@@ -313,7 +322,7 @@ export async function fetchLogsByCategory(
   }
 
   // Video task logs are separated by provider platform.
-  const videoSource = resolveUsageLogSource('task', source) as VideoLogSource
+  const videoSource = resolveVideoLogSource(source)
   return isAdmin
     ? await getAllVideoTaskLogs(
         paramsWithFilter as GetTaskLogsParams,

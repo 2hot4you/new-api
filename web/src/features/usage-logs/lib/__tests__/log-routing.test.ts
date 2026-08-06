@@ -19,12 +19,37 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import {
-  buildGrokImageLogRequest,
-  buildVideoTaskLogRequest,
-} from '../../api'
+import { buildGrokImageLogRequest, buildVideoTaskLogRequest } from '../../api'
+import { shouldReuseLogPlaceholder } from '../utils'
 
 describe('usage log data-source routing', () => {
+  test('reuses cached rows only for the same category and model family', () => {
+    assert.equal(
+      shouldReuseLogPlaceholder(
+        ['logs', 'task', 'grok-video'],
+        'task',
+        'grok-video'
+      ),
+      true
+    )
+    assert.equal(
+      shouldReuseLogPlaceholder(
+        ['logs', 'task', 'grok-video'],
+        'task',
+        'seedance'
+      ),
+      false
+    )
+    assert.equal(
+      shouldReuseLogPlaceholder(
+        ['logs', 'image', 'grok-image'],
+        'task',
+        'grok-video'
+      ),
+      false
+    )
+  })
+
   test('routes admin Grok Image logs to the common log endpoint with a category', () => {
     assert.deepEqual(buildGrokImageLogRequest({ p: 3 }, true), {
       path: '/api/log',
@@ -41,7 +66,11 @@ describe('usage log data-source routing', () => {
 
   test('routes Grok Video task logs through platform 62', () => {
     assert.deepEqual(
-      buildVideoTaskLogRequest({ p: 2, task_id: 'task-grok' }, true, 'grok-video'),
+      buildVideoTaskLogRequest(
+        { p: 2, task_id: 'task-grok' },
+        true,
+        'grok-video'
+      ),
       {
         path: '/api/task',
         params: { p: 2, task_id: 'task-grok', platform: '62' },

@@ -20,12 +20,36 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  GENERATION_LOG_META,
   GENERATION_LOG_SOURCES,
   getVideoPlatformForSource,
   resolveUsageLogSource,
+  resolveVideoLogSource,
 } from '../../source-registry'
 
 describe('generation log source registry', () => {
+  test('exposes product-facing page and section labels', () => {
+    assert.deepEqual(GENERATION_LOG_META, {
+      titleKey: 'Generation Records',
+      sections: {
+        drawing: { labelKey: 'Image Generation' },
+        task: { labelKey: 'Video Generation' },
+      },
+    })
+
+    const sourceLabels: string[] = Object.values(GENERATION_LOG_SOURCES)
+      .flat()
+      .map((source) => source.labelKey)
+    assert.equal(
+      sourceLabels.some((label) => label === 'Image API'),
+      false
+    )
+    assert.equal(
+      sourceLabels.some((label) => label === 'Midjourney'),
+      false
+    )
+  })
+
   test('declares the current image and video model families in display order', () => {
     assert.deepEqual(GENERATION_LOG_SOURCES.drawing, [
       { id: 'grok-image', labelKey: 'Grok Image' },
@@ -45,6 +69,8 @@ describe('generation log source registry', () => {
   })
 
   test('maps video model families to stable backend task platforms', () => {
+    assert.equal(resolveVideoLogSource('seedance'), 'seedance')
+    assert.equal(resolveVideoLogSource('grok-image'), 'grok-video')
     assert.equal(getVideoPlatformForSource('grok-video'), '62')
     assert.equal(getVideoPlatformForSource('seedance'), '61')
     assert.equal(getVideoPlatformForSource('grok-image'), undefined)

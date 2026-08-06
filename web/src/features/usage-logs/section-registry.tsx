@@ -29,12 +29,12 @@ const USAGE_LOGS_SECTIONS = [
   },
   {
     id: 'drawing',
-    titleKey: 'Drawing Logs',
+    titleKey: 'Image Generation',
     build: () => null, // Content is rendered directly in the page component
   },
   {
     id: 'task',
-    titleKey: 'Task Logs',
+    titleKey: 'Video Generation',
     build: () => null, // Content is rendered directly in the page component
   },
 ] as const

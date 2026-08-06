@@ -47,7 +47,10 @@ const usageLogsSearchSchema = z.object({
   upstreamRequestId: z.string().optional().catch(''),
   startTime: z.number().optional(),
   endTime: z.number().optional(),
-  source: z.enum(['image', 'midjourney']).optional().catch('image'),
+  source: z
+    .enum(['grok-image', 'grok-video', 'seedance'])
+    .optional()
+    .catch(undefined),
 })
 
 export const Route = createFileRoute('/_authenticated/usage-logs/$section')({
@@ -58,13 +61,12 @@ export const Route = createFileRoute('/_authenticated/usage-logs/$section')({
         params: { section: USAGE_LOGS_DEFAULT_SECTION },
       })
     }
-    // type is shared by common and the drawing page's Image API source.
+    // type is shared by common and Grok Image generation logs.
     const hasTypeSearch = Array.isArray(search?.type)
       ? search.type.length > 0
       : search?.type != null && search.type !== ''
     const usesCommonLogs =
-      params.section === 'common' ||
-      (params.section === 'drawing' && search?.source !== 'midjourney')
+      params.section === 'common' || params.section === 'drawing'
     if (!usesCommonLogs && hasTypeSearch) {
       throw redirect({
         to: '/usage-logs/$section',

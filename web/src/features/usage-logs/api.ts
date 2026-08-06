@@ -23,7 +23,6 @@ import {
   type UsageLogSource,
   type VideoLogSource,
 } from './source-registry'
-
 import type {
   GetLogsParams,
   GetLogsResponse,

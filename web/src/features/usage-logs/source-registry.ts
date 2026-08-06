@@ -19,10 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 
 export type GenerationLogSection = 'drawing' | 'task'
 export type UsageLogSource = 'grok-image' | 'grok-video' | 'seedance'
-export type VideoLogSource = Extract<
-  UsageLogSource,
-  'grok-video' | 'seedance'
->
+export type VideoLogSource = Extract<UsageLogSource, 'grok-video' | 'seedance'>
+
+export const GENERATION_LOG_META = {
+  titleKey: 'Generation Records',
+  sections: {
+    drawing: { labelKey: 'Image Generation' },
+    task: { labelKey: 'Video Generation' },
+  },
+} as const
 
 export const GENERATION_LOG_SOURCES = {
   drawing: [{ id: 'grok-image', labelKey: 'Grok Image' }],
@@ -47,6 +52,11 @@ export function resolveUsageLogSource(
   return sources.some((item) => item.id === source)
     ? (source as UsageLogSource)
     : DEFAULT_SOURCE[section]
+}
+
+export function resolveVideoLogSource(source?: string): VideoLogSource {
+  const resolved = resolveUsageLogSource('task', source)
+  return resolved === 'seedance' ? 'seedance' : 'grok-video'
 }
 
 export function getVideoPlatformForSource(

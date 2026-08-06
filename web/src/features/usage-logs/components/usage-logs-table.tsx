@@ -38,7 +38,8 @@ import {
 } from '../constants'
 import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
-import { fetchLogsByCategory } from '../lib/utils'
+import { fetchLogsByCategory, shouldReuseLogPlaceholder } from '../lib/utils'
+import { resolveVideoLogSource, type UsageLogSource } from '../source-registry'
 import type { UsageLogsDataSource } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
@@ -75,9 +76,10 @@ function deserializeLogTypeFilter(value: unknown): unknown[] {
 
 interface UsageLogsTableProps {
   logCategory: UsageLogsDataSource
+  source?: UsageLogSource
 }
 
-export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
+export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
   const { t } = useTranslation()
   const { isAdminView: isAdmin } = useLogsViewScope()
   const isMobile = useMediaQuery('(max-width: 640px)')
@@ -125,6 +127,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     queryKey: [
       'logs',
       logCategory,
+      source,
       isAdmin,
       pagination.pageIndex + 1,
       pagination.pageSize,
@@ -135,6 +138,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     queryFn: async () => {
       const result = await fetchLogsByCategory({
         logCategory,
+        source,
         isAdmin,
         page: pagination.pageIndex + 1,
         pageSize: pagination.pageSize,
@@ -150,7 +154,10 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       return result.data || DEFAULT_LOGS_DATA
     },
     placeholderData: (previousData, previousQuery) => {
-      if (previousQuery?.queryKey[1] === logCategory) {
+      if (
+        previousQuery &&
+        shouldReuseLogPlaceholder(previousQuery.queryKey, logCategory, source)
+      ) {
         return previousData
       }
       return undefined
@@ -188,12 +195,18 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       <CommonLogsFilterBar
         table={table}
         section='drawing'
-        source='image'
+        source='grok-image'
         showStats={false}
       />
     )
   } else {
-    toolbar = <TaskLogsFilterBar table={table} logCategory={logCategory} />
+    toolbar = (
+      <TaskLogsFilterBar
+        table={table}
+        logCategory={logCategory}
+        source={resolveVideoLogSource(source)}
+      />
+    )
   }
 
   return (

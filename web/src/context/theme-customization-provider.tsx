@@ -83,7 +83,9 @@ export function ThemeCustomizationProvider(props: {
   const [font] = useState<ThemeFont>(DEFAULT_THEME_CUSTOMIZATION.font)
   const [radius] = useState<ThemeRadius>(DEFAULT_THEME_CUSTOMIZATION.radius)
   const [scale] = useState<ThemeScale>(DEFAULT_THEME_CUSTOMIZATION.scale)
-  const [contentLayout] = useState<ContentLayout>(DEFAULT_THEME_CUSTOMIZATION.contentLayout)
+  const [contentLayout] = useState<ContentLayout>(
+    DEFAULT_THEME_CUSTOMIZATION.contentLayout
+  )
 
   // Mirror state to the <body> via data-* attributes so theme-presets.css can
   // override CSS variables at the right cascade layer.
