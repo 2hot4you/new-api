@@ -1,0 +1,12 @@
+{
+  "id": "seedance-curl-log-test",
+  "title": "提供 Seedance 请求与任务查询 curl 示例用于产生日志",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并交付已核对的 curl 示例",
+  "createdAt": "2026-08-06T16:23:00+08:00",
+  "branch": "feat/molii-auth"
+}
