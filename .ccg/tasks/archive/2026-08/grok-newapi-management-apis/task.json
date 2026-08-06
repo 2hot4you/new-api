@@ -1,0 +1,12 @@
+{
+  "id": "grok-newapi-management-apis",
+  "title": "使用 New API 管理接口查询 Grok 渠道余额和模型",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档；实施已合并至 rename-molii-aigc-channel",
+  "createdAt": "2026-08-07T02:05:00+08:00",
+  "branch": "feat/molii-auth"
+}
