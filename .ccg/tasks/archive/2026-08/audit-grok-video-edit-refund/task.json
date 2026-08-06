@@ -1,0 +1,12 @@
+{
+  "id": "audit-grok-video-edit-refund",
+  "title": "审计 Grok 视频编辑异步退款",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档计费审计结论",
+  "createdAt": "2026-08-06T14:05:00+08:00",
+  "branch": "feat/molii-auth"
+}
