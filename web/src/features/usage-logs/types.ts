@@ -29,6 +29,7 @@ import type { UsageLog } from './data/schema'
  * Log category for different log types
  */
 export type LogCategory = 'common' | 'drawing' | 'task'
+export type UsageLogsDataSource = LogCategory | 'image'
 
 // ============================================================================
 // Filter Types
@@ -112,7 +113,28 @@ export interface ToolSurchargeItem {
   price: number
 }
 
+export type GrokImageOperation = 'generation' | 'edit'
+
+export interface GrokImageBillingV1 {
+  version: 1
+  model: 'grok-imagine-image' | 'grok-imagine-image-quality'
+  operation: GrokImageOperation
+  resolution: string
+  aspect_ratio: string
+  requested_output_count: number
+  output_count: number
+  input_image_count: number
+  output_unit_price: number
+  input_unit_price: number
+  output_cost: number
+  input_cost: number
+  subtotal: number
+  group_ratio: number
+  final_cost: number
+}
+
 export interface LogOtherData {
+  grok_image_billing?: GrokImageBillingV1
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number
@@ -349,6 +371,7 @@ export interface GetLogsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
+  log_category?: 'grok_image'
 }
 
 export interface GetLogsResponse {
@@ -415,7 +438,7 @@ export interface GetTaskLogsParams {
  * Configuration for fetching logs by category
  */
 export interface FetchLogsConfig {
-  logCategory: LogCategory
+  logCategory: UsageLogsDataSource
   isAdmin: boolean
   page: number
   pageSize: number

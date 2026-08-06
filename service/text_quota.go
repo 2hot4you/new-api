@@ -380,6 +380,9 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	} else if !ratio.IsZero() && summary.Quota == 0 {
 		summary.Quota = 1
 	}
+	if isZeroCostGrokImageBilling(relayInfo) {
+		summary.Quota = 0
+	}
 
 	return summary
 }
@@ -392,6 +395,65 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 		return "anthropic"
 	}
 	return "openai"
+}
+
+func isZeroCostGrokImageBilling(relayInfo *relaycommon.RelayInfo) bool {
+	if relayInfo == nil || relayInfo.GrokImageBilling == nil {
+		return false
+	}
+	snapshot := relayInfo.GrokImageBilling
+	if snapshot.Version != 1 || snapshot.Model != relayInfo.OriginModelName || snapshot.Subtotal != 0 {
+		return false
+	}
+	switch relayInfo.OriginModelName {
+	case "grok-imagine-image", "grok-imagine-image-quality":
+		return true
+	default:
+		return false
+	}
+}
+
+func appendGrokImageBillingLog(other map[string]interface{}, relayInfo *relaycommon.RelayInfo, groupRatio float64, settledQuota int) string {
+	if other == nil || relayInfo == nil || relayInfo.GrokImageBilling == nil {
+		return ""
+	}
+	snapshot := relayInfo.GrokImageBilling
+	snapshot.GroupRatio = groupRatio
+	snapshot.FinalCost = float64(settledQuota) / common.QuotaPerUnit
+	other["grok_image_billing"] = snapshot
+
+	operation := "Grok 图片生成"
+	if snapshot.Operation == "edit" {
+		operation = "Grok 图片编辑"
+	}
+	parts := []string{
+		operation,
+		fmt.Sprintf("模型 %s", snapshot.Model),
+		fmt.Sprintf("分辨率 %s", strings.ToUpper(snapshot.Resolution)),
+		fmt.Sprintf("比例 %s", snapshot.AspectRatio),
+		fmt.Sprintf("输出 %d 张", snapshot.OutputCount),
+	}
+	if snapshot.Operation == "edit" {
+		parts = append(parts, fmt.Sprintf("输入 %d 张", snapshot.InputImageCount))
+		parts = append(parts, fmt.Sprintf(
+			"计费 (¥%.6f × %d + ¥%.6f × %d) × %.4f = ¥%.6f",
+			snapshot.OutputUnitPrice,
+			snapshot.OutputCount,
+			snapshot.InputUnitPrice,
+			snapshot.InputImageCount,
+			snapshot.GroupRatio,
+			snapshot.FinalCost,
+		))
+	} else {
+		parts = append(parts, fmt.Sprintf(
+			"计费 (¥%.6f × %d) × %.4f = ¥%.6f",
+			snapshot.OutputUnitPrice,
+			snapshot.OutputCount,
+			snapshot.GroupRatio,
+			snapshot.FinalCost,
+		))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
@@ -519,6 +581,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
+	}
+	if grokImageContent := appendGrokImageBillingLog(other, relayInfo, summary.GroupRatio, summary.Quota); grokImageContent != "" {
+		logContent = grokImageContent
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)

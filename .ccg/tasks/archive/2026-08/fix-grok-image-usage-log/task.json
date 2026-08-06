@@ -1,12 +1,12 @@
 {
   "id": "fix-grok-image-usage-log",
   "title": "修复 Grok 生图日志归类与计费详情展示",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "按 TDD 并行实现后端计费快照与前端绘图日志视图",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地变更",
   "createdAt": "2026-08-06T11:07:39+08:00",
   "branch": "feat/molii-auth"
 }

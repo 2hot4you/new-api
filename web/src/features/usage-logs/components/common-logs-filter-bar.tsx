@@ -107,6 +107,9 @@ function buildSearchSourceKey(values: {
 
 interface CommonLogsFilterBarProps<TData> {
   table: Table<TData>
+  section?: 'common' | 'drawing'
+  source?: 'image'
+  showStats?: boolean
 }
 
 export function CommonLogsFilterBar<TData>(
@@ -119,6 +122,8 @@ export function CommonLogsFilterBar<TData>(
   const { isAdminView: isAdmin } = useLogsViewScope()
   const { sensitiveVisible, setSensitiveVisible } = useUsageLogsContext()
   const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
+  const section = props.section ?? 'common'
+  const showStats = props.showStats ?? section === 'common'
 
   const searchState = useMemo<CommonLogDraft>(() => {
     const { start, end } = getDefaultTimeRange()
@@ -189,16 +194,29 @@ export function CommonLogsFilterBar<TData>(
     const filterParams = buildSearchParams(filters, 'common')
     navigate({
       to: '/usage-logs/$section',
-      params: { section: 'common' },
+      params: { section },
       search: {
         ...filterParams,
         type: [logType],
         page: 1,
+        pageSize: searchParams.pageSize,
+        ...(props.source ? { source: props.source } : {}),
       },
     })
     queryClient.invalidateQueries({ queryKey: ['logs'] })
-    queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
-  }, [filters, logType, navigate, queryClient])
+    if (showStats) {
+      queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
+    }
+  }, [
+    filters,
+    logType,
+    navigate,
+    props.source,
+    queryClient,
+    searchParams.pageSize,
+    section,
+    showStats,
+  ])
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
@@ -216,15 +234,26 @@ export function CommonLogsFilterBar<TData>(
 
     navigate({
       to: '/usage-logs/$section',
-      params: { section: 'common' },
+      params: { section },
       search: {
         page: 1,
+        pageSize: searchParams.pageSize,
         ...resetSearch,
+        ...(props.source ? { source: props.source } : {}),
       },
     })
     queryClient.invalidateQueries({ queryKey: ['logs'] })
-    queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
-  }, [navigate, queryClient])
+    if (showStats) {
+      queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
+    }
+  }, [
+    navigate,
+    props.source,
+    queryClient,
+    searchParams.pageSize,
+    section,
+    showStats,
+  ])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -412,7 +441,7 @@ export function CommonLogsFilterBar<TData>(
   return (
     <LogsFilterToolbar
       table={props.table}
-      stats={statsBar}
+      stats={showStats ? statsBar : undefined}
       actionStart={sensitiveToggle}
       primaryFilters={
         <>

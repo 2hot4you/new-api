@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
-import { buildQueryParams } from './lib/utils'
 import type {
   GetLogsParams,
   GetLogsResponse,
@@ -29,12 +28,44 @@ import type {
   UserInfo,
 } from './types'
 
+function buildQueryParams(params: Record<string, unknown>): URLSearchParams {
+  const queryParams = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      queryParams.append(key, String(value))
+    }
+  }
+  return queryParams
+}
+
 // ============================================================================
 // Generic API Helpers
 // ============================================================================
 
 function buildApiPath(endpoint: string, isAdmin: boolean): string {
   return isAdmin ? endpoint : `${endpoint}/self`
+}
+
+interface LogApiRequest<T> {
+  path: string
+  params: T
+}
+
+export function buildGrokImageLogRequest(
+  params: GetLogsParams,
+  isAdmin: boolean
+): LogApiRequest<GetLogsParams> {
+  return {
+    path: buildApiPath('/api/log', isAdmin),
+    params: { ...params, log_category: 'grok_image' },
+  }
+}
+
+export function buildMidjourneyLogRequest(
+  params: GetMidjourneyLogsParams,
+  isAdmin: boolean
+): LogApiRequest<GetMidjourneyLogsParams> {
+  return { path: buildApiPath('/api/mj', isAdmin), params }
 }
 
 async function fetchLogs<T>(
@@ -50,6 +81,19 @@ async function fetchLogs<T>(
   })
   const path = buildApiPath(endpoint, isAdmin)
   const res = await api.get(`${path}?${queryParams}`)
+  return res.data
+}
+
+async function fetchLogsRequest<T>(
+  request: LogApiRequest<T>
+): Promise<GetLogsResponse> {
+  const paramRecord = request.params as unknown as Record<string, unknown>
+  const queryParams = buildQueryParams({
+    p: paramRecord.p || 1,
+    page_size: paramRecord.page_size || 20,
+    ...request.params,
+  })
+  const res = await api.get(`${request.path}?${queryParams}`)
   return res.data
 }
 
@@ -77,6 +121,13 @@ export const getUserLogs = (
   params: Omit<GetLogsParams, 'username' | 'channel'> = {}
 ) => fetchLogs('/api/log', params, false)
 
+export const getAllGrokImageLogs = (params: GetLogsParams = {}) =>
+  fetchLogsRequest(buildGrokImageLogRequest(params, true))
+
+export const getUserGrokImageLogs = (
+  params: Omit<GetLogsParams, 'username' | 'channel'> = {}
+) => fetchLogsRequest(buildGrokImageLogRequest(params, false))
+
 export const getLogStats = (params: GetLogStatsParams = {}) =>
   fetchLogStats('/api/log', params, true)
 
@@ -96,10 +147,10 @@ export async function getUserInfo(
 // ============================================================================
 
 export const getAllMidjourneyLogs = (params: GetMidjourneyLogsParams) =>
-  fetchLogs('/api/mj', params, true)
+  fetchLogsRequest(buildMidjourneyLogRequest(params, true))
 
 export const getUserMidjourneyLogs = (params: GetMidjourneyLogsParams) =>
-  fetchLogs('/api/mj', params, false)
+  fetchLogsRequest(buildMidjourneyLogRequest(params, false))
 
 // ============================================================================
 // Task Logs API

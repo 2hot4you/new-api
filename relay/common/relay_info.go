@@ -55,6 +55,27 @@ type ResponsesUsageInfo struct {
 	BuiltInTools map[string]*BuildInToolInfo
 }
 
+// GrokImageBillingSnapshot keeps the request-price snapshot plus the
+// response-derived quantities used to settle and audit one Grok image call.
+// Version must be bumped when the serialized log contract changes.
+type GrokImageBillingSnapshot struct {
+	Version              int     `json:"version"`
+	Model                string  `json:"model"`
+	Operation            string  `json:"operation"`
+	Resolution           string  `json:"resolution"`
+	AspectRatio          string  `json:"aspect_ratio"`
+	RequestedOutputCount int     `json:"requested_output_count"`
+	OutputCount          int     `json:"output_count"`
+	InputImageCount      int     `json:"input_image_count"`
+	OutputUnitPrice      float64 `json:"output_unit_price"`
+	InputUnitPrice       float64 `json:"input_unit_price"`
+	OutputCost           float64 `json:"output_cost"`
+	InputCost            float64 `json:"input_cost"`
+	Subtotal             float64 `json:"subtotal"`
+	GroupRatio           float64 `json:"group_ratio"`
+	FinalCost            float64 `json:"final_cost"`
+}
+
 type ChannelMeta struct {
 	ChannelType          int
 	ChannelId            int
@@ -157,6 +178,8 @@ type RelayInfo struct {
 	UpstreamRequestBodySize int64
 
 	PriceData hosttypes.PriceData
+
+	GrokImageBilling *GrokImageBillingSnapshot
 
 	// StarAI Seedance estimation values are persisted into the async task's
 	// billing snapshot and surfaced in usage logs.

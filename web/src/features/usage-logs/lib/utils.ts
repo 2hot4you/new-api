@@ -22,6 +22,8 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   getAllLogs,
   getUserLogs,
+  getAllGrokImageLogs,
+  getUserGrokImageLogs,
   getAllMidjourneyLogs,
   getUserMidjourneyLogs,
   getAllTaskLogs,
@@ -262,7 +264,7 @@ export async function fetchLogsByCategory(
   const { logCategory, isAdmin, page, pageSize, searchParams, columnFilters } =
     config
 
-  if (logCategory === 'common') {
+  if (logCategory === 'common' || logCategory === 'image') {
     const params = buildApiParams({
       page,
       pageSize,
@@ -270,6 +272,11 @@ export async function fetchLogsByCategory(
       columnFilters,
       isAdmin,
     })
+    if (logCategory === 'image') {
+      return isAdmin
+        ? await getAllGrokImageLogs(params)
+        : await getUserGrokImageLogs(params)
+    }
     return isAdmin ? await getAllLogs(params) : await getUserLogs(params)
   }
 

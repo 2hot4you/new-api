@@ -41,12 +41,13 @@ import { cn } from '@/lib/utils'
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
 import { parseLogOther } from '../lib/format'
+import { isGrokImageLog } from '../lib/grok-image-billing'
 import {
   getLogTypeConfig,
   isDisplayableLogType,
   isTimingLogType,
 } from '../lib/utils'
-import type { LogCategory } from '../types'
+import type { UsageLogsDataSource } from '../types'
 import { StreamTpsCell, TimingMetricsCell } from './timing-metrics-cell'
 import { useUsageLogsContext } from './usage-logs-provider'
 
@@ -62,7 +63,7 @@ interface UsageLogsMobileListProps<TData> {
   isLoading?: boolean
   emptyTitle?: string
   emptyDescription?: string
-  logCategory: LogCategory
+  logCategory: UsageLogsDataSource
 }
 
 function UsageLogsMobileSkeleton() {
@@ -192,6 +193,13 @@ function MobileTokensField({ log }: { log: UsageLog }) {
   const { t } = useTranslation()
 
   if (!isDisplayableLogType(log.type)) return null
+  if (isGrokImageLog(log)) {
+    return (
+      <div className='bg-muted/20 min-w-0 rounded-md px-2 py-1.5'>
+        <span className='text-muted-foreground text-xs'>-</span>
+      </div>
+    )
+  }
 
   const promptTokens = log.prompt_tokens || 0
   const completionTokens = log.completion_tokens || 0
@@ -509,7 +517,9 @@ export function UsageLogsMobileList<TData>({
               tintClass
             )}
           >
-            {logCategory === 'common' && <CommonLogsCard cells={cells} />}
+            {(logCategory === 'common' || logCategory === 'image') && (
+              <CommonLogsCard cells={cells} />
+            )}
             {logCategory === 'task' && <TaskLogsCard cells={cells} />}
             {logCategory === 'drawing' && <DrawingLogsCard cells={cells} />}
           </div>

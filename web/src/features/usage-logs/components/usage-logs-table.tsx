@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { type ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -39,7 +39,7 @@ import {
 import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
 import { fetchLogsByCategory } from '../lib/utils'
-import type { LogCategory } from '../types'
+import type { UsageLogsDataSource } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
@@ -57,19 +57,24 @@ const logTypeRowTint: Record<number, string> = {
 const quotaSaturationRowTint = 'bg-amber-50/60 dark:bg-amber-950/25'
 
 function getColumnVisibilityStorageKey(
-  logCategory: LogCategory,
+  logCategory: UsageLogsDataSource,
   isAdmin: boolean
 ): string {
   return `usage-logs:${logCategory}:${isAdmin ? 'admin' : 'user'}:column-visibility`
 }
 
 function deserializeLogTypeFilter(value: unknown): unknown[] {
-  const values = Array.isArray(value) ? value : value ? [value] : []
+  let values: unknown[] = []
+  if (Array.isArray(value)) {
+    values = value
+  } else if (value) {
+    values = [value]
+  }
   return values.filter((item) => String(item) !== LOG_TYPE_ALL_VALUE)
 }
 
 interface UsageLogsTableProps {
-  logCategory: LogCategory
+  logCategory: UsageLogsDataSource
 }
 
 export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
@@ -174,7 +179,22 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     ensurePageInRange,
   })
 
-  const isCommon = logCategory === 'common'
+  const isCommon = logCategory === 'common' || logCategory === 'image'
+  let toolbar
+  if (logCategory === 'common') {
+    toolbar = <CommonLogsFilterBar table={table} />
+  } else if (logCategory === 'image') {
+    toolbar = (
+      <CommonLogsFilterBar
+        table={table}
+        section='drawing'
+        source='image'
+        showStats={false}
+      />
+    )
+  } else {
+    toolbar = <TaskLogsFilterBar table={table} logCategory={logCategory} />
+  }
 
   return (
     <DataTablePage
@@ -198,13 +218,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
           logCategory={logCategory}
         />
       }
-      toolbar={
-        isCommon ? (
-          <CommonLogsFilterBar table={table} />
-        ) : (
-          <TaskLogsFilterBar table={table} logCategory={logCategory} />
-        )
-      }
+      toolbar={toolbar}
       renderRow={(row) => {
         const logType = (row.original as Record<string, unknown>).type as
           | number

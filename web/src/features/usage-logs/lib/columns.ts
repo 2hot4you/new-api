@@ -24,14 +24,14 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { useCommonLogsColumns } from '../components/columns/common-logs-columns'
 import { useDrawingLogsColumns } from '../components/columns/drawing-logs-columns'
 import { useTaskLogsColumns } from '../components/columns/task-logs-columns'
-import type { LogCategory } from '../types'
+import type { UsageLogsDataSource } from '../types'
 
 /**
  * Get column definitions based on log category
  * Returns any[] due to different log types (UsageLog, MjProxy log, TaskLog)
  */
 export function useColumnsByCategory(
-  logCategory: LogCategory,
+  logCategory: UsageLogsDataSource,
   isAdmin: boolean
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): ColumnDef<any>[] {
@@ -41,6 +41,7 @@ export function useColumnsByCategory(
 
   switch (logCategory) {
     case 'common':
+    case 'image':
       return commonColumns
     case 'drawing':
       return drawingColumns

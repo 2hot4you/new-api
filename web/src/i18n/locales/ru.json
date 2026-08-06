@@ -5496,6 +5496,21 @@
     "Audio must be used with at least one reference image or video; audio alone does not select the video-input price tier.": "Audio must be used with at least one reference image or video; audio alone does not select the video-input price tier.",
     "Frame-based input and multimodal reference input cannot be mixed in one request.": "Frame-based input and multimodal reference input cannot be mixed in one request.",
     "Task creation is asynchronous. Query the returned task ID until the status is completed or failed.": "Task creation is asynchronous. Query the returned task ID until the status is completed or failed.",
-    "request header.": "request header."
+    "request header.": "request header.",
+    "Image API": "Image API",
+    "Midjourney": "Midjourney",
+    "Grok Image Billing": "Grok Image Billing",
+    "Model ID": "Model ID",
+    "Image Editing": "Image Editing",
+    "Requested Outputs": "Requested Outputs",
+    "Actual Outputs": "Actual Outputs",
+    "Input Images": "Input Images",
+    "Output Unit Price": "Output Unit Price",
+    "Output Subtotal": "Output Subtotal",
+    "Input Unit Price": "Input Unit Price",
+    "Input Subtotal": "Input Subtotal",
+    "Subtotal": "Subtotal",
+    "Billing Formula": "Billing Formula",
+    "Historical billing breakdown unavailable": "Historical billing breakdown unavailable"
   }
 }

@@ -59,6 +59,7 @@ function UsageLogsContent() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const params = route.useParams()
+  const search = route.useSearch()
   const activeCategory: UsageLogsSectionId =
     params.section && isUsageLogsSectionId(params.section)
       ? params.section
@@ -117,10 +118,33 @@ function UsageLogsContent() {
     [setViewScope]
   )
 
+  const drawingSource = search.source ?? 'image'
+  const handleDrawingSourceChange = useCallback(
+    (source: string) => {
+      if (source !== 'image' && source !== 'midjourney') return
+      void navigate({
+        to: '/usage-logs/$section',
+        params: { section: 'drawing' },
+        search: {
+          ...search,
+          source,
+          page: 1,
+          ...(source === 'midjourney' ? { type: undefined } : {}),
+        },
+        replace: true,
+      })
+    },
+    [navigate, search]
+  )
+
   const pageMeta =
     activeCategory === 'common' ? SECTION_META.common : SECTION_META.task
   const showTaskSwitcher =
     activeCategory !== 'common' && visibleSections.length > 1
+  const tableCategory =
+    activeCategory === 'drawing' && drawingSource === 'image'
+      ? 'image'
+      : activeCategory
 
   return (
     <>
@@ -151,8 +175,21 @@ function UsageLogsContent() {
                 </TabsList>
               </Tabs>
             )}
+            {activeCategory === 'drawing' && (
+              <Tabs
+                value={drawingSource}
+                onValueChange={handleDrawingSourceChange}
+              >
+                <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
+                  <TabsTrigger value='image'>{t('Image API')}</TabsTrigger>
+                  <TabsTrigger value='midjourney'>
+                    {t('Midjourney')}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
             <div className='min-h-0 flex-1'>
-              <UsageLogsTable logCategory={activeCategory} />
+              <UsageLogsTable logCategory={tableCategory} />
             </div>
           </div>
         </SectionPageLayout.Content>

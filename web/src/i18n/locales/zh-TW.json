@@ -5496,6 +5496,21 @@
     "Audio must be used with at least one reference image or video; audio alone does not select the video-input price tier.": "音訊必須與至少一個參考圖片或參考影片一同使用；僅有音訊不會套用「包含影片輸入」的價格級別。",
     "Frame-based input and multimodal reference input cannot be mixed in one request.": "首尾幀模式與多模態參考模式不能在同一請求中混用。",
     "Task creation is asynchronous. Query the returned task ID until the status is completed or failed.": "Task creation is asynchronous. Query the returned task ID until the status is completed or failed.",
-    "request header.": "request header."
+    "request header.": "request header.",
+    "Image API": "Image API",
+    "Midjourney": "Midjourney",
+    "Grok Image Billing": "Grok 圖片計費",
+    "Model ID": "模型 ID",
+    "Image Editing": "圖片編輯",
+    "Requested Outputs": "請求輸出數",
+    "Actual Outputs": "實際輸出數",
+    "Input Images": "輸入圖片數",
+    "Output Unit Price": "輸出單價",
+    "Output Subtotal": "輸出小計",
+    "Input Unit Price": "輸入單價",
+    "Input Subtotal": "輸入小計",
+    "Subtotal": "費用小計",
+    "Billing Formula": "計費公式",
+    "Historical billing breakdown unavailable": "歷史記錄缺少分項計費資料"
   }
 }

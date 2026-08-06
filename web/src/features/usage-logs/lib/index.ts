@@ -47,6 +47,16 @@ export {
   fetchLogsByCategory,
 } from './utils'
 
+export {
+  formatGrokImageCny,
+  formatGrokImageFormula,
+  getGrokImageBillingState,
+  getGrokImageListSummary,
+  isGrokImageLog,
+  isGrokImageModel,
+  parseGrokImageBilling,
+} from './grok-image-billing'
+
 // Status mapper utilities
 export { createStatusMapper } from './status'
 

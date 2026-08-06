@@ -170,6 +170,10 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	if resolution == "" {
 		resolution = "1k"
 	}
+	aspectRatio := strings.TrimSpace(raw.AspectRatio)
+	if aspectRatio == "" {
+		aspectRatio = "16:9"
+	}
 	outputPrice, inputPrice, ok := ratio_setting.GetMoliiGrokImagePrices(modelName, resolution)
 	if !ok {
 		return nil, errors.New("Molii Grok image pricing is not configured")
@@ -182,7 +186,9 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 		return nil, errors.New("n must be an integer between 1 and 4")
 	}
 	inputCount := 0
+	operation := "generation"
 	if info.RelayMode == relayconstant.RelayModeImagesEdits {
+		operation = "edit"
 		media, err := normalizeImageMedia(raw.Image, raw.Images)
 		if err != nil {
 			return nil, err
@@ -201,6 +207,21 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	c.Set(imageBillingInputCountContextKey, inputCount)
 	c.Set(imageBillingBasePriceContextKey, basePrice)
 	cost := outputPrice*float64(n) + inputPrice*float64(inputCount)
+	info.GrokImageBilling = &relaycommon.GrokImageBillingSnapshot{
+		Version:              1,
+		Model:                modelName,
+		Operation:            operation,
+		Resolution:           resolution,
+		AspectRatio:          aspectRatio,
+		RequestedOutputCount: n,
+		OutputCount:          n,
+		InputImageCount:      inputCount,
+		OutputUnitPrice:      outputPrice,
+		InputUnitPrice:       inputPrice,
+		OutputCost:           outputPrice * float64(n),
+		InputCost:            inputPrice * float64(inputCount),
+		Subtotal:             cost,
+	}
 	return map[string]float64{"molii_grok_direct_cost": cost / basePrice}, nil
 }
 
@@ -277,6 +298,13 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			actualCost := outputPrice*float64(actualCount) + inputPrice*float64(inputCount)
 			info.PriceData.AddOtherRatio("molii_grok_direct_cost", actualCost/basePrice)
 		}
+	}
+	if info != nil && info.GrokImageBilling != nil {
+		snapshot := info.GrokImageBilling
+		snapshot.OutputCount = actualCount
+		snapshot.OutputCost = snapshot.OutputUnitPrice * float64(actualCount)
+		snapshot.InputCost = snapshot.InputUnitPrice * float64(snapshot.InputImageCount)
+		snapshot.Subtotal = snapshot.OutputCost + snapshot.InputCost
 	}
 	c.JSON(http.StatusOK, dto.ImageResponse{Data: data})
 	return &dto.Usage{}, nil

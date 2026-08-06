@@ -64,6 +64,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import type { UsageLog } from '../../data/schema'
 import {
@@ -78,12 +79,14 @@ import {
   getResponseTimeColor,
   renderAuditContent,
 } from '../../lib/format'
+import { isGrokImageLog } from '../../lib/grok-image-billing'
 import {
   getLogTypeConfig,
   isPerCallBilling,
   isTimingLogType,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import { GrokImageBillingCard } from './grok-image-billing-card'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -602,6 +605,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
   const typeConfig = getLogTypeConfig(props.log.type)
+  const quotaPerUnit = useSystemConfigStore(
+    (state) => state.config.currency.quotaPerUnit
+  )
+  const isGrokImage = isGrokImageLog(props.log)
 
   const isViolation = isViolationFeeLog(other)
   const isRefund = props.log.type === 6
@@ -731,6 +738,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
   } else if (other?.reasoning_effort === 'medium') {
     reasoningEffortVariant = 'yellow'
   }
+  let dialogWidthClass = 'sm:max-w-lg'
+  if (isTieredBilling) {
+    dialogWidthClass = 'sm:max-w-4xl lg:max-w-5xl'
+  } else if (isStarAIVideoLog || isGrokImage) {
+    dialogWidthClass = 'sm:max-w-2xl'
+  }
 
   return (
     <Dialog
@@ -751,11 +764,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
       contentClassName={cn(
         'min-w-0 overflow-hidden',
         'max-sm:max-h-[calc(100dvh-1.5rem)] max-sm:w-[calc(100vw-1.5rem)] max-sm:max-w-[calc(100vw-1.5rem)] max-sm:p-4',
-        isTieredBilling
-          ? 'sm:max-w-4xl lg:max-w-5xl'
-          : isStarAIVideoLog
-            ? 'sm:max-w-2xl'
-            : 'sm:max-w-lg'
+        dialogWidthClass
       )}
       headerClassName='max-sm:gap-1'
       titleClassName='flex items-center gap-2 text-base'
@@ -1188,12 +1197,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {/* Token breakdown (for consume/error types with token data) */}
         {other && isStarAIVideoLog && <StarAIVideoBillingCard other={other} />}
 
-        {isDisplayableType(props.log.type) && other && (
+        {isGrokImage && (
+          <GrokImageBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />
+        )}
+
+        {!isGrokImage && isDisplayableType(props.log.type) && other && (
           <TokenBreakdown log={props.log} other={other} />
         )}
 
         {/* Billing breakdown (consume type) */}
-        {isConsume && other && !isViolation && (
+        {isConsume && other && !isViolation && !isGrokImage && (
           <BillingBreakdown
             log={props.log}
             other={other}
@@ -1355,7 +1368,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Content */}
-        {details && !isStarAIVideoLog && (
+        {details && !isStarAIVideoLog && !isGrokImage && (
           <div className='space-y-1.5'>
             <Label className='text-xs font-semibold'>{t('Content')}</Label>
             <div className='bg-muted/30 relative min-w-0 overflow-hidden rounded-md border p-2.5'>

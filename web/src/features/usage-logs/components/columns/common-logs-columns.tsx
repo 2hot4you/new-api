@@ -51,6 +51,11 @@ import {
   renderAuditContent,
 } from '../../lib/format'
 import {
+  getGrokImageBillingState,
+  getGrokImageListSummary,
+  isGrokImageLog,
+} from '../../lib/grok-image-billing'
+import {
   isDisplayableLogType,
   isTimingLogType,
   getLogTypeConfig,
@@ -125,6 +130,17 @@ function buildTypeDetailSegments(
 
   if (log.type === 6) {
     return [{ text: t('Async task refund') }]
+  }
+
+  if (isGrokImageLog(log)) {
+    const state = getGrokImageBillingState(log)
+    if (state.kind === 'history') {
+      return [
+        { text: t('Historical billing breakdown unavailable'), muted: true },
+      ]
+    }
+    const summary = getGrokImageListSummary(log)
+    return summary ? [{ text: summary }] : []
   }
 
   if (log.type !== 2) return []
@@ -648,6 +664,10 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       cell: ({ row }) => {
         const log = row.original
         if (!isDisplayableLogType(log.type)) return null
+
+        if (isGrokImageLog(log)) {
+          return <span className='text-muted-foreground text-xs'>-</span>
+        }
 
         const other = parseLogOther(log.other)
 

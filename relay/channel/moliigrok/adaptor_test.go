@@ -124,6 +124,41 @@ func TestEstimateImageBillingSeparatesInputAndOutputUnits(t *testing.T) {
 	ratios, err := (&Adaptor{}).EstimateImageBilling(c, info, request)
 	require.NoError(t, err)
 	assert.InDelta(t, 0.16, ratios["molii_grok_direct_cost"], 0.000001)
+	require.NotNil(t, info.GrokImageBilling)
+	assert.Equal(t, 1, info.GrokImageBilling.Version)
+	assert.Equal(t, "grok-imagine-image-quality", info.GrokImageBilling.Model)
+	assert.Equal(t, "edit", info.GrokImageBilling.Operation)
+	assert.Equal(t, "2k", info.GrokImageBilling.Resolution)
+	assert.Equal(t, "16:9", info.GrokImageBilling.AspectRatio)
+	assert.Equal(t, 2, info.GrokImageBilling.RequestedOutputCount)
+	assert.Equal(t, 2, info.GrokImageBilling.OutputCount)
+	assert.Equal(t, 2, info.GrokImageBilling.InputImageCount)
+	assert.InDelta(t, 0.07, info.GrokImageBilling.OutputUnitPrice, 0.000001)
+	assert.InDelta(t, 0.01, info.GrokImageBilling.InputUnitPrice, 0.000001)
+	assert.InDelta(t, 0.14, info.GrokImageBilling.OutputCost, 0.000001)
+	assert.InDelta(t, 0.02, info.GrokImageBilling.InputCost, 0.000001)
+	assert.InDelta(t, 0.16, info.GrokImageBilling.Subtotal, 0.000001)
+}
+
+func TestEstimateImageBillingSnapshotsGenerationDefaults(t *testing.T) {
+	body := `{"model":"grok-imagine-image","prompt":"cat"}`
+	c := imageContext(t, body)
+	info := imageInfo()
+
+	ratios, err := (&Adaptor{}).EstimateImageBilling(c, info, dto.ImageRequest{Model: "grok-imagine-image", Prompt: "cat"})
+	require.NoError(t, err)
+	assert.InDelta(t, 0.02, ratios["molii_grok_direct_cost"], 0.000001)
+	require.NotNil(t, info.GrokImageBilling)
+	assert.Equal(t, "generation", info.GrokImageBilling.Operation)
+	assert.Equal(t, "1k", info.GrokImageBilling.Resolution)
+	assert.Equal(t, "16:9", info.GrokImageBilling.AspectRatio)
+	assert.Equal(t, 1, info.GrokImageBilling.RequestedOutputCount)
+	assert.Equal(t, 1, info.GrokImageBilling.OutputCount)
+	assert.Equal(t, 0, info.GrokImageBilling.InputImageCount)
+	assert.InDelta(t, 0.02, info.GrokImageBilling.OutputUnitPrice, 0.000001)
+	assert.InDelta(t, 0.002, info.GrokImageBilling.InputUnitPrice, 0.000001)
+	assert.InDelta(t, 0.02, info.GrokImageBilling.OutputCost, 0.000001)
+	assert.InDelta(t, 0.02, info.GrokImageBilling.Subtotal, 0.000001)
 }
 
 func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {
@@ -132,6 +167,15 @@ func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {
 	info := imageInfo()
 	info.PriceData = hosttypes.PriceData{UsePrice: true}
 	info.PriceData.AddOtherRatio("molii_grok_direct_cost", 0.08)
+	info.GrokImageBilling = &relaycommon.GrokImageBillingSnapshot{
+		Version:              1,
+		Model:                "grok-imagine-image",
+		Operation:            "generation",
+		Resolution:           "1k",
+		AspectRatio:          "16:9",
+		RequestedOutputCount: 4,
+		OutputUnitPrice:      0.02,
+	}
 	c.Set(validatedImageCountContextKey, 4)
 	c.Set(imageBillingOutputPriceContextKey, 0.02)
 	c.Set(imageBillingInputPriceContextKey, 0.0)
@@ -153,6 +197,52 @@ func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {
 	assert.NotContains(t, recorder.Body.String(), "mime_type")
 	assert.JSONEq(t, `{"created":0,"data":[{"url":"https://images.example/a.jpg","b64_json":"","revised_prompt":""},{"url":"https://images.example/b.jpg","b64_json":"","revised_prompt":""}]}`, recorder.Body.String())
 	assert.Equal(t, 0.04, info.PriceData.OtherRatios()["molii_grok_direct_cost"])
+	assert.Equal(t, 2, info.GrokImageBilling.OutputCount)
+	assert.InDelta(t, 0.04, info.GrokImageBilling.OutputCost, 0.000001)
+	assert.Zero(t, info.GrokImageBilling.InputCost)
+	assert.InDelta(t, 0.04, info.GrokImageBilling.Subtotal, 0.000001)
+}
+
+func TestImageResponsePreservesZeroPricedBillingSnapshot(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	info := imageInfo()
+	info.PriceData = hosttypes.PriceData{UsePrice: true}
+	info.PriceData.AddOtherRatio("molii_grok_direct_cost", 0.02)
+	info.GrokImageBilling = &relaycommon.GrokImageBillingSnapshot{
+		Version:              1,
+		Model:                "grok-imagine-image",
+		Operation:            "generation",
+		Resolution:           "1k",
+		AspectRatio:          "16:9",
+		RequestedOutputCount: 1,
+		OutputCount:          1,
+		OutputUnitPrice:      0,
+		InputUnitPrice:       0,
+	}
+	c.Set(validatedImageCountContextKey, 1)
+	c.Set(imageBillingOutputPriceContextKey, 0.0)
+	c.Set(imageBillingInputPriceContextKey, 0.0)
+	c.Set(imageBillingInputCountContextKey, 0)
+	c.Set(imageBillingBasePriceContextKey, 1.0)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`{"data":[{"url":"https://images.example/free.jpg"}]}`)),
+	}
+
+	_, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+	require.Nil(t, apiErr)
+	assert.Equal(t, 1, info.GrokImageBilling.OutputCount)
+	assert.Zero(t, info.GrokImageBilling.OutputUnitPrice)
+	assert.Zero(t, info.GrokImageBilling.InputUnitPrice)
+	assert.Zero(t, info.GrokImageBilling.OutputCost)
+	assert.Zero(t, info.GrokImageBilling.InputCost)
+	assert.Zero(t, info.GrokImageBilling.Subtotal)
+	encoded, err := common.Marshal(info.GrokImageBilling)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"output_unit_price":0`)
+	assert.Contains(t, string(encoded), `"subtotal":0`)
 }
 
 func TestSanitizeImageErrorNeverReturnsRawProviderDetails(t *testing.T) {
