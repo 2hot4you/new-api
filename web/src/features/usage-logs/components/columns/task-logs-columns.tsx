@@ -35,6 +35,10 @@ import {
   taskPlatformMapper,
   taskStatusMapper,
 } from '../../lib/mappers'
+import {
+  canPreviewVideoTask,
+  isGeneratedVideoTask,
+} from '../../lib/task-video-preview'
 import type { TaskLog } from '../../types'
 import {
   AudioPreviewDialog,
@@ -95,8 +99,8 @@ function AudioPreviewCell({ log }: { log: TaskLog }) {
 function TaskProgressCell({ log }: { log: TaskLog }) {
   const { t } = useTranslation()
   const [previewOpen, setPreviewOpen] = useState(false)
-  const isGeneratedVideo =
-    log.platform === TASK_PLATFORMS.STARAI && log.status === TASK_STATUS.SUCCESS
+  const isGeneratedVideo = isGeneratedVideoTask(log)
+  const canPreview = canPreviewVideoTask(log)
 
   if (isGeneratedVideo) {
     return (
@@ -108,7 +112,7 @@ function TaskProgressCell({ log }: { log: TaskLog }) {
             size='sm'
             copyable={false}
           />
-          {log.result_url ? (
+          {canPreview ? (
             <Button
               type='button'
               variant='outline'
@@ -124,7 +128,7 @@ function TaskProgressCell({ log }: { log: TaskLog }) {
             </Button>
           ) : null}
         </div>
-        {log.result_url ? (
+        {canPreview ? (
           <VideoPreviewDialog
             open={previewOpen}
             onOpenChange={setPreviewOpen}

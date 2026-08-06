@@ -185,6 +185,7 @@ export const TASK_ACTIONS = {
   FIRST_TAIL_GENERATE: 'firstTailGenerate', // 首尾生视频
   REFERENCE_GENERATE: 'referenceGenerate', // 参照生视频
   REMIX_GENERATE: 'remixGenerate', // 视频 Remix
+  VIDEO_EDIT: 'video_edit', // 视频编辑
 } as const
 
 /**
@@ -206,6 +207,7 @@ export const TASK_STATUS = {
 export const TASK_PLATFORMS = {
   SUNO: 'suno',
   STARAI: '61',
+  MOLII_GROK: '62',
   KLING: 'kling',
   RUNWAY: 'runway',
   LUMA: 'luma',
@@ -301,6 +303,7 @@ export const TASK_ACTION_MAPPINGS: Record<string, StatusMapping> = {
     label: 'Video Remix',
     variant: 'blue',
   },
+  [TASK_ACTIONS.VIDEO_EDIT]: { label: 'Video Editing', variant: 'blue' },
 }
 
 /**
@@ -322,6 +325,7 @@ export const TASK_STATUS_MAPPINGS: Record<string, StatusMapping> = {
 export const TASK_PLATFORM_MAPPINGS: Record<string, StatusMapping> = {
   [TASK_PLATFORMS.SUNO]: { label: 'suno', variant: 'green' },
   [TASK_PLATFORMS.STARAI]: { label: 'Molii AIGC', variant: 'blue' },
+  [TASK_PLATFORMS.MOLII_GROK]: { label: 'Grok', variant: 'blue' },
   [TASK_PLATFORMS.KLING]: { label: 'kling', variant: 'blue' },
   [TASK_PLATFORMS.RUNWAY]: { label: 'runway', variant: 'violet' },
   [TASK_PLATFORMS.LUMA]: { label: 'luma', variant: 'orange' },

@@ -5,8 +5,8 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "提交实施计划并按 TDD 开始编码",
+  "currentPhase": "review",
+  "nextAction": "提交已验证功能变更并归档任务",
   "createdAt": "2026-08-06T18:45:00+08:00",
   "branch": "feat/molii-auth"
 }
