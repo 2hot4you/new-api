@@ -108,7 +108,7 @@ func TestConvertImageRequestSupportsOfficialEditPayload(t *testing.T) {
 	require.NoError(t, err)
 	encoded, err := common.Marshal(converted)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"model":"grok-imagine-image-quality","prompt":"oil painting","aspect_ratio":"16:9","resolution":"2k","n":1,"image":{"url":"https://images.example/input.png"}}`, string(encoded))
+	assert.JSONEq(t, `{"model":"grok-imagine-image-quality","prompt":"oil painting","aspect_ratio":"16:9","resolution":"2k","n":1,"image":{"url":"https://images.example/input.png","type":"image_url"}}`, string(encoded))
 }
 
 func TestEstimateImageBillingSeparatesInputAndOutputUnits(t *testing.T) {
@@ -256,4 +256,19 @@ func TestSanitizeImageErrorNeverReturnsRawProviderDetails(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, transportErr.StatusCode)
 	assert.Equal(t, "Molii Grok Imagine API request failed", transportErr.Error())
 	assert.False(t, (&Adaptor{}).AllowImageRequestBodyLog())
+}
+
+func TestSanitizeImageErrorMapsContentModeration(t *testing.T) {
+	apiErr := (&Adaptor{}).SanitizeImageError(http.StatusBadRequest, []byte(`{
+		"error": {
+			"code": "imagine:content-moderated",
+			"message": "Generated image rejected (Request-ID: upstream-123)",
+			"type": "provider_error"
+		}
+	}`))
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+	assert.Equal(t, "content_policy_violation", string(apiErr.GetErrorCode()))
+	assert.Equal(t, "Image request rejected by content safety policy", apiErr.Error())
+	assert.NotContains(t, apiErr.Error(), "upstream-123")
 }

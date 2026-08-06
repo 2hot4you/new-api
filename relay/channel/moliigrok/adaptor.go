@@ -246,7 +246,7 @@ func normalizeImageMedia(imageRaw, imagesRaw []byte) ([]imageMediaInput, error) 
 	for _, raw := range rawItems {
 		var direct string
 		if err := common.Unmarshal(raw, &direct); err == nil && strings.TrimSpace(direct) != "" {
-			media = append(media, imageMediaInput{URL: strings.TrimSpace(direct)})
+			media = append(media, imageMediaInput{URL: strings.TrimSpace(direct), Type: "image_url"})
 			continue
 		}
 		var item imageMediaInput
@@ -255,6 +255,11 @@ func normalizeImageMedia(imageRaw, imagesRaw []byte) ([]imageMediaInput, error) 
 		}
 		item.URL = strings.TrimSpace(item.URL)
 		item.FileID = strings.TrimSpace(item.FileID)
+		if item.URL != "" {
+			item.Type = "image_url"
+		} else {
+			item.Type = ""
+		}
 		media = append(media, item)
 	}
 	return media, nil
@@ -314,9 +319,23 @@ func (a *Adaptor) SanitizeImageRequestError(err error) *types.NewAPIError {
 	return types.NewOpenAIError(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 }
 
-func (a *Adaptor) SanitizeImageError(statusCode int, _ []byte) *types.NewAPIError {
+func (a *Adaptor) SanitizeImageError(statusCode int, responseBody []byte) *types.NewAPIError {
 	if statusCode < http.StatusBadRequest || statusCode > http.StatusNetworkAuthenticationRequired {
 		statusCode = http.StatusBadGateway
+	}
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := common.Unmarshal(responseBody, &envelope); err == nil &&
+		strings.EqualFold(strings.TrimSpace(envelope.Error.Code), "imagine:content-moderated") {
+		return types.NewOpenAIError(
+			errors.New("Image request rejected by content safety policy"),
+			types.ErrorCodeContentPolicyViolation,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
 	}
 	return types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeBadResponse, statusCode)
 }

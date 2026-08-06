@@ -25,6 +25,7 @@ type rawImageRequest struct {
 type imageMediaInput struct {
 	URL    string `json:"url,omitempty"`
 	FileID string `json:"file_id,omitempty"`
+	Type   string `json:"type,omitempty"`
 }
 
 type imageResponsePayload struct {
