@@ -27,6 +27,7 @@ import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { TaskLog } from '../../types'
+import { shouldShowVideoTechnicalMetadata } from './video-preview-metadata'
 
 interface VideoPreviewDialogProps {
   open: boolean
@@ -63,6 +64,7 @@ export function VideoPreviewDialog({
   const { t } = useTranslation()
   const [playbackFailed, setPlaybackFailed] = useState(false)
   const params = log.video_params
+  const showTechnicalMetadata = shouldShowVideoTechnicalMetadata(log.platform)
 
   const ratioParts = params?.ratio
     ?.split(':')
@@ -230,7 +232,9 @@ export function VideoPreviewDialog({
               label={t('Resolution')}
               value={params?.resolution || '-'}
             />
-            <DetailItem label={t('Dimensions')} value={dimensions} mono />
+            {showTechnicalMetadata ? (
+              <DetailItem label={t('Dimensions')} value={dimensions} mono />
+            ) : null}
             <DetailItem
               label={t('Aspect Ratio')}
               value={params?.ratio || '-'}
@@ -241,10 +245,12 @@ export function VideoPreviewDialog({
                 params?.seconds ? `${params.seconds} ${t('seconds')}` : '-'
               }
             />
-            <DetailItem
-              label={t('Frame Rate')}
-              value={params?.fps ? `${params.fps} FPS` : '-'}
-            />
+            {showTechnicalMetadata ? (
+              <DetailItem
+                label={t('Frame Rate')}
+                value={params?.fps ? `${params.fps} FPS` : '-'}
+              />
+            ) : null}
             <DetailItem
               label={t('Reference Video')}
               value={t(params?.has_video ? 'Included' : 'Not included')}
