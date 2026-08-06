@@ -1,0 +1,8 @@
+{"path":"relay/channel/moliigrok/adaptor.go","reason":"Grok 图片请求标准化、价格估算和实际输出结算"}
+{"path":"relay/common/relay_info.go","reason":"请求生命周期内保存类型化计费快照"}
+{"path":"relay/image_handler.go","reason":"通用图片日志内容和 usage 哨兵来源"}
+{"path":"service/text_quota.go","reason":"最终 quota 结算及消费日志 other/content 写入"}
+{"path":"controller/log.go","reason":"通用日志查询参数入口"}
+{"path":"model/log.go","reason":"跨数据库分页分类筛选"}
+{"path":"web/src/features/usage-logs","reason":"绘图数据源切换、列表和详情展示"}
+
