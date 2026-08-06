@@ -1,0 +1,12 @@
+{
+  "id": "document-grok-curl-log-tests",
+  "title": "整理 Grok Imagine 请求与日志验证 curl 示例",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并向用户提供 curl 示例",
+  "createdAt": "2026-08-06T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
