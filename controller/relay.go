@@ -137,6 +137,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		meta = fastTokenCountMetaForPricing(request)
 	}
 	if imageRequest, ok := request.(*dto.ImageRequest); ok {
+		relayInfo.InitChannelMeta(c)
 		adaptor := relay.GetAdaptor(relayInfo.ApiType)
 		if estimator, ok := adaptor.(channel.ImageBillingEstimator); ok {
 			adaptor.Init(relayInfo)
