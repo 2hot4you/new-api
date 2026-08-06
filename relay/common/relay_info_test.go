@@ -1,11 +1,14 @@
 package common
 
 import (
+	"io"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,6 +25,21 @@ func TestTaskSubmitReqParsesReferenceImageURLObjects(t *testing.T) {
 	}`), &request))
 	require.Equal(t, []string{"https://images.example/one.png", "https://images.example/two.png", "file_future"}, request.ReferenceImages)
 	require.Equal(t, []string{"", "", "file_future"}, request.ReferenceImageFileIDs)
+}
+
+func TestInitChannelMetaClearsUpstreamBodyMetadata(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &RelayInfo{
+		UpstreamRequestBodySize: 37,
+		UpstreamRequestGetBody: func() (io.ReadCloser, error) {
+			return nil, nil
+		},
+	}
+
+	info.InitChannelMeta(c)
+
+	assert.Zero(t, info.UpstreamRequestBodySize)
+	assert.Nil(t, info.UpstreamRequestGetBody)
 }
 
 func TestRelayInfoGetFinalRequestRelayFormatPrefersExplicitFinal(t *testing.T) {
