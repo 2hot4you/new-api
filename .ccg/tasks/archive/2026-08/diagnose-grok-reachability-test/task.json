@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-grok-reachability-test",
+  "title": "排查 Molii Grok Imagine API 缺少可达性测试",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-07T01:50:00+08:00",
+  "branch": "feat/molii-auth"
+}
