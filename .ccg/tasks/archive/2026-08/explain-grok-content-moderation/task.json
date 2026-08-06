@@ -1,0 +1,12 @@
+{
+  "id": "explain-grok-content-moderation",
+  "title": "解释 Grok 图片编辑内容审核原因",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档分析任务",
+  "createdAt": "2026-08-06T13:45:00+08:00",
+  "branch": "feat/molii-auth"
+}
