@@ -1,0 +1,12 @@
+{
+  "id": "audit-per-request-model-pricing",
+  "title": "审计模型定价页面按次价格的业务作用",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
+  "createdAt": "2026-08-06T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
