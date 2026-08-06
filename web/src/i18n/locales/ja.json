@@ -5518,6 +5518,8 @@
     "Input Subtotal": "Input Subtotal",
     "Subtotal": "Subtotal",
     "Billing Formula": "Billing Formula",
-    "Historical billing breakdown unavailable": "Historical billing breakdown unavailable"
+    "Historical billing breakdown unavailable": "Historical billing breakdown unavailable",
+    "Billing Duration": "課金時間",
+    "Billing Resolution": "課金解像度"
   }
 }

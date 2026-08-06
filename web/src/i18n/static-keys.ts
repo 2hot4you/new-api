@@ -489,6 +489,8 @@ export const STATIC_I18N_KEYS = [
   'Grok Image',
   'Grok Video',
   'Seedance',
+  'Billing Duration',
+  'Billing Resolution',
   'Drawing Logs',
   'Drawing task records',
   'Task Logs',

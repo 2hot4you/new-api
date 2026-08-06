@@ -5518,6 +5518,8 @@
     "Input Subtotal": "Input Subtotal",
     "Subtotal": "Subtotal",
     "Billing Formula": "Billing Formula",
-    "Historical billing breakdown unavailable": "Historical billing breakdown unavailable"
+    "Historical billing breakdown unavailable": "Historical billing breakdown unavailable",
+    "Billing Duration": "Thời lượng tính phí",
+    "Billing Resolution": "Độ phân giải tính phí"
   }
 }

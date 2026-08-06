@@ -165,15 +165,9 @@ describe('Grok video billing display', () => {
       'grok-imagine-video',
       'Video Editing',
       'Video',
-      'Requested Duration',
-      'Estimated Duration',
-      'Actual Duration',
-      '8.7s',
+      'Billing Duration',
       '6s',
-      'Requested Resolution',
-      'Estimated Resolution',
-      'Actual Resolution',
-      '720P',
+      'Billing Resolution',
       '480P',
       'Video Input Billed Seconds',
       'Output Unit Price',
@@ -193,6 +187,14 @@ describe('Grok video billing display', () => {
       'Token Breakdown',
       '1 / 0',
       '¥1.000000',
+      'Requested Duration',
+      'Estimated Duration',
+      'Actual Duration',
+      '8.7s',
+      'Requested Resolution',
+      'Estimated Resolution',
+      'Actual Resolution',
+      '720P',
     ]) {
       assert.equal(text.includes(forbidden), false, forbidden)
     }
@@ -239,12 +241,20 @@ describe('Grok video billing display', () => {
       'Input Images',
       'Image Input Unit Price',
       'Image Input Subtotal',
+      'Requested Duration',
+      'Requested Resolution',
+      'Billing Duration',
+      'Billing Resolution',
       '16:9',
       '¥0.002000',
     ]) {
       assert.equal(text.includes(expected), true, expected)
     }
     assert.equal(text.includes('Video Input Billed Seconds'), false)
+    assert.equal(text.includes('Estimated Duration'), false)
+    assert.equal(text.includes('Estimated Resolution'), false)
+    assert.equal(text.includes('Actual Duration'), false)
+    assert.equal(text.includes('Actual Resolution'), false)
 
     await act(async () => rendered.root.unmount())
     rendered.container.remove()

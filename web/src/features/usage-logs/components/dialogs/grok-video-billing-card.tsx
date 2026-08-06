@@ -126,33 +126,29 @@ export function GrokVideoBillingCard(props: {
                 label={t('Input Type')}
                 value={inputTypeLabel(state.billing.input_type, t)}
               />
+              {state.billing.requested_duration_seconds > 0 && (
+                <BillingMetric
+                  label={t('Requested Duration')}
+                  value={formatDuration(
+                    state.billing.requested_duration_seconds
+                  )}
+                  mono
+                />
+              )}
               <BillingMetric
-                label={t('Requested Duration')}
-                value={formatDuration(state.billing.requested_duration_seconds)}
-                mono
-              />
-              <BillingMetric
-                label={t('Estimated Duration')}
-                value={formatDuration(state.billing.estimated_duration_seconds)}
-                mono
-              />
-              <BillingMetric
-                label={t('Actual Duration')}
+                label={t('Billing Duration')}
                 value={formatDuration(state.billing.actual_duration_seconds)}
                 mono
               />
+              {state.billing.requested_resolution.trim() !== '' && (
+                <BillingMetric
+                  label={t('Requested Resolution')}
+                  value={formatResolution(state.billing.requested_resolution)}
+                  mono
+                />
+              )}
               <BillingMetric
-                label={t('Requested Resolution')}
-                value={formatResolution(state.billing.requested_resolution)}
-                mono
-              />
-              <BillingMetric
-                label={t('Estimated Resolution')}
-                value={formatResolution(state.billing.estimated_resolution)}
-                mono
-              />
-              <BillingMetric
-                label={t('Actual Resolution')}
+                label={t('Billing Resolution')}
                 value={formatResolution(state.billing.actual_resolution)}
                 mono
               />

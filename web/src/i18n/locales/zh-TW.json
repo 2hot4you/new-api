@@ -5518,6 +5518,8 @@
     "Input Subtotal": "輸入小計",
     "Subtotal": "費用小計",
     "Billing Formula": "計費公式",
-    "Historical billing breakdown unavailable": "歷史記錄缺少分項計費資料"
+    "Historical billing breakdown unavailable": "歷史記錄缺少分項計費資料",
+    "Billing Duration": "計費時長",
+    "Billing Resolution": "計費解析度"
   }
 }
