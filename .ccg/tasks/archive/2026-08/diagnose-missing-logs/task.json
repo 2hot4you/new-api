@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-missing-logs",
+  "title": "排查日志列表全部消失",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-07T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
