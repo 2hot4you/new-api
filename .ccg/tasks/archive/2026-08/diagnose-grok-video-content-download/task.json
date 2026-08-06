@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-grok-video-content-download",
+  "title": "诊断 Grok 视频下载返回 93 字节文件",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "执行最终验证、归档任务并提交本地变更",
+  "createdAt": "2026-08-06T13:50:00+08:00",
+  "branch": "feat/molii-auth"
+}

@@ -162,14 +162,15 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	trustedSignedStarAITOSURL := channel.Type == constant.ChannelTypeStarAI && service.IsSignedStarAIPrivateTOSURL(videoURL)
-	if trustedSignedStarAITOSURL && proxy == "" {
-		// The exact signed TOS host is operator-controlled and TLS-verified. Use
-		// the normal relay client so local proxy DNS modes (198.18.0.0/15) do not
-		// trip the protected dialer's private-IP rejection.
+	trustedMoliiGrokVideoURL := channel.Type == constant.ChannelTypeMoliiGrokAIGC && service.IsTrustedMoliiGrokVideoURL(videoURL)
+	if (trustedSignedStarAITOSURL || trustedMoliiGrokVideoURL) && proxy == "" {
+		// These exact result hosts are operator-controlled and TLS-verified. Use
+		// the normal relay client for these narrowly trusted URLs so local proxy
+		// DNS modes (198.18.0.0/15) do not trip the protected dialer's rejection.
 		client = service.GetHttpClient()
 	}
 	var validateErr error
-	if !trustedSignedStarAITOSURL {
+	if !trustedSignedStarAITOSURL && !trustedMoliiGrokVideoURL {
 		if proxy == "" {
 			validateErr = service.ValidateSSRFProtectedFetchURL(videoURL)
 		} else {
