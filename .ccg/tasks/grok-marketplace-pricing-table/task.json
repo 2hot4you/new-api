@@ -1,0 +1,12 @@
+{
+  "id": "grok-marketplace-pricing-table",
+  "title": "为 Grok 模型广场卡片增加价格总览表",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "planning",
+  "nextAction": "编写实施计划并按测试驱动方式实现",
+  "createdAt": "2026-08-06T20:30:00+08:00",
+  "branch": "feat/molii-auth"
+}
