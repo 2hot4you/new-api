@@ -40,6 +40,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useStatus } from '@/hooks/use-status'
 
+import { buildGrokApiParameters } from '../lib/grok-api-parameters'
 import {
   buildGrokApiSample,
   getGrokOperations,
@@ -566,11 +567,17 @@ function CodeSamplesSection(props: {
 // ---------------------------------------------------------------------------
 
 function SupportedParametersSection(props: { model: PricingModel }) {
-  const { t } = useTranslation()
   const params = useMemo(
     () => buildSupportedParameters(props.model),
     [props.model]
   )
+
+  return <SupportedParametersTable params={params} />
+}
+
+function SupportedParametersTable(props: { params: SupportedParameter[] }) {
+  const { t } = useTranslation()
+  const { params } = props
 
   if (params.length === 0) return null
 
@@ -913,36 +920,11 @@ function GrokApiDetails(props: { model: PricingModel }) {
     modelName: props.model.model_name,
     operation,
   })
-  const imageModel = props.model.model_name.includes('-image')
-  let parameterSummary = (
-    <p>
-      <code>model</code> · <code>prompt</code> · <code>image.url</code> ·{' '}
-      <code>duration</code> (1–15) · <code>aspect_ratio</code> ·{' '}
-      <code>resolution</code>
-    </p>
+  const parameters = useMemo(
+    () => buildGrokApiParameters(props.model.model_name, operation),
+    [operation, props.model.model_name]
   )
-  if (imageModel) {
-    parameterSummary = (
-      <p>
-        <code>model</code> · <code>prompt</code> · <code>image/images</code> (
-        {t('editing')}) · <code>aspect_ratio</code> · <code>resolution</code>{' '}
-        (1k/2k) · <code>n</code> (1–4)
-      </p>
-    )
-  } else if (operation === 'edit') {
-    parameterSummary = (
-      <p>
-        <code>model</code> · <code>prompt</code> · <code>video.url</code>
-      </p>
-    )
-  } else if (operation === 'status' || operation === 'download') {
-    parameterSummary = (
-      <p>
-        <code>task_id</code> ·{' '}
-        {t('Molii public task ID returned by the creation request')}
-      </p>
-    )
-  }
+  const imageModel = props.model.model_name.includes('-image')
 
   return (
     <div className='space-y-6'>
@@ -994,12 +976,7 @@ function GrokApiDetails(props: { model: PricingModel }) {
         </div>
       </section>
       <AuthSection videoOnly={!imageModel} />
-      <section>
-        <SectionTitle icon={Sigma}>{t('Supported parameters')}</SectionTitle>
-        <div className='text-muted-foreground rounded-lg border p-4 text-sm leading-6'>
-          {parameterSummary}
-        </div>
-      </section>
+      <SupportedParametersTable params={parameters} />
     </div>
   )
 }
