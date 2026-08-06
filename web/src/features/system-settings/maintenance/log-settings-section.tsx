@@ -77,6 +77,7 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import type { LogCleanupTask } from '../types'
+import { getLogCleanupResultCounts } from './log-cleanup-result'
 
 const logSettingsSchema = z.object({
   LogConsumeEnabled: z.boolean(),
@@ -234,13 +235,26 @@ export function LogSettingsSection({
         setLogCleanupTask(res.data)
         if (!isActiveLogCleanupTask(res.data)) {
           if (res.data.status === 'succeeded') {
-            const count =
-              res.data.result?.deleted_count ?? res.data.state?.processed ?? 0
-            toast.success(
-              count > 0
-                ? t('{{count}} log entries removed.', { count })
-                : t('No log entries matched the selected time.')
+            const counts = getLogCleanupResultCounts(
+              res.data.result ?? {
+                deleted_count: res.data.state?.processed ?? 0,
+              }
             )
+            let message = t('{{count}} log entries removed.', {
+              count: counts.total,
+            })
+            if (counts.total <= 0) {
+              message = t('No log entries matched the selected time.')
+            } else if (counts.categorized) {
+              message = t(
+                'Removed {{logs}} log entries and {{generations}} generation records.',
+                {
+                  logs: counts.logs,
+                  generations: counts.generations,
+                }
+              )
+            }
+            toast.success(message)
           } else if (res.data.status === 'failed') {
             toast.error(res.data.error || t('Failed to clean logs'))
           }
@@ -372,7 +386,7 @@ export function LogSettingsSection({
               <h4 className='text-sm font-medium'>{t('Clean history logs')}</h4>
               <p className='text-muted-foreground text-sm'>
                 {t(
-                  'Remove all log entries created before the selected timestamp.'
+                  'Remove log entries and completed or failed generation records created before the selected timestamp. Active generation tasks are preserved.'
                 )}
               </p>
             </div>
@@ -588,11 +602,11 @@ export function LogSettingsSection({
             <AlertDialogDescription>
               {formattedPurgeDate
                 ? t(
-                    'This will permanently remove all log entries created before {{date}}.',
+                    'This will permanently remove all log entries and completed or failed generation records created before {{date}}. Active generation tasks will be preserved.',
                     { date: formattedPurgeDate }
                   )
                 : t(
-                    'This will permanently remove log entries before the selected timestamp.'
+                    'This will permanently remove log entries and completed or failed generation records before the selected timestamp. Active generation tasks will be preserved.'
                   )}{' '}
               {t('This action cannot be undone.')}
             </AlertDialogDescription>

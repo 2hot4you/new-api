@@ -5,8 +5,8 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "提交两份实施计划并选择执行方式",
+  "currentPhase": "review",
+  "nextAction": "完成差异审查、归档并提交",
   "createdAt": "2026-08-06T20:15:00+08:00",
   "branch": "feat/molii-auth"
 }

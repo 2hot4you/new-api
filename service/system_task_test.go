@@ -232,3 +232,61 @@ func TestEnqueueSystemTaskReportsCreatedAndExistingActive(t *testing.T) {
 	require.NotNil(t, second)
 	assert.NotEqual(t, first.TaskID, second.TaskID)
 }
+
+func TestRunLogCleanupTaskDeletesLogsAndTerminalGenerationTasks(t *testing.T) {
+	truncate(t)
+	cutoff := common.GetTimestamp() - 100
+	require.NoError(t, model.LOG_DB.Create([]*model.Log{
+		{CreatedAt: cutoff - 20, Type: model.LogTypeConsume, RequestId: "old-log-1"},
+		{CreatedAt: cutoff - 10, Type: model.LogTypeConsume, RequestId: "old-log-2"},
+		{CreatedAt: cutoff + 10, Type: model.LogTypeConsume, RequestId: "recent-log"},
+	}).Error)
+	require.NoError(t, model.DB.Create([]*model.Task{
+		{TaskID: "old-success", CreatedAt: cutoff - 20, UpdatedAt: cutoff - 20, Status: model.TaskStatusSuccess},
+		{TaskID: "old-failure", CreatedAt: cutoff - 10, UpdatedAt: cutoff - 10, Status: model.TaskStatusFailure},
+		{TaskID: "old-running", CreatedAt: cutoff - 30, UpdatedAt: cutoff - 30, Status: model.TaskStatusInProgress},
+		{TaskID: "recent-success", CreatedAt: cutoff + 10, UpdatedAt: cutoff + 10, Status: model.TaskStatusSuccess},
+	}).Error)
+
+	task, err := model.CreateSystemTask(model.SystemTaskTypeLogCleanup, LogCleanupPayload{
+		TargetTimestamp: cutoff,
+		BatchSize:       1,
+	}, LogCleanupState{})
+	require.NoError(t, err)
+	claimed, ok, err := model.ClaimSystemTask(task.ID, task.Type, "cleanup-runner", common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	runLogCleanupTask(context.Background(), claimed, "cleanup-runner")
+
+	completed, err := model.GetSystemTaskByTaskID(task.TaskID)
+	require.NoError(t, err)
+	require.NotNil(t, completed)
+	assert.Equal(t, model.SystemTaskStatusSucceeded, completed.Status)
+
+	result := LogCleanupResult{}
+	require.NoError(t, common.Unmarshal([]byte(completed.Result), &result))
+	assert.Equal(t, int64(4), result.DeletedCount)
+	assert.Equal(t, int64(2), result.DeletedLogCount)
+	assert.Equal(t, int64(2), result.DeletedGenerationCount)
+
+	state := LogCleanupState{}
+	require.NoError(t, common.Unmarshal([]byte(completed.State), &state))
+	assert.Equal(t, int64(4), state.Total)
+	assert.Equal(t, int64(4), state.Processed)
+	assert.Equal(t, int64(0), state.Remaining)
+	assert.Equal(t, 100, state.Progress)
+
+	var logs []model.Log
+	require.NoError(t, model.LOG_DB.Order("request_id").Find(&logs).Error)
+	require.Len(t, logs, 1)
+	assert.Equal(t, "recent-log", logs[0].RequestId)
+
+	var tasks []model.Task
+	require.NoError(t, model.DB.Order("task_id").Find(&tasks).Error)
+	remainingTaskIDs := make([]string, 0, len(tasks))
+	for _, remaining := range tasks {
+		remainingTaskIDs = append(remainingTaskIDs, remaining.TaskID)
+	}
+	assert.Equal(t, []string{"old-running", "recent-success"}, remainingTaskIDs)
+}

@@ -67,6 +67,7 @@ import {
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
+import { isGrokImageModel, isGrokImagineModel } from '../lib/grok-model'
 import { getPricingModelDescription } from '../lib/model-description'
 import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
@@ -80,6 +81,11 @@ import type {
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
+import {
+  ModelDetailsGrokImagePerformance,
+  ModelDetailsGrokOverview,
+  ModelDetailsGrokPricing,
+} from './model-details-grok'
 import { ModelDetailsPerformance } from './model-details-performance'
 import { ModelDetailsVideoOverview } from './model-details-video-overview'
 import { ModelDetailsVideoPerformance } from './model-details-video-performance'
@@ -1164,6 +1170,22 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
   const isVideoModel = isOpenAIVideoModel(props.model)
+  const isGrokModel = isGrokImagineModel(props.model)
+  const isGrokImage = isGrokImageModel(props.model)
+  let overview = <OverviewSummaryGrid model={props.model} />
+  if (isVideoModel) {
+    overview = <ModelDetailsVideoOverview model={props.model} />
+  }
+  if (isGrokModel) {
+    overview = <ModelDetailsGrokOverview model={props.model} />
+  }
+  let performance = <ModelDetailsPerformance model={props.model} />
+  if (isVideoModel) {
+    performance = <ModelDetailsVideoPerformance model={props.model} />
+  }
+  if (isGrokImage) {
+    performance = <ModelDetailsGrokImagePerformance model={props.model} />
+  }
 
   return (
     <div className='@container/details space-y-4'>
@@ -1187,25 +1209,25 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
         </TabsList>
 
         <TabsContent value='overview' className='space-y-6 outline-none'>
-          {isVideoModel ? (
-            <ModelDetailsVideoOverview model={props.model} />
-          ) : (
-            <OverviewSummaryGrid model={props.model} />
-          )}
+          {overview}
 
           <section className='bg-card/60 space-y-5 rounded-xl border p-4 shadow-sm'>
             <SectionTitle>{t('Pricing')}</SectionTitle>
-            <PriceSection
-              model={props.model}
-              priceRate={props.priceRate}
-              usdExchangeRate={props.usdExchangeRate}
-              tokenUnit={props.tokenUnit}
-              showRechargePrice={showRechargePrice}
-            />
+            {isGrokModel ? (
+              <ModelDetailsGrokPricing model={props.model} />
+            ) : (
+              <PriceSection
+                model={props.model}
+                priceRate={props.priceRate}
+                usdExchangeRate={props.usdExchangeRate}
+                tokenUnit={props.tokenUnit}
+                showRechargePrice={showRechargePrice}
+              />
+            )}
             {isDynamic && (
               <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
             )}
-            {!props.model.video_pricing && (
+            {!isGrokModel && !props.model.video_pricing && (
               <GroupPricingSection
                 model={props.model}
                 groupRatio={props.groupRatio}
@@ -1223,11 +1245,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
         </TabsContent>
 
         <TabsContent value='performance' className='outline-none'>
-          {isVideoModel ? (
-            <ModelDetailsVideoPerformance model={props.model} />
-          ) : (
-            <ModelDetailsPerformance model={props.model} />
-          )}
+          {performance}
         </TabsContent>
 
         <TabsContent value='api' className='outline-none'>

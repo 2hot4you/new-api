@@ -26,6 +26,7 @@ type QueryParams struct {
 
 type BucketPoint struct {
 	Ts           int64   `json:"ts"`
+	RequestCount int64   `json:"request_count"`
 	AvgTtftMs    int64   `json:"avg_ttft_ms"`
 	AvgLatencyMs int64   `json:"avg_latency_ms"`
 	SuccessRate  float64 `json:"success_rate"`
@@ -34,6 +35,7 @@ type BucketPoint struct {
 
 type GroupResult struct {
 	Group        string        `json:"group"`
+	RequestCount int64         `json:"request_count"`
 	AvgTtftMs    int64         `json:"avg_ttft_ms"`
 	AvgLatencyMs int64         `json:"avg_latency_ms"`
 	SuccessRate  float64       `json:"success_rate"`

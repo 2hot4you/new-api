@@ -53,3 +53,21 @@ func TestDefaultMoliiGrokVideoPrices(t *testing.T) {
 	_, _, _, ok := GetMoliiGrokVideoPrices("grok-imagine-video", "1080p")
 	assert.False(t, ok)
 }
+
+func TestMoliiGrokCatalogPricingExposesDirectPrices(t *testing.T) {
+	image, ok := GetMoliiGrokCatalogPricing("grok-imagine-image-quality")
+	require.True(t, ok)
+	assert.Equal(t, "image", image.Kind)
+	assert.Equal(t, 0.05, image.OutputPrices["1k"])
+	assert.Equal(t, 0.07, image.OutputPrices["2k"])
+	assert.Equal(t, 0.01, image.ImageInputPrice)
+
+	video, ok := GetMoliiGrokCatalogPricing("grok-imagine-video")
+	require.True(t, ok)
+	assert.Equal(t, "second", video.OutputUnit)
+	assert.Equal(t, 0.05, video.OutputPrices["480p"])
+	assert.Equal(t, 0.07, video.OutputPrices["720p"])
+	assert.Equal(t, 0.002, video.ImageInputPrice)
+	assert.Equal(t, 0.01, video.VideoInputPrice)
+	assert.NotContains(t, video.OutputPrices, "1080p")
+}

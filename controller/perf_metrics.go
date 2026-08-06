@@ -97,7 +97,7 @@ func GetVideoPerfMetrics(c *gin.Context) {
 		hours = 24 * 30
 	}
 
-	result, err := model.GetStarAIVideoPerformance(modelName, hours)
+	result, err := model.GetVideoPerformance(modelName, hours)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,

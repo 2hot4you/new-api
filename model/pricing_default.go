@@ -71,6 +71,10 @@ var defaultVendorIcons = map[string]string{
 var defaultModelDescriptionI18nKeys = map[string]string{
 	"doubao-seedance-2-0-260128":      "Seedance 2.0 standard model description",
 	"doubao-seedance-2-0-fast-260128": "Seedance 2.0 fast model description",
+	"grok-imagine-image":              "Grok Imagine Image model description",
+	"grok-imagine-image-quality":      "Grok Imagine Image Quality model description",
+	"grok-imagine-video":              "Grok Imagine Video model description",
+	"grok-imagine-video-1.5":          "Grok Imagine Video 1.5 model description",
 }
 
 func getDefaultModelDescriptionI18nKey(modelName string) string {

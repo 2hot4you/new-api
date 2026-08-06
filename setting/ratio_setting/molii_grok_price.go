@@ -26,6 +26,19 @@ type MoliiGrokPriceSetting struct {
 	Video720p          float64 `json:"video_720p"`
 }
 
+// MoliiGrokCatalogPricing is the public, direct-currency price table used by
+// the model marketplace. It intentionally excludes New API's internal ¥1
+// fixed-price billing anchor.
+type MoliiGrokCatalogPricing struct {
+	Kind            string             `json:"kind"`
+	OutputUnit      string             `json:"output_unit"`
+	OutputPrices    map[string]float64 `json:"output_prices"`
+	ImageInputUnit  string             `json:"image_input_unit,omitempty"`
+	ImageInputPrice float64            `json:"image_input_price,omitempty"`
+	VideoInputUnit  string             `json:"video_input_unit,omitempty"`
+	VideoInputPrice float64            `json:"video_input_price,omitempty"`
+}
+
 var moliiGrokPriceSetting = MoliiGrokPriceSetting{
 	ImageStandardInput: 0.002,
 	ImageStandard1K:    0.02,
@@ -110,4 +123,47 @@ func GetMoliiGrokVideoPrices(model, resolution string) (outputPrice, imageInputP
 		return 0, 0, 0, false
 	}
 	return outputPrice, imageInputPrice, videoInputPrice, validMoliiGrokPrice(outputPrice, imageInputPrice, videoInputPrice)
+}
+
+// GetMoliiGrokCatalogPricing returns the configured direct price table for a
+// Grok Imagine model. All values are CNY-denominated using the configured 1:1
+// catalog convention.
+func GetMoliiGrokCatalogPricing(model string) (*MoliiGrokCatalogPricing, bool) {
+	switch model {
+	case "grok-imagine-image", "grok-imagine-image-quality":
+		oneK, input, ok := GetMoliiGrokImagePrices(model, "1k")
+		if !ok {
+			return nil, false
+		}
+		twoK, _, ok := GetMoliiGrokImagePrices(model, "2k")
+		if !ok {
+			return nil, false
+		}
+		return &MoliiGrokCatalogPricing{
+			Kind: "image", OutputUnit: "image", OutputPrices: map[string]float64{"1k": oneK, "2k": twoK},
+			ImageInputUnit: "image", ImageInputPrice: input,
+		}, true
+	case "grok-imagine-video", "grok-imagine-video-1.5":
+		resolutions := []string{"480p", "720p"}
+		if model == "grok-imagine-video-1.5" {
+			resolutions = append(resolutions, "1080p")
+		}
+		prices := make(map[string]float64, len(resolutions))
+		var imageInput, videoInput float64
+		for _, resolution := range resolutions {
+			output, imagePrice, videoPrice, ok := GetMoliiGrokVideoPrices(model, resolution)
+			if !ok {
+				return nil, false
+			}
+			prices[resolution] = output
+			imageInput, videoInput = imagePrice, videoPrice
+		}
+		return &MoliiGrokCatalogPricing{
+			Kind: "video", OutputUnit: "second", OutputPrices: prices,
+			ImageInputUnit: "image", ImageInputPrice: imageInput,
+			VideoInputUnit: "second", VideoInputPrice: videoInput,
+		}, true
+	default:
+		return nil, false
+	}
 }

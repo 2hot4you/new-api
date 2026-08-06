@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -105,7 +106,17 @@ func videoPerformanceTaskModel(task *Task) string {
 	return task.Properties.OriginModelName
 }
 
-func GetStarAIVideoPerformance(modelName string, hours int) (VideoPerformanceResult, error) {
+func videoPerformancePlatform(modelName string) (constant.TaskPlatform, bool) {
+	if strings.HasPrefix(modelName, "grok-imagine-video") {
+		return constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC)), true
+	}
+	if strings.HasPrefix(modelName, "doubao-seedance-") {
+		return constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)), true
+	}
+	return "", false
+}
+
+func GetVideoPerformance(modelName string, hours int) (VideoPerformanceResult, error) {
 	result := VideoPerformanceResult{
 		ModelName: modelName,
 		Hours:     hours,
@@ -118,7 +129,10 @@ func GetStarAIVideoPerformance(modelName string, hours int) (VideoPerformanceRes
 
 	endTimestamp := time.Now().Unix()
 	startTimestamp := endTimestamp - int64(hours)*3600
-	platform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
+	platform, ok := videoPerformancePlatform(modelName)
+	if !ok {
+		return result, nil
+	}
 	var tasks []*Task
 	err := DB.Where("platform = ?", platform).
 		Where("submit_time >= ? AND submit_time <= ?", startTimestamp, endTimestamp).

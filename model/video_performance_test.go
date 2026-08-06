@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetStarAIVideoPerformanceAggregatesTerminalTasksByModelAndGroup(t *testing.T) {
+func TestGetVideoPerformanceAggregatesTerminalTasksByModelAndGroup(t *testing.T) {
 	truncateTables(t)
 	now := time.Now().Unix()
 	platform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
@@ -47,7 +47,7 @@ func TestGetStarAIVideoPerformanceAggregatesTerminalTasksByModelAndGroup(t *test
 		insertTask(t, task)
 	}
 
-	result, err := GetStarAIVideoPerformance("doubao-seedance-2-0-260128", 24)
+	result, err := GetVideoPerformance("doubao-seedance-2-0-260128", 24)
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(4), result.Summary.SubmittedCount)
@@ -67,7 +67,7 @@ func TestGetStarAIVideoPerformanceAggregatesTerminalTasksByModelAndGroup(t *test
 	assert.NotEmpty(t, result.Series)
 }
 
-func TestGetStarAIVideoPerformanceExcludesTasksOutsideWindow(t *testing.T) {
+func TestGetVideoPerformanceExcludesTasksOutsideWindow(t *testing.T) {
 	truncateTables(t)
 	now := time.Now().Unix()
 	insertTask(t, &Task{
@@ -79,11 +79,25 @@ func TestGetStarAIVideoPerformanceExcludesTasksOutsideWindow(t *testing.T) {
 		Properties: Properties{OriginModelName: "doubao-seedance-2-0-260128"},
 	})
 
-	result, err := GetStarAIVideoPerformance("doubao-seedance-2-0-260128", 24)
+	result, err := GetVideoPerformance("doubao-seedance-2-0-260128", 24)
 	require.NoError(t, err)
 	assert.Zero(t, result.Summary.SubmittedCount)
 	assert.NotNil(t, result.Groups)
 	assert.NotNil(t, result.Series)
 	assert.Empty(t, result.Groups)
 	assert.Empty(t, result.Series)
+}
+
+func TestGetVideoPerformanceUsesMoliiGrokPlatform(t *testing.T) {
+	truncateTables(t)
+	now := time.Now().Unix()
+	insertTask(t, &Task{
+		TaskID: "grok-success", Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC)),
+		SubmitTime: now - 120, FinishTime: now - 60, Status: TaskStatusSuccess,
+		Properties: Properties{OriginModelName: "grok-imagine-video"},
+	})
+	result, err := GetVideoPerformance("grok-imagine-video", 24)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), result.Summary.SubmittedCount)
+	assert.Equal(t, int64(1), result.Summary.SuccessCount)
 }

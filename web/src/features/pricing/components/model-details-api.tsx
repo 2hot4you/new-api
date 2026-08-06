@@ -41,6 +41,13 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useStatus } from '@/hooks/use-status'
 
 import {
+  buildGrokApiSample,
+  getGrokOperations,
+  type GrokOperation,
+  type GrokSampleLanguage,
+} from '../lib/grok-api-sample'
+import { isGrokImagineModel } from '../lib/grok-model'
+import {
   buildSupportedParameters,
   type SupportedParameter,
 } from '../lib/mock-stats'
@@ -863,6 +870,9 @@ export function ModelDetailsApi(props: {
   model: PricingModel
   endpointMap: Record<string, { path?: string; method?: string }>
 }) {
+  if (isGrokImagineModel(props.model)) {
+    return <GrokApiDetails model={props.model} />
+  }
   const videoOnly = isOpenAIVideoModel(props.model)
   return (
     <div className='space-y-6'>
@@ -871,6 +881,125 @@ export function ModelDetailsApi(props: {
       <SupportedParametersSection model={props.model} />
       {videoOnly && <VideoContentFormatSection />}
       <RateLimitsSection />
+    </div>
+  )
+}
+
+const GROK_OPERATION_LABELS: Record<GrokOperation, string> = {
+  generate: 'Generate',
+  edit: 'Edit',
+  status: 'Task status',
+  download: 'Download result',
+}
+
+function GrokApiDetails(props: { model: PricingModel }) {
+  const { t } = useTranslation()
+  const { status } = useStatus()
+  const operations = getGrokOperations(props.model.model_name)
+  const [operation, setOperation] = useState<GrokOperation>(operations[0])
+  const [lang, setLang] = useState<GrokSampleLanguage>('curl')
+  const baseUrl = useMemo(() => {
+    const candidate =
+      (status as Record<string, unknown> | null)?.server_address ??
+      (status?.data as Record<string, unknown> | undefined)?.server_address
+    if (typeof candidate === 'string' && candidate) {
+      return candidate.replace(/\/$/, '')
+    }
+    if (typeof window !== 'undefined') return window.location.origin
+    return 'https://aigc.claudeye.com'
+  }, [status])
+  const code = buildGrokApiSample(lang, {
+    baseUrl,
+    modelName: props.model.model_name,
+    operation,
+  })
+  const imageModel = props.model.model_name.includes('-image')
+  let parameterSummary = (
+    <p>
+      <code>model</code> · <code>prompt</code> · <code>image.url</code> ·{' '}
+      <code>duration</code> (1–15) · <code>aspect_ratio</code> ·{' '}
+      <code>resolution</code>
+    </p>
+  )
+  if (imageModel) {
+    parameterSummary = (
+      <p>
+        <code>model</code> · <code>prompt</code> · <code>image/images</code> (
+        {t('editing')}) · <code>aspect_ratio</code> · <code>resolution</code>{' '}
+        (1k/2k) · <code>n</code> (1–4)
+      </p>
+    )
+  } else if (operation === 'edit') {
+    parameterSummary = (
+      <p>
+        <code>model</code> · <code>prompt</code> · <code>video.url</code>
+      </p>
+    )
+  } else if (operation === 'status' || operation === 'download') {
+    parameterSummary = (
+      <p>
+        <code>task_id</code> ·{' '}
+        {t('Molii public task ID returned by the creation request')}
+      </p>
+    )
+  }
+
+  return (
+    <div className='space-y-6'>
+      <section>
+        <SectionTitle icon={ScrollText}>{t('Code samples')}</SectionTitle>
+        <div className='flex flex-wrap gap-2'>
+          <Tabs
+            value={operation}
+            onValueChange={(value) => setOperation(value as GrokOperation)}
+          >
+            <TabsList className='bg-muted/40 h-8 p-0.5'>
+              {operations.map((item) => (
+                <TabsTrigger
+                  key={item}
+                  value={item}
+                  className='h-7 px-2.5 text-xs'
+                >
+                  {t(GROK_OPERATION_LABELS[item])}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <Tabs
+            value={lang}
+            onValueChange={(value) => setLang(value as GrokSampleLanguage)}
+            className='ml-auto'
+          >
+            <TabsList className='bg-muted/40 h-8 p-0.5'>
+              {(Object.keys(LANG_LABELS) as Lang[]).map((item) => (
+                <TabsTrigger
+                  key={item}
+                  value={item}
+                  className='h-7 px-2.5 text-xs'
+                >
+                  {LANG_LABELS[item]}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+        <div className='mt-3'>
+          <CodeBlock
+            className='[&_.cm-content]:!pl-4'
+            code={code}
+            language={LANG_HIGHLIGHT[lang]}
+          >
+            <CodeBlockCopyButton />
+          </CodeBlock>
+        </div>
+      </section>
+      <AuthSection videoOnly={!imageModel} />
+      <section>
+        <SectionTitle icon={Sigma}>{t('Supported parameters')}</SectionTitle>
+        <div className='text-muted-foreground rounded-lg border p-4 text-sm leading-6'>
+          {parameterSummary}
+        </div>
+      </section>
     </div>
   )
 }

@@ -93,14 +93,18 @@ type LogCleanupPayload struct {
 }
 
 type LogCleanupState struct {
-	Total     int64 `json:"total"`
-	Processed int64 `json:"processed"`
-	Progress  int   `json:"progress"`
-	Remaining int64 `json:"remaining"`
+	Total                  int64 `json:"total"`
+	Processed              int64 `json:"processed"`
+	Progress               int   `json:"progress"`
+	Remaining              int64 `json:"remaining"`
+	DeletedLogCount        int64 `json:"deleted_log_count"`
+	DeletedGenerationCount int64 `json:"deleted_generation_count"`
 }
 
 type LogCleanupResult struct {
-	DeletedCount int64 `json:"deleted_count"`
+	DeletedCount           int64 `json:"deleted_count"`
+	DeletedLogCount        int64 `json:"deleted_log_count"`
+	DeletedGenerationCount int64 `json:"deleted_generation_count"`
 }
 
 var (
@@ -356,11 +360,17 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 	}
 
 	for {
-		remaining, err := model.CountOldLog(ctx, payload.TargetTimestamp)
+		logRemaining, err := model.CountOldLog(ctx, payload.TargetTimestamp)
 		if err != nil {
 			failSystemTask(task, runnerID, err)
 			return
 		}
+		generationRemaining, err := model.CountOldTerminalTasks(ctx, payload.TargetTimestamp)
+		if err != nil {
+			failSystemTask(task, runnerID, err)
+			return
+		}
+		remaining := logRemaining + generationRemaining
 		syncLogCleanupStateFromRemaining(&state, remaining)
 		if err := model.UpdateSystemTaskState(task.TaskID, runnerID, state); err != nil {
 			logSystemTaskLockError(ctx, task, err)
@@ -376,7 +386,12 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 		// rows cannot be removed and we fail instead of busy-looping.
 		progressed := false
 		for state.Remaining > 0 {
-			rowsAffected, err := model.DeleteOldLogBatch(ctx, payload.TargetTimestamp, payload.BatchSize)
+			var rowsAffected int64
+			if logRemaining > 0 {
+				rowsAffected, err = model.DeleteOldLogBatch(ctx, payload.TargetTimestamp, payload.BatchSize)
+			} else {
+				rowsAffected, err = model.DeleteOldTerminalTaskBatch(ctx, payload.TargetTimestamp, payload.BatchSize)
+			}
 			if err != nil {
 				failSystemTask(task, runnerID, err)
 				return
@@ -387,6 +402,21 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 			progressed = true
 
 			state.Processed += rowsAffected
+			if logRemaining > 0 {
+				state.DeletedLogCount += rowsAffected
+				if rowsAffected >= logRemaining {
+					logRemaining = 0
+				} else {
+					logRemaining -= rowsAffected
+				}
+			} else {
+				state.DeletedGenerationCount += rowsAffected
+				if rowsAffected >= generationRemaining {
+					generationRemaining = 0
+				} else {
+					generationRemaining -= rowsAffected
+				}
+			}
 			if state.Total < state.Processed {
 				state.Total = state.Processed
 			}
@@ -419,21 +449,20 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 		return
 	}
 
-	result := LogCleanupResult{DeletedCount: state.Processed}
+	result := LogCleanupResult{
+		DeletedCount:           state.Processed,
+		DeletedLogCount:        state.DeletedLogCount,
+		DeletedGenerationCount: state.DeletedGenerationCount,
+	}
 	if err := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, result, ""); err != nil {
 		logSystemTaskLockError(ctx, task, err)
 	}
 }
 
 func syncLogCleanupStateFromRemaining(state *LogCleanupState, remaining int64) {
-	if state.Total <= 0 {
-		state.Total = remaining
-		state.Processed = 0
-	} else {
-		processedFromRemaining := state.Total - remaining
-		if processedFromRemaining > state.Processed {
-			state.Processed = processedFromRemaining
-		}
+	minimumTotal := state.Processed + remaining
+	if state.Total < minimumTotal {
+		state.Total = minimumTotal
 	}
 	if state.Processed < 0 {
 		state.Processed = 0

@@ -41,6 +41,16 @@ export type VideoPricing = {
   unsupported_resolutions?: string[]
 }
 
+export type MoliiGrokPricing = {
+  kind: 'image' | 'video'
+  output_unit: 'image' | 'second'
+  output_prices: Record<string, number>
+  image_input_unit?: 'image'
+  image_input_price?: number
+  video_input_unit?: 'second'
+  video_input_price?: number
+}
+
 export type PricingModel = {
   id: number
   model_name: string
@@ -73,6 +83,8 @@ export type PricingModel = {
   pricing_version?: string
   /** Resolution and reference-video aware pricing for video generation. */
   video_pricing?: VideoPricing
+  /** Direct CNY catalog pricing for Molii Grok Imagine models. */
+  molii_grok_pricing?: MoliiGrokPricing
   /**
    * Optional model metadata fields reserved for backend-provided catalog data.
    * Keep them data-driven; do not synthesize display values on the client.
