@@ -26,9 +26,10 @@ import {
   getUserGrokImageLogs,
   getAllMidjourneyLogs,
   getUserMidjourneyLogs,
-  getAllTaskLogs,
-  getUserTaskLogs,
+  getAllVideoTaskLogs,
+  getUserVideoTaskLogs,
 } from '../api'
+import { resolveUsageLogSource, type VideoLogSource } from '../source-registry'
 import {
   LOG_TYPES,
   DISPLAYABLE_LOG_TYPES,
@@ -261,8 +262,15 @@ export function buildApiParams(config: {
 export async function fetchLogsByCategory(
   config: FetchLogsConfig
 ): Promise<GetLogsResponse> {
-  const { logCategory, isAdmin, page, pageSize, searchParams, columnFilters } =
-    config
+  const {
+    logCategory,
+    source,
+    isAdmin,
+    page,
+    pageSize,
+    searchParams,
+    columnFilters,
+  } = config
 
   if (logCategory === 'common' || logCategory === 'image') {
     const params = buildApiParams({
@@ -304,8 +312,15 @@ export async function fetchLogsByCategory(
       : await getUserMidjourneyLogs(paramsWithFilter as GetMidjourneyLogsParams)
   }
 
-  // task logs
+  // Video task logs are separated by provider platform.
+  const videoSource = resolveUsageLogSource('task', source) as VideoLogSource
   return isAdmin
-    ? await getAllTaskLogs(paramsWithFilter as GetTaskLogsParams)
-    : await getUserTaskLogs(paramsWithFilter as GetTaskLogsParams)
+    ? await getAllVideoTaskLogs(
+        paramsWithFilter as GetTaskLogsParams,
+        videoSource
+      )
+    : await getUserVideoTaskLogs(
+        paramsWithFilter as GetTaskLogsParams,
+        videoSource
+      )
 }

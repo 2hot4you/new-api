@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
  * Type definitions for usage logs
  */
 import type { UsageLog } from './data/schema'
+import type { UsageLogSource } from './source-registry'
 
 // ============================================================================
 // Log Category Types
@@ -461,6 +462,7 @@ export interface GetTaskLogsParams {
   task_id?: string
   start_timestamp?: number
   end_timestamp?: number
+  platform?: string
 }
 
 // ============================================================================
@@ -472,6 +474,7 @@ export interface GetTaskLogsParams {
  */
 export interface FetchLogsConfig {
   logCategory: UsageLogsDataSource
+  source?: UsageLogSource
   isAdmin: boolean
   page: number
   pageSize: number

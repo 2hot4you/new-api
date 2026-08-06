@@ -18,6 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
+import {
+  getVideoPlatformForSource,
+  type UsageLogSource,
+  type VideoLogSource,
+} from './source-registry'
+
 import type {
   GetLogsParams,
   GetLogsResponse,
@@ -66,6 +72,21 @@ export function buildMidjourneyLogRequest(
   isAdmin: boolean
 ): LogApiRequest<GetMidjourneyLogsParams> {
   return { path: buildApiPath('/api/mj', isAdmin), params }
+}
+
+export function buildVideoTaskLogRequest(
+  params: GetTaskLogsParams,
+  isAdmin: boolean,
+  source: UsageLogSource
+): LogApiRequest<GetTaskLogsParams> {
+  const platform = getVideoPlatformForSource(source)
+  if (!platform) {
+    throw new Error(`Unsupported video log source: ${source}`)
+  }
+  return {
+    path: buildApiPath('/api/task', isAdmin),
+    params: { ...params, platform },
+  }
 }
 
 async function fetchLogs<T>(
@@ -161,3 +182,13 @@ export const getAllTaskLogs = (params: GetTaskLogsParams) =>
 
 export const getUserTaskLogs = (params: GetTaskLogsParams) =>
   fetchLogs('/api/task', params, false)
+
+export const getAllVideoTaskLogs = (
+  params: GetTaskLogsParams,
+  source: VideoLogSource
+) => fetchLogsRequest(buildVideoTaskLogRequest(params, true, source))
+
+export const getUserVideoTaskLogs = (
+  params: GetTaskLogsParams,
+  source: VideoLogSource
+) => fetchLogsRequest(buildVideoTaskLogRequest(params, false, source))

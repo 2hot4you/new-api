@@ -19,27 +19,57 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { buildGrokImageLogRequest, buildMidjourneyLogRequest } from '../../api'
+import {
+  buildGrokImageLogRequest,
+  buildVideoTaskLogRequest,
+} from '../../api'
 
 describe('usage log data-source routing', () => {
-  test('routes admin Image API logs to the common log endpoint with a category', () => {
+  test('routes admin Grok Image logs to the common log endpoint with a category', () => {
     assert.deepEqual(buildGrokImageLogRequest({ p: 3 }, true), {
       path: '/api/log',
       params: { p: 3, log_category: 'grok_image' },
     })
   })
 
-  test('routes self Image API logs to the self common log endpoint', () => {
+  test('routes self Grok Image logs to the self common log endpoint', () => {
     assert.deepEqual(buildGrokImageLogRequest({ page_size: 20 }, false), {
       path: '/api/log/self',
       params: { page_size: 20, log_category: 'grok_image' },
     })
   })
 
-  test('keeps Midjourney on its existing independent endpoint', () => {
-    assert.deepEqual(buildMidjourneyLogRequest({ mj_id: 'task-1' }, true), {
-      path: '/api/mj',
-      params: { mj_id: 'task-1' },
+  test('routes Grok Video task logs through platform 62', () => {
+    assert.deepEqual(
+      buildVideoTaskLogRequest({ p: 2, task_id: 'task-grok' }, true, 'grok-video'),
+      {
+        path: '/api/task',
+        params: { p: 2, task_id: 'task-grok', platform: '62' },
+      }
+    )
+  })
+
+  test('routes self Seedance task logs through platform 61', () => {
+    assert.deepEqual(
+      buildVideoTaskLogRequest(
+        { page_size: 20, task_id: 'task-seedance' },
+        false,
+        'seedance'
+      ),
+      {
+        path: '/api/task/self',
+        params: {
+          page_size: 20,
+          task_id: 'task-seedance',
+          platform: '61',
+        },
+      }
+    )
+  })
+
+  test('rejects image sources for video task requests', () => {
+    assert.throws(() => buildVideoTaskLogRequest({}, true, 'grok-image'), {
+      message: 'Unsupported video log source: grok-image',
     })
   })
 })
