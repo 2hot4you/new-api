@@ -20,6 +20,9 @@ var TaskQueryLimit int
 var TaskTimeoutMinutes int
 var StarAIResultRetentionHours int
 var StarAIAssetTTLHours int
+var MoliiGrokNewAPIBaseURL = "https://api.wxiai.com"
+var MoliiGrokNewAPIAccessToken string
+var MoliiGrokNewAPIUserID int
 
 // temporary variable for sora patch, will be removed in future
 var TaskPricePatches []string

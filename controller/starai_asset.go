@@ -129,7 +129,7 @@ func sanitizeStarAIAssetErrorText(value string) string {
 	value = starAIAssetSecretPattern.ReplaceAllString(value, "[REDACTED]")
 	value = starAIAssetIDPattern.ReplaceAllString(value, "[ID]")
 	value = common.MaskSensitiveInfo(value)
-	value = starAIBrandPattern.ReplaceAllString(value, "Molii AIGC")
+	value = starAIBrandPattern.ReplaceAllString(value, "Molii Volcengine Imagine API")
 	value = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return ' '
@@ -167,19 +167,19 @@ func parseStarAIAssetUpstreamFailure(operation string, status int, body []byte, 
 	if failure.Reason == "" {
 		switch {
 		case cause != nil:
-			failure.Reason = "无法连接 Molii AIGC 服务"
+			failure.Reason = "无法连接 Molii Volcengine Imagine API 服务"
 		case status == http.StatusRequestEntityTooLarge:
-			failure.Reason = "素材文件超过 Molii AIGC 大小限制"
+			failure.Reason = "素材文件超过 Molii Volcengine Imagine API 大小限制"
 		case status == http.StatusUnsupportedMediaType:
-			failure.Reason = "Molii AIGC 不支持该素材格式"
+			failure.Reason = "Molii Volcengine Imagine API 不支持该素材格式"
 		case status == http.StatusUnauthorized || status == http.StatusForbidden:
-			failure.Reason = "Molii AIGC 渠道认证失败，请联系管理员"
+			failure.Reason = "Molii Volcengine Imagine API 渠道认证失败，请联系管理员"
 		case status == http.StatusTooManyRequests:
-			failure.Reason = "Molii AIGC 服务繁忙，请稍后重试"
+			failure.Reason = "Molii Volcengine Imagine API 服务繁忙，请稍后重试"
 		case status >= 400 && status < 500:
-			failure.Reason = "素材参数或媒体规格不符合 Molii AIGC 要求"
+			failure.Reason = "素材参数或媒体规格不符合 Molii Volcengine Imagine API 要求"
 		default:
-			failure.Reason = "Molii AIGC 服务异常"
+			failure.Reason = "Molii Volcengine Imagine API 服务异常"
 		}
 	}
 	return failure
@@ -198,7 +198,7 @@ func starAIAssetClientStatus(upstreamStatus int) int {
 
 func writeStarAIAssetUpstreamFailure(c *gin.Context, channel *model.Channel, failure *starAIAssetUpstreamFailure) {
 	logger.LogError(c.Request.Context(), fmt.Sprintf(
-		"Molii AIGC asset %s failed channel_id=%d upstream_status=%d upstream_code=%q reason=%q cause_type=%T",
+		"Molii Volcengine Imagine API asset %s failed channel_id=%d upstream_status=%d upstream_code=%q reason=%q cause_type=%T",
 		failure.Operation, channel.Id, failure.Status, failure.Code, failure.Reason, failure.Cause,
 	))
 	response := gin.H{
@@ -299,7 +299,7 @@ func doStarAIAssetRequest(channel *model.Channel, method, path string, body io.R
 func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, binding *service.StarAIAssetBinding) (*service.StarAIAssetBinding, bool) {
 	channel, err := getStarAIAssetChannel()
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Molii AIGC channel unavailable"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Molii Volcengine Imagine API channel unavailable"})
 		return nil, false
 	}
 	body, _ := common.Marshal(input)
@@ -310,8 +310,8 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 	}
 	var envelope starAIAssetUpstreamResponse
 	if err := common.Unmarshal(respBody, &envelope); err != nil || envelope.payload().ID == "" {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Molii AIGC asset create returned invalid response channel_id=%d upstream_status=%d", channel.Id, status))
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "invalid Molii AIGC asset response"})
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Molii Volcengine Imagine API asset create returned invalid response channel_id=%d upstream_status=%d", channel.Id, status))
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "invalid Molii Volcengine Imagine API asset response"})
 		return nil, false
 	}
 	upstream := envelope.payload()
@@ -445,7 +445,7 @@ func refreshStarAIAsset(c *gin.Context, binding *service.StarAIAssetBinding) (*s
 	}
 	var envelope starAIAssetUpstreamResponse
 	if err := common.Unmarshal(body, &envelope); err != nil {
-		return nil, errors.New("invalid Molii AIGC asset response")
+		return nil, errors.New("invalid Molii Volcengine Imagine API asset response")
 	}
 	upstream := envelope.payload()
 	if upstream.Status != "" {

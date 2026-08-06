@@ -73,7 +73,7 @@ function MarkerForm(props: { name: string }) {
   )
 }
 
-describe('Molii AIGC pricing tabs', () => {
+describe('Molii Volcengine Imagine API pricing tabs', () => {
   after(() => {
     domWindow.close()
   })

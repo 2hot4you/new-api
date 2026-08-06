@@ -51,7 +51,11 @@ export const STATIC_I18N_KEYS = [
   'Master instances run scheduled background tasks.',
   'Worker instances do not run master-only background tasks.',
   'Drawing task polling',
-  'Molii AIGC',
+  'Molii Volcengine Imagine API',
+  'Molii Volcengine Imagine API Pricing',
+  'Reachability Test',
+  'TCP reachability test only; no paid generation request is sent',
+  '可达性测试通过，未发送付费请求',
   'Video result cleanup',
 
   // Pricing constants

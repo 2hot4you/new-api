@@ -56,7 +56,7 @@ func TestUpdateChannelStarAIBalance(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	baseURL := server.URL + "/"
-	channel := &model.Channel{Name: "Molii AIGC", Key: key, BaseURL: &baseURL}
+	channel := &model.Channel{Name: "Molii Volcengine Imagine API", Key: key, BaseURL: &baseURL}
 	require.NoError(t, db.Create(channel).Error)
 
 	balance, err := updateChannelStarAIBalance(channel)
@@ -90,6 +90,7 @@ func TestUpdateChannelStarAIBalanceRejectsInvalidResponsesWithoutLeakingKey(t *t
 			channel := &model.Channel{Key: "starai-secret-key", BaseURL: &baseURL}
 			_, err := updateChannelStarAIBalance(channel)
 			require.Error(t, err)
+			assert.Contains(t, err.Error(), "Molii Volcengine Imagine API")
 			assert.NotContains(t, err.Error(), channel.Key)
 		})
 	}

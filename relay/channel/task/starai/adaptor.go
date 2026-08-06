@@ -120,7 +120,7 @@ func (a *TaskAdaptor) AllowAutomaticTaskSubmitRetry() bool {
 func (a *TaskAdaptor) SanitizeTaskSubmitError(responseBody []byte) string {
 	var starResp responseEnvelope
 	if err := common.Unmarshal(responseBody, &starResp); err != nil {
-		return "Molii AIGC request failed"
+		return "Molii Volcengine Imagine API request failed"
 	}
 	return a.safeErrorMessage(responseMessage(starResp))
 }
@@ -203,7 +203,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	if err := decodeStarAIResponse(responseBody, &starResp); err != nil {
 		contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
 		return "", nil, service.TaskErrorWrapper(
-			fmt.Errorf("invalid Molii AIGC response (status=%d, content-type=%q, bytes=%d)", resp.StatusCode, contentType, len(responseBody)),
+			fmt.Errorf("invalid Molii Volcengine Imagine API response (status=%d, content-type=%q, bytes=%d)", resp.StatusCode, contentType, len(responseBody)),
 			"unmarshal_response_body_failed", http.StatusBadGateway,
 		)
 	}
@@ -214,7 +214,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 
 	upstreamID := firstNonEmpty(starResp.Data.TaskID, stringValue(starResp.Data.ID), starResp.TaskID, stringValue(starResp.ID))
 	if upstreamID == "" {
-		return "", nil, service.TaskErrorWrapper(fmt.Errorf("Molii AIGC response did not include a task ID"), "invalid_response", http.StatusBadGateway)
+		return "", nil, service.TaskErrorWrapper(fmt.Errorf("Molii Volcengine Imagine API response did not include a task ID"), "invalid_response", http.StatusBadGateway)
 	}
 
 	openAIVideo := dto.NewOpenAIVideo()
@@ -284,10 +284,10 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
 	var starResp responseEnvelope
 	if err := common.Unmarshal(respBody, &starResp); err != nil {
-		return nil, fmt.Errorf("unmarshal Molii AIGC task result failed: %w", err)
+		return nil, fmt.Errorf("unmarshal Molii Volcengine Imagine API task result failed: %w", err)
 	}
 	if starResp.Code != nil && !isSuccessCode(starResp.Code) {
-		return nil, fmt.Errorf("Molii AIGC task query failed: %s", a.safeErrorMessage(responseMessage(starResp)))
+		return nil, fmt.Errorf("Molii Volcengine Imagine API task query failed: %s", a.safeErrorMessage(responseMessage(starResp)))
 	}
 
 	status := firstNonEmpty(starResp.Data.Status, starResp.Data.Data.Status, starResp.Status)
@@ -319,7 +319,7 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	var starResp responseEnvelope
 	if len(originTask.Data) > 0 {
 		if err := common.Unmarshal(originTask.Data, &starResp); err != nil {
-			return nil, fmt.Errorf("unmarshal Molii AIGC task data failed: %w", err)
+			return nil, fmt.Errorf("unmarshal Molii Volcengine Imagine API task data failed: %w", err)
 		}
 	}
 
@@ -574,7 +574,7 @@ func applyTopLevelFields(c *gin.Context, payload *requestPayload) error {
 		Tools         *[]tool        `json:"tools"`
 	}
 	if err := common.UnmarshalBodyReusable(c, &topLevel); err != nil {
-		return fmt.Errorf("read Molii AIGC request fields: %w", err)
+		return fmt.Errorf("read Molii Volcengine Imagine API request fields: %w", err)
 	}
 	if topLevel.Content != nil {
 		payload.Content = *topLevel.Content
@@ -746,7 +746,7 @@ func defaultProgress(status string) string {
 }
 
 func responseMessage(resp responseEnvelope) string {
-	return firstNonEmpty(resp.Message, messageFromAny(resp.Error), resp.FailReason, resp.Data.Message, resp.Data.FailReason, messageFromAny(resp.Data.Error), resp.Data.Data.Message, resp.Data.Data.FailReason, messageFromAny(resp.Data.Data.Error), "Molii AIGC request failed")
+	return firstNonEmpty(resp.Message, messageFromAny(resp.Error), resp.FailReason, resp.Data.Message, resp.Data.FailReason, messageFromAny(resp.Data.Error), resp.Data.Data.Message, resp.Data.Data.FailReason, messageFromAny(resp.Data.Data.Error), "Molii Volcengine Imagine API request failed")
 }
 
 func messageFromAny(value any) string {
@@ -802,7 +802,7 @@ func (a *TaskAdaptor) safeErrorMessage(message string) string {
 		message = strings.ReplaceAll(message, a.apiKey, "***")
 	}
 	message = common.MaskSensitiveInfo(message)
-	return upstreamBrandPattern.ReplaceAllString(message, "Molii AIGC")
+	return upstreamBrandPattern.ReplaceAllString(message, "Molii Volcengine Imagine API")
 }
 
 func upstreamErrorStatus(status int) int {

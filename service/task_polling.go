@@ -395,7 +395,7 @@ func UpdateVideoTasks(ctx context.Context, platform constant.TaskPlatform, taskC
 				adaptor := GetTaskAdaptorFunc(platform)
 				_, privatePolling := privateTaskPollingAdaptor(adaptor)
 				if platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) {
-					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update Molii AIGC async tasks", channelId))
+					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update Molii Volcengine Imagine API async tasks", channelId))
 				} else if privatePolling {
 					logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update private async tasks", channelId))
 				} else {
@@ -460,7 +460,7 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 				if task := taskM[taskId]; task != nil {
 					publicTaskID = task.TaskID
 				}
-				logger.LogError(ctx, fmt.Sprintf("Failed to update Molii AIGC public task %s", publicTaskID))
+				logger.LogError(ctx, fmt.Sprintf("Failed to update Molii Volcengine Imagine API public task %s", publicTaskID))
 			} else if privatePolling {
 				publicTaskID := "unknown"
 				if task := taskM[taskId]; task != nil {
@@ -653,7 +653,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	case model.TaskStatusFailure:
 		shouldLogFailure = true
 		if isStarAI {
-			logger.LogInfo(ctx, fmt.Sprintf("Molii AIGC public task %s reached failure status", publicTaskID))
+			logger.LogInfo(ctx, fmt.Sprintf("Molii Volcengine Imagine API public task %s reached failure status", publicTaskID))
 		} else if privatePolling {
 			logger.LogInfo(ctx, fmt.Sprintf("Private public task %s reached failure status", publicTaskID))
 		} else {
@@ -671,7 +671,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.FailReason = "Molii Grok Imagine API task failed"
 		}
 		if isStarAI {
-			logger.LogInfo(ctx, fmt.Sprintf("Molii AIGC public task %s failed", task.TaskID))
+			logger.LogInfo(ctx, fmt.Sprintf("Molii Volcengine Imagine API public task %s failed", task.TaskID))
 		} else if privatePolling {
 			logger.LogInfo(ctx, fmt.Sprintf("Private public task %s failed", task.TaskID))
 		} else {

@@ -39,9 +39,9 @@ import {
 } from '../channel-utils'
 
 describe('Molii Grok Imagine API channel', () => {
-  test('registers channel 62 without changing Molii AIGC', () => {
+  test('registers channel 62 without changing channel 61', () => {
     assert.equal(CHANNEL_TYPE_MOLII_GROK_AIGC, 62)
-    assert.equal(CHANNEL_TYPES[61], 'Molii AIGC')
+    assert.equal(CHANNEL_TYPES[61], 'Molii Volcengine Imagine API')
     assert.equal(CHANNEL_TYPES[62], 'Molii Grok Imagine API')
     assert.deepEqual(
       CHANNEL_TYPE_OPTIONS.find(
@@ -65,16 +65,16 @@ describe('Molii Grok Imagine API channel', () => {
       hints: {
         key: 'Enter API key for this channel',
         models: MOLII_GROK_AIGC_MODELS.join(','),
-        other: 'Configuration check only; no paid generation request is sent',
+        other: 'TCP reachability test only; no paid generation request is sent',
       },
     })
   })
 
-  test('hides Base URL and uses a configuration-only test action', () => {
+  test('hides Base URL and uses a TCP reachability test action', () => {
     assert.equal(shouldShowBaseUrlField(CHANNEL_TYPE_MOLII_GROK_AIGC), false)
     assert.deepEqual(getChannelTestAction(CHANNEL_TYPE_MOLII_GROK_AIGC), {
       direct: true,
-      label: 'Configuration Check',
+      label: 'Reachability Test',
     })
   })
 
@@ -116,5 +116,48 @@ describe('Molii Grok Imagine API channel', () => {
     const privateDomain = ['api', privateBrand, 'com'].join('.')
     assert.equal(source.includes(privateBrand), false)
     assert.equal(source.includes(privateDomain), false)
+  })
+
+  test('maps the exact reachability success message in every locale', () => {
+    const messageKey = '可达性测试通过，未发送付费请求'
+    const obsoleteKeys = [
+      'Configuration Check',
+      'Configuration check only; no paid generation request is sent',
+      '配置校验通过，未发起付费请求',
+      '可达性测试通过，未发起付费请求',
+    ]
+    const expectedTranslations: Record<string, string> = {
+      en: 'Reachability test passed; no paid request was sent',
+      fr: 'Test de joignabilité réussi ; aucune requête payante n’a été envoyée',
+      ja: '到達性テストに成功しました。有料リクエストは送信されていません',
+      ru: 'Проверка доступности пройдена; платный запрос не отправлялся',
+      vi: 'Kiểm tra khả năng kết nối thành công; không gửi yêu cầu có tính phí',
+      'zh-TW': '可達性測試通過，未發起付費請求',
+      zh: '可达性测试通过，未发起付费请求',
+    }
+
+    for (const [locale, expected] of Object.entries(expectedTranslations)) {
+      const localePath = fileURLToPath(
+        new URL(`../../../../i18n/locales/${locale}.json`, import.meta.url)
+      )
+      const localeData = JSON.parse(readFileSync(localePath, 'utf8')) as {
+        translation: Record<string, string>
+      }
+      assert.equal(localeData.translation[messageKey], expected, locale)
+      for (const obsoleteKey of obsoleteKeys) {
+        assert.equal(obsoleteKey in localeData.translation, false, locale)
+      }
+    }
+
+    const staticKeys = readFileSync(
+      fileURLToPath(
+        new URL('../../../../i18n/static-keys.ts', import.meta.url)
+      ),
+      'utf8'
+    )
+    assert.equal(staticKeys.includes(messageKey), true)
+    for (const obsoleteKey of obsoleteKeys) {
+      assert.equal(staticKeys.includes(obsoleteKey), false)
+    }
   })
 })

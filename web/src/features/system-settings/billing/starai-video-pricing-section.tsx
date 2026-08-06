@@ -112,7 +112,7 @@ export function StarAIVideoPricingSection({
     }
 
   return (
-    <SettingsSection title={t('Molii AIGC Video Pricing')}>
+    <SettingsSection title={t('Molii Volcengine Imagine API Video Pricing')}>
       <FormNavigationGuard when={isDirty} />
       <Form {...form}>
         <SettingsForm onSubmit={handleSubmit}>

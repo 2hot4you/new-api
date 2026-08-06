@@ -45,7 +45,7 @@ func newTaskContext(t *testing.T, request relaycommon.TaskSubmitReq) (*gin.Conte
 
 func TestChannelRegistrationConstants(t *testing.T) {
 	assert.Equal(t, 61, constant.ChannelTypeStarAI)
-	assert.Equal(t, "Molii AIGC", constant.GetChannelTypeName(constant.ChannelTypeStarAI))
+	assert.Equal(t, "Molii Volcengine Imagine API", constant.GetChannelTypeName(constant.ChannelTypeStarAI))
 	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeStarAI)
 	assert.Equal(t, "https://ai-api.lfxqai.com", constant.ChannelBaseURLs[constant.ChannelTypeStarAI])
 }
@@ -562,9 +562,9 @@ func TestSanitizeTaskSubmitErrorDoesNotExposeSecrets(t *testing.T) {
 	assert.NotContains(t, message, "starai-secret-key")
 	assert.NotContains(t, message, "signed-secret")
 	assert.NotContains(t, message, "StarAI")
-	assert.Contains(t, message, "Molii AIGC")
+	assert.Contains(t, message, "Molii Volcengine Imagine API")
 	assert.Contains(t, message, "X-Tos-Signature=***")
-	assert.Equal(t, "Molii AIGC request failed", adaptor.SanitizeTaskSubmitError([]byte(`not-json starai-secret-key`)))
+	assert.Equal(t, "Molii Volcengine Imagine API request failed", adaptor.SanitizeTaskSubmitError([]byte(`not-json starai-secret-key`)))
 }
 
 func TestFetchTaskUsesEscapedUpstreamIDAndAuth(t *testing.T) {

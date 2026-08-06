@@ -45,34 +45,24 @@ type testResult struct {
 	successMessage string
 }
 
-const starAIReachabilityTimeout = 5 * time.Second
+const channelReachabilityTimeout = 5 * time.Second
 
-// testStarAIReachability checks only DNS resolution and TCP port
-// connectivity. It deliberately does not perform TLS negotiation or send an
-// HTTP request, so testing a StarAI channel cannot create a task or consume
-// upstream quota.
-func testStarAIReachability(ctx context.Context, channel *model.Channel) error {
-	baseURL := ""
-	if channel != nil {
-		baseURL = strings.TrimSpace(channel.GetBaseURL())
-		if baseURL == "" && channel.Type >= 0 && channel.Type < len(constant.ChannelBaseURLs) {
-			baseURL = strings.TrimSpace(constant.ChannelBaseURLs[channel.Type])
-		}
-	}
+func testTCPReachability(ctx context.Context, baseURL, channelName string) error {
+	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
-		return errors.New("Molii AIGC reachability test failed: upstream URL is empty")
+		return fmt.Errorf("%s reachability test failed: upstream URL is empty", channelName)
 	}
 
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
-		return fmt.Errorf("Molii AIGC reachability test failed: invalid upstream URL: %w", err)
+		return fmt.Errorf("%s reachability test failed: invalid upstream URL", channelName)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("Molii AIGC reachability test failed: unsupported URL scheme %q", parsed.Scheme)
+		return fmt.Errorf("%s reachability test failed: unsupported URL scheme %q", channelName, parsed.Scheme)
 	}
 	host := parsed.Hostname()
 	if host == "" {
-		return errors.New("Molii AIGC reachability test failed: upstream hostname is empty")
+		return fmt.Errorf("%s reachability test failed: upstream hostname is empty", channelName)
 	}
 	port := parsed.Port()
 	if port == "" {
@@ -87,14 +77,32 @@ func testStarAIReachability(ctx context.Context, channel *model.Channel) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	testCtx, cancel := context.WithTimeout(ctx, starAIReachabilityTimeout)
+	testCtx, cancel := context.WithTimeout(ctx, channelReachabilityTimeout)
 	defer cancel()
-	conn, err := (&net.Dialer{Timeout: starAIReachabilityTimeout}).DialContext(testCtx, "tcp", target)
+	conn, err := (&net.Dialer{Timeout: channelReachabilityTimeout}).DialContext(testCtx, "tcp", target)
 	if err != nil {
-		return fmt.Errorf("Molii AIGC reachability test failed: cannot connect to %s: %w", target, err)
+		return fmt.Errorf("%s reachability test failed: cannot connect to %s: %w", channelName, target, err)
 	}
 	_ = conn.Close()
 	return nil
+}
+
+// testStarAIReachability checks only DNS resolution and TCP port
+// connectivity. It deliberately does not perform TLS negotiation or send an
+// HTTP request, so testing a StarAI channel cannot create a task or consume
+// upstream quota.
+func testStarAIReachability(ctx context.Context, channel *model.Channel) error {
+	baseURL := ""
+	if channel != nil {
+		baseURL = strings.TrimSpace(channel.GetBaseURL())
+		if baseURL == "" && channel.Type >= 0 && channel.Type < len(constant.ChannelBaseURLs) {
+			baseURL = strings.TrimSpace(constant.ChannelBaseURLs[channel.Type])
+		}
+	}
+	if baseURL == "" {
+		return errors.New("Molii Volcengine Imagine API reachability test failed: upstream URL is empty")
+	}
+	return testTCPReachability(ctx, baseURL, "Molii Volcengine Imagine API")
 }
 
 func testStarAIChannel(ctx context.Context, channel *model.Channel, testUserID int) testResult {
@@ -118,17 +126,28 @@ func testStarAIChannel(ctx context.Context, channel *model.Channel, testUserID i
 	return testResult{context: c}
 }
 
-func testMoliiGrokChannel(channel *model.Channel) testResult {
+func testMoliiGrokChannel(ctx context.Context, channel *model.Channel) testResult {
 	if channel == nil {
 		return testResult{localErr: errors.New("Molii Grok Imagine API channel configuration is missing")}
 	}
-	if strings.TrimSpace(channel.Key) == "" {
+	key, _, apiErr := channel.GetNextEnabledKey()
+	if apiErr != nil {
+		return testResult{localErr: errors.New("Molii Grok Imagine API 没有可用的渠道 Key")}
+	}
+	if strings.TrimSpace(key) == "" {
 		return testResult{localErr: errors.New("Molii Grok Imagine API Key is required")}
 	}
-	if strings.TrimSpace(channel.GetBaseURL()) == "" {
+	baseURL := ""
+	if constant.ChannelTypeMoliiGrokAIGC < len(constant.ChannelBaseURLs) {
+		baseURL = constant.ChannelBaseURLs[constant.ChannelTypeMoliiGrokAIGC]
+	}
+	if strings.TrimSpace(baseURL) == "" {
 		return testResult{localErr: errors.New("Molii Grok Imagine API server configuration is incomplete")}
 	}
-	return testResult{successMessage: "配置校验通过，未发起付费请求"}
+	if err := testTCPReachability(ctx, baseURL, "Molii Grok Imagine API"); err != nil {
+		return testResult{localErr: err}
+	}
+	return testResult{successMessage: "可达性测试通过，未发送付费请求"}
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
@@ -170,7 +189,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testStarAIChannel(ctx, channel, testUserID)
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeMoliiGrokAIGC {
-		return testMoliiGrokChannel(channel)
+		return testMoliiGrokChannel(ctx, channel)
 	}
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{

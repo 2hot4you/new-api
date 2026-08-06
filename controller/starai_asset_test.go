@@ -42,16 +42,16 @@ func TestParseStarAIAssetUpstreamFailure(t *testing.T) {
 	require.NotContains(t, failure.Reason, "secret-value")
 	require.NotContains(t, failure.Reason, "asset-20260616115348-9df57")
 	require.NotContains(t, failure.Reason, "StarAI")
-	require.Contains(t, failure.Reason, "Molii AIGC")
+	require.Contains(t, failure.Reason, "Molii Volcengine Imagine API")
 	require.Contains(t, failure.Reason, "300px")
 	require.Equal(t, http.StatusBadRequest, starAIAssetClientStatus(failure.Status))
 }
 
 func TestParseStarAIAssetUpstreamFailureFallbacks(t *testing.T) {
 	failure := parseStarAIAssetUpstreamFailure("create", http.StatusUnsupportedMediaType, []byte(`not-json`), nil)
-	require.Equal(t, "Molii AIGC 不支持该素材格式", failure.Reason)
+	require.Equal(t, "Molii Volcengine Imagine API 不支持该素材格式", failure.Reason)
 
 	failure = parseStarAIAssetUpstreamFailure("create", 0, nil, errors.New("dial failed"))
-	require.Equal(t, "无法连接 Molii AIGC 服务", failure.Reason)
+	require.Equal(t, "无法连接 Molii Volcengine Imagine API 服务", failure.Reason)
 	require.Equal(t, http.StatusBadGateway, starAIAssetClientStatus(failure.Status))
 }

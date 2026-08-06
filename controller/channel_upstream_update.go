@@ -304,10 +304,15 @@ func sanitizeFetchModelsError(err error, key string) error {
 	return errors.New(message)
 }
 
-func getFetchModelsResponseBody(method string, requestURL string, channel *model.Channel, headers http.Header) ([]byte, error) {
+func getFetchModelsResponseBody(method string, requestURL string, channel *model.Channel, headers http.Header, requestTimeout ...time.Duration) ([]byte, error) {
 	request, err := http.NewRequest(method, requestURL, nil)
 	if err != nil {
 		return nil, err
+	}
+	if len(requestTimeout) > 0 && requestTimeout[0] > 0 {
+		requestContext, cancel := context.WithTimeout(context.Background(), requestTimeout[0])
+		defer cancel()
+		request = request.WithContext(requestContext)
 	}
 	for name, values := range headers {
 		for _, value := range values {
@@ -336,6 +341,13 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
+	}
+	if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+		validatedBaseURL, err := moliiGrokManagementBaseURL()
+		if err != nil {
+			return nil, err
+		}
+		baseURL = validatedBaseURL
 	}
 
 	if channel.Type == constant.ChannelTypeOllama {
@@ -392,6 +404,8 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		} else {
 			url = fmt.Sprintf("%s/v1/models", baseURL)
 		}
+	case constant.ChannelTypeMoliiGrokAIGC:
+		url = fmt.Sprintf("%s/v1/models", baseURL)
 	default:
 		url = fmt.Sprintf("%s/v1/models", baseURL)
 	}
@@ -407,9 +421,21 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return nil, sanitizeFetchModelsError(err, key)
 	}
 
-	body, err := getFetchModelsResponseBody(http.MethodGet, url, channel, headers)
+	var body []byte
+	if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+		body, err = getFetchModelsResponseBody(http.MethodGet, url, channel, headers, effectiveMoliiGrokManagementRequestTimeout())
+	} else {
+		body, err = getFetchModelsResponseBody(http.MethodGet, url, channel, headers)
+	}
 	if err != nil {
 		return nil, sanitizeFetchModelsError(err, key)
+	}
+	if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+		models, err := parseOpenAIModelIDs(body)
+		if err != nil {
+			return nil, sanitizeFetchModelsError(err, key)
+		}
+		return models, nil
 	}
 
 	var result OpenAIModelsResponse

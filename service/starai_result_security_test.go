@@ -110,7 +110,7 @@ func TestSanitizeStarAIResponseBodyRecursivelyRedactsSecretsAndIDs(t *testing.T)
 	var decoded map[string]any
 	require.NoError(t, common.Unmarshal(sanitized, &decoded))
 	assert.Equal(t, publicTaskID, decoded["id"])
-	assert.Equal(t, "Molii AIGC task failed", decoded["message"])
+	assert.Equal(t, "Molii Volcengine Imagine API task failed", decoded["message"])
 	assert.Equal(t, "[REDACTED]", decoded["authorization"])
 
 	data := decoded["data"].(map[string]any)
@@ -137,7 +137,7 @@ func TestSanitizeStarAIResponseBodyRecursivelyRedactsSecretsAndIDs(t *testing.T)
 		body,
 		publicTaskID,
 	)
-	assert.Equal(t, "Molii AIGC task task_public_safe failed while using [REDACTED]", sanitizedReason)
+	assert.Equal(t, "Molii Volcengine Imagine API task task_public_safe failed while using [REDACTED]", sanitizedReason)
 }
 
 func TestSanitizeStarAIResponseBodyFailsClosed(t *testing.T) {

@@ -120,7 +120,7 @@ const BILLING_SECTIONS = [
   },
   {
     id: 'molii-aigc-video-pricing',
-    titleKey: 'Molii AIGC Pricing',
+    titleKey: 'Molii Volcengine Imagine API Pricing',
     build: (settings: BillingSettings) => (
       <MoliiAigcPricingTabs
         seedance={

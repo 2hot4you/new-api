@@ -95,7 +95,7 @@ export const CHANNEL_TYPES = {
   58: 'Advanced Custom',
   59: 'Sub2API',
   60: 'New API',
-  61: 'Molii AIGC',
+  61: 'Molii Volcengine Imagine API',
   62: 'Molii Grok Imagine API',
 } as const
 

@@ -188,7 +188,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeAdvancedCustom: "Advanced Custom",
 	ChannelTypeSub2API:        "Sub2API",
 	ChannelTypeNewAPI:         "New API",
-	ChannelTypeStarAI:         "Molii AIGC",
+	ChannelTypeStarAI:         "Molii Volcengine Imagine API",
 	ChannelTypeMoliiGrokAIGC:  "Molii Grok Imagine API",
 }
 

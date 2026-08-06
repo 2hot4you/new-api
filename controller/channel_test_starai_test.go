@@ -38,7 +38,7 @@ func TestStarAIChannelTestOnlyOpensTCPConnection(t *testing.T) {
 	channel := &model.Channel{
 		Id:      61,
 		Type:    constant.ChannelTypeStarAI,
-		Name:    "Molii AIGC reachability",
+		Name:    "Molii Volcengine Imagine API reachability",
 		Key:     "must-not-be-sent",
 		BaseURL: common.GetPointer(baseURL),
 	}
@@ -65,7 +65,7 @@ func TestStarAIChannelTestReportsClosedPortAsReachabilityFailure(t *testing.T) {
 	baseURL := "https://" + address
 	channel := &model.Channel{
 		Type:    constant.ChannelTypeStarAI,
-		Name:    "Molii AIGC unreachable",
+		Name:    "Molii Volcengine Imagine API unreachable",
 		BaseURL: common.GetPointer(baseURL),
 	}
 

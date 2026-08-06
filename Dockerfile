@@ -39,7 +39,7 @@ ARG APP_VERSION
 ARG VCS_REF
 
 LABEL org.opencontainers.image.title="New API - Molii backend" \
-      org.opencontainers.image.description="New API backend with Molii authentication and Molii AIGC Seedance integration" \
+      org.opencontainers.image.description="New API backend with Molii authentication and Molii Volcengine Imagine API integration" \
       org.opencontainers.image.source="https://github.com/2hot4you/new-api" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.version="${APP_VERSION}" \

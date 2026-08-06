@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -406,6 +407,101 @@ func TestFetchNewAPIModelsUsesOpenAIContract(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"gpt-5", "gpt-5-mini"}, models)
+}
+
+func TestFetchMoliiGrokModelsUsesManagementRootAndEnabledKey(t *testing.T) {
+	originalBaseURL := constant.MoliiGrokNewAPIBaseURL
+	t.Cleanup(func() { constant.MoliiGrokNewAPIBaseURL = originalBaseURL })
+
+	received := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v1/models", r.URL.Path)
+		received <- r.Header.Clone()
+		_, _ = w.Write([]byte(`{"data":[{"id":" grok-imagine-image "},{"id":"grok-imagine-image"},{"id":"grok-imagine-video"}]}`))
+	}))
+	t.Cleanup(server.Close)
+	constant.MoliiGrokNewAPIBaseURL = server.URL + "/"
+
+	headerOverride := `{"X-Management-Route":"models-{api_key}"}`
+	channel := &model.Channel{
+		Type:           constant.ChannelTypeMoliiGrokAIGC,
+		Key:            "disabled-key\nenabled-key",
+		HeaderOverride: &headerOverride,
+		ChannelInfo: model.ChannelInfo{
+			IsMultiKey: true,
+			MultiKeyStatusList: map[int]int{
+				0: common.ChannelStatusManuallyDisabled,
+				1: common.ChannelStatusEnabled,
+			},
+		},
+	}
+
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.NoError(t, err)
+	require.Equal(t, []string{"grok-imagine-image", "grok-imagine-video"}, models)
+	headers := <-received
+	assert.Equal(t, "Bearer enabled-key", headers.Get("Authorization"))
+	assert.Equal(t, "models-enabled-key", headers.Get("X-Management-Route"))
+}
+
+func TestFetchMoliiGrokModelsRejectsFailureWithoutLeakingSecrets(t *testing.T) {
+	originalBaseURL := constant.MoliiGrokNewAPIBaseURL
+	t.Cleanup(func() { constant.MoliiGrokNewAPIBaseURL = originalBaseURL })
+
+	const bodySecret = "upstream-body-secret-placeholder"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(bodySecret))
+	}))
+	t.Cleanup(server.Close)
+	constant.MoliiGrokNewAPIBaseURL = server.URL
+
+	channel := &model.Channel{Type: constant.ChannelTypeMoliiGrokAIGC, Key: "channel-key-placeholder"}
+	_, err := fetchChannelUpstreamModelIDs(channel)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), channel.Key)
+	assert.NotContains(t, err.Error(), bodySecret)
+}
+
+func TestFetchMoliiGrokModelsRejectsManagementBasePath(t *testing.T) {
+	originalBaseURL := constant.MoliiGrokNewAPIBaseURL
+	t.Cleanup(func() { constant.MoliiGrokNewAPIBaseURL = originalBaseURL })
+	constant.MoliiGrokNewAPIBaseURL = "https://management.example.invalid/xai"
+
+	_, err := fetchChannelUpstreamModelIDs(&model.Channel{
+		Type: constant.ChannelTypeMoliiGrokAIGC,
+		Key:  "channel-key-placeholder",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MOLII_GROK_NEW_API_BASE_URL")
+	assert.NotContains(t, err.Error(), "management.example.invalid")
+}
+
+func TestFetchMoliiGrokModelsHasOverallTimeout(t *testing.T) {
+	originalBaseURL := constant.MoliiGrokNewAPIBaseURL
+	originalTimeout := moliiGrokManagementRequestTimeout
+	t.Cleanup(func() {
+		constant.MoliiGrokNewAPIBaseURL = originalBaseURL
+		moliiGrokManagementRequestTimeout = originalTimeout
+	})
+	moliiGrokManagementRequestTimeout = 25 * time.Millisecond
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+	constant.MoliiGrokNewAPIBaseURL = server.URL
+
+	started := time.Now()
+	_, err := fetchChannelUpstreamModelIDs(&model.Channel{
+		Type: constant.ChannelTypeMoliiGrokAIGC,
+		Key:  "channel-key-placeholder",
+	})
+
+	require.Error(t, err)
+	assert.Less(t, time.Since(started), time.Second)
+	assert.NotContains(t, err.Error(), "channel-key-placeholder")
 }
 
 func TestNormalizeModelNames(t *testing.T) {

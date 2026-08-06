@@ -189,7 +189,7 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     hints: {
       key: 'Enter API key for this channel',
       models: MOLII_GROK_AIGC_MODELS.join(','),
-      other: 'Configuration check only; no paid generation request is sent',
+      other: 'TCP reachability test only; no paid generation request is sent',
     },
   },
 }

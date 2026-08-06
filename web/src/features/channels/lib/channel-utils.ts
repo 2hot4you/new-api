@@ -107,7 +107,7 @@ export function getChannelTypeIcon(type: number): string {
     36: 'Suno', // SunoAPI
     55: 'OpenAI', // Sora
     54: 'Doubao', // DoubaoVideo
-    61: 'Doubao', // Molii AIGC
+    61: 'Doubao', // Molii Volcengine Imagine API
     62: 'XAI', // Molii Grok Imagine API
     56: 'Replicate', // Replicate
 
@@ -160,7 +160,7 @@ export function getChannelTestAction(type: number): {
     return { direct: true, label: 'Reachability Test' }
   }
   if (type === CHANNEL_TYPE_MOLII_GROK_AIGC) {
-    return { direct: true, label: 'Configuration Check' }
+    return { direct: true, label: 'Reachability Test' }
   }
   return { direct: false, label: 'Test Connection' }
 }

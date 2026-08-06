@@ -204,6 +204,9 @@ func initConstantEnv() {
 	constant.TaskTimeoutMinutes = GetEnvOrDefault("TASK_TIMEOUT_MINUTES", 1440)
 	constant.StarAIResultRetentionHours = GetEnvOrDefault("STARAI_RESULT_RETENTION_HOURS", 24)
 	constant.StarAIAssetTTLHours = GetEnvOrDefault("STARAI_ASSET_TTL_HOURS", 24)
+	constant.MoliiGrokNewAPIBaseURL = GetEnvOrDefaultString("MOLII_GROK_NEW_API_BASE_URL", "https://api.wxiai.com")
+	constant.MoliiGrokNewAPIAccessToken = GetEnvOrDefaultString("MOLII_GROK_NEW_API_ACCESS_TOKEN", "")
+	constant.MoliiGrokNewAPIUserID = GetEnvOrDefault("MOLII_GROK_NEW_API_USER_ID", 0)
 
 	soraPatchStr := GetEnvOrDefaultString("TASK_PRICE_PATCH", "")
 	if soraPatchStr != "" {

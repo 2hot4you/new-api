@@ -205,7 +205,7 @@ func sanitizeStarAIValue(value any, publicTaskID string, upstreamIDs, secrets []
 			typed = strings.ReplaceAll(typed, upstreamID, publicTaskID)
 		}
 		typed = sanitizeURLQueryValues(typed)
-		return starAIUpstreamBrandPattern.ReplaceAllString(typed, "Molii AIGC")
+		return starAIUpstreamBrandPattern.ReplaceAllString(typed, "Molii Volcengine Imagine API")
 	default:
 		return value
 	}
