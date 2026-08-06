@@ -1,12 +1,12 @@
 {
   "id": "simplify-grok-video-log-durations",
   "title": "精简 Grok Video 日志中的时长与分辨率字段",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "planning",
-  "nextAction": "提交实施计划并按 TDD 内联执行",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
   "createdAt": "2026-08-06T18:20:00+08:00",
   "branch": "feat/molii-auth"
 }
