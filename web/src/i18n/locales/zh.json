@@ -5511,6 +5511,19 @@
     "Input Subtotal": "输入小计",
     "Subtotal": "费用小计",
     "Billing Formula": "计费公式",
-    "Historical billing breakdown unavailable": "历史记录缺少分项计费数据"
+    "Historical billing breakdown unavailable": "历史记录缺少分项计费数据",
+    "Grok Video Billing": "Grok 视频计费",
+    "Video Editing": "视频编辑",
+    "Requested Duration": "请求时长",
+    "Estimated Duration": "预估时长",
+    "Actual Duration": "实际时长",
+    "Requested Resolution": "请求分辨率",
+    "Estimated Resolution": "预估分辨率",
+    "Actual Resolution": "实际分辨率",
+    "Video Input Billed Seconds": "视频输入计费秒数",
+    "Image Input Unit Price": "图片输入单价",
+    "Video Input Unit Price": "视频输入单价",
+    "Image Input Subtotal": "图片输入小计",
+    "Video Input Subtotal": "视频输入小计"
   }
 }

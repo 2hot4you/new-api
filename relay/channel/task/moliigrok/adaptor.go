@@ -240,18 +240,48 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 		return 0
 	}
 	bc := task.PrivateData.BillingContext
+	if snapshot := bc.GrokVideoBilling; snapshot != nil && snapshot.Version == 1 {
+		duration := taskResult.ActualDurationSeconds
+		if duration <= 0 {
+			duration = snapshot.RequestedDurationSeconds
+		}
+		if duration <= 0 {
+			duration = snapshot.EstimatedDurationSeconds
+		}
+		if duration < 0 {
+			return 0
+		}
+
+		resolution := snapshot.RequestedResolution
+		if resolution == "" {
+			resolution = snapshot.EstimatedResolution
+		}
+		if snapshot.Operation == videoEditAction {
+			resolution = inferVideoEditResolution(duration, taskResult.ProviderCost)
+			outputPrice, ok := bc.EstimatedOutputUnitPrices[resolution]
+			if !ok || outputPrice < 0 || math.IsNaN(outputPrice) || math.IsInf(outputPrice, 0) {
+				return 0
+			}
+			snapshot.OutputUnitPrice = outputPrice
+			snapshot.VideoInputBilledSeconds = duration
+		}
+
+		snapshot.ActualDurationSeconds = duration
+		snapshot.ActualResolution = resolution
+		snapshot.OutputCost = snapshot.OutputUnitPrice * duration
+		snapshot.ImageInputCost = snapshot.ImageInputUnitPrice * float64(snapshot.InputImageCount)
+		snapshot.VideoInputCost = snapshot.VideoInputUnitPrice * snapshot.VideoInputBilledSeconds
+		snapshot.Subtotal = snapshot.OutputCost + snapshot.ImageInputCost + snapshot.VideoInputCost
+		snapshot.GroupRatio = bc.GroupRatio
+		quota, _ := common.QuotaRoundChecked(snapshot.Subtotal * common.QuotaPerUnit * bc.GroupRatio)
+		return quota
+	}
+
 	if !bc.EstimatedHasVideo || bc.OriginModelName != LegacyVideoModel || taskResult.ActualDurationSeconds <= 0 {
 		return 0
 	}
 	duration := taskResult.ActualDurationSeconds
-	resolution := "720p"
-	if taskResult.ProviderCost > 0 {
-		officialRate := taskResult.ProviderCost / duration
-		resolution = "480p"
-		if math.Abs(officialRate-0.08) < math.Abs(officialRate-0.06) {
-			resolution = "720p"
-		}
-	}
+	resolution := inferVideoEditResolution(duration, taskResult.ProviderCost)
 	outputPrice, ok := bc.EstimatedOutputUnitPrices[resolution]
 	videoInputPrice := bc.EstimatedInputUnitPrice
 	if !ok || outputPrice < 0 || videoInputPrice < 0 {
@@ -263,6 +293,18 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 	}
 	quota, _ := common.QuotaFromFloatChecked(duration * (outputPrice + videoInputPrice) * common.QuotaPerUnit * bc.GroupRatio)
 	return quota
+}
+
+func inferVideoEditResolution(duration, providerCost float64) string {
+	resolution := "720p"
+	if duration > 0 && providerCost > 0 {
+		officialRate := providerCost / duration
+		resolution = "480p"
+		if math.Abs(officialRate-0.08) < math.Abs(officialRate-0.06) {
+			resolution = "720p"
+		}
+	}
+	return resolution
 }
 
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {

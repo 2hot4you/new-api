@@ -56,6 +56,11 @@ import {
   isGrokImageLog,
 } from '../../lib/grok-image-billing'
 import {
+  getGrokVideoBillingState,
+  getGrokVideoListSummary,
+  isGrokVideoBillingLog,
+} from '../../lib/grok-video-billing'
+import {
   isDisplayableLogType,
   isTimingLogType,
   getLogTypeConfig,
@@ -116,6 +121,16 @@ function buildDetailSegments(
   return segments
 }
 
+export function getCommonLogDetailPreviewText(
+  log: UsageLog,
+  other: LogOtherData | null,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  isAdmin: boolean
+): string | null {
+  const segments = buildDetailSegments(log, other, t, isAdmin)
+  return segments[0]?.text ?? log.content ?? null
+}
+
 function buildTypeDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
@@ -141,6 +156,26 @@ function buildTypeDetailSegments(
     }
     const summary = getGrokImageListSummary(log)
     return summary ? [{ text: summary }] : []
+  }
+
+  if (isGrokVideoBillingLog(log)) {
+    const state = getGrokVideoBillingState(log)
+    if (state.kind === 'history') {
+      return [
+        { text: t('Historical billing breakdown unavailable'), muted: true },
+      ]
+    }
+    if (state.kind !== 'current') return []
+    const summary = getGrokVideoListSummary(log)
+    let operationLabel = t('Text to Video')
+    if (state.billing.operation === 'video_edit') {
+      operationLabel = t('Video Editing')
+    } else if (state.billing.operation === 'image_to_video') {
+      operationLabel = t('Image to Video')
+    }
+    return summary
+      ? [{ text: summary.replace(state.billing.operation, operationLabel) }]
+      : []
   }
 
   if (log.type !== 2) return []
@@ -665,7 +700,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         if (!isDisplayableLogType(log.type)) return null
 
-        if (isGrokImageLog(log)) {
+        if (isGrokImageLog(log) || isGrokVideoBillingLog(log)) {
           return <span className='text-muted-foreground text-xs'>-</span>
         }
 
@@ -754,6 +789,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         const segments = buildDetailSegments(log, other, t, isAdmin)
         const primary = segments[0]
+        const previewText = getCommonLogDetailPreviewText(
+          log,
+          other,
+          t,
+          isAdmin
+        )
         const hasMore = segments.length > 1
         let primaryTextClass = 'text-foreground'
         if (primary?.muted) {
@@ -778,10 +819,10 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               )}
             </span>
           )
-        } else if (log.content) {
+        } else if (previewText) {
           detailPreview = (
             <span className='text-muted-foreground truncate group-hover:underline'>
-              {log.content}
+              {previewText}
             </span>
           )
         }

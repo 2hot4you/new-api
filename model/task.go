@@ -115,25 +115,56 @@ type TaskPrivateData struct {
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 type TaskBillingContext struct {
-	ModelPrice                float64            `json:"model_price,omitempty"`       // 模型单价
-	GroupRatio                float64            `json:"group_ratio,omitempty"`       // 分组倍率
-	ModelRatio                float64            `json:"model_ratio,omitempty"`       // 模型倍率
-	OtherRatios               map[string]float64 `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
-	OriginModelName           string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
-	PerCallBilling            bool               `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
-	EstimatedTokens           int                `json:"estimated_tokens,omitempty"`
-	EstimatedPrice            float64            `json:"estimated_price,omitempty"`
-	EstimatedWidth            int                `json:"estimated_width,omitempty"`
-	EstimatedHeight           int                `json:"estimated_height,omitempty"`
-	EstimatedFPS              int                `json:"estimated_fps,omitempty"`
-	EstimatedSeconds          int                `json:"estimated_seconds,omitempty"`
-	EstimatedResolution       string             `json:"estimated_resolution,omitempty"`
-	EstimatedRatio            string             `json:"estimated_ratio,omitempty"`
-	EstimatedHasVideo         bool               `json:"estimated_has_video,omitempty"`
-	EstimatedUnitPrice        float64            `json:"estimated_unit_price,omitempty"`
-	EstimatedInputUnitPrice   float64            `json:"estimated_input_unit_price,omitempty"`
-	EstimatedOutputUnitPrices map[string]float64 `json:"estimated_output_unit_prices,omitempty"`
-	ActualTokens              int                `json:"actual_tokens,omitempty"`
+	ModelPrice                float64                   `json:"model_price,omitempty"`       // 模型单价
+	GroupRatio                float64                   `json:"group_ratio,omitempty"`       // 分组倍率
+	ModelRatio                float64                   `json:"model_ratio,omitempty"`       // 模型倍率
+	OtherRatios               map[string]float64        `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
+	OriginModelName           string                    `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
+	PerCallBilling            bool                      `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	EstimatedTokens           int                       `json:"estimated_tokens,omitempty"`
+	EstimatedPrice            float64                   `json:"estimated_price,omitempty"`
+	EstimatedWidth            int                       `json:"estimated_width,omitempty"`
+	EstimatedHeight           int                       `json:"estimated_height,omitempty"`
+	EstimatedFPS              int                       `json:"estimated_fps,omitempty"`
+	EstimatedSeconds          int                       `json:"estimated_seconds,omitempty"`
+	EstimatedResolution       string                    `json:"estimated_resolution,omitempty"`
+	EstimatedRatio            string                    `json:"estimated_ratio,omitempty"`
+	EstimatedHasVideo         bool                      `json:"estimated_has_video,omitempty"`
+	EstimatedUnitPrice        float64                   `json:"estimated_unit_price,omitempty"`
+	EstimatedInputUnitPrice   float64                   `json:"estimated_input_unit_price,omitempty"`
+	EstimatedOutputUnitPrices map[string]float64        `json:"estimated_output_unit_prices,omitempty"`
+	ActualTokens              int                       `json:"actual_tokens,omitempty"`
+	FinalUsageLogOnly         bool                      `json:"final_usage_log_only,omitempty"`
+	RequestPath               string                    `json:"request_path,omitempty"`
+	GrokVideoBilling          *GrokVideoBillingSnapshot `json:"grok_video_billing,omitempty"`
+}
+
+// GrokVideoBillingSnapshot is the versioned, public-safe pricing contract for
+// Molii Grok asynchronous video tasks. Price fields intentionally do not use
+// omitempty: an explicitly configured zero price is valid billing data.
+type GrokVideoBillingSnapshot struct {
+	Version                  int     `json:"version"`
+	Model                    string  `json:"model"`
+	Operation                string  `json:"operation"`
+	InputType                string  `json:"input_type"`
+	RequestedDurationSeconds float64 `json:"requested_duration_seconds"`
+	EstimatedDurationSeconds float64 `json:"estimated_duration_seconds"`
+	ActualDurationSeconds    float64 `json:"actual_duration_seconds"`
+	RequestedResolution      string  `json:"requested_resolution"`
+	EstimatedResolution      string  `json:"estimated_resolution"`
+	ActualResolution         string  `json:"actual_resolution"`
+	AspectRatio              string  `json:"aspect_ratio"`
+	InputImageCount          int     `json:"input_image_count"`
+	VideoInputBilledSeconds  float64 `json:"video_input_billed_seconds"`
+	OutputUnitPrice          float64 `json:"output_unit_price"`
+	ImageInputUnitPrice      float64 `json:"image_input_unit_price"`
+	VideoInputUnitPrice      float64 `json:"video_input_unit_price"`
+	OutputCost               float64 `json:"output_cost"`
+	ImageInputCost           float64 `json:"image_input_cost"`
+	VideoInputCost           float64 `json:"video_input_cost"`
+	Subtotal                 float64 `json:"subtotal"`
+	GroupRatio               float64 `json:"group_ratio"`
+	FinalCost                float64 `json:"final_cost"`
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
@@ -458,6 +489,15 @@ func (Task *Task) Update() error {
 
 func (t *Task) UpdateQuota() error {
 	return DB.Model(t).Update("quota", t.Quota).Error
+}
+
+// UpdateBillingSettlement persists both the settled ledger quota and the
+// completion-enriched private billing snapshot in one database update.
+func (t *Task) UpdateBillingSettlement() error {
+	return DB.Model(t).Updates(map[string]any{
+		"quota":        t.Quota,
+		"private_data": t.PrivateData,
+	}).Error
 }
 
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).

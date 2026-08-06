@@ -623,6 +623,11 @@ func RelayTask(c *gin.Context) {
 			EstimatedOutputUnitPrices: relayInfo.EstimatedVideoOutputUnitPrices,
 		}
 		task.Quota = result.Quota
+		finalUsageLogOnly := false
+		if result.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeMoliiGrokAIGC)) {
+			snapshot := service.BuildGrokVideoBillingSnapshot(c, relayInfo, result.Quota)
+			finalUsageLogOnly = service.ConfigureGrokVideoFinalUsage(task.PrivateData.BillingContext, snapshot, c.Request.URL.Path)
+		}
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action
 		if insertErr := insertTaskWithRetry(task); insertErr != nil {
@@ -636,7 +641,7 @@ func RelayTask(c *gin.Context) {
 			}
 			// StarAI 视频任务在轮询确认成功并拿到结果后再记录唯一一条
 			// 正式消费日志。提交阶段只预扣额度并持久化计费上下文。
-			if result.Platform != constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) {
+			if result.Platform != constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) && !finalUsageLogOnly {
 				service.LogTaskConsumption(c, relayInfo)
 			}
 		}

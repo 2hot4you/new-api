@@ -133,8 +133,41 @@ export interface GrokImageBillingV1 {
   final_cost: number
 }
 
+export type GrokVideoOperation =
+  | 'text_to_video'
+  | 'image_to_video'
+  | 'video_edit'
+
+export type GrokVideoInputType = 'text' | 'image' | 'video'
+
+export interface GrokVideoBillingV1 {
+  version: 1
+  model: 'grok-imagine-video' | 'grok-imagine-video-1.5'
+  operation: GrokVideoOperation
+  input_type: GrokVideoInputType
+  requested_duration_seconds: number
+  estimated_duration_seconds: number
+  actual_duration_seconds: number
+  requested_resolution: string
+  estimated_resolution: string
+  actual_resolution: string
+  aspect_ratio: string
+  input_image_count: number
+  video_input_billed_seconds: number
+  output_unit_price: number
+  image_input_unit_price: number
+  video_input_unit_price: number
+  output_cost: number
+  image_input_cost: number
+  video_input_cost: number
+  subtotal: number
+  group_ratio: number
+  final_cost: number
+}
+
 export interface LogOtherData {
   grok_image_billing?: GrokImageBillingV1
+  grok_video_billing?: GrokVideoBillingV1
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number

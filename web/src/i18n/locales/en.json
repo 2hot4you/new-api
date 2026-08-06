@@ -5511,6 +5511,19 @@
     "Input Subtotal": "Input Subtotal",
     "Subtotal": "Subtotal",
     "Billing Formula": "Billing Formula",
-    "Historical billing breakdown unavailable": "Historical billing breakdown unavailable"
+    "Historical billing breakdown unavailable": "Historical billing breakdown unavailable",
+    "Grok Video Billing": "Grok Video Billing",
+    "Video Editing": "Video Editing",
+    "Requested Duration": "Requested Duration",
+    "Estimated Duration": "Estimated Duration",
+    "Actual Duration": "Actual Duration",
+    "Requested Resolution": "Requested Resolution",
+    "Estimated Resolution": "Estimated Resolution",
+    "Actual Resolution": "Actual Resolution",
+    "Video Input Billed Seconds": "Video Input Billed Seconds",
+    "Image Input Unit Price": "Image Input Unit Price",
+    "Video Input Unit Price": "Video Input Unit Price",
+    "Image Input Subtotal": "Image Input Subtotal",
+    "Video Input Subtotal": "Video Input Subtotal"
   }
 }

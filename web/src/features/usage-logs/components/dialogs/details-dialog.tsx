@@ -80,6 +80,7 @@ import {
   renderAuditContent,
 } from '../../lib/format'
 import { isGrokImageLog } from '../../lib/grok-image-billing'
+import { isGrokVideoBillingLog } from '../../lib/grok-video-billing'
 import {
   getLogTypeConfig,
   isPerCallBilling,
@@ -87,6 +88,7 @@ import {
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 import { GrokImageBillingCard } from './grok-image-billing-card'
+import { GrokVideoBillingCard } from './grok-video-billing-card'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -609,6 +611,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
     (state) => state.config.currency.quotaPerUnit
   )
   const isGrokImage = isGrokImageLog(props.log)
+  const isGrokVideo = isGrokVideoBillingLog(props.log)
 
   const isViolation = isViolationFeeLog(other)
   const isRefund = props.log.type === 6
@@ -741,7 +744,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   let dialogWidthClass = 'sm:max-w-lg'
   if (isTieredBilling) {
     dialogWidthClass = 'sm:max-w-4xl lg:max-w-5xl'
-  } else if (isStarAIVideoLog || isGrokImage) {
+  } else if (isStarAIVideoLog || isGrokImage || isGrokVideo) {
     dialogWidthClass = 'sm:max-w-2xl'
   }
 
@@ -1201,12 +1204,17 @@ export function DetailsDialog(props: DetailsDialogProps) {
           <GrokImageBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />
         )}
 
-        {!isGrokImage && isDisplayableType(props.log.type) && other && (
-          <TokenBreakdown log={props.log} other={other} />
+        {isGrokVideo && (
+          <GrokVideoBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />
         )}
 
+        {!isGrokImage &&
+          !isGrokVideo &&
+          isDisplayableType(props.log.type) &&
+          other && <TokenBreakdown log={props.log} other={other} />}
+
         {/* Billing breakdown (consume type) */}
-        {isConsume && other && !isViolation && !isGrokImage && (
+        {isConsume && other && !isViolation && !isGrokImage && !isGrokVideo && (
           <BillingBreakdown
             log={props.log}
             other={other}
@@ -1368,7 +1376,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Content */}
-        {details && !isStarAIVideoLog && !isGrokImage && (
+        {details && !isStarAIVideoLog && !isGrokImage && !isGrokVideo && (
           <div className='space-y-1.5'>
             <Label className='text-xs font-semibold'>{t('Content')}</Label>
             <div className='bg-muted/30 relative min-w-0 overflow-hidden rounded-md border p-2.5'>

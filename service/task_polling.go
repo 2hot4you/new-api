@@ -102,10 +102,13 @@ func sweepTimedOutTasks(ctx context.Context) {
 			continue
 		}
 		timedOutCount++
+		refundSucceeded := true
 		if !isLegacy && task.Quota != 0 {
-			RefundTaskQuota(ctx, task, reason)
+			refundSucceeded = RefundTaskQuota(ctx, task, reason)
 		}
-		LogFailedStarAITask(task)
+		if refundSucceeded {
+			LogFailedStarAITask(task)
+		}
 	}
 
 	if timedOutCount > 0 {
@@ -710,13 +713,15 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	if shouldSettle {
 		preConsumedQuota := task.Quota
-		settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
-		LogSuccessfulStarAITask(task, preConsumedQuota)
+		if settleTaskBillingOnComplete(ctx, adaptor, task, taskResult) {
+			LogSuccessfulStarAITask(task, preConsumedQuota)
+		}
 	}
+	refundSucceeded := !shouldRefund
 	if shouldRefund {
-		RefundTaskQuota(ctx, task, task.FailReason)
+		refundSucceeded = RefundTaskQuota(ctx, task, task.FailReason)
 	}
-	if shouldLogFailure {
+	if shouldLogFailure && refundSucceeded {
 		LogFailedStarAITask(task)
 	}
 
@@ -762,24 +767,31 @@ func truncateBase64(s string) string {
 //
 //  2. taskResult.TotalTokens > 0 → 按 token 重算
 //  3. 都不满足 → 保持预扣额度不变
-func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
+func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) bool {
 	// 0. 按次计费的任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		adjuster, ok := adaptor.(perCallTaskCompletionAdjuster)
 		if !ok || !adjuster.AllowPerCallCompletionAdjustment() {
 			logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
-			return
+			return true
 		}
 	}
 	// 1. 优先让 adaptor 决定最终额度
-	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {
-		RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
-		return
+	actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult)
+	if isMoliiGrokFinalUsageTask(task) {
+		if !validFinalizedGrokVideoBilling(task.PrivateData.BillingContext.GrokVideoBilling) {
+			logger.LogError(ctx, fmt.Sprintf("Grok video billing snapshot finalization failed for task %s", task.TaskID))
+			return false
+		}
+		return RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
+	}
+	if actualQuota > 0 {
+		return RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
 	}
 	// 2. 回退到 token 重算
 	if taskResult.TotalTokens > 0 {
-		RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
-		return
+		return RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
 	}
 	// 3. 无调整，保持预扣额度
+	return true
 }

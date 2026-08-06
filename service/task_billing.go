@@ -191,6 +191,9 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 		if bc.ActualTokens > 0 {
 			other["actual_tokens"] = bc.ActualTokens
 		}
+		if bc.RequestPath != "" {
+			other["request_path"] = bc.RequestPath
+		}
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
 				other[k] = v
@@ -258,24 +261,29 @@ func taskElapsedSeconds(task *model.Task) int {
 	return int(elapsed)
 }
 
-// LogSuccessfulStarAITask records the single user-facing billing log only after
-// polling has confirmed success. Balance changes remain precharged/settled in
-// the background, but intermediate precharge, refund and delta logs stay hidden.
+// LogSuccessfulStarAITask records the single user-facing billing log for tasks
+// using terminal-only logging. The historical name is retained for compatibility.
 func LogSuccessfulStarAITask(task *model.Task, preConsumedQuota int) {
-	if !isStarAITask(task) {
+	if !taskUsesFinalUsageLog(task) {
 		return
 	}
 	other := taskBillingOther(task)
 	other["is_task"] = true
 	other["task_id"] = task.TaskID
-	other["pre_consumed_quota"] = preConsumedQuota
-	other["actual_quota"] = task.Quota
+	content := seedanceTaskLogContent(task)
+	if isStarAITask(task) {
+		other["pre_consumed_quota"] = preConsumedQuota
+		other["actual_quota"] = task.Quota
+	} else if billing, grokContent := finalGrokVideoBilling(task); billing != nil {
+		other["grok_video_billing"] = billing
+		content = grokContent
+	}
 	actualTokens := 0
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		actualTokens = bc.ActualTokens
 	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId: task.UserId, LogType: model.LogTypeConsume, Content: seedanceTaskLogContent(task),
+		UserId: task.UserId, LogType: model.LogTypeConsume, Content: content,
 		ChannelId: task.ChannelId, ModelName: taskModelName(task), Quota: task.Quota,
 		CompletionTokens: actualTokens,
 		TokenId:          task.PrivateData.TokenId, Group: task.Group, Other: other,
@@ -285,10 +293,10 @@ func LogSuccessfulStarAITask(task *model.Task, preConsumedQuota int) {
 	model.UpdateChannelUsedQuota(task.ChannelId, task.Quota)
 }
 
-// LogFailedStarAITask records one sanitized error log after the terminal
-// failure transition wins its CAS. Refunds remain an internal balance action.
+// LogFailedStarAITask records one sanitized error log after a terminal-only
+// task's failure transition wins its CAS. The historical name is retained.
 func LogFailedStarAITask(task *model.Task) {
-	if !isStarAITask(task) {
+	if !taskUsesFinalUsageLog(task) {
 		return
 	}
 	reason := strings.TrimSpace(task.FailReason)
@@ -325,8 +333,8 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	// 2. 退还令牌额度
 	taskAdjustTokenQuota(ctx, task, -quota)
 
-	// 3. StarAI 的预扣和退款属于任务内部资金流，不展示给用户。
-	if !isStarAITask(task) {
+	// 3. Terminal-only tasks keep refunds as an internal balance action.
+	if !taskUsesFinalUsageLog(task) {
 		other := taskBillingOther(task)
 		other["task_id"] = task.TaskID
 		other["reason"] = reason
@@ -356,17 +364,27 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 // actualQuota 是任务完成后的实际应扣额度，与预扣额度 (task.Quota) 做差额结算。
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 // clamps 可选：若计算 actualQuota 时发生额度饱和，将其记入日志 admin_info（仅管理员可见）。
-func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
-	if actualQuota <= 0 {
-		return
+func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) bool {
+	if task == nil || actualQuota < 0 || (actualQuota == 0 && !taskUsesFinalUsageLog(task)) {
+		return true
 	}
 	preConsumedQuota := task.Quota
 	quotaDelta := actualQuota - preConsumedQuota
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.GrokVideoBilling != nil {
+		bc.GrokVideoBilling.GroupRatio = bc.GroupRatio
+		bc.GrokVideoBilling.FinalCost = float64(actualQuota) / common.QuotaPerUnit
+	}
 
 	if quotaDelta == 0 {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
 			task.TaskID, logger.LogQuota(actualQuota), reason))
-		if bc := task.PrivateData.BillingContext; !isStarAITask(task) && bc != nil && bc.ActualTokens > 0 {
+		if taskUsesFinalUsageLog(task) && task.ID > 0 {
+			if err := task.UpdateBillingSettlement(); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("结算计费快照回写失败 task %s: %s", task.TaskID, err.Error()))
+				return false
+			}
+		}
+		if bc := task.PrivateData.BillingContext; !taskUsesFinalUsageLog(task) && bc != nil && bc.ActualTokens > 0 {
 			other := taskBillingOther(task)
 			other["task_id"] = task.TaskID
 			other["pre_consumed_quota"] = preConsumedQuota
@@ -378,7 +396,7 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 				NodeName: task.PrivateData.NodeName,
 			})
 		}
-		return
+		return true
 	}
 
 	logger.LogInfo(ctx, fmt.Sprintf("任务 %s 差额结算：delta=%s（实际：%s，预扣：%s，%s）",
@@ -392,21 +410,30 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	// 调整资金来源
 	if err := taskAdjustFunding(task, quotaDelta); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
-		return
+		return false
 	}
 
 	// 调整令牌额度
 	taskAdjustTokenQuota(ctx, task, quotaDelta)
 
 	task.Quota = actualQuota
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
+	var updateErr error
+	if taskUsesFinalUsageLog(task) {
+		updateErr = task.UpdateBillingSettlement()
+	} else {
+		updateErr = task.UpdateQuota()
+	}
+	if updateErr != nil {
+		logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, updateErr.Error()))
+		if taskUsesFinalUsageLog(task) {
+			return false
+		}
 	}
 
-	// StarAI 成功后会统一记录完整消费；这里不展示内部差额流水，
+	// Terminal-only tasks record the complete consumption after settlement;
 	// 也不按 delta 更新统计，避免与最终完整消费重复累计。
-	if isStarAITask(task) {
-		return
+	if taskUsesFinalUsageLog(task) {
+		return true
 	}
 
 	var logType int
@@ -439,14 +466,15 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		Other:     other,
 		NodeName:  task.PrivateData.NodeName,
 	})
+	return true
 }
 
 // RecalculateTaskQuotaByTokens 根据实际 token 消耗重新计费（异步差额结算）。
 // 当任务成功且返回了 totalTokens 时，根据模型倍率和分组倍率重新计算实际扣费额度，
 // 与预扣费的差额进行补扣或退还。支持钱包和订阅计费来源。
-func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTokens int) {
+func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTokens int) bool {
 	if totalTokens <= 0 {
-		return
+		return true
 	}
 
 	modelName := taskModelName(task)
@@ -462,7 +490,7 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	}
 	// 只有配置了倍率(非固定价格)时才按 token 重新计费
 	if !hasRatioSetting || modelRatio <= 0 {
-		return
+		return true
 	}
 
 	// 获取用户和组的倍率信息
@@ -474,7 +502,7 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		}
 	}
 	if group == "" {
-		return
+		return true
 	}
 
 	groupRatio := ratio_setting.GetGroupRatio(group)
@@ -499,5 +527,5 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
-	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+	return RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
 }

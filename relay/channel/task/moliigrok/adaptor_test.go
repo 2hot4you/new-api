@@ -200,6 +200,68 @@ func TestVideoEditCompletionUsesActualDurationAndResolutionTier(t *testing.T) {
 	assert.Equal(t, 400000, quota)
 }
 
+func TestGrokVideoEditCompletionFinalizesSnapshottedBilling(t *testing.T) {
+	task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+		GroupRatio: 1, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
+		EstimatedOutputUnitPrices: map[string]float64{"480p": 0.05, "720p": 0.07},
+		GrokVideoBilling: &model.GrokVideoBillingSnapshot{
+			Version: 1, Model: LegacyVideoModel, Operation: videoEditAction, InputType: "video",
+			EstimatedDurationSeconds: 8.7, EstimatedResolution: "720p",
+			OutputUnitPrice: 0.07, VideoInputUnitPrice: 0.01,
+		},
+	}}}
+	result := &relaycommon.TaskInfo{ActualDurationSeconds: 6, ProviderCost: 0.36}
+
+	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, result)
+	assert.Equal(t, 180000, quota)
+	billing := task.PrivateData.BillingContext.GrokVideoBilling
+	assert.Equal(t, "480p", billing.ActualResolution)
+	assert.Equal(t, 6.0, billing.ActualDurationSeconds)
+	assert.Equal(t, 6.0, billing.VideoInputBilledSeconds)
+	assert.Equal(t, 0.05, billing.OutputUnitPrice)
+	assert.InDelta(t, 0.3, billing.OutputCost, 1e-12)
+	assert.InDelta(t, 0.06, billing.VideoInputCost, 1e-12)
+	assert.InDelta(t, 0.36, billing.Subtotal, 1e-12)
+}
+
+func TestGrokVideoGenerationCompletionUsesSubmittedUnitPrices(t *testing.T) {
+	task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+		GroupRatio: 1.5, OriginModelName: VideoModel,
+		GrokVideoBilling: &model.GrokVideoBillingSnapshot{
+			Version: 1, Model: VideoModel, Operation: "image_to_video", InputType: "image",
+			RequestedDurationSeconds: 5, EstimatedDurationSeconds: 5,
+			RequestedResolution: "1080p", EstimatedResolution: "1080p", InputImageCount: 1,
+			OutputUnitPrice: 0, ImageInputUnitPrice: 0,
+		},
+	}}}
+
+	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, &relaycommon.TaskInfo{ActualDurationSeconds: 4})
+	assert.Zero(t, quota)
+	billing := task.PrivateData.BillingContext.GrokVideoBilling
+	assert.Equal(t, "1080p", billing.ActualResolution)
+	assert.Equal(t, 4.0, billing.ActualDurationSeconds)
+	assert.Zero(t, billing.OutputUnitPrice, "explicit snapshotted zero must not fall back to current admin pricing")
+	assert.Zero(t, billing.Subtotal)
+}
+
+func TestGrokVideoV1CompletionUsesHalfAwayRoundingWithGroupRatio(t *testing.T) {
+	task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+		GroupRatio: 1.5, OriginModelName: LegacyVideoModel,
+		GrokVideoBilling: &model.GrokVideoBillingSnapshot{
+			Version: 1, Model: LegacyVideoModel, Operation: "text_to_video", InputType: "text",
+			RequestedDurationSeconds: 1, EstimatedDurationSeconds: 1,
+			RequestedResolution: "480p", EstimatedResolution: "480p",
+			OutputUnitPrice: 0.000001,
+		},
+	}}}
+
+	// 0.000001 * 1 second * 500000 quota/unit * 1.5 = 0.75,
+	// which rounds half-away-from-zero to one quota unit (not truncation to zero).
+	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, &relaycommon.TaskInfo{ActualDurationSeconds: 1})
+	assert.Equal(t, 1, quota)
+	assert.Equal(t, 1.5, task.PrivateData.BillingContext.GrokVideoBilling.GroupRatio)
+}
+
 func TestVideoSubmitReturnsOnlyPublicTaskID(t *testing.T) {
 	c, recorder := taskContext(t, `{}`)
 	info := taskInfo()

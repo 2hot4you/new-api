@@ -57,6 +57,17 @@ export {
   parseGrokImageBilling,
 } from './grok-image-billing'
 
+export {
+  formatGrokVideoCny,
+  formatGrokVideoFormula,
+  getGrokVideoBillingState,
+  getGrokVideoListSummary,
+  isGrokVideoBillingLog,
+  isGrokVideoLog,
+  isGrokVideoModel,
+  parseGrokVideoBilling,
+} from './grok-video-billing'
+
 // Status mapper utilities
 export { createStatusMapper } from './status'
 

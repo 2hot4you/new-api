@@ -5,8 +5,8 @@
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "implementation",
-  "nextAction": "并行实现后端最终态结算日志与前端计费详情卡片",
+  "currentPhase": "review",
+  "nextAction": "提交已审查实现，重启本地服务并执行接口验证",
   "createdAt": "2026-08-06T14:20:00+08:00",
   "branch": "feat/molii-auth"
 }
