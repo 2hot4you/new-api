@@ -1,0 +1,12 @@
+{
+  "id": "rename-molii-aigc-channel",
+  "title": "完整重命名 Volcengine 渠道并增加 Grok 可达性测试",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交实现",
+  "createdAt": "2026-08-07T01:40:00+08:00",
+  "branch": "feat/molii-auth"
+}
