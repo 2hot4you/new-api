@@ -2,15 +2,21 @@ package controller
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTasksToDtoExposesOnlySignedStarAIPlaybackURL(t *testing.T) {
+	previousAddress := system_setting.ServerAddress
+	system_setting.ServerAddress = "https://configured.example"
+	t.Cleanup(func() { system_setting.ServerAddress = previousAddress })
+
 	success := &model.Task{
 		TaskID:   "task_preview_success",
 		UserId:   42,
@@ -32,13 +38,19 @@ func TestTasksToDtoExposesOnlySignedStarAIPlaybackURL(t *testing.T) {
 
 	items := tasksToDto([]*model.Task{success, pending}, false)
 	require.Len(t, items, 2)
+	assert.True(t, strings.HasPrefix(items[0].ResultURL, "/v1/videos/"), items[0].ResultURL)
 	assert.Contains(t, items[0].ResultURL, "/v1/videos/task_preview_success/content?")
 	assert.Contains(t, items[0].ResultURL, "signature=")
+	assert.NotContains(t, items[0].ResultURL, "configured.example")
 	assert.NotContains(t, items[0].ResultURL, "private.example")
 	assert.Empty(t, items[1].ResultURL)
 }
 
 func TestTasksToDtoExposesOnlySignedMoliiGrokPlaybackURL(t *testing.T) {
+	previousAddress := system_setting.ServerAddress
+	system_setting.ServerAddress = "https://configured.example"
+	t.Cleanup(func() { system_setting.ServerAddress = previousAddress })
+
 	task := &model.Task{
 		TaskID:   "task_grok_preview_success",
 		UserId:   42,
@@ -58,7 +70,9 @@ func TestTasksToDtoExposesOnlySignedMoliiGrokPlaybackURL(t *testing.T) {
 
 	items := tasksToDto([]*model.Task{task}, false)
 	require.Len(t, items, 1)
+	assert.True(t, strings.HasPrefix(items[0].ResultURL, "/v1/videos/"), items[0].ResultURL)
 	assert.Contains(t, items[0].ResultURL, "/v1/videos/task_grok_preview_success/content?")
+	assert.NotContains(t, items[0].ResultURL, "configured.example")
 	assert.NotContains(t, items[0].ResultURL, "private.example")
 	assert.Nil(t, items[0].Data)
 	require.NotNil(t, items[0].VideoParams)

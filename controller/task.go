@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -88,7 +89,9 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 		if isPrivateVideoPlatform {
 			// The URL is generated on demand and points to Molii's signed streaming
 			// proxy. No upstream URL or video content is persisted in the log DTO.
-			if task.Status != model.TaskStatusSuccess {
+			if task.Status == model.TaskStatusSuccess {
+				item.ResultURL = service.BuildSignedVideoProxyPath(task.TaskID, task.UserId)
+			} else {
 				item.ResultURL = ""
 			}
 			item.Data = nil

@@ -36,6 +36,26 @@ func TestSignedVideoProxyURLRoundTrip(t *testing.T) {
 	assert.Equal(t, 42, userID)
 }
 
+func TestSignedVideoProxyPathRoundTrip(t *testing.T) {
+	previousSecret := common.SessionSecret
+	common.SessionSecret = "video-playback-test-secret"
+	t.Cleanup(func() { common.SessionSecret = previousSecret })
+
+	raw := BuildSignedVideoProxyPath("task_dashboard_123", 42)
+	parsed, err := url.Parse(raw)
+	require.NoError(t, err)
+	assert.Empty(t, parsed.Scheme)
+	assert.Empty(t, parsed.Host)
+	assert.Equal(t, "/v1/videos/task_dashboard_123/content", parsed.Path)
+
+	query := parsed.Query()
+	expiresAt, err := strconv.ParseInt(query.Get("expires"), 10, 64)
+	require.NoError(t, err)
+	userID, err := VerifyVideoPlaybackSignature("task_dashboard_123", query.Get("user_id"), query.Get("expires"), query.Get("signature"), time.Unix(expiresAt-1, 0))
+	require.NoError(t, err)
+	assert.Equal(t, 42, userID)
+}
+
 func TestVideoPlaybackSignatureRejectsTamperingAndExpiry(t *testing.T) {
 	previousSecret := common.SessionSecret
 	common.SessionSecret = "video-playback-test-secret"
