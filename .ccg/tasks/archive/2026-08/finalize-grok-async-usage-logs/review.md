@@ -25,6 +25,9 @@
 - `pnpm build`：通过。
 - `git diff --check`：通过。
 - 变更文件安全扫描：未发现真实 API 密钥；命中项均为测试占位符或 fixture URL。
+- 本地真实任务 `task_beBvXTpd3eeeyMAXcNEGdQkL5AE8HrKg`：提交阶段 0 条日志；成功后仅 1 条 type=2 消费日志、0 条退款日志，最终 quota=25000（¥0.05）。
+- 实测 V1 快照：`text_to_video`、1 秒、480p，公式 `(¥0.050000 × 1) × 1.0000 = ¥0.050000`；日志未包含媒体 URL、上游 ID 或密钥。
+- LaunchAgent 重建并重启后 `/api/status` 返回 200。
 
 ## 已知非阻塞项
 
