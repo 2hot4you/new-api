@@ -1,0 +1,12 @@
+{
+  "id": "refine-grok-api-parameter-table",
+  "title": "完善 Grok 模型广场 API 参数表",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "planning",
+  "nextAction": "提交设计说明并制定实施计划",
+  "createdAt": "2026-08-06T20:14:06+08:00",
+  "branch": "feat/molii-auth"
+}
