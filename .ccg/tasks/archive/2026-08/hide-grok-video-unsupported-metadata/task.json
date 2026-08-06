@@ -1,12 +1,12 @@
 {
   "id": "hide-grok-video-unsupported-metadata",
   "title": "隐藏 Grok 视频预览中不支持的尺寸和帧率",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "S",
   "risk": "low",
   "domain": "frontend",
-  "currentPhase": "review",
-  "nextAction": "执行完整验证并提交实现",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
   "createdAt": "2026-08-06T19:30:00+08:00",
   "branch": "feat/molii-auth"
 }
