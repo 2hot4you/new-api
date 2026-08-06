@@ -1,12 +1,12 @@
 {
   "id": "fix-generation-log-cleanup-and-grok-marketplace",
   "title": "修复生成记录日志清理并完善 Grok 模型广场详情",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "review",
-  "nextAction": "完成差异审查、归档并提交",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
   "createdAt": "2026-08-06T20:15:00+08:00",
   "branch": "feat/molii-auth"
 }
