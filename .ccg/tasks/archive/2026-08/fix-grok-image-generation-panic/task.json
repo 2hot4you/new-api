@@ -1,0 +1,12 @@
+{
+  "id": "fix-grok-image-generation-panic",
+  "title": "修复 Grok Imagine 图片生成空指针 panic",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并请用户重试原始请求",
+  "createdAt": "2026-08-06T10:48:43+08:00",
+  "branch": "feat/molii-auth"
+}
