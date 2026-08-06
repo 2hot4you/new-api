@@ -1,12 +1,12 @@
 {
   "id": "fix-grok-video-edit-task-preview",
   "title": "修复 Grok 视频编辑任务类型并增加视频预览",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "review",
-  "nextAction": "提交已验证功能变更并归档任务",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
   "createdAt": "2026-08-06T18:45:00+08:00",
   "branch": "feat/molii-auth"
 }
