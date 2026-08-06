@@ -1,0 +1,12 @@
+{
+  "id": "clarify-grok-pricing-anchor",
+  "title": "确认 Grok Imagine 通用按次价格是否必须配置",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
+  "createdAt": "2026-08-06T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
