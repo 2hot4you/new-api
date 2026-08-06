@@ -1,0 +1,12 @@
+{
+  "id": "finalize-grok-async-usage-logs",
+  "title": "完善 Grok 异步任务最终消费日志",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "planning",
+  "nextAction": "等待用户审阅并批准已提交的设计文档",
+  "createdAt": "2026-08-06T14:20:00+08:00",
+  "branch": "feat/molii-auth"
+}
