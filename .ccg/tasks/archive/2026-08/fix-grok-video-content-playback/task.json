@@ -1,0 +1,12 @@
+{
+  "id": "fix-grok-video-content-playback",
+  "title": "修复 Grok 视频任务播放链接失败",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-06T21:10:00+08:00",
+  "branch": "feat/molii-auth"
+}
