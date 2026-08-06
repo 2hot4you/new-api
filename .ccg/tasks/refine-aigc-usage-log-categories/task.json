@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "frontend",
   "currentPhase": "planning",
-  "nextAction": "提交设计规格并等待书面规格确认",
+  "nextAction": "提交实施计划并按 TDD 顺序内联执行",
   "createdAt": "2026-08-06T16:30:00+08:00",
   "branch": "feat/molii-auth"
 }
