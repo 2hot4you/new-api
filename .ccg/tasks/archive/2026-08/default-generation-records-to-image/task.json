@@ -1,0 +1,12 @@
+{
+  "id": "default-generation-records-to-image",
+  "title": "生成记录默认打开图像生成",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-07T01:42:00+08:00",
+  "branch": "feat/molii-auth"
+}
