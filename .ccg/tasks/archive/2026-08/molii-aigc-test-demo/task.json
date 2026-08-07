@@ -1,0 +1,12 @@
+{
+  "id": "molii-aigc-test-demo",
+  "title": "构建支持多环境与 SQLite 历史记录的 Molii AIGC 测试 Demo",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "已完成，归档任务",
+  "createdAt": "2026-08-07T17:10:00+08:00",
+  "branch": "feat/molii-auth"
+}

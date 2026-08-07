@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Molii AIGC API 测试台">
+  <title>Molii AIGC Studio</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#workspace">跳到工作区</a>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Molii AIGC Studio 首页">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><strong>Molii</strong><small>AIGC Studio</small></span>
+      </a>
+
+      <div class="environment-switcher">
+        <label for="environment-select">当前环境</label>
+        <div class="environment-actions">
+          <select id="environment-select" aria-describedby="environment-status">
+            <option value="">尚未配置环境</option>
+          </select>
+          <button class="icon-button" id="test-environment" type="button" title="测试连接" aria-label="测试当前环境连接">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 1-2.3-5.7M20 4v7h-7"/></svg>
+          </button>
+          <button class="icon-button" id="edit-environment" type="button" title="编辑环境" aria-label="编辑当前环境">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+          </button>
+          <button class="button button-primary button-small" id="add-environment" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>添加环境
+          </button>
+        </div>
+        <span id="environment-status" class="environment-status" aria-live="polite"></span>
+      </div>
+
+      <button id="refresh-all" class="icon-button" type="button" title="刷新数据" aria-label="刷新所有数据">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 1-2.3-5.7M20 4v7h-7"/></svg>
+      </button>
+    </header>
+
+    <main id="workspace" class="workspace">
+      <section class="composer" aria-labelledby="composer-title">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">REQUEST BUILDER</span>
+            <h1 id="composer-title">创建测试请求</h1>
+          </div>
+          <span class="status-dot" id="preview-status"><i></i>等待输入</span>
+        </div>
+
+        <nav id="provider-tabs" class="provider-tabs" aria-label="服务类型"></nav>
+        <div class="selector-block">
+          <span class="field-label">模型</span>
+          <div id="model-tabs" class="model-tabs" role="tablist" aria-label="模型"></div>
+        </div>
+        <div class="selector-block">
+          <span class="field-label">操作</span>
+          <div id="operation-tabs" class="operation-tabs" role="tablist" aria-label="操作"></div>
+        </div>
+
+        <form id="request-form" novalidate>
+          <div id="parameter-fields" class="parameter-fields"></div>
+          <div id="content-editor" class="content-editor" hidden>
+            <div class="section-heading">
+              <div><h2>内容序列</h2><p>按顺序组合提示词与参考素材</p></div>
+              <button id="add-content" class="button button-secondary button-small" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>添加内容
+              </button>
+            </div>
+            <div id="content-items" class="content-items"></div>
+            <p class="form-hint">帧模式与多模态参考不能混用；最多 9 张图片、3 个视频和 3 段音频。</p>
+          </div>
+          <div id="form-message" class="inline-message" role="alert" hidden></div>
+          <button id="submit-run" class="button button-primary submit-button" type="submit">
+            <span class="button-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 4 15 8-15 8 3-8Z"/></svg>发送请求</span>
+            <span class="button-loading"><span class="spinner"></span>正在提交</span>
+          </button>
+        </form>
+      </section>
+
+      <section class="preview-panel" aria-labelledby="preview-title">
+        <div class="panel-heading compact">
+          <div><span class="eyebrow">LIVE PREVIEW</span><h2 id="preview-title">请求预览</h2></div>
+          <button id="copy-preview" class="button button-quiet button-small" type="button">复制</button>
+        </div>
+        <div class="code-tabs" role="tablist" aria-label="预览格式">
+          <button class="active" type="button" role="tab" aria-selected="true" data-code-tab="json">JSON</button>
+          <button type="button" role="tab" aria-selected="false" data-code-tab="curl">cURL</button>
+        </div>
+        <div class="code-wrap">
+          <pre id="request-preview" tabindex="0" aria-label="请求 JSON 预览"><code>{}</code></pre>
+          <div id="preview-empty" class="code-empty" hidden>选择环境并填写参数后生成预览</div>
+        </div>
+
+        <div class="billing-card" id="billing-card">
+          <div class="billing-header"><span>费用概览</span><span class="billing-state" id="billing-state">待预估</span></div>
+          <dl>
+            <div><dt>预估费用</dt><dd id="estimated-cost">—</dd></div>
+            <div><dt>实际费用</dt><dd id="actual-cost">待同步</dd></div>
+            <div><dt>费用差额</dt><dd id="cost-delta">—</dd></div>
+          </dl>
+          <p id="billing-formula">价格由所选环境的 /api/pricing 动态计算</p>
+        </div>
+
+        <section class="result-card" id="result-card" aria-labelledby="result-title">
+          <div class="section-heading">
+            <div><h2 id="result-title">本次运行</h2><p id="result-subtitle">提交请求后在此查看进度与结果</p></div>
+            <button id="cancel-run" class="button button-danger button-small" type="button" hidden>停止轮询</button>
+          </div>
+          <div id="run-progress" class="run-progress" hidden>
+            <div class="progress-copy"><span id="progress-label">排队中</span><strong id="progress-value">0%</strong></div>
+            <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+          </div>
+          <div id="result-media" class="result-media empty">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 13l2-2 3 3 2-2 3 3M9 9h.01"/></svg>
+            <span>暂无媒体结果</span>
+          </div>
+        </section>
+      </section>
+
+      <aside class="history-panel" aria-labelledby="history-title">
+        <div class="panel-heading compact">
+          <div><span class="eyebrow">RUNS</span><h2 id="history-title">运行历史</h2></div>
+          <button id="refresh-history" class="icon-button" type="button" title="刷新历史" aria-label="刷新运行历史">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 1-2.3-5.7M20 4v7h-7"/></svg>
+          </button>
+        </div>
+        <div class="history-filter">
+          <label class="search-box">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <span class="sr-only">筛选运行历史</span>
+            <input id="history-search" type="search" placeholder="搜索模型或请求 ID">
+          </label>
+        </div>
+        <div id="history-list" class="history-list" aria-live="polite">
+          <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <dialog id="environment-dialog" class="modal">
+    <form id="environment-form" method="dialog">
+      <div class="modal-header">
+        <div><span class="eyebrow">ENVIRONMENT</span><h2 id="environment-dialog-title">添加环境</h2></div>
+        <button class="icon-button" type="button" data-close-modal aria-label="关闭">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input id="environment-id" type="hidden">
+        <label class="field"><span>环境名称</span><input id="environment-name" name="name" maxlength="60" required placeholder="例如：本地开发"></label>
+        <label class="field"><span>Base URL</span><input id="environment-url" name="base_url" type="url" required placeholder="http://127.0.0.1:3000"></label>
+        <label class="field"><span>API Key</span><span class="secret-input"><input id="environment-key" name="api_key" type="password" autocomplete="new-password" placeholder="sk-••••••••"><button id="toggle-key" type="button" aria-label="显示 API Key">显示</button></span><small id="key-hint">密钥仅发送到 Demo 服务并加密保存</small></label>
+        <div id="environment-form-message" class="inline-message" role="alert" hidden></div>
+      </div>
+      <div class="modal-actions">
+        <button id="delete-environment" class="button button-danger" type="button" hidden>删除环境</button>
+        <span class="action-spacer"></span>
+        <button class="button button-secondary" type="button" data-close-modal>取消</button>
+        <button id="save-environment" class="button button-primary" type="submit">保存环境</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="run-dialog" class="modal modal-wide">
+    <div class="modal-header">
+      <div><span class="eyebrow">EXCHANGE TIMELINE</span><h2 id="run-dialog-title">运行详情</h2></div>
+      <button class="icon-button" type="button" data-close-run aria-label="关闭">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div id="run-dialog-body" class="modal-body run-detail"></div>
+  </dialog>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
