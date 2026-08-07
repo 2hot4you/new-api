@@ -42,6 +42,10 @@ const DEFAULT_SOURCE: Record<GenerationLogSection, UsageLogSource> = {
   task: 'grok-video',
 }
 
+// The Generation Records sidebar entry opens the first image-generation
+// family. Section-local source resolution then selects `grok-image`.
+export const GENERATION_LOG_DEFAULT_PATH = '/usage-logs/drawing'
+
 export function resolveUsageLogSource(
   section: GenerationLogSection,
   source?: string

@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  GENERATION_LOG_DEFAULT_PATH,
   GENERATION_LOG_META,
   GENERATION_LOG_SOURCES,
   getVideoPlatformForSource,
@@ -51,6 +52,7 @@ describe('generation log source registry', () => {
   })
 
   test('declares the current image and video model families in display order', () => {
+    assert.equal(GENERATION_LOG_DEFAULT_PATH, '/usage-logs/drawing')
     assert.deepEqual(GENERATION_LOG_SOURCES.drawing, [
       { id: 'grok-image', labelKey: 'Grok Image' },
     ])

@@ -38,6 +38,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
+import { GENERATION_LOG_DEFAULT_PATH } from '@/features/usage-logs/source-registry'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -98,8 +99,8 @@ export function useSidebarData(): SidebarData {
           },
           {
             title: t('Generation Records'),
-            url: '/usage-logs/task',
-            activeUrls: ['/usage-logs/drawing'],
+            url: GENERATION_LOG_DEFAULT_PATH,
+            activeUrls: ['/usage-logs/task'],
             configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
             icon: ListTodo,
           },
