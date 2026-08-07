@@ -1,0 +1,13 @@
+{
+  "id": "implement-generation-record-billing",
+  "title": "在视频生成记录中展示计费摘要",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "等待用户验收生成记录计费展示",
+  "createdAt": "2026-08-07T02:00:00+08:00",
+  "completedAt": "2026-08-07T15:43:00+08:00",
+  "branch": "feat/molii-auth"
+}

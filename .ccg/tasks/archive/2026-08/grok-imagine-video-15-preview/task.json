@@ -1,0 +1,12 @@
+{
+  "id": "grok-imagine-video-15-preview",
+  "title": "接入 Grok Imagine Video 1.5 Preview 模型目录与计费详情",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-07T16:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
