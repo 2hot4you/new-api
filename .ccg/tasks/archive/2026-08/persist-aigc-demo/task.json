@@ -1,0 +1,12 @@
+{
+  "id": "persist-aigc-demo",
+  "title": "后台常驻运行 Molii AIGC Demo 并自动重载前端",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交常驻运行变更",
+  "createdAt": "2026-08-07T18:20:00+08:00",
+  "branch": "feat/molii-auth"
+}

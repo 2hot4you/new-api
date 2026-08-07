@@ -74,3 +74,11 @@ GOWORK=off go vet ./...
 ```
 
 默认测试不会发起付费生成请求。
+
+## macOS 后台开发服务
+
+仓库提供 `scripts/watch-and-run.sh` 和 `scripts/sync-runtime-source.sh`。由于 macOS 不允许 LaunchAgent 直接读取 `Documents` 下的源码，前台同步守护进程会把变更复制到 `~/Library/Application Support/Molii/aigc-demo/source`，LaunchAgent 只读取该受保护的运行副本。它会监听 Go、HTML、CSS、JavaScript 和 Go module 文件；构建成功后原子替换二进制并重启服务，构建失败时继续保留旧进程。
+
+当前机器的 `8787` 已由其他测试程序使用，因此常驻实例使用：<http://127.0.0.1:8788>。
+
+页面每 2.5 秒检查一次服务实例版本。源码更新触发重启后，已打开的浏览器页面会自动刷新，不使用 localStorage 保存版本状态。

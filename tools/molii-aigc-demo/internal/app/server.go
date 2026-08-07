@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	demoassets "molii-aigc-demo"
 	"molii-aigc-demo/internal/catalog"
 	"molii-aigc-demo/internal/jobs"
@@ -39,6 +41,7 @@ type Server struct {
 	pollInterval      time.Duration
 	billingSyncPeriod time.Duration
 	logger            *slog.Logger
+	instanceID        string
 	handler           http.Handler
 	engine            *jobs.Engine
 }
@@ -73,6 +76,7 @@ func New(config Config) (*Server, error) {
 		allowedHosts: make(map[string]struct{}), pollInterval: config.PollInterval,
 		billingSyncPeriod: config.BillingSyncPeriod,
 		logger:            config.Logger,
+		instanceID:        uuid.NewString(),
 	}
 	for _, host := range config.AllowedHosts {
 		if host = strings.ToLower(strings.TrimSpace(host)); host != "" {
@@ -118,6 +122,7 @@ func (s *Server) Start(ctx context.Context) {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /api/version", s.handleVersion)
 	mux.HandleFunc("GET /api/bootstrap", s.handleBootstrap)
 	mux.HandleFunc("GET /api/environments", s.handleListEnvironments)
 	mux.HandleFunc("POST /api/environments", s.withWriteSession(s.handleCreateEnvironment))
@@ -152,6 +157,10 @@ func (s *Server) routes() http.Handler {
 		_, _ = w.Write(content)
 	})
 	return s.securityHeaders(mux)
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"instance_id": s.instanceID})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

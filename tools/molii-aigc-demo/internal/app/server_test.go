@@ -107,6 +107,17 @@ func TestBootstrapRejectsUntrustedHostAndWriteRequiresCSRF(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, withoutCSRF.Code)
 }
 
+func TestVersionIsStableForOneProcess(t *testing.T) {
+	fixture := newDemoFixture(t, nil)
+	first := fixture.request(t, http.MethodGet, "/api/version", nil, false)
+	second := fixture.request(t, http.MethodGet, "/api/version", nil, false)
+	require.Equal(t, http.StatusOK, first.Code)
+	require.JSONEq(t, first.Body.String(), second.Body.String())
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &payload))
+	require.NotEmpty(t, payload["instance_id"])
+}
+
 func TestPreviewAndSynchronousRunPersistRedactedTimelineAndBilling(t *testing.T) {
 	var logCalls atomic.Int32
 	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

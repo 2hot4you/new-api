@@ -28,7 +28,7 @@
     csrf: "", environments: [], activeEnvironmentId: "", catalog: [], providerView: "seedance",
     modelId: "doubao-seedance-2-0-260128", operationId: "seedance.video.generate", values: {},
     content: [{ type: "text", text: "", role: "" }], preview: null, previewFormat: "json",
-    runs: [], selectedRun: null, previewTimer: 0, pollTimer: 0, historyTimer: 0, previewSequence: 0,
+    runs: [], selectedRun: null, previewTimer: 0, pollTimer: 0, historyTimer: 0, versionTimer: 0, instanceId: "", previewSequence: 0,
     loading: { bootstrap: true, preview: false, submit: false, history: false }
   };
 
@@ -102,6 +102,19 @@
   function unwrap(payload) {
     if (payload && typeof payload === "object" && !Array.isArray(payload) && payload.data !== undefined) return payload.data;
     return payload;
+  }
+
+  async function monitorInstance() {
+    try {
+      const response = await fetch("/api/version", { credentials: "same-origin", cache: "no-store" });
+      if (response.ok) {
+        const data = await response.json();
+        const next = String(data?.instance_id || "");
+        if (state.instanceId && next && state.instanceId !== next) { window.location.reload(); return; }
+        if (next) state.instanceId = next;
+      }
+    } catch (_) { /* The watcher may be rebuilding; retry when the service returns. */ }
+    state.versionTimer = window.setTimeout(monitorInstance, 2500);
   }
 
   function currentEnvironment() { return state.environments.find(item => String(item.id) === String(state.activeEnvironmentId)); }
@@ -681,5 +694,6 @@
 
   bindEvents();
   loadBootstrap();
+  monitorInstance();
   state.historyTimer = window.setInterval(() => { if (document.visibilityState === "visible") loadHistory(true); }, 12000);
 })();
