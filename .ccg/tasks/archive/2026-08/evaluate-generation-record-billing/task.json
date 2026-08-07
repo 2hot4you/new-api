@@ -1,0 +1,12 @@
+{
+  "id": "evaluate-generation-record-billing",
+  "title": "评估生成记录计费明细展示方案",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档分析结论",
+  "createdAt": "2026-08-07T01:35:00+08:00",
+  "branch": "feat/molii-auth"
+}
