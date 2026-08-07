@@ -1,0 +1,12 @@
+{
+  "id": "verify-grok-management-delivery",
+  "title": "确认 Grok 管理能力交付状态",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档核验记录",
+  "createdAt": "2026-08-07T01:25:00+08:00",
+  "branch": "feat/molii-auth"
+}
