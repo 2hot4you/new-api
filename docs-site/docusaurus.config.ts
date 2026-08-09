@@ -47,7 +47,37 @@ const config: Config = {
       },
     ],
   ],
-  themes: [['@cmfcmf/docusaurus-search-local', { indexBlog: false }]],
+  plugins: [
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: 'api',
+        path: 'generated/api',
+        routeBasePath: 'api-reference',
+        docItemComponent: '@theme/ApiItem',
+      },
+    ],
+    [
+      'docusaurus-plugin-openapi-docs',
+      {
+        id: 'api',
+        docsPluginId: 'api',
+        config: {
+          relay: {
+            specPath: 'generated/openapi/relay.public.json',
+            outputDir: 'generated/api',
+            sidebarOptions: {
+              groupPathsBy: 'tag',
+            },
+          },
+        },
+      },
+    ],
+  ],
+  themes: [
+    'docusaurus-theme-openapi-docs',
+    ['@cmfcmf/docusaurus-search-local', { indexBlog: false }],
+  ],
   themeConfig: {
     image: 'img/molii-mark.svg',
     navbar: {

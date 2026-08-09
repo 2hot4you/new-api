@@ -11,7 +11,10 @@
     "build": "docusaurus build",
     "serve": "docusaurus serve --host 127.0.0.1 --port 3100",
     "test": "bun test",
-    "check:links": "linkinator build --recurse --skip 127.0.0.1"
+    "check:links": "linkinator build --recurse --skip 127.0.0.1",
+    "api:prepare": "bun scripts/prepare-openapi.mjs",
+    "api:lint": "bun run api:prepare && redocly lint generated/openapi/relay.public.json",
+    "api:generate": "bun run api:prepare && mkdir -p generated/api && docusaurus gen-api-docs relay"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.2",
