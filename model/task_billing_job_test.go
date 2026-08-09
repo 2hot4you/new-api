@@ -1,12 +1,16 @@
 package model
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func prepareTaskBillingJobTest(t *testing.T) {
@@ -41,7 +45,7 @@ func newRefundBillingJob(task *Task) *TaskBillingJob {
 	target := 0
 	return &TaskBillingJob{
 		TaskID:         task.ID,
-		IdempotencyKey: "async-task:" + task.TaskID + ":terminal-v1",
+		IdempotencyKey: fmt.Sprintf("async-task:%d:terminal-v1", task.ID),
 		Operation:      TaskBillingOperationRefund,
 		FromQuota:      task.Quota,
 		TargetQuota:    &target,
@@ -90,12 +94,9 @@ func TestFinalizeTaskAndEnqueueBillingCASLoserCreatesNoJob(t *testing.T) {
 func TestFinalizeTaskAndEnqueueBillingRollsBackTaskWhenJobInsertFails(t *testing.T) {
 	truncateTables(t)
 	prepareTaskBillingJobTest(t)
-	existingTask := createInProgressBillingTask(t, "task_billing_existing", 10)
-	require.NoError(t, DB.Create(newRefundBillingJob(existingTask)).Error)
-
 	task := createInProgressBillingTask(t, "task_billing_rollback", 75)
+	require.NoError(t, DB.Create(newRefundBillingJob(task)).Error)
 	job := newRefundBillingJob(task)
-	job.IdempotencyKey = "async-task:" + existingTask.TaskID + ":terminal-v1"
 	task.Status = TaskStatusFailure
 
 	won, err := FinalizeTaskAndEnqueueBilling(task, TaskStatusInProgress, job)
@@ -180,7 +181,7 @@ func TestTaskBillingJobRetryAndReviewSanitizeErrors(t *testing.T) {
 	require.Len(t, claimed, 1)
 
 	longError := "  upstream\n\tfailed: " + strings.Repeat("x", 2000)
-	require.NoError(t, RescheduleTaskBillingJob(claimed[0].ID, "worker-a", now+60, longError))
+	require.NoError(t, RescheduleTaskBillingJob(claimed[0].ID, "worker-a", claimed[0].Attempts, now+60, longError))
 	retried := reloadBillingJob(t, task.ID)
 	assert.Equal(t, TaskBillingJobStatusPending, retried.Status)
 	assert.Empty(t, retried.LockedBy)
@@ -193,11 +194,145 @@ func TestTaskBillingJobRetryAndReviewSanitizeErrors(t *testing.T) {
 	claimed, err = ClaimTaskBillingJobs("worker-b", now+60, now+90, 1)
 	require.NoError(t, err)
 	require.Len(t, claimed, 1)
-	require.NoError(t, RequireTaskBillingReview(claimed[0].ID, "worker-b", "manual\nreview"))
+	require.NoError(t, RequireTaskBillingReview(claimed[0].ID, "worker-b", claimed[0].Attempts, "manual\nreview"))
 	review := reloadBillingJob(t, task.ID)
 	assert.Equal(t, TaskBillingJobStatusReviewRequired, review.Status)
 	assert.Empty(t, review.LockedBy)
 	assert.Equal(t, "manual review", review.LastError)
+}
+
+func TestTaskBillingJobClaimAttemptFencesSameWorkerReclaim(t *testing.T) {
+	truncateTables(t)
+	prepareTaskBillingJobTest(t)
+	now := time.Now().Unix()
+	task := createInProgressBillingTask(t, "task_billing_fence", 25)
+	require.NoError(t, DB.Create(newRefundBillingJob(task)).Error)
+
+	firstClaim, err := ClaimTaskBillingJobs("worker-a", now, now+10, 1)
+	require.NoError(t, err)
+	require.Len(t, firstClaim, 1)
+	assert.Equal(t, 1, firstClaim[0].Attempts)
+
+	secondClaim, err := ClaimTaskBillingJobs("worker-a", now+11, now+60, 1)
+	require.NoError(t, err)
+	require.Len(t, secondClaim, 1)
+	assert.Equal(t, 2, secondClaim[0].Attempts)
+
+	assert.ErrorIs(t,
+		RescheduleTaskBillingJob(firstClaim[0].ID, "worker-a", firstClaim[0].Attempts, now+90, "stale retry"),
+		errTaskBillingJobLeaseLost,
+	)
+	assert.ErrorIs(t,
+		RequireTaskBillingReview(firstClaim[0].ID, "worker-a", firstClaim[0].Attempts, "stale review"),
+		errTaskBillingJobLeaseLost,
+	)
+	assert.ErrorIs(t,
+		CompleteTaskBillingJob(firstClaim[0].ID, "worker-a", firstClaim[0].Attempts),
+		errTaskBillingJobLeaseLost,
+	)
+	require.NoError(t, CompleteTaskBillingJob(secondClaim[0].ID, "worker-a", secondClaim[0].Attempts))
+
+	completed := reloadBillingJob(t, task.ID)
+	assert.Equal(t, TaskBillingJobStatusSucceeded, completed.Status)
+	assert.Empty(t, completed.LockedBy)
+}
+
+func TestTaskBillingJobLastErrorRedactsSecretsBeforePersistence(t *testing.T) {
+	truncateTables(t)
+	prepareTaskBillingJobTest(t)
+	now := time.Now().Unix()
+	task := createInProgressBillingTask(t, "task_billing_redaction", 25)
+	require.NoError(t, DB.Create(newRefundBillingJob(task)).Error)
+	claimed, err := ClaimTaskBillingJobs("worker-a", now, now+30, 1)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+
+	secretError := "request failed Authorization: Bearer bearer-secret api_key=api-secret " +
+		"url=https://cdn.example/result?X-Amz-Signature=signed-secret&X-Amz-Credential=credential-secret"
+	require.NoError(t, RescheduleTaskBillingJob(
+		claimed[0].ID, "worker-a", claimed[0].Attempts, now+60, secretError,
+	))
+
+	persisted := reloadBillingJob(t, task.ID).LastError
+	assert.NotContains(t, persisted, "bearer-secret")
+	assert.NotContains(t, persisted, "api-secret")
+	assert.NotContains(t, persisted, "signed-secret")
+	assert.NotContains(t, persisted, "credential-secret")
+	assert.Contains(t, persisted, "[REDACTED]")
+}
+
+func TestTaskBillingJobLastErrorNormalizesInvalidDatabaseTextBeforePersistence(t *testing.T) {
+	truncateTables(t)
+	prepareTaskBillingJobTest(t)
+	now := time.Now().Unix()
+	task := createInProgressBillingTask(t, "task_billing_invalid_text", 25)
+	require.NoError(t, DB.Create(newRefundBillingJob(task)).Error)
+	claimed, err := ClaimTaskBillingJobs("worker-a", now, now+30, 1)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+
+	invalidError := string([]byte{'b', 'a', 'd', 0, 1, 0xff, ' ', 'e', 'r', 'r', 'o', 'r'})
+	require.NoError(t, RescheduleTaskBillingJob(
+		claimed[0].ID, "worker-a", claimed[0].Attempts, now+60, invalidError,
+	))
+
+	persisted := reloadBillingJob(t, task.ID).LastError
+	assert.True(t, utf8.ValidString(persisted))
+	assert.NotContains(t, persisted, "\x00")
+	assert.NotContains(t, persisted, "\x01")
+	assert.Contains(t, persisted, "\uFFFD")
+	for _, r := range persisted {
+		assert.False(t, unicode.IsControl(r), "persisted control rune %U", r)
+	}
+}
+
+func TestFinalizeTaskAndEnqueueBillingUsesInternalIDForIdempotency(t *testing.T) {
+	for _, publicTaskID := range []string{"", "duplicate-public-task-id"} {
+		publicTaskID := publicTaskID
+		t.Run(fmt.Sprintf("public-id-%q", publicTaskID), func(t *testing.T) {
+			truncateTables(t)
+			prepareTaskBillingJobTest(t)
+
+			first := createInProgressBillingTask(t, publicTaskID, 10)
+			second := createInProgressBillingTask(t, publicTaskID, 20)
+			for _, task := range []*Task{first, second} {
+				task.Status = TaskStatusFailure
+				job := newRefundBillingJob(task)
+				job.IdempotencyKey = "caller-supplied-duplicate-key"
+				won, err := FinalizeTaskAndEnqueueBilling(task, TaskStatusInProgress, job)
+				require.NoError(t, err)
+				require.True(t, won)
+			}
+
+			firstJob := reloadBillingJob(t, first.ID)
+			secondJob := reloadBillingJob(t, second.ID)
+			assert.Equal(t, fmt.Sprintf("async-task:%d:terminal-v1", first.ID), firstJob.IdempotencyKey)
+			assert.Equal(t, fmt.Sprintf("async-task:%d:terminal-v1", second.ID), secondJob.IdempotencyKey)
+			assert.NotEqual(t, firstJob.IdempotencyKey, secondJob.IdempotencyKey)
+		})
+	}
+}
+
+func TestTaskBillingJobSchemaUsesGORMV2PrimaryKey(t *testing.T) {
+	statement := &gorm.Statement{DB: DB}
+	require.NoError(t, statement.Parse(&TaskBillingJob{}))
+	idField := statement.Schema.LookUpField("ID")
+	require.NotNil(t, idField)
+	assert.True(t, idField.PrimaryKey)
+	assert.NotContains(t, idField.TagSettings, "AUTO_INCREMENT")
+}
+
+func TestTaskBillingJobMigrationCreatesExpiredLeaseCompositeIndex(t *testing.T) {
+	prepareTaskBillingJobTest(t)
+	type indexColumn struct {
+		Seqno int
+		Name  string
+	}
+	var columns []indexColumn
+	require.NoError(t, DB.Raw("PRAGMA index_info('idx_task_billing_jobs_expired')").Scan(&columns).Error)
+	require.Len(t, columns, 2)
+	assert.Equal(t, "status", columns[0].Name)
+	assert.Equal(t, "locked_until", columns[1].Name)
 }
 
 func TestTaskBillingJobTargetQuotaStaysNullableAndTaskRowsStayUnchanged(t *testing.T) {
@@ -206,7 +341,7 @@ func TestTaskBillingJobTargetQuotaStaysNullableAndTaskRowsStayUnchanged(t *testi
 	task := createInProgressBillingTask(t, "task_billing_nullable", 65)
 	job := &TaskBillingJob{
 		TaskID:         task.ID,
-		IdempotencyKey: "async-task:" + task.TaskID + ":terminal-v1",
+		IdempotencyKey: fmt.Sprintf("async-task:%d:terminal-v1", task.ID),
 		Operation:      TaskBillingOperationSettle,
 		FromQuota:      task.Quota,
 		TargetQuota:    nil,

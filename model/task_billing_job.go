@@ -2,7 +2,10 @@ package model
 
 import (
 	"errors"
+	"regexp"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
@@ -26,18 +29,23 @@ const (
 
 var errTaskBillingJobLeaseLost = errors.New("task billing job lease lost")
 
+var taskBillingJobSecretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(bearer[[:space:]]+)[^[:space:],;]+`),
+	regexp.MustCompile(`(?i)((?:api[_-]?key|x-api-key|access[_-]?token|x-amz-signature|x-amz-credential|x-amz-security-token|signature|secret|token)[[:space:]]*(?:=|:)[[:space:]]*)[^&[:space:],;]+`),
+}
+
 type TaskBillingJob struct {
-	ID             int64                `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
+	ID             int64                `json:"id" gorm:"primaryKey"`
 	TaskID         int64                `json:"task_id" gorm:"uniqueIndex"`
 	IdempotencyKey string               `json:"idempotency_key" gorm:"type:varchar(191);uniqueIndex"`
 	Operation      TaskBillingOperation `json:"operation" gorm:"type:varchar(32)"`
 	FromQuota      int                  `json:"from_quota"`
 	TargetQuota    *int                 `json:"target_quota"`
-	Status         TaskBillingJobStatus `json:"status" gorm:"type:varchar(32);index:idx_task_billing_jobs_ready,priority:1"`
+	Status         TaskBillingJobStatus `json:"status" gorm:"type:varchar(32);index:idx_task_billing_jobs_ready,priority:1;index:idx_task_billing_jobs_expired,priority:1"`
 	Attempts       int                  `json:"attempts"`
 	NextAttemptAt  int64                `json:"next_attempt_at" gorm:"bigint;index:idx_task_billing_jobs_ready,priority:2"`
-	LockedBy       string               `json:"locked_by" gorm:"type:varchar(128);index"`
-	LockedUntil    int64                `json:"locked_until" gorm:"bigint;index"`
+	LockedBy       string               `json:"locked_by" gorm:"type:varchar(128)"`
+	LockedUntil    int64                `json:"locked_until" gorm:"bigint;index:idx_task_billing_jobs_expired,priority:2"`
 	LastError      string               `json:"last_error" gorm:"type:varchar(1024)"`
 	CreatedAt      int64                `json:"created_at" gorm:"bigint"`
 	UpdatedAt      int64                `json:"updated_at" gorm:"bigint"`
@@ -78,6 +86,7 @@ func FinalizeTaskAndEnqueueBilling(task *Task, fromStatus TaskStatus, job *TaskB
 		}
 
 		job.TaskID = task.ID
+		job.IdempotencyKey = taskBillingJobIdempotencyKey(task.ID)
 		job.Status = TaskBillingJobStatusPending
 		job.LockedBy = ""
 		job.LockedUntil = 0
@@ -87,6 +96,10 @@ func FinalizeTaskAndEnqueueBilling(task *Task, fromStatus TaskStatus, job *TaskB
 		return false, err
 	}
 	return won, nil
+}
+
+func taskBillingJobIdempotencyKey(taskID int64) string {
+	return "async-task:" + strconv.FormatInt(taskID, 10) + ":terminal-v1"
 }
 
 func ClaimTaskBillingJobs(lockedBy string, now int64, lockedUntil int64, limit int) ([]*TaskBillingJob, error) {
@@ -142,8 +155,8 @@ func ClaimTaskBillingJobs(lockedBy string, now int64, lockedUntil int64, limit i
 	return claimed, err
 }
 
-func RescheduleTaskBillingJob(id int64, lockedBy string, nextAttemptAt int64, lastError string) error {
-	return transitionClaimedTaskBillingJob(id, lockedBy, map[string]any{
+func RescheduleTaskBillingJob(id int64, lockedBy string, claimAttempt int, nextAttemptAt int64, lastError string) error {
+	return transitionClaimedTaskBillingJob(id, lockedBy, claimAttempt, map[string]any{
 		"status":          TaskBillingJobStatusPending,
 		"next_attempt_at": nextAttemptAt,
 		"locked_by":       "",
@@ -153,8 +166,8 @@ func RescheduleTaskBillingJob(id int64, lockedBy string, nextAttemptAt int64, la
 	})
 }
 
-func RequireTaskBillingReview(id int64, lockedBy string, lastError string) error {
-	return transitionClaimedTaskBillingJob(id, lockedBy, map[string]any{
+func RequireTaskBillingReview(id int64, lockedBy string, claimAttempt int, lastError string) error {
+	return transitionClaimedTaskBillingJob(id, lockedBy, claimAttempt, map[string]any{
 		"status":       TaskBillingJobStatusReviewRequired,
 		"locked_by":    "",
 		"locked_until": 0,
@@ -163,10 +176,20 @@ func RequireTaskBillingReview(id int64, lockedBy string, lastError string) error
 	})
 }
 
-func transitionClaimedTaskBillingJob(id int64, lockedBy string, updates map[string]any) error {
+func CompleteTaskBillingJob(id int64, lockedBy string, claimAttempt int) error {
+	return transitionClaimedTaskBillingJob(id, lockedBy, claimAttempt, map[string]any{
+		"status":       TaskBillingJobStatusSucceeded,
+		"locked_by":    "",
+		"locked_until": 0,
+		"last_error":   "",
+		"updated_at":   common.GetTimestamp(),
+	})
+}
+
+func transitionClaimedTaskBillingJob(id int64, lockedBy string, claimAttempt int, updates map[string]any) error {
 	now := common.GetTimestamp()
 	result := DB.Model(&TaskBillingJob{}).
-		Where("id = ? AND status = ? AND locked_by = ? AND locked_until >= ?", id, TaskBillingJobStatusProcessing, lockedBy, now).
+		Where("id = ? AND status = ? AND locked_by = ? AND attempts = ? AND locked_until >= ?", id, TaskBillingJobStatusProcessing, lockedBy, claimAttempt, now).
 		Updates(updates)
 	if result.Error != nil {
 		return result.Error
@@ -178,6 +201,16 @@ func transitionClaimedTaskBillingJob(id int64, lockedBy string, updates map[stri
 }
 
 func sanitizeTaskBillingJobError(message string) string {
+	message = strings.ToValidUTF8(message, "\uFFFD")
+	message = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, message)
+	for _, pattern := range taskBillingJobSecretPatterns {
+		message = pattern.ReplaceAllString(message, "${1}[REDACTED]")
+	}
 	message = strings.Join(strings.Fields(message), " ")
 	if len(message) <= taskBillingJobLastErrorMaxBytes {
 		return message
