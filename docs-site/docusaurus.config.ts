@@ -79,7 +79,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Molii. 保留所有权利。`,
+      copyright: `Copyright © ${new Date().getFullYear()} Molii. 保留所有权利。基于 New API（QuantumNous）构建。`,
     },
   },
   customFields: {

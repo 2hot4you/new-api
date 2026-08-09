@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import siteConfig from '../docusaurus.config';
 import { resolvePublicConfig } from './config';
 
 const validEnvironment = {
@@ -41,4 +42,11 @@ test('prevents search indexing during development', () => {
   expect(
     resolvePublicConfig({ ...validEnvironment, DOCS_ENV: 'production' }).noIndex,
   ).toBe(false);
+});
+
+test('keeps New API and QuantumNous attribution visible in the footer', () => {
+  const footer = siteConfig.themeConfig?.footer as { copyright?: string };
+
+  expect(footer.copyright).toContain('New API');
+  expect(footer.copyright).toContain('QuantumNous');
 });
