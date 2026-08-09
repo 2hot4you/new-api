@@ -1,0 +1,12 @@
+{
+  "id": "build-molii-docusaurus-docs",
+  "title": "审计渠道接口并建设 Molii Docusaurus 产品与 API 文档站",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "planning",
+  "nextAction": "编写后端五项加固与 Docusaurus 文档站实施计划",
+  "createdAt": "2026-08-09T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
