@@ -11,4 +11,5 @@ deploy
 .gocache
 /web/node_modules
 /web/dist
+/docs-site
 !THIRD-PARTY-LICENSES.md

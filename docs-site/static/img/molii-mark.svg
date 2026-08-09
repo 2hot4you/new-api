@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title">
+  <title id="title">Molii</title>
+  <defs>
+    <linearGradient id="gradient" x1="12" y1="8" x2="84" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6A91FF"/>
+      <stop offset="1" stop-color="#2459D8"/>
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" rx="24" fill="#101A35"/>
+  <path d="M23 65V31h11.7L48 49.7 61.3 31H73v34H61.8V49.6L48 68 34.2 49.6V65H23Z" fill="url(#gradient)"/>
+</svg>

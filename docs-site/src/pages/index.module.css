@@ -1,0 +1,104 @@
+.hero {
+  background:
+    radial-gradient(circle at 80% 10%, rgba(98, 137, 255, 0.36), transparent 32rem),
+    linear-gradient(135deg, #eef4ff 0%, #f7f9ff 46%, #e8edff 100%);
+  padding: 7rem 1.5rem 6rem;
+}
+
+.heroContent {
+  margin: 0 auto;
+  max-width: 58rem;
+}
+
+.eyebrow {
+  color: #2459d8;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  margin-bottom: 1rem;
+}
+
+.hero h1 {
+  color: #101a35;
+  font-size: clamp(2.6rem, 7vw, 5.1rem);
+  letter-spacing: -0.055em;
+  line-height: 1.04;
+  margin: 0;
+  max-width: 14ch;
+}
+
+.hero p:not(.eyebrow) {
+  color: #43506c;
+  font-size: 1.17rem;
+  line-height: 1.7;
+  margin: 1.75rem 0 0;
+  max-width: 42rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 2rem;
+}
+
+.guides {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 auto;
+  max-width: 76rem;
+  padding: 4.5rem 1.5rem;
+}
+
+.guideCard {
+  border: 1px solid #e1e6f2;
+  border-radius: 1rem;
+  color: inherit;
+  padding: 1.4rem;
+  text-decoration: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.guideCard:hover {
+  border-color: #8faced;
+  box-shadow: 0 12px 24px rgba(30, 64, 145, 0.12);
+  color: inherit;
+  transform: translateY(-3px);
+}
+
+.guideCard h2 {
+  color: #101a35;
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.guideCard p {
+  color: #63708b;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  margin: 0.65rem 0 1.15rem;
+}
+
+.guideCard span {
+  color: #2459d8;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+@media screen and (max-width: 996px) {
+  .guides {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media screen and (max-width: 640px) {
+  .hero {
+    padding: 5rem 1.5rem 4.5rem;
+  }
+
+  .guides {
+    grid-template-columns: 1fr;
+    padding-top: 3rem;
+  }
+}
