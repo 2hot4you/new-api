@@ -143,6 +143,8 @@ type TaskBillingContext struct {
 // GrokVideoBillingSnapshot is the versioned, public-safe pricing contract for
 // Molii Grok asynchronous video tasks. Price fields intentionally do not use
 // omitempty: an explicitly configured zero price is valid billing data.
+const GrokVideoResolutionSourceProviderPollV1 = "provider_poll_v1"
+
 type GrokVideoBillingSnapshot struct {
 	Version                  int     `json:"version"`
 	Model                    string  `json:"model"`
@@ -156,6 +158,7 @@ type GrokVideoBillingSnapshot struct {
 	RequestedResolution      string  `json:"requested_resolution"`
 	EstimatedResolution      string  `json:"estimated_resolution"`
 	ActualResolution         string  `json:"actual_resolution"`
+	ResolutionSource         string  `json:"resolution_source,omitempty"`
 	AspectRatio              string  `json:"aspect_ratio"`
 	InputImageCount          int     `json:"input_image_count"`
 	VideoInputBilledSeconds  float64 `json:"video_input_billed_seconds"`

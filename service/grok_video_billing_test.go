@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
@@ -159,7 +160,7 @@ func TestFinalizeGrokVideoBillingUsesSettledQuotaAsLedgerAuthority(t *testing.T)
 		GroupRatio: 0.5,
 		GrokVideoBilling: &model.GrokVideoBillingSnapshot{
 			Version: 1, Model: "grok-imagine-video", Operation: "video_edit", InputType: "video",
-			ActualDurationSeconds: 6, ActualResolution: "480p", VideoInputBilledSeconds: 6,
+			ActualDurationSeconds: 6, ActualResolution: "480p", ResolutionSource: model.GrokVideoResolutionSourceProviderPollV1, VideoInputBilledSeconds: 6,
 			OutputUnitPrice: 0.05, VideoInputUnitPrice: 0.01,
 			OutputCost: 0.3, VideoInputCost: 0.06, Subtotal: 0.36,
 		},
@@ -172,4 +173,38 @@ func TestFinalizeGrokVideoBillingUsesSettledQuotaAsLedgerAuthority(t *testing.T)
 	assert.Contains(t, content, "Grok")
 	assert.Contains(t, content, "480p")
 	assert.NotContains(t, content, "task_")
+	assert.NotContains(t, string(mustJSON(t, got)), "provider_cost")
+}
+
+func TestFinalizedGrokVideoEditRequiresExplicitVersionedResolutionSource(t *testing.T) {
+	base := model.GrokVideoBillingSnapshot{
+		Version: 1, Model: grokVideoModelLegacy, Operation: grokVideoEditOperation, InputType: "video",
+		EstimatedDurationSeconds: 8.7, EstimatedResolution: "720p",
+		ActualDurationSeconds: 6, ActualResolution: "480p", VideoInputBilledSeconds: 6,
+		OutputUnitPrice: 0.05, VideoInputUnitPrice: 0.01,
+		OutputCost: 0.3, VideoInputCost: 0.06, Subtotal: 0.36, GroupRatio: 1,
+	}
+
+	assert.False(t, validFinalizedGrokVideoBilling(&base), "legacy snapshots must not silently treat an estimated/inferred tier as final")
+	base.ResolutionSource = model.GrokVideoResolutionSourceProviderPollV1
+	assert.True(t, validFinalizedGrokVideoBilling(&base))
+	base.ResolutionSource = "provider_cost_v1"
+	assert.False(t, validFinalizedGrokVideoBilling(&base))
+}
+
+func TestLegacyGrokVideoEditSnapshotCreatesIndeterminateTerminalTarget(t *testing.T) {
+	legacyJSON := `{"version":1,"model":"grok-imagine-video","operation":"video_edit","input_type":"video","estimated_duration_seconds":8.7,"estimated_resolution":"720p","actual_duration_seconds":6,"actual_resolution":"480p","video_input_billed_seconds":6,"output_unit_price":0.05,"video_input_unit_price":0.01,"output_cost":0.3,"video_input_cost":0.06,"subtotal":0.36,"group_ratio":1}`
+	var snapshot model.GrokVideoBillingSnapshot
+	require.NoError(t, json.Unmarshal([]byte(legacyJSON), &snapshot))
+	assert.Empty(t, snapshot.ResolutionSource)
+
+	task := &model.Task{
+		Platform: constant.TaskPlatform("62"), Status: model.TaskStatusSuccess, Quota: 2500,
+		PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+			FinalUsageLogOnly: true, GrokVideoBilling: &snapshot,
+		}},
+	}
+	job := BuildTerminalTaskBillingJob(nil, &mockAdaptor{adjustReturn: 180000}, task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+	require.NotNil(t, job)
+	assert.Nil(t, job.TargetQuota)
 }

@@ -40,8 +40,12 @@ func (a *privateGrokPollingAdaptor) ParseTaskResult(_ []byte) (*relaycommon.Task
 }
 
 func (a *privateGrokPollingAdaptor) AdjustBillingOnComplete(task *model.Task, result *relaycommon.TaskInfo) int {
-	if a.finalizeBilling && task != nil && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.GrokVideoBilling != nil {
+	if task != nil && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.GrokVideoBilling != nil {
 		billing := task.PrivateData.BillingContext.GrokVideoBilling
+		billing.ActualDurationSeconds = result.ActualDurationSeconds
+		if !a.finalizeBilling {
+			return a.adjustQuota
+		}
 		billing.ActualDurationSeconds = result.ActualDurationSeconds
 		billing.ActualResolution = "480p"
 		billing.OutputCost = billing.OutputUnitPrice * result.ActualDurationSeconds
@@ -288,9 +292,14 @@ func TestMoliiGrokFinalUsageMissingCompletionFinalizationSuppressesSuccessLog(t 
 	task.PrivateData.UpstreamTaskID = upstreamID
 	task.PrivateData.BillingContext.PerCallBilling = true
 	markFinalUsageGrokTask(task)
+	task.PrivateData.BillingContext.RequestPath = "/v1/videos/edits"
+	task.PrivateData.BillingContext.GrokVideoBilling.Operation = "video_edit"
+	task.PrivateData.BillingContext.GrokVideoBilling.InputType = "video"
+	task.PrivateData.BillingContext.GrokVideoBilling.VideoInputBilledSeconds = 8.7
+	task.PrivateData.BillingContext.GrokVideoBilling.VideoInputUnitPrice = 0.01
 	require.NoError(t, model.DB.Create(task).Error)
 
-	adaptor := &privateGrokPollingAdaptor{statusCode: http.StatusOK, body: []byte(`{"status":"done"}`), result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%"}}
+	adaptor := &privateGrokPollingAdaptor{statusCode: http.StatusOK, body: []byte(`{"status":"done"}`), result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://video.example/edit-result.mp4", ActualDurationSeconds: 6, ProviderCost: 999999}}
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
 
@@ -302,6 +311,12 @@ func TestMoliiGrokFinalUsageMissingCompletionFinalizationSuppressesSuccessLog(t 
 	assert.Equal(t, model.TaskBillingJobStatusReviewRequired, loadReconciliationJob(t, job.ID).Status)
 	assert.Equal(t, int64(0), countLogs(t))
 	assert.Equal(t, 2500, getTaskQuota(t, task.ID))
+	assert.Equal(t, 10000, getUserQuota(t, userID))
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusSuccess, reloaded.Status)
+	assert.Equal(t, "https://video.example/edit-result.mp4", reloaded.PrivateData.ResultURL)
+	assert.Empty(t, reloaded.PrivateData.BillingContext.GrokVideoBilling.ActualResolution)
 }
 
 func TestMoliiGrokFinalUsageZeroSettlementRefundsInternallyThenLogsZeroConsume(t *testing.T) {

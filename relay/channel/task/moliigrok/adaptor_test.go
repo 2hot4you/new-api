@@ -191,38 +191,77 @@ func TestGrokImagineVideo15RequiresImageAndRejectsOldModel1080p(t *testing.T) {
 	}
 }
 
-func TestVideoEditCompletionUsesActualDurationAndResolutionTier(t *testing.T) {
-	task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
-		ModelPrice: 1, GroupRatio: 2, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
-		EstimatedInputUnitPrice: 0.01, EstimatedOutputUnitPrices: map[string]float64{"480p": 0.05, "720p": 0.07},
-	}}}
-	result := &relaycommon.TaskInfo{ActualDurationSeconds: 5, ProviderCost: 0.4}
-	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, result)
-	assert.Equal(t, 400000, quota)
+func TestGrokVideoEditCompletionUsesOnlyExplicitPollingResolution(t *testing.T) {
+	for _, tt := range []struct {
+		resolution   string
+		providerCost float64
+		wantQuota    int
+		wantPrice    float64
+	}{
+		{resolution: "480p", providerCost: 999999, wantQuota: 180000, wantPrice: 0.05},
+		{resolution: "720p", providerCost: 0.000001, wantQuota: 240000, wantPrice: 0.07},
+	} {
+		t.Run(tt.resolution, func(t *testing.T) {
+			task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+				GroupRatio: 1, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
+				EstimatedOutputUnitPrices: map[string]float64{"480p": 0.05, "720p": 0.07},
+				GrokVideoBilling: &model.GrokVideoBillingSnapshot{
+					Version: 1, Model: LegacyVideoModel, Operation: videoEditAction, InputType: "video",
+					EstimatedDurationSeconds: 8.7, EstimatedResolution: "720p",
+					OutputUnitPrice: 0.07, VideoInputUnitPrice: 0.01,
+				},
+			}}}
+			result := &relaycommon.TaskInfo{ActualDurationSeconds: 6, ActualResolution: tt.resolution, ProviderCost: tt.providerCost}
+
+			quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, result)
+			assert.Equal(t, tt.wantQuota, quota)
+			billing := task.PrivateData.BillingContext.GrokVideoBilling
+			assert.Equal(t, tt.resolution, billing.ActualResolution)
+			assert.Equal(t, "provider_poll_v1", billing.ResolutionSource)
+			assert.Equal(t, 6.0, billing.ActualDurationSeconds)
+			assert.Equal(t, 6.0, billing.VideoInputBilledSeconds)
+			assert.Equal(t, tt.wantPrice, billing.OutputUnitPrice)
+		})
+	}
 }
 
-func TestGrokVideoEditCompletionFinalizesSnapshottedBilling(t *testing.T) {
-	task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
-		GroupRatio: 1, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
-		EstimatedOutputUnitPrices: map[string]float64{"480p": 0.05, "720p": 0.07},
-		GrokVideoBilling: &model.GrokVideoBillingSnapshot{
-			Version: 1, Model: LegacyVideoModel, Operation: videoEditAction, InputType: "video",
-			EstimatedDurationSeconds: 8.7, EstimatedResolution: "720p",
-			OutputUnitPrice: 0.07, VideoInputUnitPrice: 0.01,
-		},
-	}}}
-	result := &relaycommon.TaskInfo{ActualDurationSeconds: 6, ProviderCost: 0.36}
+func TestGrokVideoEditCompletionWithoutTrustworthyResolutionIsIndeterminate(t *testing.T) {
+	for _, resolution := range []string{"", "1080p", "unknown"} {
+		t.Run(resolution, func(t *testing.T) {
+			task := &model.Task{Platform: constant.TaskPlatform("62"), PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+				GroupRatio: 1, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
+				EstimatedOutputUnitPrices: map[string]float64{"480p": 0.05, "720p": 0.07},
+				GrokVideoBilling: &model.GrokVideoBillingSnapshot{
+					Version: 1, Model: LegacyVideoModel, Operation: videoEditAction, InputType: "video",
+					EstimatedDurationSeconds: 8.7, EstimatedResolution: "720p",
+					OutputUnitPrice: 0.07, VideoInputUnitPrice: 0.01,
+				},
+			}}}
 
-	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, result)
-	assert.Equal(t, 180000, quota)
-	billing := task.PrivateData.BillingContext.GrokVideoBilling
-	assert.Equal(t, "480p", billing.ActualResolution)
-	assert.Equal(t, 6.0, billing.ActualDurationSeconds)
-	assert.Equal(t, 6.0, billing.VideoInputBilledSeconds)
-	assert.Equal(t, 0.05, billing.OutputUnitPrice)
-	assert.InDelta(t, 0.3, billing.OutputCost, 1e-12)
-	assert.InDelta(t, 0.06, billing.VideoInputCost, 1e-12)
-	assert.InDelta(t, 0.36, billing.Subtotal, 1e-12)
+			quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, &relaycommon.TaskInfo{ActualDurationSeconds: 6, ActualResolution: resolution, ProviderCost: 999999})
+			assert.Zero(t, quota)
+			billing := task.PrivateData.BillingContext.GrokVideoBilling
+			assert.Empty(t, billing.ActualResolution)
+			assert.Empty(t, billing.ResolutionSource)
+		})
+	}
+}
+
+func TestLegacyGrokVideoEditContextNeverInfersResolutionFromProviderCost(t *testing.T) {
+	task := &model.Task{Platform: constant.TaskPlatform("62"), PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+		GroupRatio: 1, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
+		EstimatedSeconds: 9, EstimatedResolution: "720p", EstimatedInputUnitPrice: 0.01,
+		EstimatedOutputUnitPrices: map[string]float64{"480p": 0.05, "720p": 0.07},
+	}}}
+
+	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, &relaycommon.TaskInfo{ActualDurationSeconds: 6, ProviderCost: 0.36})
+
+	assert.Zero(t, quota)
+	bc := task.PrivateData.BillingContext
+	assert.True(t, bc.FinalUsageLogOnly)
+	require.NotNil(t, bc.GrokVideoBilling)
+	assert.Empty(t, bc.GrokVideoBilling.ActualResolution)
+	assert.Empty(t, bc.GrokVideoBilling.ResolutionSource)
 }
 
 func TestGrokVideoGenerationCompletionUsesSubmittedUnitPrices(t *testing.T) {
@@ -309,6 +348,26 @@ func TestParseVideoTaskStatusesAndClampProgress(t *testing.T) {
 			} else {
 				assert.Empty(t, result.Url)
 			}
+		})
+	}
+}
+
+func TestParseVideoTaskResultNormalizesExplicitResolution(t *testing.T) {
+	for _, tt := range []struct {
+		resolution string
+		want       string
+	}{
+		{resolution: " 480P ", want: "480p"},
+		{resolution: "720p", want: "720p"},
+		{resolution: "1080P", want: "1080p"},
+		{resolution: "4k", want: ""},
+		{resolution: "", want: ""},
+	} {
+		t.Run(tt.resolution, func(t *testing.T) {
+			body := `{"status":"done","video":{"url":"https://videos.example/result.mp4","duration":5,"resolution":` + strconv.Quote(tt.resolution) + `}}`
+			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(body))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, result.ActualResolution)
 		})
 	}
 }

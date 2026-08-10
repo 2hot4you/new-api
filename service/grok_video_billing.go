@@ -80,6 +80,9 @@ func validFinalizedGrokVideoBilling(snapshot *model.GrokVideoBillingSnapshot) bo
 		return false
 	}
 	expectedSubtotal := snapshot.OutputCost + snapshot.ImageInputCost + snapshot.VideoInputCost
+	if snapshot.Operation == grokVideoEditOperation && snapshot.ResolutionSource != model.GrokVideoResolutionSourceProviderPollV1 {
+		return false
+	}
 	return math.Abs(snapshot.Subtotal-expectedSubtotal) <= 1e-9
 }
 

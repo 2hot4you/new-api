@@ -36,8 +36,9 @@ type videoPollResponse struct {
 	Progress int    `json:"progress"`
 	Model    string `json:"model,omitempty"`
 	Video    struct {
-		URL      string  `json:"url"`
-		Duration float64 `json:"duration"`
+		URL        string  `json:"url"`
+		Duration   float64 `json:"duration"`
+		Resolution string  `json:"resolution,omitempty"`
 	} `json:"video,omitempty"`
 	Usage struct {
 		CostInUSDTicks int64 `json:"cost_in_usd_ticks"`

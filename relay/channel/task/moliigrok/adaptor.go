@@ -255,22 +255,35 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 			return 0
 		}
 
-		resolution := snapshot.RequestedResolution
-		if resolution == "" {
-			resolution = snapshot.EstimatedResolution
-		}
 		if snapshot.Operation == videoEditAction {
-			resolution = inferVideoEditResolution(duration, taskResult.ProviderCost)
+			snapshot.ActualDurationSeconds = duration
+			snapshot.VideoInputBilledSeconds = duration
+			snapshot.ActualResolution = ""
+			snapshot.ResolutionSource = ""
+			resolution := normalizePollingResolution(taskResult.ActualResolution)
 			outputPrice, ok := bc.EstimatedOutputUnitPrices[resolution]
 			if !ok || outputPrice < 0 || math.IsNaN(outputPrice) || math.IsInf(outputPrice, 0) {
 				return 0
 			}
+			billedModel := strings.TrimSpace(snapshot.BilledModel)
+			if billedModel == "" {
+				billedModel = strings.TrimSpace(snapshot.Model)
+			}
+			if _, _, _, configured := ratio_setting.GetMoliiGrokVideoPrices(billedModel, resolution); !configured {
+				return 0
+			}
+			snapshot.ActualResolution = resolution
+			snapshot.ResolutionSource = model.GrokVideoResolutionSourceProviderPollV1
 			snapshot.OutputUnitPrice = outputPrice
-			snapshot.VideoInputBilledSeconds = duration
+		} else {
+			resolution := snapshot.RequestedResolution
+			if resolution == "" {
+				resolution = snapshot.EstimatedResolution
+			}
+			snapshot.ActualResolution = resolution
 		}
 
 		snapshot.ActualDurationSeconds = duration
-		snapshot.ActualResolution = resolution
 		snapshot.OutputCost = snapshot.OutputUnitPrice * duration
 		snapshot.ImageInputCost = snapshot.ImageInputUnitPrice * float64(snapshot.InputImageCount)
 		snapshot.VideoInputCost = snapshot.VideoInputUnitPrice * snapshot.VideoInputBilledSeconds
@@ -280,34 +293,26 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 		return quota
 	}
 
-	if !bc.EstimatedHasVideo || bc.OriginModelName != LegacyVideoModel || taskResult.ActualDurationSeconds <= 0 {
+	if !bc.EstimatedHasVideo || bc.OriginModelName != LegacyVideoModel {
 		return 0
 	}
-	duration := taskResult.ActualDurationSeconds
-	resolution := inferVideoEditResolution(duration, taskResult.ProviderCost)
-	outputPrice, ok := bc.EstimatedOutputUnitPrices[resolution]
-	videoInputPrice := bc.EstimatedInputUnitPrice
-	if !ok || outputPrice < 0 || videoInputPrice < 0 {
-		var configured bool
-		outputPrice, _, videoInputPrice, configured = ratio_setting.GetMoliiGrokVideoPrices(LegacyVideoModel, resolution)
-		if !configured {
-			return 0
+	// Historical edit contexts do not carry an authoritative final resolution.
+	// Mark them for terminal-only review, but never invent a 480p/720p tier.
+	bc.FinalUsageLogOnly = true
+	if bc.GrokVideoBilling == nil {
+		bc.GrokVideoBilling = &model.GrokVideoBillingSnapshot{
+			Version:                  1,
+			Model:                    LegacyVideoModel,
+			Operation:                videoEditAction,
+			InputType:                "video",
+			EstimatedDurationSeconds: float64(bc.EstimatedSeconds),
+			EstimatedResolution:      strings.ToLower(strings.TrimSpace(bc.EstimatedResolution)),
+			VideoInputUnitPrice:      bc.EstimatedInputUnitPrice,
+			GroupRatio:               bc.GroupRatio,
 		}
 	}
-	quota, _ := common.QuotaFromFloatChecked(duration * (outputPrice + videoInputPrice) * common.QuotaPerUnit * bc.GroupRatio)
-	return quota
-}
-
-func inferVideoEditResolution(duration, providerCost float64) string {
-	resolution := "720p"
-	if duration > 0 && providerCost > 0 {
-		officialRate := providerCost / duration
-		resolution = "480p"
-		if math.Abs(officialRate-0.08) < math.Abs(officialRate-0.06) {
-			resolution = "720p"
-		}
-	}
-	return resolution
+	bc.GrokVideoBilling.ActualDurationSeconds = taskResult.ActualDurationSeconds
+	return 0
 }
 
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
@@ -387,6 +392,7 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.Progress = "100%"
 		result.Url = strings.TrimSpace(upstream.Video.URL)
 		result.ActualDurationSeconds = upstream.Video.Duration
+		result.ActualResolution = normalizePollingResolution(upstream.Video.Resolution)
 		result.ProviderCost = float64(upstream.Usage.CostInUSDTicks) / 10_000_000_000
 		parsedURL, err := url.Parse(result.Url)
 		if err != nil || !strings.EqualFold(parsedURL.Scheme, "https") || strings.TrimSpace(parsedURL.Host) == "" {
@@ -400,6 +406,16 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.Status = model.TaskStatusInProgress
 	}
 	return result, nil
+}
+
+func normalizePollingResolution(value string) string {
+	resolution := strings.ToLower(strings.TrimSpace(value))
+	switch resolution {
+	case "480p", "720p", "1080p":
+		return resolution
+	default:
+		return ""
+	}
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {

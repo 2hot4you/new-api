@@ -1013,6 +1013,7 @@ type TaskInfo struct {
 	CompletionTokens      int     `json:"completion_tokens,omitempty"` // 用于按倍率计费
 	TotalTokens           int     `json:"total_tokens,omitempty"`      // 用于按倍率计费
 	ActualDurationSeconds float64 `json:"actual_duration_seconds,omitempty"`
+	ActualResolution      string  `json:"actual_resolution,omitempty"`
 	ProviderCost          float64 `json:"provider_cost,omitempty"`
 }
 
