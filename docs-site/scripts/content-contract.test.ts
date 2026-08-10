@@ -425,17 +425,33 @@ describe('public API guide content contract', () => {
     for (const term of forbidden) expect(combined).not.toContain(term);
   });
 
-  test('sidebar exposes the new learning path in order', () => {
-    expect(sidebars.docsSidebar.slice(0, 2)).toEqual([
+  test('sidebar exposes the consolidated learning path in order', () => {
+    expect(sidebars.docsSidebar.slice(0, 3)).toEqual([
       {
         type: 'category',
         label: '开始使用',
-        items: ['getting-started/quickstart', 'getting-started/video-workflow'],
+        items: ['quick-start', 'getting-started/quickstart', 'getting-started/video-workflow'],
       },
       {
         type: 'category',
-        label: 'API 基础',
+        label: '平台与账户',
         items: [
+          'platform',
+          'platform/register-and-sign-in',
+          'platform/dashboard',
+          'platform/api-keys',
+          'platform/model-square-and-playground',
+          'platform/temporary-assets',
+          'platform/usage-and-generation-records',
+          'platform/wallet-and-billing',
+          'platform/profile-and-security',
+        ],
+      },
+      {
+        type: 'category',
+        label: '开发指南',
+        items: [
+          'api-basics',
           'api-basics/authentication',
           'api-basics/base-url',
           'api-basics/async-tasks',

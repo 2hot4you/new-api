@@ -5,12 +5,28 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: '开始使用',
-      items: ['getting-started/quickstart', 'getting-started/video-workflow'],
+      items: ['quick-start', 'getting-started/quickstart', 'getting-started/video-workflow'],
     },
     {
       type: 'category',
-      label: 'API 基础',
+      label: '平台与账户',
       items: [
+        'platform',
+        'platform/register-and-sign-in',
+        'platform/dashboard',
+        'platform/api-keys',
+        'platform/model-square-and-playground',
+        'platform/temporary-assets',
+        'platform/usage-and-generation-records',
+        'platform/wallet-and-billing',
+        'platform/profile-and-security',
+      ],
+    },
+    {
+      type: 'category',
+      label: '开发指南',
+      items: [
+        'api-basics',
         'api-basics/authentication',
         'api-basics/base-url',
         'api-basics/async-tasks',
@@ -21,7 +37,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: '模型指南',
+      label: '模型与能力',
       items: [
         'models',
         'models/overview',
@@ -32,22 +48,8 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: '使用指南',
+      label: '进阶指南',
       items: ['guides/seedance-multimodal', 'guides/temporary-assets'],
-    },
-    {
-      type: 'category',
-      label: '用户平台操作',
-      items: [
-        'platform/register-and-sign-in',
-        'platform/dashboard',
-        'platform/api-keys',
-        'platform/model-square-and-playground',
-        'platform/temporary-assets',
-        'platform/usage-and-generation-records',
-        'platform/wallet-and-billing',
-        'platform/profile-and-security',
-      ],
     },
     {
       type: 'category',
@@ -75,11 +77,11 @@ const sidebars: SidebarsConfig = {
         'api-reference/errors',
       ],
     },
-    'quick-start',
-    'platform',
-    'api-basics',
-    'help',
-    'changelog',
+    {
+      type: 'category',
+      label: '帮助与更新',
+      items: ['help', 'help/troubleshooting', 'help/contact-support', 'changelog'],
+    },
   ],
 };
 

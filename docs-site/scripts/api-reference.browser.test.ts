@@ -182,4 +182,31 @@ describe('default MDX API reference', () => {
       await browser.close();
     }
   }, 30_000);
+
+  test('exposes six focused top-level destinations and preserves nested routes', async () => {
+    const chromePath = await resolveBrowserExecutable();
+    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+
+    try {
+      await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+      const primaryLinks = page.locator('.navbar__items:not(.navbar__items--right) > .navbar__item.navbar__link');
+      await expect(primaryLinks.allTextContents()).resolves.toEqual([
+        '开始使用',
+        '平台与账户',
+        '开发指南',
+        '模型与能力',
+        'API 参考',
+        '帮助与更新',
+      ]);
+      await expect(primaryLinks.evaluateAll((links) => links.map((link) => link.getAttribute('href'))))
+        .resolves.toEqual(['/quick-start', '/platform', '/api-basics', '/models', '/api-reference', '/help']);
+
+      for (const route of ['/examples', '/changelog']) {
+        await expect(fetch(`${baseUrl}${route}`).then((response) => response.status)).resolves.toBe(200);
+      }
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
 });

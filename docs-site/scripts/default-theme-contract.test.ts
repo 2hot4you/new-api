@@ -30,7 +30,7 @@ describe('Docusaurus default-theme contract', () => {
     expect(config).not.toContain('preserveOpenApiPackagesCommonJs');
     expect(config).toContain('New API（QuantumNous）');
     expect(config).toContain("{ label: 'API 参考', to: '/api-reference' }");
-    for (const label of ['快速开始', '平台', 'API 基础', '模型', 'API 参考', '示例', '帮助', '更新日志']) {
+    for (const label of ['开始使用', '平台与账户', '开发指南', '模型与能力', 'API 参考', '帮助与更新']) {
       expect(config).toContain(`label: '${label}'`);
     }
   });

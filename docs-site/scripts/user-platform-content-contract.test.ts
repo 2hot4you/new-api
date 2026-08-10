@@ -247,11 +247,11 @@ describe('ordinary-user platform documentation contract', () => {
     expect(source).toMatch(/不支持.*Grok/);
   });
 
-  test('sidebar lists all eight ordinary-user guides in a dedicated category', () => {
+  test('sidebar lists all eight ordinary-user guides in the platform and account category', () => {
     const sidebar = JSON.stringify(sidebars);
     for (const id of Object.keys(guides)) {
       expect(sidebar).toContain(`platform/${id}`);
     }
-    expect(sidebar).toContain('用户平台操作');
+    expect(sidebar).toContain('平台与账户');
   });
 });
