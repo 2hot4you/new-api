@@ -28,8 +28,8 @@ func fixtureCatalog() Catalog {
 				ModelName:        "grok-imagine-image-quality",
 				MoliiGrokPricing: &GrokPricing{Kind: "image", OutputPrices: map[string]decimal.Decimal{"1k": decimal.RequireFromString("0.05"), "2k": decimal.RequireFromString("0.07")}, ImageInputPrice: decimal.RequireFromString("0.01")},
 			},
-			"grok-imagine-video-1.5-preview": {
-				ModelName:        "grok-imagine-video-1.5-preview",
+			"grok-imagine-video-1.5": {
+				ModelName:        "grok-imagine-video-1.5",
 				MoliiGrokPricing: &GrokPricing{Kind: "video", OutputPrices: map[string]decimal.Decimal{"1080p": decimal.RequireFromString("0.25")}, ImageInputPrice: decimal.RequireFromString("0.01")},
 			},
 			"grok-imagine-video": {
@@ -83,14 +83,14 @@ func TestSeedanceEstimateUsesDecimalAndFlagsAdaptiveInputs(t *testing.T) {
 	require.True(t, smart.Adaptive)
 }
 
-func TestGrokEstimatesIncludeInputsAndPreview(t *testing.T) {
+func TestGrokEstimatesIncludeInputs(t *testing.T) {
 	catalog := fixtureCatalog()
 	image := catalog.Estimate(EstimateInput{Model: "grok-imagine-image-quality", Operation: "grok.image.edit", Resolution: "2k", OutputCount: 2, InputImageCount: 3})
 	require.True(t, image.Amount.Equal(decimal.RequireFromString("0.17")))
 
-	preview := catalog.Estimate(EstimateInput{Model: "grok-imagine-video-1.5-preview", Operation: "grok.video.generate", Resolution: "1080p", Duration: 4, InputImageCount: 1})
-	require.True(t, preview.Available)
-	require.True(t, preview.Amount.Equal(decimal.RequireFromString("1.01")))
+	video15 := catalog.Estimate(EstimateInput{Model: "grok-imagine-video-1.5", Operation: "grok.video.generate", Resolution: "1080p", Duration: 4, InputImageCount: 1})
+	require.True(t, video15.Available)
+	require.True(t, video15.Amount.Equal(decimal.RequireFromString("1.01")))
 
 	edit := catalog.Estimate(EstimateInput{Model: "grok-imagine-video", Operation: "grok.video.edit"})
 	require.True(t, edit.Available)

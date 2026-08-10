@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func TestBuildSupportedGenerationOperations(t *testing.T) {
 		{"seedance.video.generate", `{"model":"doubao-seedance-2-0-260128","prompt":"cat"}`, "/v1/video/generations"},
 		{"grok.image.generate", `{"model":"grok-imagine-image","prompt":"cat"}`, "/v1/images/generations"},
 		{"grok.image.edit", `{"model":"grok-imagine-image-quality","prompt":"edit","images":["https://example.test/a.png"]}`, "/v1/images/edits"},
-		{"grok.video.generate", `{"model":"grok-imagine-video-1.5-preview","prompt":"animate","image":{"file_id":"file_1"}}`, "/v1/videos"},
+		{"grok.video.generate", `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"file_id":"file_1"}}`, "/v1/videos"},
 		{"grok.video.edit", `{"model":"grok-imagine-video","prompt":"rain","video":"https://example.test/a.mp4"}`, "/v1/videos/edits"},
 	}
 	for _, tt := range tests {
@@ -55,7 +56,7 @@ func TestBuildRejectsContractViolations(t *testing.T) {
 		{"grok.image.generate", `{"model":"grok-imagine-image","prompt":"cat","size":"1024x1024"}`},
 		{"grok.image.generate", `{"model":"grok-imagine-image","prompt":"cat","n":0}`},
 		{"grok.image.edit", `{"model":"grok-imagine-image","prompt":"cat"}`},
-		{"grok.video.generate", `{"model":"grok-imagine-video-1.5-preview","prompt":"cat"}`},
+		{"grok.video.generate", `{"model":"grok-imagine-video-1.5","prompt":"cat"}`},
 		{"grok.video.generate", `{"model":"grok-imagine-video","prompt":""}`},
 		{"grok.video.edit", `{"model":"grok-imagine-video-1.5","video":"https://example.test/a.mp4"}`},
 		{"grok.video.edit", `{"model":"grok-imagine-video","prompt":"","video":"https://example.test/a.mp4"}`},
@@ -64,6 +65,13 @@ func TestBuildRejectsContractViolations(t *testing.T) {
 		_, err := Build(tt.op, []byte(tt.body))
 		require.Error(t, err, tt.body)
 	}
+}
+
+func TestBuildRejectsRetiredGrokVideoAlias(t *testing.T) {
+	retiredModel := "grok-imagine-video-1.5-" + "pre" + "view"
+	body := fmt.Sprintf(`{"model":%q,"prompt":"animate","image":{"file_id":"file_1"}}`, retiredModel)
+	_, err := Build("grok.video.generate", []byte(body))
+	require.Error(t, err)
 }
 
 func TestCurlPreviewUsesEnvironmentVariableOnly(t *testing.T) {

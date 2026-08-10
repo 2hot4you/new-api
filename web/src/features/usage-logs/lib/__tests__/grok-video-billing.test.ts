@@ -109,6 +109,8 @@ describe('Grok video billing parser', () => {
   test('recognizes only the two supported Grok video models', () => {
     assert.equal(isGrokVideoModel('grok-imagine-video'), true)
     assert.equal(isGrokVideoModel('grok-imagine-video-1.5'), true)
+    const retiredModel = 'grok-imagine-video-1.5-' + 'pre' + 'view'
+    assert.equal(isGrokVideoModel(retiredModel), false)
     assert.equal(isGrokVideoModel('grok-imagine-image'), false)
   })
 

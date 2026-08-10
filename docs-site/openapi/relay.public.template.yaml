@@ -58,7 +58,7 @@
       "post": {
         "tags": ["Videos"], "summary": "创建 OpenAI 兼容视频任务", "operationId": "createVideo",
         "description": "创建异步视频。`model`、`prompt` 必填；支持的模型由 `/v1/models` 决定。`duration` 默认 5、范围 1–15；`aspect_ratio` 默认 `16:9`；`resolution` 默认 `480p`。Grok 1.5 模型条件性要求 `image` 或 `images`。费用按模型、时长、分辨率和输入图像结算；429/5xx 使用指数退避，随后轮询任务。",
-        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoGenerationRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-video-1.5-preview", "prompt": "雨后街道的反射光", "image": "https://example.invalid/frame.jpg", "duration": 5 } } } } } },
+        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoGenerationRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-video-1.5", "prompt": "雨后街道的反射光", "image": "https://example.invalid/frame.jpg", "duration": 5 } } } } } },
         "responses": { "200": { "$ref": "#/components/responses/OpenAIVideoAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },

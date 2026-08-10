@@ -52,10 +52,17 @@ describe('Molii Grok Imagine API channel', () => {
     assert.equal(getChannelTypeIcon(CHANNEL_TYPE_MOLII_GROK_AIGC), 'XAI')
   })
 
-  test('fills exactly the two image models and one video model', () => {
+  test('fills the two image models and all supported video model IDs', () => {
+    const expectedModels = [
+      'grok-imagine-image',
+      'grok-imagine-image-quality',
+      'grok-imagine-video',
+      'grok-imagine-video-1.5',
+    ]
+    assert.deepEqual(MOLII_GROK_AIGC_MODELS, expectedModels)
     assert.deepEqual(
       getRelatedModelsForChannelType(CHANNEL_TYPE_MOLII_GROK_AIGC, []),
-      [...MOLII_GROK_AIGC_MODELS]
+      expectedModels
     )
     assert.deepEqual(getChannelTypeConfig(CHANNEL_TYPE_MOLII_GROK_AIGC), {
       id: CHANNEL_TYPE_MOLII_GROK_AIGC,

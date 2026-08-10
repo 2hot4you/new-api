@@ -78,7 +78,7 @@ func grokImageOperations() []Operation {
 func grokVideoOperations(model string) []Operation {
 	resolutions := []string{"480p", "720p"}
 	imageRequired := false
-	if model == "grok-imagine-video-1.5" || model == "grok-imagine-video-1.5-preview" {
+	if model == "grok-imagine-video-1.5" {
 		resolutions = append(resolutions, "1080p")
 		imageRequired = true
 	}
@@ -123,7 +123,6 @@ func Models() []Model {
 		{ID: "grok-imagine-image-quality", Label: "Grok Imagine Image Quality", Provider: "grok", Kind: "image", Operations: grokImageOperations()},
 		{ID: "grok-imagine-video", Label: "Grok Imagine Video", Provider: "grok", Kind: "video", Operations: grokVideoOperations("grok-imagine-video")},
 		{ID: "grok-imagine-video-1.5", Label: "Grok Imagine Video 1.5", Provider: "grok", Kind: "video", Operations: grokVideoOperations("grok-imagine-video-1.5")},
-		{ID: "grok-imagine-video-1.5-preview", Label: "Grok Imagine Video 1.5 Preview", Provider: "grok", Kind: "video", Operations: grokVideoOperations("grok-imagine-video-1.5-preview")},
 	}
 }
 

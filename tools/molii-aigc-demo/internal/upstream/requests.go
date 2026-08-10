@@ -386,7 +386,7 @@ func validateGrokImage(req *grokImageRequest, edit bool) error {
 }
 
 func validateGrokVideo(req *grokVideoRequest) error {
-	if req.Model != "grok-imagine-video" && req.Model != "grok-imagine-video-1.5" && req.Model != "grok-imagine-video-1.5-preview" {
+	if req.Model != "grok-imagine-video" && req.Model != "grok-imagine-video-1.5" {
 		return errors.New("unsupported Grok video model")
 	}
 	req.Prompt = strings.TrimSpace(req.Prompt)

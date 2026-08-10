@@ -39,7 +39,6 @@
     grokImageModel("grok-imagine-image-quality", "Grok Imagine Image Quality"),
     grokVideoModel("grok-imagine-video", "Grok Imagine Video", false, true),
     grokVideoModel("grok-imagine-video-1.5", "Grok Imagine Video 1.5", true, false),
-    grokVideoModel("grok-imagine-video-1.5-preview", "Grok Imagine Video 1.5 Preview", true, false)
   ];
 
   function field(name, type, options = {}) { return { name, type, label: labels[name], ...options }; }

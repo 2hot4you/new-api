@@ -181,6 +181,23 @@ describe('prepareOpenApi', () => {
     expect(JSON.stringify(document.paths['/v1/images/edits'])).not.toContain('file_id');
   });
 
+  test('publishes only the supported Grok video 1.5 model example', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'molii-owned-openapi-'));
+    workspaces.push(workspace);
+    const siteRoot = join(import.meta.dir, '..');
+    const document = await prepareOpenApi({
+      templatePath: join(siteRoot, 'openapi', 'relay.public.template.yaml'),
+      allowlistPath: join(siteRoot, 'openapi', 'public-api-surface.json'),
+      outputPath: join(workspace, 'relay.public.json'),
+      apiBaseUrl: 'https://api.molii.example',
+    });
+    const retiredModel = 'grok-imagine-video-1.5-' + 'pre' + 'view';
+    const serialized = JSON.stringify(document);
+
+    expect(serialized).toContain('grok-imagine-video-1.5');
+    expect(serialized).not.toContain(retiredModel);
+  });
+
   test('publishes the implemented asset request and mutation response shapes', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'molii-owned-openapi-'));
     workspaces.push(workspace);

@@ -6,13 +6,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCatalogContainsExactModelsAndPreview(t *testing.T) {
+func TestCatalogContainsExactModels(t *testing.T) {
 	models := Models()
-	require.Len(t, models, 7)
+	require.Len(t, models, 6)
 	want := []string{
 		"doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128",
 		"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-video",
-		"grok-imagine-video-1.5", "grok-imagine-video-1.5-preview",
+		"grok-imagine-video-1.5",
 	}
 	got := make([]string, 0, len(models))
 	for _, model := range models {
@@ -25,14 +25,13 @@ func TestCatalogContainsExactModelsAndPreview(t *testing.T) {
 	require.Len(t, standard.Operations, 4)
 	require.Equal(t, "seedance.asset.create", standard.Operations[1].ID)
 
-	preview, ok := FindModel("grok-imagine-video-1.5-preview")
-	require.True(t, ok)
-	require.Len(t, preview.Operations, 1)
-	require.True(t, preview.Operations[0].Fields[2].Required)
+	retiredModel := "grok-imagine-video-1.5-" + "pre" + "view"
+	_, ok = FindModel(retiredModel)
+	require.False(t, ok)
 }
 
 func TestGrokVideoPromptsAreRequiredForGenerateAndEdit(t *testing.T) {
-	for _, modelID := range []string{"grok-imagine-video", "grok-imagine-video-1.5", "grok-imagine-video-1.5-preview"} {
+	for _, modelID := range []string{"grok-imagine-video", "grok-imagine-video-1.5"} {
 		model, ok := FindModel(modelID)
 		require.True(t, ok)
 		for _, operation := range model.Operations {

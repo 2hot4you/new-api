@@ -43,7 +43,10 @@ describe('Grok Imagine API samples', () => {
       modelName: 'grok-imagine-video',
       operation: 'download',
     })
-    assert.match(curlDownload, /MOLII_API_KEY' \\\n  --output grok-result\.mp4/)
+    assert.match(
+      curlDownload,
+      /MOLII_API_KEY' \\\n {2}--output grok-result\.mp4/
+    )
   })
 
   test('does not advertise video editing for video 1.5', () => {
@@ -52,5 +55,13 @@ describe('Grok Imagine API samples', () => {
       'status',
       'download',
     ])
+    const video15 = buildGrokApiSample('curl', {
+      baseUrl: 'https://aigc.claudeye.com',
+      modelName: 'grok-imagine-video-1.5',
+      operation: 'generate',
+    })
+    assert.match(video15, /"model": "grok-imagine-video-1\.5"/)
+    assert.match(video15, /"image":/)
+    assert.match(video15, /"resolution": "720p"/)
   })
 })

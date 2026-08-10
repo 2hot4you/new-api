@@ -64,7 +64,6 @@ describe('Grok Imagine API parameters', () => {
       'generate',
       'image'
     )
-
     assert.equal(legacyImage?.required, false)
     assert.equal(video15Image?.required, true)
     assert.deepEqual(
