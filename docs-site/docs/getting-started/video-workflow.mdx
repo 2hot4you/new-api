@@ -37,7 +37,7 @@ sanitize_request_id() {
     | cut -c1-128
 }
 
-create_http_code="$(curl --silent --show-error \
+if create_http_code="$(curl --silent --show-error \
   --connect-timeout 10 \
   --max-time 60 \
   --request POST \
@@ -54,8 +54,13 @@ create_http_code="$(curl --silent --show-error \
   }' \
   --dump-header "$headers_file" \
   --output "$body_file" \
-  --write-out '%{http_code}')"
+  --write-out '%{http_code}')"; then
+  create_curl_exit=0
+else
+  create_curl_exit=$?
+fi
 create_request_id="$(sanitize_request_id "$headers_file")"
+[ "$create_curl_exit" -eq 0 ] || { printf 'create transport failed with curl exit %s request_id=%s\n' "$create_curl_exit" "${create_request_id:-missing}" >&2; exit 1; }
 case "$create_http_code" in
   2??) ;;
   *) printf 'create failed with HTTP %s request_id=%s\n' "$create_http_code" "${create_request_id:-missing}" >&2; exit 1 ;;
@@ -74,15 +79,20 @@ while [ "$(date +%s)" -lt "$poll_deadline" ]; do
   [ "$connect_timeout" -le 10 ] || connect_timeout=10
   : >"$headers_file"
   : >"$body_file"
-  http_code="$(curl --silent --show-error \
+  if http_code="$(curl --silent --show-error \
     --connect-timeout "$connect_timeout" \
     --max-time "$poll_timeout" \
     --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id" \
     --header "Authorization: Bearer $MOLII_API_KEY" \
     --dump-header "$headers_file" \
     --output "$body_file" \
-    --write-out '%{http_code}')"
+    --write-out '%{http_code}')"; then
+    poll_curl_exit=0
+  else
+    poll_curl_exit=$?
+  fi
   response_request_id="$(sanitize_request_id "$headers_file")"
+  [ "$poll_curl_exit" -eq 0 ] || { printf 'task lookup transport failed with curl exit %s request_id=%s\n' "$poll_curl_exit" "${response_request_id:-missing}" >&2; exit 1; }
 
   wait_seconds="$(( delay + RANDOM % 2 ))"
   case "$http_code" in
@@ -124,15 +134,20 @@ download_timeout="$download_remaining"
 [ "$download_timeout" -le 120 ] || download_timeout=120
 download_connect_timeout="$download_timeout"
 [ "$download_connect_timeout" -le 10 ] || download_connect_timeout=10
-download_http_code="$(curl --location --silent --show-error \
+if download_http_code="$(curl --location --silent --show-error \
   --connect-timeout "$download_connect_timeout" \
   --max-time "$download_timeout" \
   --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id/content" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --dump-header "$headers_file" \
   --output "$body_file" \
-  --write-out '%{http_code}')"
+  --write-out '%{http_code}')"; then
+  download_curl_exit=0
+else
+  download_curl_exit=$?
+fi
 download_request_id="$(sanitize_request_id "$headers_file")"
+[ "$download_curl_exit" -eq 0 ] || { printf 'download transport failed with curl exit %s request_id=%s\n' "$download_curl_exit" "${download_request_id:-missing}" >&2; exit 1; }
 case "$download_http_code" in
   2??) ;;
   *) printf 'download failed with HTTP %s request_id=%s\n' "$download_http_code" "${download_request_id:-missing}" >&2; exit 1 ;;
@@ -307,7 +322,9 @@ function retryAfterMilliseconds(value: string | null, now = Date.now()): number 
   const trimmed = value.trim();
   if (/^\d+$/.test(trimmed)) {
     const seconds = Number(trimmed);
-    return Number.isSafeInteger(seconds) ? seconds * 1000 : null;
+    return Number.isSafeInteger(seconds) && seconds <= Number.MAX_SAFE_INTEGER / 1000
+      ? seconds * 1000
+      : null;
   }
   const retryAt = Date.parse(trimmed);
   if (!Number.isFinite(retryAt)) return null;
@@ -324,6 +341,7 @@ const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(reso
 // 付费 POST 只调用一次。
 const createdResponse = await fetch(`${baseUrl}/v1/videos`, {
   method: 'POST',
+  redirect: 'error',
   headers,
   body: JSON.stringify({
     model: 'grok-imagine-video-1.5',
@@ -346,6 +364,7 @@ for (let attempt = 0; Date.now() < pollDeadline; attempt += 1) {
   if (pollRemaining <= 0) break;
   const pollTimeout = Math.min(30_000, pollRemaining);
   const response = await fetch(`${baseUrl}/v1/videos/${created.id}`, {
+    redirect: 'error',
     headers,
     signal: AbortSignal.timeout(pollTimeout),
   });
@@ -375,6 +394,7 @@ const downloadRemaining = pollDeadline - Date.now();
 if (downloadRemaining <= 0) throw new Error(`task ${created.id} finished, but the download deadline was reached`);
 const downloadTimeout = Math.min(120_000, downloadRemaining);
 const content = await fetch(`${baseUrl}/v1/videos/${created.id}/content`, {
+  redirect: 'follow',
   headers,
   signal: AbortSignal.timeout(downloadTimeout),
 });

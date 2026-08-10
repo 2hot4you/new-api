@@ -190,9 +190,9 @@ describe('public API guide content contract', () => {
     expect(video).not.toContain('requests` 的 `(connect, read)`');
     expect(video).toContain('pollDeadline = Date.now()');
     expect(video.match(/signal:\s*AbortSignal\.timeout/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
-    expect(shell.indexOf('poll_remaining=')).toBeLessThan(shell.indexOf('\n  http_code="$(curl'));
+    expect(shell.indexOf('poll_remaining=')).toBeLessThan(shell.indexOf('\n  if http_code="$(curl'));
     expect(shell).toContain('--max-time "$poll_timeout"');
-    expect(shell.indexOf('download_remaining=')).toBeLessThan(shell.indexOf('download_http_code="$(curl'));
+    expect(shell.indexOf('download_remaining=')).toBeLessThan(shell.indexOf('if download_http_code="$(curl'));
     expect(shell).toContain('--max-time "$download_timeout"');
     expect(python.match(/await client\.post\(/g)?.length ?? 0).toBe(1);
     expect(python).not.toMatch(/AsyncClient\([^)]*follow_redirects=True/);
@@ -212,6 +212,68 @@ describe('public API guide content contract', () => {
       .toBeLessThan(typeScript.indexOf('const content = await fetch('));
     expect(typeScript).toContain('const downloadTimeout = Math.min(120_000, downloadRemaining)');
     expect(typeScript).toContain('AbortSignal.timeout(downloadTimeout)');
+  });
+
+  test('video curl captures transport failures before exiting under set -e', async () => {
+    const video = await page('docs/getting-started/video-workflow.mdx');
+    const shell = fencedCode(video, 'bash');
+
+    expect(shell).toContain('set -eu');
+    expect(shell.match(/--dump-header "\$headers_file"/g)?.length ?? 0).toBe(3);
+    expect(shell.match(/--output "\$body_file"/g)?.length ?? 0).toBe(3);
+    expect(shell.match(/--write-out '%\{http_code\}'/g)?.length ?? 0).toBe(3);
+    for (const [assignment, success, failure, requestId, exitCheck] of [
+      [
+        'if create_http_code="$(curl',
+        'create_curl_exit=0',
+        'create_curl_exit=$?',
+        'create_request_id="$(sanitize_request_id "$headers_file")"',
+        '[ "$create_curl_exit" -eq 0 ] ||',
+      ],
+      [
+        'if http_code="$(curl',
+        'poll_curl_exit=0',
+        'poll_curl_exit=$?',
+        'response_request_id="$(sanitize_request_id "$headers_file")"',
+        '[ "$poll_curl_exit" -eq 0 ] ||',
+      ],
+      [
+        'if download_http_code="$(curl',
+        'download_curl_exit=0',
+        'download_curl_exit=$?',
+        'download_request_id="$(sanitize_request_id "$headers_file")"',
+        '[ "$download_curl_exit" -eq 0 ] ||',
+      ],
+    ]) {
+      const indexes = [assignment, success, failure, requestId, exitCheck].map((needle) => shell.indexOf(needle));
+      for (const index of indexes) expect(index, assignment).toBeGreaterThan(-1);
+      expect(indexes[0]).toBeLessThan(indexes[1]);
+      expect(indexes[0]).toBeLessThan(indexes[2]);
+      expect(indexes[1]).toBeLessThan(indexes[3]);
+      expect(indexes[2]).toBeLessThan(indexes[3]);
+      expect(indexes[3]).toBeLessThan(indexes[4]);
+    }
+  });
+
+  test('TypeScript prevents paid POST redirects and follows redirects only for download', async () => {
+    const video = await page('docs/getting-started/video-workflow.mdx');
+    const typeScript = fencedCode(video, 'ts');
+    const create = typeScript.slice(
+      typeScript.indexOf('const createdResponse = await fetch('),
+      typeScript.indexOf('const createdRequestId ='),
+    );
+    const poll = typeScript.slice(
+      typeScript.indexOf('const response = await fetch('),
+      typeScript.indexOf('const responseRequestId ='),
+    );
+    const download = typeScript.slice(
+      typeScript.indexOf('const content = await fetch('),
+      typeScript.indexOf('const contentRequestId ='),
+    );
+
+    expect(create).toContain("redirect: 'error'");
+    expect(poll).toContain("redirect: 'error'");
+    expect(download).toContain("redirect: 'follow'");
   });
 
   test('Python and TypeScript sanitize request ids before every response error', async () => {
@@ -249,10 +311,19 @@ describe('public API guide content contract', () => {
     expect(python).toContain('if parsed_retry_after is not None');
     expect(typeScript).toContain('function retryAfterMilliseconds(value: string | null, now = Date.now())');
     expect(typeScript).toContain('/^\\d+$/.test(trimmed)');
+    expect(typeScript).toContain('seconds <= Number.MAX_SAFE_INTEGER / 1000');
     expect(typeScript).toContain('Date.parse(trimmed)');
     expect(typeScript).toContain('return delta >= 0 ? delta : null');
     expect(typeScript).toMatch(/parsedRetryAfter\s*\n\s*\?\?/);
     expect(video).toMatch(/\u7a7a\u503c[^\u3002\n]*\u9000\u907f|\u975e\u6cd5[^\u3002\n]*\u9000\u907f/);
+
+    const functionSource = typeScript.match(/function retryAfterMilliseconds\([\s\S]*?\n\}/)?.[0] ?? '';
+    const javascript = new Bun.Transpiler({ loader: 'ts' }).transformSync(functionSource);
+    const retryAfterMilliseconds = new Function(`${javascript}; return retryAfterMilliseconds;`)() as (
+      value: string | null,
+      now?: number,
+    ) => number | null;
+    expect(retryAfterMilliseconds(String(Number.MAX_SAFE_INTEGER))).toBeNull();
   });
 
   test('error guidance captures a sanitized public request id for support', async () => {
