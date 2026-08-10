@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { readFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import sidebars from '../sidebars';
@@ -34,6 +35,138 @@ function frontmatter(source: string): Record<string, string> {
 
 function fencedCode(source: string, language: string): string {
   return source.match(new RegExp(`\\\`\\\`\\\`${language}\\n([\\s\\S]*?)\\n\\\`\\\`\\\``))?.[1] ?? '';
+}
+
+async function runCurlExample(downloadStatus: '200' | '302') {
+  const workspace = await mkdtemp(join(tmpdir(), 'seedance-curl-contract-'));
+  const binDirectory = join(workspace, 'bin');
+  const scriptPath = join(workspace, 'example.sh');
+  const curlLogPath = join(workspace, 'curl.log');
+  const curlCountPath = join(workspace, 'curl.count');
+  await mkdir(binDirectory);
+  await writeFile(
+    scriptPath,
+    fencedCode(await page('docs/examples/seedance-curl.mdx'), 'bash'),
+  );
+  await writeFile(
+    join(binDirectory, 'jq'),
+    `#!/usr/bin/env bash
+set -eu
+query="$2"
+case "$query" in
+  .id) printf 'task_contract_test\\n' ;;
+  .status) printf 'completed\\n' ;;
+  .progress) printf '100\\n' ;;
+  *) printf 'task failed\\n' ;;
+esac
+`,
+  );
+  await writeFile(
+    join(binDirectory, 'curl'),
+    `#!/usr/bin/env bash
+set -eu
+count=0
+[ ! -f "$FAKE_CURL_COUNT" ] || count="$(cat "$FAKE_CURL_COUNT")"
+count="$((count + 1))"
+printf '%s' "$count" >"$FAKE_CURL_COUNT"
+
+url=''
+headers_file=''
+body_file=''
+has_authorization=0
+follow_redirects=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --url) url="$2"; shift 2 ;;
+    --header)
+      case "$2" in Authorization:*) has_authorization=1 ;; esac
+      shift 2
+      ;;
+    --dump-header) headers_file="$2"; shift 2 ;;
+    --output) body_file="$2"; shift 2 ;;
+    --location) follow_redirects=1; shift ;;
+    --request|--connect-timeout|--max-time|--data|--write-out) shift 2 ;;
+    --silent|--show-error) shift ;;
+    *) shift ;;
+  esac
+done
+printf 'request call=%s auth=%s follow=%s url=%s\\n' "$count" "$has_authorization" "$follow_redirects" "$url" >>"$FAKE_CURL_LOG"
+
+case "$count" in
+  1)
+    printf 'HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n' >"$headers_file"
+    printf '{"id":"task_contract_test"}' >"$body_file"
+    printf '200'
+    ;;
+  2)
+    printf 'HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n' >"$headers_file"
+    printf '{"id":"task_contract_test","status":"completed","progress":100}' >"$body_file"
+    printf '200'
+    ;;
+  3)
+    if [ "$FAKE_DOWNLOAD_STATUS" = 302 ]; then
+      printf 'HTTP/1.1 302 Found\\r\\nLocation: https://media.example.invalid/result.mp4\\r\\n\\r\\n' >"$headers_file"
+      : >"$body_file"
+      if [ "$follow_redirects" -eq 1 ]; then
+        printf 'redirect-follow auth=%s url=https://media.example.invalid/result.mp4\\n' "$has_authorization" >>"$FAKE_CURL_LOG"
+        printf 'HTTP/1.1 302 Found\\r\\nLocation: https://media.example.invalid/result.mp4\\r\\n\\r\\nHTTP/1.1 200 OK\\r\\nContent-Type: video/mp4\\r\\n\\r\\n' >"$headers_file"
+        printf 'fake-video' >"$body_file"
+        printf '200'
+      else
+        printf '302'
+      fi
+    else
+      printf 'HTTP/1.1 200 OK\\r\\nContent-Type: video/mp4\\r\\n\\r\\n' >"$headers_file"
+      printf 'fake-video' >"$body_file"
+      printf '200'
+    fi
+    ;;
+  *)
+    printf 'unexpected curl call\\n' >&2
+    exit 90
+    ;;
+esac
+`,
+  );
+  await chmod(join(binDirectory, 'curl'), 0o755);
+  await chmod(join(binDirectory, 'jq'), 0o755);
+
+  const child = Bun.spawn(['bash', scriptPath], {
+    cwd: workspace,
+    env: {
+      ...process.env,
+      PATH: `${binDirectory}:${process.env.PATH ?? ''}`,
+      MOLII_API_KEY: 'contract-test-key',
+      MOLII_API_BASE_URL: 'https://api.example.invalid',
+      FAKE_CURL_LOG: curlLogPath,
+      FAKE_CURL_COUNT: curlCountPath,
+      FAKE_DOWNLOAD_STATUS: downloadStatus,
+    },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  const curlLog = await readFile(curlLogPath, 'utf8');
+  const resultPath = join(workspace, 'seedance-result.mp4');
+  let resultExists = true;
+  try {
+    await readFile(resultPath);
+  } catch {
+    resultExists = false;
+  }
+
+  return {
+    cleanup: () => rm(workspace, { recursive: true, force: true }),
+    curlLog,
+    exitCode,
+    resultExists,
+    stderr,
+    stdout,
+  };
 }
 
 describe('Seedance and temporary asset documentation contract', () => {
@@ -142,6 +275,29 @@ describe('Seedance and temporary asset documentation contract', () => {
     expect(typeScript.match(/method:\s*'POST'/g)?.length ?? 0).toBe(1);
     expect(python).toContain('follow_redirects=False');
     expect(typeScript).toContain("redirect: 'error'");
+  });
+
+  test('curl download never follows a cross-host redirect with the API authorization', async () => {
+    const direct = await runCurlExample('200');
+    try {
+      expect(direct.exitCode).toBe(0);
+      expect(direct.resultExists).toBe(true);
+      expect(direct.curlLog).toContain('request call=3 auth=1 follow=0');
+      expect(direct.curlLog).not.toContain('redirect-follow');
+    } finally {
+      await direct.cleanup();
+    }
+
+    const redirected = await runCurlExample('302');
+    try {
+      expect(redirected.exitCode).not.toBe(0);
+      expect(redirected.resultExists).toBe(false);
+      expect(redirected.curlLog).toContain('request call=3 auth=1 follow=0');
+      expect(redirected.curlLog).not.toContain('redirect-follow');
+      expect(redirected.stderr).toContain('download failed with HTTP 302');
+    } finally {
+      await redirected.cleanup();
+    }
   });
 
   test('sidebar exposes models, guides, and per-language examples', () => {

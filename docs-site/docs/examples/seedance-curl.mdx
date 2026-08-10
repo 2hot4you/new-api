@@ -10,7 +10,7 @@ sidebar_position: 1
 
 # Seedance curl 完整示例
 
-此脚本需要 Bash、curl 和 jq。它只调用一次付费 `POST /v1/videos`；如果创建请求的网络结果不确定，脚本会停止，而不会自动重放。任务查询使用有总截止时间的 GET，对 `429` 和 HTTP `500`–`599` 响应退避，并在写入文件前验证 `Content-Type`。
+此脚本需要 Bash、curl 和 jq。它只调用一次付费 `POST /v1/videos`；如果创建请求的网络结果不确定，脚本会停止，而不会自动重放。任务查询使用有总截止时间的 GET，对 `429` 和 HTTP `500`–`599` 响应退避，并在写入文件前验证 `Content-Type`。下载端点应直接返回视频；脚本拒绝重定向，避免把 Molii API Key 发送给其他主机。
 
 代码不会由文档站执行。请先设置 `MOLII_API_KEY`，并按你的环境设置 `MOLII_API_BASE_URL`。
 
@@ -127,7 +127,7 @@ download_deadline="$(( $(date +%s) + 120 ))"
 download_remaining="$(( download_deadline - $(date +%s) ))"
 : >"$headers_file"
 : >"$body_file"
-if download_code="$(curl --location --silent --show-error \
+if download_code="$(curl --silent --show-error \
   --connect-timeout 10 \
   --max-time "$download_remaining" \
   --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id/content" \
@@ -149,4 +149,4 @@ case "$content_type" in
 esac
 ```
 
-对于 GET，传输失败、`429` 和 `5xx` 可以在截止时间内重试。对于付费 POST，超时只表示客户端没有拿到确定响应，不表示服务端没有受理，因此脚本不会重发。
+对于轮询 GET，传输失败、`429` 和 `5xx` 可以在截止时间内重试。下载 GET 不跟随 `3xx`；它只把 API Key 发送到配置的 Molii Base URL，并把任何重定向视为错误。对于付费 POST，超时只表示客户端没有拿到确定响应，不表示服务端没有受理，因此脚本不会重发。
