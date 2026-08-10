@@ -14,28 +14,30 @@ sidebar_position: 1
 
 本参考只包含普通用户使用 API Key 调用的公开接口。所有示例都使用环境变量，内容严格限定为用户侧产品能力。
 
-## 基础约定
+## 开始前确认
 
-所有请求以你的 Molii 环境地址为 Base URL：
+准备服务端 API Key、可信 Base URL、请求超时和日志中的公开 Request ID 字段。付费创建请求不要配置自动重试。
 
-```bash
-export MOLII_API_BASE_URL="http://127.0.0.1:3000"
-export MOLII_API_KEY="your-api-key"
-```
+## 选择端点
 
-需要鉴权的请求发送：
+- [模型 API](/api-reference/models)：读取当前公开模型。
+- [图片 API](/api-reference/images)：图片生成与编辑。
+- [视频 API](/api-reference/videos)：Grok 视频创建、编辑、查询和下载。
+- [Seedance API](/api-reference/seedance)：Seedance 多模态视频创建与查询。
+- [临时素材 API](/api-reference/assets)：创建、查询和删除素材。
+- [错误 API](/api-reference/errors)：标准错误、状态码和 Request ID。
 
-```http
-Authorization: Bearer $MOLII_API_KEY
-```
+## 同步与异步响应
 
-JSON 请求还应发送 `Content-Type: application/json` 和 `Accept: application/json`。
+图片请求通常直接返回结果；视频请求通常先返回任务 ID，再通过查询接口获得状态、媒体和最终计费。轮询规则见[异步任务](/api-basics/async-tasks)。
 
-:::warning 保护 API Key
+## 计费与用量字段
 
-API Key 代表你的账户并可能触发计费。只能从服务端或本机安全环境读取，不要放入浏览器代码、移动端包、日志或公开仓库。
+提交时的预估用于展示和额度检查，任务完成后的实际 Token 与最终结算才是权威结果。详见[计费与用量](/api-basics/billing-and-usage)。
 
-:::
+## 错误与 Request ID
+
+失败时保存公开 Request ID，并按状态码和操作类型决定是否重试。不要在日志或工单中记录完整 Authorization。详见[错误与重试](/api-basics/errors-retries)。
 
 ## 接口分组
 
@@ -45,12 +47,6 @@ API Key 代表你的账户并可能触发计费。只能从服务端或本机安
 - [Seedance](/api-reference/seedance)：Seedance 2.0 多模态视频生成与任务查询。
 - [临时素材](/api-reference/assets)：创建、查询和删除 Seedance 临时素材。
 - [错误](/api-reference/errors)：错误结构、HTTP 状态、Request ID 与重试规则。
-
-## 异步任务
-
-视频接口采用异步流程：创建任务只提交一次，保存返回的 `id`，通过 GET 查询状态，完成后再下载内容。创建与编辑 POST 可能产生费用，网络超时不能证明服务端未受理，因此不要自动重放。
-
-状态、轮询截止时间和安全重试策略见 [异步任务](../api-basics/async-tasks) 与 [错误与重试](../api-basics/errors-retries)。
 
 ## 响应兼容性
 
