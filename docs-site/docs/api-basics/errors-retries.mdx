@@ -51,6 +51,58 @@ function retryDelay(attempt: number, retryAfter: string | null): number {
 
 始终设置最大尝试次数或总截止时间。`Retry-After` 存在时优先遵循；没有时使用带抖动（jitter）的退避，避免多个客户端同时重试。
 
+## 记录公开 Request ID
+
+每个响应的 `X-Oneapi-Request-Id` 是 Molii 本次请求的公开排障标识。发生错误时，可以将它与 HTTP 状态、公开错误码一起提供给支持人员排障。它不是上游请求标识，也不应替代你的业务关联 ID。
+
+日志前应对该值脱敏：只保留 ASCII 字母、数字、`.`、`_`、`:` 和 `-`，并限制到 128 个字符，防止伪造日志行。不要记录整组响应头、`Authorization` 或带签名的媒体 URL。
+
+### curl
+
+```bash
+headers_file="$(mktemp)"
+trap 'rm -f "$headers_file"' EXIT
+curl --fail-with-body --silent --show-error \
+  --connect-timeout 10 --max-time 30 \
+  --url "${MOLII_API_BASE_URL%/}/v1/models" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --dump-header "$headers_file" >/dev/null
+request_id="$(awk 'tolower($1) == "x-oneapi-request-id:" { value=$2 } END { gsub(/\r/, "", value); print value }' "$headers_file")"
+safe_request_id="$(printf '%s' "$request_id" | LC_ALL=C tr -cd 'A-Za-z0-9._:-' | cut -c1-128)"
+[ -z "$safe_request_id" ] || printf 'request_id=%s\n' "$safe_request_id"
+```
+
+### Python
+
+```python
+import os
+import requests
+
+response = requests.get(
+    f"{os.environ['MOLII_API_BASE_URL'].rstrip('/')}/v1/models",
+    headers={"Authorization": f"Bearer {os.environ['MOLII_API_KEY']}"},
+    timeout=(10, 30),
+)
+response.raise_for_status()
+request_id = response.headers.get("X-Oneapi-Request-Id", "")
+safe_request_id = "".join(c for c in request_id if c.isascii() and (c.isalnum() or c in "._:-"))[:128]
+if safe_request_id:
+    print(f"request_id={safe_request_id}")
+```
+
+### TypeScript
+
+```ts
+const response = await fetch(`${baseUrl}/v1/models`, {
+  headers: { Authorization: `Bearer ${apiKey}` },
+  signal: AbortSignal.timeout(30_000),
+});
+if (!response.ok) throw new Error(`HTTP ${response.status}`);
+const requestId = response.headers.get('X-Oneapi-Request-Id') ?? '';
+const safeRequestId = requestId.replace(/[^A-Za-z0-9._:-]/g, '').slice(0, 128);
+if (safeRequestId) console.info('request_id=%s', safeRequestId);
+```
+
 ## 付费 POST 超时时
 
 - 如果已经拿到任务 ID，保存它并只用 GET 查询。

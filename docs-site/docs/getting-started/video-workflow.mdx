@@ -28,6 +28,8 @@ set -eu
 MOLII_API_BASE_URL="${MOLII_API_BASE_URL:-http://127.0.0.1:3000}"
 
 created="$(curl --fail-with-body --silent --show-error \
+  --connect-timeout 10 \
+  --max-time 60 \
   --request POST \
   --url "${MOLII_API_BASE_URL%/}/v1/videos" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
@@ -41,31 +43,72 @@ created="$(curl --fail-with-body --silent --show-error \
     "resolution": "480p"
   }')"
 
-task_id="$(printf '%s' "$created" | jq -er '.id')"
-completed='false'
-for delay in 2 3 5 8 13; do
-  task="$(curl --fail-with-body --silent --show-error \
-    --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id" \
-    --header "Authorization: Bearer $MOLII_API_KEY")"
-  status="$(printf '%s' "$task" | jq -r '.status')"
-  printf 'status=%s progress=%s%%\n' "$status" "$(printf '%s' "$task" | jq -r '.progress')"
-  case "$status" in
-    completed) completed='true'; break ;;
-    failed) printf '%s\n' "$task" >&2; exit 1 ;;
-  esac
-  sleep "$delay"
-done
-[ "$completed" = 'true' ] || { printf 'polling deadline reached\n' >&2; exit 1; }
-
 headers_file="$(mktemp)"
 body_file="$(mktemp)"
 trap 'rm -f "$headers_file" "$body_file"' EXIT
-curl --fail-with-body --location --silent --show-error \
+task_id="$(printf '%s' "$created" | jq -er '.id')"
+poll_deadline="$(( $(date +%s) + 180 ))"
+delay=2
+completed='false'
+while [ "$(date +%s)" -lt "$poll_deadline" ]; do
+  : >"$headers_file"
+  : >"$body_file"
+  http_code="$(curl --silent --show-error \
+    --connect-timeout 10 \
+    --max-time 30 \
+    --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id" \
+    --header "Authorization: Bearer $MOLII_API_KEY" \
+    --dump-header "$headers_file" \
+    --output "$body_file" \
+    --write-out '%{http_code}')"
+
+  wait_seconds="$(( delay + RANDOM % 2 ))"
+  case "$http_code" in
+    200)
+      task="$(cat "$body_file")"
+      status="$(printf '%s' "$task" | jq -er '.status')"
+      printf 'status=%s progress=%s%%\n' "$status" "$(printf '%s' "$task" | jq -r '.progress')"
+      case "$status" in
+        completed) completed='true'; break ;;
+        failed) printf '%s\n' "$task" >&2; exit 1 ;;
+      esac
+      ;;
+    429|5??)
+      retry_after="$(awk 'tolower($1) == "retry-after:" { value=$2 } END { gsub(/\r/, "", value); print value }' "$headers_file")"
+      case "$retry_after" in
+        ''|*[!0-9]*) ;;
+        *) wait_seconds="$retry_after" ;;
+      esac
+      ;;
+    *)
+      printf 'task lookup failed with HTTP %s\n' "$http_code" >&2
+      exit 1
+      ;;
+  esac
+
+  remaining="$(( poll_deadline - $(date +%s) ))"
+  [ "$remaining" -gt 0 ] || break
+  [ "$wait_seconds" -le "$remaining" ] || wait_seconds="$remaining"
+  sleep "$wait_seconds"
+  [ "$delay" -ge 15 ] && delay=30 || delay="$(( delay * 2 ))"
+done
+[ "$completed" = 'true' ] || { printf 'polling deadline reached\n' >&2; exit 1; }
+
+: >"$headers_file"
+: >"$body_file"
+download_http_code="$(curl --location --silent --show-error \
+  --connect-timeout 10 \
+  --max-time 120 \
   --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id/content" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --dump-header "$headers_file" \
-  --output "$body_file"
-content_type="$(awk 'BEGIN { IGNORECASE=1 } /^Content-Type:/ { value=$0 } END { sub(/\r$/, "", value); sub(/^[^:]+:[[:space:]]*/, "", value); print tolower(value) }' "$headers_file")"
+  --output "$body_file" \
+  --write-out '%{http_code}')"
+case "$download_http_code" in
+  2??) ;;
+  *) printf 'download failed with HTTP %s\n' "$download_http_code" >&2; exit 1 ;;
+esac
+content_type="$(awk 'tolower($1) == "content-type:" { value=$0 } END { sub(/\r$/, "", value); sub(/^[^:]+:[[:space:]]*/, "", value); print tolower(value) }' "$headers_file")"
 case "$content_type" in
   video/*) mv "$body_file" result.mp4 ;;
   *) printf 'expected video/*, received %s\n' "${content_type:-missing Content-Type}" >&2; exit 1 ;;
@@ -101,27 +144,37 @@ created = requests.post(
 created.raise_for_status()
 task_id = created.json()["id"]
 
-for attempt in range(8):
+poll_deadline = time.monotonic() + 180
+attempt = 0
+completed = False
+while time.monotonic() < poll_deadline:
     response = requests.get(
-        f"{base_url}/v1/videos/{task_id}", headers=headers, timeout=30
+        f"{base_url}/v1/videos/{task_id}", headers=headers, timeout=(10, 30)
     )
     if response.status_code == 429 or response.status_code >= 500:
         retry_after = response.headers.get("Retry-After")
-        delay = float(retry_after) if retry_after else min(2 ** attempt, 30) + random.random()
-        time.sleep(delay)
-        continue
-    response.raise_for_status()
-    task = response.json()
-    if task["status"] == "completed":
+        wait_seconds = float(retry_after) if retry_after else min(2 ** attempt, 30) + random.random()
+    else:
+        response.raise_for_status()
+        task = response.json()
+        if task["status"] == "completed":
+            completed = True
+            break
+        if task["status"] == "failed":
+            raise RuntimeError(task.get("error", {}).get("message", "video task failed"))
+        wait_seconds = min(2 ** attempt, 30) + random.random()
+
+    remaining = poll_deadline - time.monotonic()
+    if remaining <= 0:
         break
-    if task["status"] == "failed":
-        raise RuntimeError(task.get("error", {}).get("message", "video task failed"))
-    time.sleep(min(2 ** attempt, 30) + random.random())
-else:
+    time.sleep(min(wait_seconds, remaining))
+    attempt += 1
+
+if not completed:
     raise TimeoutError(f"task {task_id} did not finish before the polling deadline")
 
 content = requests.get(
-    f"{base_url}/v1/videos/{task_id}/content", headers=headers, timeout=120
+    f"{base_url}/v1/videos/{task_id}/content", headers=headers, timeout=(10, 120)
 )
 content.raise_for_status()
 content_type = content.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
@@ -159,25 +212,38 @@ const createdResponse = await fetch(`${baseUrl}/v1/videos`, {
 if (!createdResponse.ok) throw new Error(await createdResponse.text());
 const created = await createdResponse.json() as { id: string };
 
+const pollDeadline = Date.now() + 180_000;
 let completed = false;
-for (let attempt = 0; attempt < 8; attempt += 1) {
-  const response = await fetch(`${baseUrl}/v1/videos/${created.id}`, { headers });
+for (let attempt = 0; Date.now() < pollDeadline; attempt += 1) {
+  const response = await fetch(`${baseUrl}/v1/videos/${created.id}`, {
+    headers,
+    signal: AbortSignal.timeout(30_000),
+  });
+  let waitMilliseconds: number;
   if (response.status === 429 || response.status >= 500) {
     const retryAfter = response.headers.get('Retry-After');
     const retryAfterSeconds = retryAfter === null ? Number.NaN : Number(retryAfter);
-    await sleep(Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : Math.min(2 ** attempt, 30) * 1000 + Math.random() * 500);
-    continue;
+    waitMilliseconds = Number.isFinite(retryAfterSeconds)
+      ? retryAfterSeconds * 1000
+      : Math.min(2 ** attempt, 30) * 1000 + Math.random() * 500;
+  } else {
+    if (!response.ok) throw new Error(await response.text());
+    const task = await response.json() as { status: string; progress: number; error?: { message: string } };
+    console.log(task.status, `${task.progress}%`);
+    if (task.status === 'completed') { completed = true; break; }
+    if (task.status === 'failed') throw new Error(task.error?.message ?? 'video task failed');
+    waitMilliseconds = Math.min(2 ** attempt, 30) * 1000 + Math.random() * 500;
   }
-  if (!response.ok) throw new Error(await response.text());
-  const task = await response.json() as { status: string; progress: number; error?: { message: string } };
-  console.log(task.status, `${task.progress}%`);
-  if (task.status === 'completed') { completed = true; break; }
-  if (task.status === 'failed') throw new Error(task.error?.message ?? 'video task failed');
-  await sleep(Math.min(2 ** attempt, 30) * 1000 + Math.random() * 500);
+  const remaining = pollDeadline - Date.now();
+  if (remaining <= 0) break;
+  await sleep(Math.min(waitMilliseconds, remaining));
 }
 if (!completed) throw new Error(`task ${created.id} did not finish before the polling deadline`);
 
-const content = await fetch(`${baseUrl}/v1/videos/${created.id}/content`, { headers });
+const content = await fetch(`${baseUrl}/v1/videos/${created.id}/content`, {
+  headers,
+  signal: AbortSignal.timeout(120_000),
+});
 if (!content.ok) throw new Error(await content.text());
 const contentType = (content.headers.get('Content-Type') ?? '').split(';', 1)[0].trim().toLowerCase();
 if (!contentType.startsWith('video/')) throw new Error(`expected video/*, received ${contentType || 'missing Content-Type'}`);

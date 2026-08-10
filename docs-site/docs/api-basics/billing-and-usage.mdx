@@ -31,6 +31,8 @@ sidebar_position: 6
 
 `final_cost` 只有在 `state` 为 `settled` 时才表示最终费用。`detail_available` 为 `true` 时，响应还可能带有与当前计费模式对应的公开明细；客户端应允许以后增加明细字段。
 
+`billing.mode` 的公开值与任务运行时一致：`grok_video` 表示 Grok 视频任务，`seedance` 表示 Seedance 视频任务。两者的明细字段不同，请先按 `mode` 分支，并且忽略不认识的附加字段。
+
 ## 结算状态
 
 | `billing.state` | 含义 | 客户端动作 |

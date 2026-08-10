@@ -260,7 +260,10 @@ describe('prepareOpenApi', () => {
       task_id: 'task_public_123',
       status: 'SUCCESS',
       progress: '100%',
+      billing: { mode: 'grok_video' },
     });
+    expect(document.components.schemas.PublicTaskBillingSummary.properties.mode.enum)
+      .toEqual(['seedance', 'grok_video']);
     for (const internalField of ['id', 'platform', 'user_id', 'group', 'channel_id', 'quota']) {
       expect(compatibilityExample).not.toHaveProperty(internalField);
     }
