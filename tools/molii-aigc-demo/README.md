@@ -9,7 +9,8 @@
 - 多环境保存、编辑、删除、连通性测试与切换；
 - Seedance 2.0 标准版、Fast 版和临时素材 API；
 - Grok Imagine 图片生成、图片编辑、视频生成和视频编辑；
-- Grok Imagine Video 1.5 与 1.5 Preview 图生视频；
+- Grok Imagine Video（`grok-imagine-video`）视频生成和视频编辑；
+- Grok Imagine Video 1.5（`grok-imagine-video-1.5`）图生视频；
 - 完整参数表单、请求 JSON 与 curl 实时预览；
 - 服务端异步轮询、进度、结果预览、停止轮询和下载（停止 Demo 轮询不会取消上游任务或阻止计费）；
 - 从目标 `/api/pricing` 动态计算预估费用；
