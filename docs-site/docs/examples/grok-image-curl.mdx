@@ -20,7 +20,7 @@ export MOLII_API_KEY='YOUR_API_KEY'
 ## 标准图片生成
 
 ```bash
-curl --location --include --request POST \
+curl --include --request POST \
   "$MOLII_API_BASE_URL/v1/images/generations" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
@@ -37,7 +37,7 @@ curl --location --include --request POST \
 ## 高质量图片生成
 
 ```bash
-curl --location --include --request POST \
+curl --include --request POST \
   "$MOLII_API_BASE_URL/v1/images/generations" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
@@ -54,7 +54,7 @@ curl --location --include --request POST \
 ## 单图编辑
 
 ```bash
-curl --location --include --request POST \
+curl --include --request POST \
   "$MOLII_API_BASE_URL/v1/images/edits" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
@@ -74,7 +74,7 @@ curl --location --include --request POST \
 ## 多图编辑
 
 ```bash
-curl --location --include --request POST \
+curl --include --request POST \
   "$MOLII_API_BASE_URL/v1/images/edits" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \

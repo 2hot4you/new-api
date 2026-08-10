@@ -93,6 +93,22 @@ describe('Grok Imagine public documentation contract', () => {
     expect(combined).not.toMatch(/file_id/i);
   });
 
+  test('paid Grok POST examples do not follow redirects with API authorization', async () => {
+    for (const relativePath of [
+      'docs/examples/grok-image-curl.mdx',
+      'docs/examples/grok-video-curl.mdx',
+    ]) {
+      const source = await page(relativePath);
+      const snippets = [...source.matchAll(/```bash\n(curl[\s\S]*?--request POST[\s\S]*?)\n```/g)];
+
+      expect(snippets.length, relativePath).toBeGreaterThan(0);
+      for (const [, snippet] of snippets) {
+        expect(snippet, relativePath).toContain('Authorization: Bearer $MOLII_API_KEY');
+        expect(snippet, relativePath).not.toMatch(/(?:^|\s)(?:--location|-L)(?:\s|$)/);
+      }
+    }
+  });
+
   test('overview and sidebar expose Grok guides while excluding the retired technical preview', async () => {
     const overview = await page('docs/models/overview.mdx');
     const serialized = `${overview}\n${JSON.stringify(sidebars)}`;

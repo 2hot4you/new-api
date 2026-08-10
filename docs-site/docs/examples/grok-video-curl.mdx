@@ -20,7 +20,7 @@ export MOLII_API_KEY='YOUR_API_KEY'
 `grok-imagine-video` 可以不传图片：
 
 ```bash
-curl --location --include --request POST \
+curl --include --request POST \
   "$MOLII_API_BASE_URL/v1/videos" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
@@ -39,7 +39,7 @@ curl --location --include --request POST \
 `grok-imagine-video-1.5` 必须提供输入图片：
 
 ```bash
-curl --location --include --request POST \
+curl --include --request POST \
   "$MOLII_API_BASE_URL/v1/videos" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
@@ -61,7 +61,7 @@ curl --location --include --request POST \
 视频编辑只支持 `grok-imagine-video`，不要传时长、宽高比或分辨率：
 
 ```bash
-curl --location --include --request POST \
+curl --include --request POST \
   "$MOLII_API_BASE_URL/v1/videos/edits" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
