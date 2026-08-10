@@ -26,7 +26,7 @@ bun run check:links:external
 
 ## 本地搜索
 
-站点使用中文本地搜索（`nodejieba` 分词）。搜索索引只在生产构建中生成；先运行 `bun run build`，再运行 `bun run preview`，然后在 `http://127.0.0.1:3100` 测试搜索。开发服务器不会生成搜索索引。
+站点使用中文本地搜索（`@node-rs/jieba` 分词）。搜索索引只在生产构建中生成；先运行 `bun run build`，再运行 `bun run preview`，然后在 `http://127.0.0.1:3100` 测试搜索。开发服务器不会生成搜索索引。
 
 ## 静态自托管
 

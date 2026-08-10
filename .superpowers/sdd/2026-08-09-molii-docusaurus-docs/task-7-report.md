@@ -4,7 +4,7 @@
 
 - Replaced the placeholder changelog with the requested MDX page, retaining the single `/changelog` route.
 - Added user-facing troubleshooting and support-contact guides without exposing credentials, private data, or operator-only surfaces.
-- Configured Chinese local search with `language: ['zh']` and the `nodejieba` dependency. The README documents that an index is created by production build and is tested with `bun run preview`.
+- Configured Chinese local search with `language: ['zh']` and the `@node-rs/jieba` dependency expected by the installed Lunr Chinese tokenizer. The README documents that an index is created by production build and is tested with `bun run preview`.
 - Added a focused forbidden-content scanner with precise `file:line` output. It rejects user-documentation paths and terminology that expose non-public operation surfaces, internal domains, and realistic secrets while allowing documented placeholders and the New API / QuantumNous attribution.
 - Added Secretlint configuration, a separate optional external-link command, and a deterministic internal-link command that serves the already-built static site locally before crawling it.
 - Added a static-only Nginx example with SPA fallback and immutable `/assets/` caching. It has no certificate, upload, container, credential, or deployment automation configuration.
@@ -41,5 +41,5 @@
 ## Notes
 
 - `check:links:external` remains intentionally outside the default `check` gate because it depends on external network state.
-- The local-search build logs an informational Lunr fallback notice about `@node-rs/jieba`; `nodejieba@3.5.8` is installed and loads successfully. The required production build and local-search index generation both pass.
+- The required production build and Chinese local-search index generation both pass with `@node-rs/jieba@2.0.1`; no fallback tokenizer warning is emitted.
 - No commit was created, per handoff instruction.
