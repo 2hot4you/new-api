@@ -22,6 +22,7 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(asyncTaskBillingReconcileHandler{})
 	service.RegisterSystemTaskHandler(starAIResultCleanupHandler{})
 }
 
@@ -174,6 +175,32 @@ func (asyncTaskPollHandler) NewPayload() any { return nil }
 func (asyncTaskPollHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	summary := service.RunTaskPollingOnce(ctx, service.NewSystemTaskProgressReporter(task, runnerID))
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
+}
+
+// asyncTaskBillingReconcileHandler is deliberately independent of
+// constant.UpdateTask: terminal billing remains recoverable even when upstream
+// task polling is administratively disabled.
+type asyncTaskBillingReconcileHandler struct{}
+
+func (asyncTaskBillingReconcileHandler) Type() string {
+	return model.SystemTaskTypeAsyncTaskBillingReconcile
+}
+
+func (asyncTaskBillingReconcileHandler) Enabled() bool {
+	return model.HasRunnableTaskBillingJobs()
+}
+
+func (asyncTaskBillingReconcileHandler) Interval() time.Duration { return 15 * time.Second }
+
+func (asyncTaskBillingReconcileHandler) NewPayload() any { return nil }
+
+func (asyncTaskBillingReconcileHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	summary, err := service.RunTaskBillingReconciliationOnce(ctx, runnerID)
+	status := model.SystemTaskStatusSucceeded
+	if err != nil {
+		status = model.SystemTaskStatusFailed
+	}
+	finishSystemTaskHandler(task, runnerID, status, summary, err)
 }
 
 func finishSystemTaskHandler(task *model.SystemTask, runnerID string, status model.SystemTaskStatus, result any, runErr error) {

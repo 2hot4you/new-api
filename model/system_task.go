@@ -16,13 +16,34 @@ const (
 	SystemTaskStatusSucceeded SystemTaskStatus = "succeeded"
 	SystemTaskStatusFailed    SystemTaskStatus = "failed"
 
-	SystemTaskTypeLogCleanup          = "log_cleanup"
-	SystemTaskTypeChannelTest         = "channel_test"
-	SystemTaskTypeModelUpdate         = "model_update"
-	SystemTaskTypeMidjourneyPoll      = "midjourney_poll"
-	SystemTaskTypeAsyncTaskPoll       = "async_task_poll"
-	SystemTaskTypeStarAIResultCleanup = "starai_result_cleanup"
+	SystemTaskTypeLogCleanup                = "log_cleanup"
+	SystemTaskTypeChannelTest               = "channel_test"
+	SystemTaskTypeModelUpdate               = "model_update"
+	SystemTaskTypeMidjourneyPoll            = "midjourney_poll"
+	SystemTaskTypeAsyncTaskPoll             = "async_task_poll"
+	SystemTaskTypeAsyncTaskBillingReconcile = "async_task_billing_reconcile"
+	SystemTaskTypeStarAIResultCleanup       = "starai_result_cleanup"
 )
+
+// HasRunnableTaskBillingJobs reports whether the scheduler should enqueue a
+// reconciliation pass. A processing job becomes runnable only after its lease
+// expires; future pending work stays dormant until its retry timestamp.
+func HasRunnableTaskBillingJobs() bool {
+	now := common.GetTimestamp()
+	var count int64
+	err := DB.Model(&TaskBillingJob{}).
+		Where(
+			"(status = ? AND next_attempt_at <= ?) OR (status = ? AND locked_until < ?)",
+			TaskBillingJobStatusPending, now, TaskBillingJobStatusProcessing, now,
+		).
+		Limit(1).
+		Count(&count).Error
+	if err != nil {
+		common.SysLog("failed to query runnable task billing jobs: " + err.Error())
+		return false
+	}
+	return count > 0
+}
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")
 
