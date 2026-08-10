@@ -30,6 +30,7 @@ func TestBuildGrokVideoBillingSnapshotOperations(t *testing.T) {
 		{name: "text", request: relaycommon.TaskSubmitReq{Duration: 5, Resolution: "480p", AspectRatio: "16:9"}, modelName: grokVideoModelLegacy, estimatedSecs: 5, estimatedRes: "480p", wantOperation: textToVideoOperation, wantInputType: "text", wantEstimated: 5},
 		{name: "image", request: relaycommon.TaskSubmitReq{Image: "https://fixture.invalid/input.png", Duration: 6, Resolution: "720p", AspectRatio: "9:16"}, modelName: grokVideoModelLegacy, estimatedSecs: 6, estimatedRes: "720p", wantOperation: imageToVideoOperation, wantInputType: "image", wantImageCount: 1, wantEstimated: 6},
 		{name: "image 1.5 1080p", request: relaycommon.TaskSubmitReq{Image: "file_fixture", Duration: 4, Resolution: "1080p", AspectRatio: "16:9"}, modelName: grokVideoModel15, estimatedSecs: 4, estimatedRes: "1080p", wantOperation: imageToVideoOperation, wantInputType: "image", wantImageCount: 1, wantEstimated: 4},
+		{name: "image 1.5 preview 1080p", request: relaycommon.TaskSubmitReq{Image: "file_fixture", Duration: 4, Resolution: "1080p", AspectRatio: "16:9"}, modelName: grokVideoModel15Preview, estimatedSecs: 4, estimatedRes: "1080p", wantOperation: imageToVideoOperation, wantInputType: "image", wantImageCount: 1, wantEstimated: 4},
 		{name: "edit", action: grokVideoEditOperation, request: relaycommon.TaskSubmitReq{Video: "https://fixture.invalid/input.mp4"}, modelName: grokVideoModelLegacy, estimatedSecs: 9, estimatedRes: "720p", wantOperation: grokVideoEditOperation, wantInputType: "video", wantEstimated: 8.7, wantVideoBilled: 8.7},
 	}
 
@@ -53,6 +54,30 @@ func TestBuildGrokVideoBillingSnapshotOperations(t *testing.T) {
 			assert.NotContains(t, string(mustJSON(t, got)), "fixture.invalid")
 		})
 	}
+}
+
+func TestBuildGrokVideoBillingSnapshotKeepsRequestedAndBilledModels(t *testing.T) {
+	c, _ := gin.CreateTestContext(nil)
+	c.Set("task_request", relaycommon.TaskSubmitReq{
+		Image:      "file_fixture",
+		Duration:   4,
+		Resolution: "1080p",
+	})
+	info := &relaycommon.RelayInfo{
+		OriginModelName:          grokVideoModel15,
+		ChannelMeta:              &relaycommon.ChannelMeta{UpstreamModelName: grokVideoModel15Preview},
+		EstimatedVideoSeconds:    4,
+		EstimatedVideoResolution: "1080p",
+		PriceData:                types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
+	}
+
+	snapshot := BuildGrokVideoBillingSnapshot(c, info, 100)
+
+	require.NotNil(t, snapshot)
+	assert.Equal(t, grokVideoModel15, snapshot.RequestedModel)
+	assert.Equal(t, grokVideoModel15Preview, snapshot.BilledModel)
+	assert.Equal(t, grokVideoModel15, snapshot.Model)
+	assert.InDelta(t, 0.25, snapshot.OutputUnitPrice, 0.000001)
 }
 
 func mustJSON(t *testing.T, value any) []byte {

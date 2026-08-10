@@ -2,7 +2,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -78,4 +80,36 @@ func TestMoliiGrokChannelTestUsesEnabledKeyBeforeDialing(t *testing.T) {
 	require.Error(t, result.localErr)
 	assert.Contains(t, result.localErr.Error(), "可用")
 	assert.NotContains(t, result.localErr.Error(), "disabled-key")
+}
+
+func TestAddChannelRejectsIncompatibleImagineModelMapping(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+
+	recorder := performChannelJSONRequest(t, http.MethodPost, "/api/channel/", fmt.Sprintf(`{
+		"mode":"single",
+		"channel":{"type":%d,"status":%d,"name":"invalid-grok-map","key":"grok-key","models":"grok-imagine-image","group":"default","model_mapping":"{\"grok-imagine-image\":\"grok-imagine-video\"}"}
+	}`, constant.ChannelTypeMoliiGrokAIGC, common.ChannelStatusEnabled), AddChannel)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	assert.Contains(t, recorder.Body.String(), "incompatible_imagine_model_mapping")
+	var count int64
+	require.NoError(t, db.Model(&model.Channel{}).Count(&count).Error)
+	assert.Zero(t, count)
+}
+
+func TestAddChannelAllowsCompatibleImagineModelMapping(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+
+	recorder := performChannelJSONRequest(t, http.MethodPost, "/api/channel/", fmt.Sprintf(`{
+		"mode":"single",
+		"channel":{"type":%d,"status":%d,"name":"valid-grok-map","key":"grok-key","models":"grok-imagine-video-1.5","group":"default","model_mapping":"{\"grok-imagine-video-1.5\":\"grok-imagine-video-1.5-preview\"}"}
+	}`, constant.ChannelTypeMoliiGrokAIGC, common.ChannelStatusEnabled), AddChannel)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	var saved model.Channel
+	require.NoError(t, db.Where("name = ?", "valid-grok-map").First(&saved).Error)
+	require.NotNil(t, saved.ModelMapping)
+	assert.Equal(t, `{"grok-imagine-video-1.5":"grok-imagine-video-1.5-preview"}`, *saved.ModelMapping)
 }

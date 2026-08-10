@@ -17,6 +17,7 @@ const (
 	grokVideoBillingVersion = 1
 	grokVideoModelLegacy    = "grok-imagine-video"
 	grokVideoModel15        = "grok-imagine-video-1.5"
+	grokVideoModel15Preview = "grok-imagine-video-1.5-preview"
 	grokVideoEditOperation  = "video_edit"
 	imageToVideoOperation   = "image_to_video"
 	textToVideoOperation    = "text_to_video"
@@ -40,7 +41,7 @@ func isMoliiGrokFinalUsageTask(task *model.Task) bool {
 }
 
 func isGrokVideoModel(modelName string) bool {
-	return modelName == grokVideoModelLegacy || modelName == grokVideoModel15
+	return modelName == grokVideoModelLegacy || modelName == grokVideoModel15 || modelName == grokVideoModel15Preview
 }
 
 func validGrokBillingNumber(value float64) bool {
@@ -48,7 +49,7 @@ func validGrokBillingNumber(value float64) bool {
 }
 
 func validSubmittedGrokVideoBilling(snapshot *model.GrokVideoBillingSnapshot) bool {
-	if snapshot == nil || snapshot.Version != grokVideoBillingVersion || !isGrokVideoModel(snapshot.Model) {
+	if snapshot == nil || snapshot.Version != grokVideoBillingVersion || !isGrokVideoModel(grokVideoBilledModel(snapshot)) {
 		return false
 	}
 	if snapshot.EstimatedDurationSeconds <= 0 || strings.TrimSpace(snapshot.EstimatedResolution) == "" ||
@@ -100,7 +101,18 @@ func ConfigureGrokVideoFinalUsage(bc *model.TaskBillingContext, snapshot *model.
 // prices at submission time. It intentionally records counts and media types,
 // never media references or upstream identifiers.
 func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, preConsumedQuota int) *model.GrokVideoBillingSnapshot {
-	if c == nil || info == nil || !isGrokVideoModel(info.OriginModelName) {
+	if c == nil || info == nil {
+		return nil
+	}
+	requestedModel := strings.TrimSpace(info.OriginModelName)
+	billedModel := ""
+	if info.ChannelMeta != nil {
+		billedModel = strings.TrimSpace(info.UpstreamModelName)
+	}
+	if billedModel == "" {
+		billedModel = requestedModel
+	}
+	if !isGrokVideoModel(billedModel) {
 		return nil
 	}
 	req, err := relaycommon.GetTaskRequest(c)
@@ -131,7 +143,7 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 		estimatedDuration = 8.7
 	}
 	outputPrice, imageInputPrice, videoInputPrice, ok := ratio_setting.GetMoliiGrokVideoPrices(
-		info.OriginModelName, info.EstimatedVideoResolution,
+		billedModel, info.EstimatedVideoResolution,
 	)
 	if !ok {
 		return nil
@@ -139,7 +151,9 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 
 	snapshot := &model.GrokVideoBillingSnapshot{
 		Version:                  grokVideoBillingVersion,
-		Model:                    info.OriginModelName,
+		Model:                    requestedModel,
+		RequestedModel:           requestedModel,
+		BilledModel:              billedModel,
 		Operation:                operation,
 		InputType:                inputType,
 		RequestedDurationSeconds: float64(req.Duration),
@@ -178,7 +192,7 @@ func finalGrokVideoBilling(task *model.Task) (*model.GrokVideoBillingSnapshot, s
 		return nil, "生成视频"
 	}
 	snapshot := *task.PrivateData.BillingContext.GrokVideoBilling
-	if snapshot.Version != grokVideoBillingVersion || !isGrokVideoModel(snapshot.Model) {
+	if snapshot.Version != grokVideoBillingVersion || !isGrokVideoModel(grokVideoBilledModel(&snapshot)) {
 		return nil, "生成视频"
 	}
 	snapshot.GroupRatio = task.PrivateData.BillingContext.GroupRatio
@@ -206,6 +220,23 @@ func finalGrokVideoBilling(task *model.Task) (*model.GrokVideoBillingSnapshot, s
 			snapshot.OutputUnitPrice, duration, snapshot.VideoInputUnitPrice, snapshot.VideoInputBilledSeconds, snapshot.GroupRatio)
 	}
 	content := fmt.Sprintf("Grok %s，模型 %s，实际 %s · %.3g 秒，计费 %s = ¥%.6f",
-		operationName, snapshot.Model, resolution, duration, formula, snapshot.FinalCost)
+		operationName, grokVideoRequestedModel(&snapshot), resolution, duration, formula, snapshot.FinalCost)
 	return &snapshot, content
+}
+
+func grokVideoRequestedModel(snapshot *model.GrokVideoBillingSnapshot) string {
+	if snapshot != nil && strings.TrimSpace(snapshot.RequestedModel) != "" {
+		return snapshot.RequestedModel
+	}
+	if snapshot == nil {
+		return ""
+	}
+	return snapshot.Model
+}
+
+func grokVideoBilledModel(snapshot *model.GrokVideoBillingSnapshot) string {
+	if snapshot != nil && strings.TrimSpace(snapshot.BilledModel) != "" {
+		return snapshot.BilledModel
+	}
+	return grokVideoRequestedModel(snapshot)
 }

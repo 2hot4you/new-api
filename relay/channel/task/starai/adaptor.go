@@ -380,13 +380,17 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 			break
 		}
 	}
-	price, ok := ratio_setting.GetStarAIVideoPrice(info.OriginModelName, payload.Resolution, hasVideo)
+	billedModel := strings.TrimSpace(info.UpstreamModelName)
+	if billedModel == "" {
+		billedModel = info.OriginModelName
+	}
+	price, ok := ratio_setting.GetStarAIVideoPrice(billedModel, payload.Resolution, hasVideo)
 	if !ok {
 		return nil
 	}
-	modelRatio, ok, _ := ratio_setting.GetModelRatio(info.OriginModelName)
+	modelRatio, ok, _ := ratio_setting.GetModelRatio(billedModel)
 	if !ok {
-		modelRatio, ok = ratio_setting.GetDefaultModelRatioMap()[info.OriginModelName]
+		modelRatio, ok = ratio_setting.GetDefaultModelRatioMap()[billedModel]
 	}
 	if !ok || modelRatio <= 0 {
 		return nil

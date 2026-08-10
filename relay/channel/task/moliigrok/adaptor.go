@@ -57,10 +57,10 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if modelName == "" {
 		modelName = strings.TrimSpace(info.OriginModelName)
 	}
-	if modelName != VideoModel && modelName != LegacyVideoModel {
+	if !isSupportedVideoModel(modelName) {
 		return service.TaskErrorWrapperLocal(errors.New("model is not supported by Molii Grok Imagine API"), "invalid_model", http.StatusBadRequest)
 	}
-	if info.UpstreamModelName != "" && info.UpstreamModelName != VideoModel && info.UpstreamModelName != LegacyVideoModel {
+	if info.UpstreamModelName != "" && !isSupportedVideoModel(info.UpstreamModelName) {
 		return service.TaskErrorWrapperLocal(errors.New("mapped model is not supported by Molii Grok Imagine API"), "invalid_model", http.StatusBadRequest)
 	}
 	prompt := strings.TrimSpace(req.Prompt)
@@ -87,8 +87,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		info.EstimatedVideoHasInput = true
 		return nil
 	}
-	if modelName == VideoModel && strings.TrimSpace(req.Image) == "" && len(req.Images) == 0 {
-		return service.TaskErrorWrapperLocal(errors.New("grok-imagine-video-1.5 requires an image"), "invalid_image", http.StatusBadRequest)
+	if isVideo15Model(modelName) && strings.TrimSpace(req.Image) == "" && len(req.Images) == 0 {
+		return service.TaskErrorWrapperLocal(errors.New("Grok Imagine Video 1.5 models require an image"), "invalid_image", http.StatusBadRequest)
 	}
 	if req.Duration == 0 {
 		req.Duration = 5
@@ -194,7 +194,10 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	if err != nil {
 		return nil
 	}
-	modelName := strings.TrimSpace(info.OriginModelName)
+	modelName := strings.TrimSpace(info.UpstreamModelName)
+	if modelName == "" {
+		modelName = strings.TrimSpace(info.OriginModelName)
+	}
 	basePrice, ok := ratio_setting.GetModelPrice(modelName, false)
 	if !ok {
 		basePrice, ok = ratio_setting.GetDefaultModelPriceMap()[modelName]

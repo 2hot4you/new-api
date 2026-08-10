@@ -146,6 +146,8 @@ type TaskBillingContext struct {
 type GrokVideoBillingSnapshot struct {
 	Version                  int     `json:"version"`
 	Model                    string  `json:"model"`
+	RequestedModel           string  `json:"requested_model,omitempty"`
+	BilledModel              string  `json:"billed_model,omitempty"`
 	Operation                string  `json:"operation"`
 	InputType                string  `json:"input_type"`
 	RequestedDurationSeconds float64 `json:"requested_duration_seconds"`

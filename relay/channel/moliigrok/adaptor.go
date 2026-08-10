@@ -166,6 +166,10 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	if modelName == "" {
 		modelName = strings.TrimSpace(request.Model)
 	}
+	billedModel := strings.TrimSpace(info.UpstreamModelName)
+	if billedModel == "" {
+		billedModel = modelName
+	}
 	resolution := strings.ToLower(strings.TrimSpace(raw.Resolution))
 	if resolution == "" {
 		resolution = "1k"
@@ -174,7 +178,7 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	if aspectRatio == "" {
 		aspectRatio = "16:9"
 	}
-	outputPrice, inputPrice, ok := ratio_setting.GetMoliiGrokImagePrices(modelName, resolution)
+	outputPrice, inputPrice, ok := ratio_setting.GetMoliiGrokImagePrices(billedModel, resolution)
 	if !ok {
 		return nil, errors.New("Molii Grok image pricing is not configured")
 	}
@@ -195,9 +199,9 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 		}
 		inputCount = len(media)
 	}
-	basePrice, ok := ratio_setting.GetModelPrice(modelName, false)
+	basePrice, ok := ratio_setting.GetModelPrice(billedModel, false)
 	if !ok {
-		basePrice, ok = ratio_setting.GetDefaultModelPriceMap()[modelName]
+		basePrice, ok = ratio_setting.GetDefaultModelPriceMap()[billedModel]
 	}
 	if !ok || basePrice <= 0 {
 		return nil, errors.New("Molii Grok image pricing anchor is invalid")

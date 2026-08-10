@@ -525,6 +525,9 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())
 	}
+	if err := validateImagineModelMappingJSON(channel.ModelMapping); err != nil {
+		return err
+	}
 
 	if channel.Type == constant.ChannelTypeNewAPI && strings.TrimSpace(channel.GetBaseURL()) == "" {
 		return fmt.Errorf("New API channel base URL cannot be empty")
@@ -580,6 +583,25 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		}
 	}
 
+	return nil
+}
+
+func validateImagineModelMappingJSON(modelMapping *string) error {
+	if modelMapping == nil || strings.TrimSpace(*modelMapping) == "" {
+		return nil
+	}
+	mappings := make(map[string]string)
+	if err := json.Unmarshal([]byte(*modelMapping), &mappings); err != nil {
+		return fmt.Errorf("model_mapping must be a JSON object: %w", err)
+	}
+	for requestedModel, billedModel := range mappings {
+		if strings.TrimSpace(billedModel) == "" {
+			continue
+		}
+		if err := constant.ValidateImagineModelMapping(requestedModel, billedModel); err != nil {
+			return fmt.Errorf("incompatible_imagine_model_mapping: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -950,6 +972,13 @@ func EditTagChannels(c *gin.Context) {
 			return
 		}
 		channelTag.HeaderOverride = common.GetPointer[string](trimmed)
+	}
+	if err := validateImagineModelMappingJSON(channelTag.ModelMapping); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
 	}
 	err = model.EditChannelByTag(channelTag.Tag, channelTag.NewTag, channelTag.ModelMapping, channelTag.Models, channelTag.Groups, channelTag.Priority, channelTag.Weight, channelTag.ParamOverride, channelTag.HeaderOverride)
 	if err != nil {

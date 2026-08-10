@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -73,6 +74,11 @@ func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Reque
 		}
 		info.UpstreamModelName = finalUpstreamModelName
 		info.OriginModelName = ratio_setting.WithCompactModelSuffix(finalUpstreamModelName)
+	}
+	if info.IsModelMapped {
+		if err := constant.ValidateImagineModelMapping(mappingModelName, info.UpstreamModelName); err != nil {
+			return fmt.Errorf("incompatible_imagine_model_mapping: %w", err)
+		}
 	}
 	if request != nil {
 		request.SetModelName(info.UpstreamModelName)

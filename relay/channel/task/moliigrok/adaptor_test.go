@@ -79,6 +79,26 @@ func TestVideoRequestUsesDirectFieldsAndDefaults(t *testing.T) {
 	}
 }
 
+func TestPreviewVideoRequestUsesVideo15ContractAndPricing(t *testing.T) {
+	c, _ := taskContext(t, `{"model":"grok-imagine-video-1.5-preview","prompt":"animate","image":{"url":"https://images.example/cat.png"},"duration":4,"aspect_ratio":"9:16","resolution":"1080p"}`)
+	info := taskInfo()
+	info.OriginModelName = PreviewVideoModel
+	info.ChannelMeta.UpstreamModelName = PreviewVideoModel
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	prices := adaptor.EstimateBilling(c, info)
+	body, err := adaptor.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	encoded, err := io.ReadAll(body)
+	require.NoError(t, err)
+
+	assert.JSONEq(t, `{"model":"grok-imagine-video-1.5-preview","prompt":"animate","image":{"url":"https://images.example/cat.png"},"duration":4,"aspect_ratio":"9:16","resolution":"1080p"}`, string(encoded))
+	assert.InDelta(t, 1.01, info.EstimatedVideoPrice, 0.000001)
+	assert.InDelta(t, 1.01, prices["molii_grok_direct_cost"], 0.000001)
+}
+
 func TestVideoRequestRejectsUnsupportedModelAndLongPrompt(t *testing.T) {
 	tests := []string{
 		`{"model":"grok-imagine-image","prompt":"cat","duration":5}`,
@@ -169,14 +189,18 @@ func TestGrokImagineVideo15RequiresImageAndRejectsOldModel1080p(t *testing.T) {
 		path string
 	}{
 		{body: `{"model":"grok-imagine-video-1.5","prompt":"cat"}`, path: "/v1/videos"},
+		{body: `{"model":"grok-imagine-video-1.5-preview","prompt":"cat"}`, path: "/v1/videos"},
 		{body: `{"model":"grok-imagine-video","prompt":"cat","resolution":"1080p"}`, path: "/v1/videos"},
 		{body: `{"model":"grok-imagine-video-1.5","prompt":"cat","video":{"url":"https://videos.example/a.mp4"}}`, path: "/v1/videos/edits"},
+		{body: `{"model":"grok-imagine-video-1.5-preview","prompt":"cat","video":{"url":"https://videos.example/a.mp4"}}`, path: "/v1/videos/edits"},
 	}
 	for _, tt := range tests {
 		c, _ := taskContext(t, tt.body)
 		c.Request.URL.Path = tt.path
 		var modelName string
-		if strings.Contains(tt.body, `"grok-imagine-video-1.5"`) {
+		if strings.Contains(tt.body, `"grok-imagine-video-1.5-preview"`) {
+			modelName = PreviewVideoModel
+		} else if strings.Contains(tt.body, `"grok-imagine-video-1.5"`) {
 			modelName = VideoModel
 		} else {
 			modelName = LegacyVideoModel
