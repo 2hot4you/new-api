@@ -194,6 +194,11 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 		if bc.RequestPath != "" {
 			other["request_path"] = bc.RequestPath
 		}
+		if task.Status == model.TaskStatusSuccess && taskUsesFinalUsageLog(task) {
+			if billing, _ := finalGrokVideoBilling(task); billing != nil {
+				other["grok_video_billing"] = billing
+			}
+		}
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
 				other[k] = v
@@ -360,6 +365,90 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	return true
 }
 
+// BuildTerminalTaskBillingJob snapshots the immutable accounting intent that
+// must be committed atomically with an asynchronous task's terminal status.
+// It never mutates balances; Task 3 later applies the job transactionally.
+func BuildTerminalTaskBillingJob(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) *model.TaskBillingJob {
+	if task == nil {
+		return nil
+	}
+	job := &model.TaskBillingJob{
+		FromQuota:     task.Quota,
+		NextAttemptAt: common.GetTimestamp(),
+	}
+	if task.Status == model.TaskStatusFailure {
+		job.Operation = model.TaskBillingOperationRefund
+		return job
+	}
+	if task.Status != model.TaskStatusSuccess {
+		return nil
+	}
+
+	job.Operation = model.TaskBillingOperationSettle
+	targetQuota := task.Quota
+	job.TargetQuota = &targetQuota
+	if adaptor == nil || taskResult == nil {
+		job.TargetQuota = nil
+		return job
+	}
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
+		adjuster, ok := adaptor.(perCallTaskCompletionAdjuster)
+		if !ok || !adjuster.AllowPerCallCompletionAdjustment() {
+			return job
+		}
+	}
+
+	actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult)
+	if isMoliiGrokFinalUsageTask(task) {
+		if !validFinalizedGrokVideoBilling(task.PrivateData.BillingContext.GrokVideoBilling) {
+			logger.LogError(ctx, fmt.Sprintf("Grok video billing snapshot finalization failed for task %s", task.TaskID))
+			job.TargetQuota = nil
+			return job
+		}
+		targetQuota = actualQuota
+		return job
+	}
+	if actualQuota > 0 {
+		targetQuota = actualQuota
+		return job
+	}
+	if taskResult.TotalTokens > 0 {
+		if recalculatedQuota, _, _, ok := calculateTaskQuotaByTokens(task, taskResult.TotalTokens); ok {
+			targetQuota = recalculatedQuota
+		}
+	}
+	return job
+}
+
+// TaskBillingPublicState exposes only the stable user-facing lifecycle. It
+// intentionally collapses internal retries, leases, attempts and manual review
+// into pending states.
+func TaskBillingPublicState(task *model.Task, job *model.TaskBillingJob) string {
+	if task == nil {
+		return "pending"
+	}
+	switch task.Status {
+	case model.TaskStatusSuccess:
+		if job == nil || (job.Operation == model.TaskBillingOperationSettle && job.Status == model.TaskBillingJobStatusSucceeded) {
+			return "settled"
+		}
+		return "pending"
+	case model.TaskStatusFailure:
+		if job != nil {
+			if job.Operation == model.TaskBillingOperationRefund && job.Status == model.TaskBillingJobStatusSucceeded {
+				return "refunded"
+			}
+			return "refund_pending"
+		}
+		if task.Quota == 0 {
+			return "refunded"
+		}
+		return "refund_pending"
+	default:
+		return "pending"
+	}
+}
+
 // RecalculateTaskQuota 通用的异步差额结算。
 // actualQuota 是任务完成后的实际应扣额度，与预扣额度 (task.Quota) 做差额结算。
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
@@ -473,8 +562,16 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 // 当任务成功且返回了 totalTokens 时，根据模型倍率和分组倍率重新计算实际扣费额度，
 // 与预扣费的差额进行补扣或退还。支持钱包和订阅计费来源。
 func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTokens int) bool {
-	if totalTokens <= 0 {
+	actualQuota, reason, clamp, ok := calculateTaskQuotaByTokens(task, totalTokens)
+	if !ok {
 		return true
+	}
+	return RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+}
+
+func calculateTaskQuotaByTokens(task *model.Task, totalTokens int) (int, string, *common.QuotaClamp, bool) {
+	if task == nil || totalTokens <= 0 {
+		return 0, "", nil, false
 	}
 
 	modelName := taskModelName(task)
@@ -490,7 +587,7 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	}
 	// 只有配置了倍率(非固定价格)时才按 token 重新计费
 	if !hasRatioSetting || modelRatio <= 0 {
-		return true
+		return 0, "", nil, false
 	}
 
 	// 获取用户和组的倍率信息
@@ -502,7 +599,7 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		}
 	}
 	if group == "" {
-		return true
+		return 0, "", nil, false
 	}
 
 	groupRatio := ratio_setting.GetGroupRatio(group)
@@ -527,5 +624,5 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
-	return RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+	return actualQuota, reason, clamp, true
 }

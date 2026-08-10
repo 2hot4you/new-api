@@ -51,6 +51,7 @@ func TestMain(m *testing.M) {
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
+		&model.TaskBillingJob{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -65,6 +66,7 @@ func TestMain(m *testing.M) {
 func truncate(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
+		model.DB.Exec("DELETE FROM task_billing_jobs")
 		model.DB.Exec("DELETE FROM tasks")
 		model.DB.Exec("DELETE FROM users")
 		model.DB.Exec("DELETE FROM tokens")
@@ -238,6 +240,32 @@ func TestTaskBillingContextPriceDataFiltersMultiplier(t *testing.T) {
 		"size":     3,
 		"identity": 1,
 	}, priceData.OtherRatios())
+}
+
+func TestRefundPendingPublicBillingState(t *testing.T) {
+	failure := &model.Task{Status: model.TaskStatusFailure, Quota: 2500}
+	for _, status := range []model.TaskBillingJobStatus{
+		model.TaskBillingJobStatusPending,
+		model.TaskBillingJobStatusProcessing,
+		model.TaskBillingJobStatusReviewRequired,
+	} {
+		job := &model.TaskBillingJob{Operation: model.TaskBillingOperationRefund, Status: status}
+		assert.Equal(t, "refund_pending", TaskBillingPublicState(failure, job))
+	}
+	assert.Equal(t, "refunded", TaskBillingPublicState(failure, &model.TaskBillingJob{
+		Operation: model.TaskBillingOperationRefund,
+		Status:    model.TaskBillingJobStatusSucceeded,
+	}))
+
+	success := &model.Task{Status: model.TaskStatusSuccess, Quota: 2500}
+	assert.Equal(t, "pending", TaskBillingPublicState(success, &model.TaskBillingJob{
+		Operation: model.TaskBillingOperationSettle,
+		Status:    model.TaskBillingJobStatusPending,
+	}))
+	assert.Equal(t, "settled", TaskBillingPublicState(success, &model.TaskBillingJob{
+		Operation: model.TaskBillingOperationSettle,
+		Status:    model.TaskBillingJobStatusSucceeded,
+	}))
 }
 
 // ---------------------------------------------------------------------------

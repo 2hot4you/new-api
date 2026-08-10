@@ -118,7 +118,7 @@ func TestPrivateGrokPollingRejectsUnexpectedHTTPStatusWithoutRawBody(t *testing.
 }
 
 func TestMoliiGrokFailureRefundsExactlyOnceAcrossStalePolls(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 	const userID, tokenID, channelID = 631, 632, 633
 	const currentUserQuota, currentTokenQuota, taskQuota = 7000, 4000, 2500
 	const upstreamID = "grok-upstream-failure-id"
@@ -145,15 +145,25 @@ func TestMoliiGrokFailureRefundsExactlyOnceAcrossStalePolls(t *testing.T) {
 
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: &firstPoll}))
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: &stalePoll}))
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	assert.Equal(t, model.TaskBillingJobStatusPending, job.Status)
+	assert.Equal(t, currentUserQuota, getUserQuota(t, userID))
+	assert.Equal(t, currentTokenQuota, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, taskQuota, getTaskQuota(t, task.ID))
+	assert.Zero(t, countLogs(t))
+
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-refund-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Succeeded)
 	assert.Equal(t, currentUserQuota+taskQuota, getUserQuota(t, userID))
 	assert.Equal(t, currentTokenQuota+taskQuota, getTokenRemainQuota(t, tokenID))
 	assert.Zero(t, getTaskQuota(t, task.ID))
 	assert.Equal(t, int64(1), countLogs(t))
-	assert.Equal(t, model.LogTypeRefund, getLastLog(t).Type, "legacy in-flight Grok tasks keep their old refund-log behavior")
+	assert.Equal(t, model.LogTypeRefund, getLastLog(t).Type)
 }
 
 func TestMoliiGrokSuccessDoesNotDoubleSettleAcrossStalePolls(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 	const userID, tokenID, channelID = 641, 642, 643
 	const currentUserQuota, currentTokenQuota, taskQuota = 7000, 4000, 2500
 	const upstreamID = "grok-upstream-success-id"
@@ -183,7 +193,16 @@ func TestMoliiGrokSuccessDoesNotDoubleSettleAcrossStalePolls(t *testing.T) {
 	assert.Equal(t, currentUserQuota, getUserQuota(t, userID))
 	assert.Equal(t, currentTokenQuota, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, taskQuota, getTaskQuota(t, task.ID))
-	assert.Equal(t, int64(0), countLogs(t), "legacy in-flight Grok tasks must not gain a second terminal log")
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	require.NotNil(t, job.TargetQuota)
+	assert.Equal(t, taskQuota, *job.TargetQuota)
+	assert.Zero(t, countLogs(t))
+
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-settle-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Succeeded)
+	assert.Equal(t, int64(1), countLogs(t))
+	assert.Equal(t, model.LogTypeConsume, getLastLog(t).Type)
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.EqualValues(t, model.TaskStatusSuccess, reloaded.Status)
@@ -205,7 +224,7 @@ func markFinalUsageGrokTask(task *model.Task) {
 }
 
 func TestMoliiGrokFinalUsageSuccessLogsExactlyOnceAcrossStalePolls(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 	const userID, tokenID, channelID = 651, 652, 653
 	const taskQuota = 125000
 	const upstreamID = "grok-final-success-upstream"
@@ -232,6 +251,17 @@ func TestMoliiGrokFinalUsageSuccessLogsExactlyOnceAcrossStalePolls(t *testing.T)
 
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: &firstPoll}))
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: &stalePoll}))
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	require.NotNil(t, job.TargetQuota)
+	assert.Equal(t, taskQuota, *job.TargetQuota)
+	assert.Zero(t, countLogs(t), "terminal persistence must not emit a pre-commit final log")
+
+	firstRun, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-final-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, firstRun.Succeeded)
+	secondRun, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-final-worker")
+	require.NoError(t, err)
+	assert.Zero(t, secondRun.Claimed)
 	assert.Equal(t, int64(1), countLogs(t))
 	log := getLastLog(t)
 	require.NotNil(t, log)
@@ -248,7 +278,7 @@ func TestMoliiGrokFinalUsageSuccessLogsExactlyOnceAcrossStalePolls(t *testing.T)
 }
 
 func TestMoliiGrokFinalUsageMissingCompletionFinalizationSuppressesSuccessLog(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 	const userID, channelID = 655, 656
 	const upstreamID = "grok-unfinalized-upstream"
 	seedUser(t, userID, 10000)
@@ -264,12 +294,18 @@ func TestMoliiGrokFinalUsageMissingCompletionFinalizationSuppressesSuccessLog(t 
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
 
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	assert.Nil(t, job.TargetQuota)
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-review-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.ReviewRequired)
+	assert.Equal(t, model.TaskBillingJobStatusReviewRequired, loadReconciliationJob(t, job.ID).Status)
 	assert.Equal(t, int64(0), countLogs(t))
 	assert.Equal(t, 2500, getTaskQuota(t, task.ID))
 }
 
 func TestMoliiGrokFinalUsageZeroSettlementRefundsInternallyThenLogsZeroConsume(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 	const userID, tokenID, channelID = 661, 662, 663
 	const initialQuota, initialTokenQuota, taskQuota = 10000, 4000, 2500
 	const upstreamID = "grok-zero-upstream"
@@ -291,6 +327,14 @@ func TestMoliiGrokFinalUsageZeroSettlementRefundsInternallyThenLogsZeroConsume(t
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
 
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	require.NotNil(t, job.TargetQuota)
+	assert.Zero(t, *job.TargetQuota)
+	assert.Equal(t, initialQuota, getUserQuota(t, userID))
+	assert.Zero(t, countLogs(t))
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-zero-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Succeeded)
 	assert.Equal(t, initialQuota+taskQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota+taskQuota, getTokenRemainQuota(t, tokenID))
 	assert.Zero(t, getTaskQuota(t, task.ID))
@@ -299,11 +343,11 @@ func TestMoliiGrokFinalUsageZeroSettlementRefundsInternallyThenLogsZeroConsume(t
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeConsume, log.Type)
 	assert.Zero(t, log.Quota)
-	assert.NotContains(t, log.Other, `"pre_consumed_quota"`)
+	assert.Contains(t, log.Other, `"pre_consumed_quota":2500`)
 }
 
 func TestMoliiGrokFinalUsageFundingFailureSuppressesSuccessLog(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 	const userID, channelID = 671, 673
 	const upstreamID = "grok-funding-failure-upstream"
 	seedUser(t, userID, 10000)
@@ -322,12 +366,18 @@ func TestMoliiGrokFinalUsageFundingFailureSuppressesSuccessLog(t *testing.T) {
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
 
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	require.NotNil(t, job.TargetQuota)
+	assert.Equal(t, 3000, *job.TargetQuota)
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-funding-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Rescheduled)
 	assert.Equal(t, int64(0), countLogs(t))
 	assert.Equal(t, 2500, getTaskQuota(t, task.ID))
 }
 
 func TestMoliiGrokFinalUsageFailureWritesErrorWithoutRefundLog(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 	const userID, tokenID, channelID = 681, 682, 683
 	const upstreamID = "grok-final-failure-upstream"
 	seedUser(t, userID, 10000)
@@ -343,11 +393,17 @@ func TestMoliiGrokFinalUsageFailureWritesErrorWithoutRefundLog(t *testing.T) {
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
 
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	assert.Equal(t, model.TaskBillingJobStatusPending, job.Status)
+	assert.Zero(t, countLogs(t))
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-failure-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Succeeded)
 	assert.Equal(t, int64(1), countLogs(t))
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeError, log.Type)
-	assert.Zero(t, log.Quota)
+	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, 2500, log.Quota)
 	assert.NotContains(t, log.Content, "private raw failure")
 	assert.NotContains(t, log.Other, upstreamID)
 }
@@ -364,7 +420,7 @@ func TestMoliiGrokFinalUsageRefundFailureSuppressesTerminalErrorLog(t *testing.T
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			truncate(t)
+			setupTaskBillingReconciliationTest(t)
 			userID := 690 + i*10
 			channelID := userID + 1
 			upstreamID := "grok-refund-failure-" + tt.name
@@ -390,6 +446,11 @@ func TestMoliiGrokFinalUsageRefundFailureSuppressesTerminalErrorLog(t *testing.T
 			channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 			require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
 
+			job := loadTaskBillingJobByTaskID(t, task.ID)
+			summary, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-refund-failure-worker")
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.Rescheduled)
+			assert.Equal(t, model.TaskBillingJobStatusPending, loadReconciliationJob(t, job.ID).Status)
 			assert.Equal(t, int64(0), countLogs(t))
 			assert.Equal(t, 2500, getTaskQuota(t, task.ID))
 		})
@@ -397,7 +458,7 @@ func TestMoliiGrokFinalUsageRefundFailureSuppressesTerminalErrorLog(t *testing.T
 }
 
 func TestMoliiGrokFinalUsageTimeoutRefundFailureSuppressesTerminalErrorLog(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 	const userID, channelID = 715, 716
 	seedUser(t, userID, 10000)
 	seedChannel(t, channelID)
@@ -413,6 +474,11 @@ func TestMoliiGrokFinalUsageTimeoutRefundFailureSuppressesTerminalErrorLog(t *te
 	t.Cleanup(func() { constant.TaskTimeoutMinutes = previousTimeout })
 	sweepTimedOutTasks(context.Background())
 
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-timeout-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Rescheduled)
+	assert.Equal(t, model.TaskBillingJobStatusPending, loadReconciliationJob(t, job.ID).Status)
 	assert.Equal(t, int64(0), countLogs(t))
 	assert.Equal(t, 2500, getTaskQuota(t, task.ID))
 }
@@ -430,7 +496,7 @@ func TestMoliiGrokFinalUsageSuccessfulDeltasEmitOnlyFinalConsumption(t *testing.
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			truncate(t)
+			setupTaskBillingReconciliationTest(t)
 			userID := 720 + i*10
 			tokenID := userID + 1
 			channelID := userID + 2
@@ -452,6 +518,12 @@ func TestMoliiGrokFinalUsageSuccessfulDeltasEmitOnlyFinalConsumption(t *testing.
 			channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 			require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
 
+			job := loadTaskBillingJobByTaskID(t, task.ID)
+			require.NotNil(t, job.TargetQuota)
+			assert.Equal(t, tt.actualQuota, *job.TargetQuota)
+			summary, err := RunTaskBillingReconciliationOnce(context.Background(), "grok-delta-worker")
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.Succeeded)
 			assert.Equal(t, tt.wantUserQuota, getUserQuota(t, userID))
 			assert.Equal(t, tt.wantToken, getTokenRemainQuota(t, tokenID))
 			assert.Equal(t, tt.actualQuota, getTaskQuota(t, task.ID))

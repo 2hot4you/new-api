@@ -76,6 +76,21 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 			}
 		}
 	}
+	billingJobs := make(map[int64]*model.TaskBillingJob)
+	taskIDs := make([]int64, 0, len(tasks))
+	for _, task := range tasks {
+		if task != nil && task.ID > 0 {
+			taskIDs = append(taskIDs, task.ID)
+		}
+	}
+	if len(taskIDs) > 0 {
+		var jobs []*model.TaskBillingJob
+		if err := model.DB.Where("task_id IN ?", taskIDs).Find(&jobs).Error; err == nil {
+			for _, job := range jobs {
+				billingJobs[job.TaskID] = job
+			}
+		}
+	}
 	result := make([]*dto.TaskDto, len(tasks))
 	for i, task := range tasks {
 		if fillUser {
@@ -106,10 +121,82 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 					HasVideo:   bc.EstimatedHasVideo,
 				}
 			}
+			item.Billing = taskBillingSummary(task, billingJobs[task.ID])
 		} else {
 			item.ResultURL = ""
 		}
 		result[i] = item
 	}
 	return result
+}
+
+func taskBillingSummary(task *model.Task, job *model.TaskBillingJob) *dto.TaskBillingSummary {
+	if task == nil {
+		return nil
+	}
+
+	state := service.TaskBillingPublicState(task, job)
+
+	modelName := task.Properties.OriginModelName
+	mode := "seedance"
+	if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC)) {
+		mode = "grok_video"
+	}
+	summary := &dto.TaskBillingSummary{
+		State: state,
+		Mode:  mode,
+		Model: modelName,
+	}
+	if state == "settled" {
+		summary.FinalCost = float64(task.Quota) / common.QuotaPerUnit
+	}
+
+	bc := task.PrivateData.BillingContext
+	if bc == nil {
+		return summary
+	}
+	if bc.OriginModelName != "" {
+		summary.Model = bc.OriginModelName
+	}
+	summary.GroupRatio = bc.GroupRatio
+	if state != "settled" {
+		return summary
+	}
+
+	if mode == "seedance" {
+		summary.Seedance = &dto.TaskSeedanceBilling{
+			ActualTokens: bc.ActualTokens,
+			Resolution:   bc.EstimatedResolution,
+			Ratio:        bc.EstimatedRatio,
+			Seconds:      bc.EstimatedSeconds,
+			HasVideo:     bc.EstimatedHasVideo,
+			UnitPrice:    bc.EstimatedUnitPrice,
+		}
+		summary.DetailAvailable = state == "settled" && bc.ActualTokens > 0 && bc.EstimatedUnitPrice >= 0
+		return summary
+	}
+
+	if snapshot := bc.GrokVideoBilling; snapshot != nil {
+		summary.GrokVideo = &dto.TaskGrokVideoBillingV1{
+			Version: snapshot.Version, Model: snapshot.Model,
+			Operation: snapshot.Operation, InputType: snapshot.InputType,
+			RequestedDurationSeconds: snapshot.RequestedDurationSeconds,
+			EstimatedDurationSeconds: snapshot.EstimatedDurationSeconds,
+			ActualDurationSeconds:    snapshot.ActualDurationSeconds,
+			RequestedResolution:      snapshot.RequestedResolution,
+			EstimatedResolution:      snapshot.EstimatedResolution,
+			ActualResolution:         snapshot.ActualResolution,
+			AspectRatio:              snapshot.AspectRatio, InputImageCount: snapshot.InputImageCount,
+			VideoInputBilledSeconds: snapshot.VideoInputBilledSeconds,
+			OutputUnitPrice:         snapshot.OutputUnitPrice,
+			ImageInputUnitPrice:     snapshot.ImageInputUnitPrice,
+			VideoInputUnitPrice:     snapshot.VideoInputUnitPrice,
+			OutputCost:              snapshot.OutputCost, ImageInputCost: snapshot.ImageInputCost,
+			VideoInputCost: snapshot.VideoInputCost, Subtotal: snapshot.Subtotal,
+			GroupRatio: snapshot.GroupRatio, FinalCost: snapshot.FinalCost,
+		}
+		summary.DetailAvailable = state == "settled" && snapshot.Version == 1 &&
+			snapshot.ActualDurationSeconds > 0 && snapshot.ActualResolution != ""
+	}
+	return summary
 }

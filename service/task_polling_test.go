@@ -204,6 +204,73 @@ func seedPollingTask(t *testing.T, channelID int, publicID string, upstreamID st
 	return task
 }
 
+func loadTaskBillingJobByTaskID(t *testing.T, taskID int64) model.TaskBillingJob {
+	t.Helper()
+	var job model.TaskBillingJob
+	require.NoError(t, model.DB.Where("task_id = ?", taskID).First(&job).Error)
+	return job
+}
+
+func TestPollingNullUpstreamBillingEnqueuesRefund(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	const userID, taskQuota = 801, 1700
+	seedUser(t, userID, 9000)
+	task := makeTask(userID, 0, taskQuota, 0, BillingSourceWallet, 0)
+	task.TaskID = "missing_upstream_public"
+	task.Platform = constant.TaskPlatform("missing-upstream")
+	task.Progress = "20%"
+	task.SubmitTime = time.Now().Unix()
+	require.NoError(t, model.DB.Create(task).Error)
+
+	previousFactory := GetTaskAdaptorFunc
+	previousLimit := constant.TaskQueryLimit
+	constant.TaskQueryLimit = 10
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return &taskPollingFetchAdaptor{} }
+	t.Cleanup(func() {
+		GetTaskAdaptorFunc = previousFactory
+		constant.TaskQueryLimit = previousLimit
+	})
+
+	summary := RunTaskPollingOnce(context.Background(), nil)
+	assert.Equal(t, 1, summary.UnfinishedTasks)
+	assert.Equal(t, 1, summary.NullTasksFailed)
+	var terminal model.Task
+	require.NoError(t, model.DB.First(&terminal, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, terminal.Status)
+	assert.Equal(t, taskQuota, terminal.Quota, "refund must remain pending until reconciliation")
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	assert.Equal(t, model.TaskBillingOperationRefund, job.Operation)
+	assert.Equal(t, model.TaskBillingJobStatusPending, job.Status)
+	assert.Equal(t, 9000, getUserQuota(t, userID))
+	assert.Zero(t, countLogs(t))
+}
+
+func TestPollingChannelCacheBillingEnqueuesRefund(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	const userID, channelID, taskQuota = 802, 8999, 1800
+	seedUser(t, userID, 9000)
+	task := makeTask(userID, channelID, taskQuota, 0, BillingSourceWallet, 0)
+	task.TaskID = "channel_cache_public"
+	task.Platform = constant.TaskPlatform("kling")
+	task.Progress = "40%"
+	task.SubmitTime = time.Now().Unix()
+	task.PrivateData.UpstreamTaskID = "channel-cache-upstream"
+	require.NoError(t, model.DB.Create(task).Error)
+
+	err := updateVideoTasks(context.Background(), task.Platform, channelID, []string{task.GetUpstreamTaskID()}, map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	})
+	require.Error(t, err)
+	var terminal model.Task
+	require.NoError(t, model.DB.First(&terminal, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, terminal.Status)
+	assert.Equal(t, taskQuota, terminal.Quota)
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	assert.Equal(t, model.TaskBillingOperationRefund, job.Operation)
+	assert.Equal(t, model.TaskBillingJobStatusPending, job.Status)
+	assert.Equal(t, 9000, getUserQuota(t, userID))
+}
+
 func TestUpdateVideoTasksDefaultSleepWaitsBetweenTasks(t *testing.T) {
 	truncate(t)
 
@@ -472,7 +539,7 @@ func TestUpdateVideoSingleTaskKeepsRawStarAIURLAndPersistsOnlySafeResponse(t *te
 }
 
 func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 
 	const userID, tokenID, channelID = 401, 401, 401
 	const initialUserQuota, initialTokenQuota, taskQuota = 10_000, 6_000, 2_500
@@ -519,9 +586,19 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
-	assert.Zero(t, reloaded.Quota)
+	assert.Equal(t, taskQuota, reloaded.Quota)
+	job := loadTaskBillingJobByTaskID(t, task.ID)
+	assert.Equal(t, model.TaskBillingJobStatusPending, job.Status)
+	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
+	assert.Equal(t, initialTokenQuota, getTokenRemainQuota(t, tokenID))
+	assert.Zero(t, countLogs(t))
+
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "suno-refund-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Succeeded)
 	assert.Equal(t, initialUserQuota+taskQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota+taskQuota, getTokenRemainQuota(t, tokenID))
+	assert.Zero(t, getTaskQuota(t, task.ID))
 	assert.Equal(t, int64(1), countLogs(t))
 }
 
@@ -554,7 +631,7 @@ func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {
 }
 
 func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
-	truncate(t)
+	setupTaskBillingReconciliationTest(t)
 
 	const (
 		userID          = 403
@@ -589,9 +666,21 @@ func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
 	assert.EqualValues(t, model.TaskStatusFailure, reloadedLegacy.Status)
 	assert.EqualValues(t, model.TaskStatusFailure, reloadedModern.Status)
 	assert.Zero(t, reloadedLegacy.Quota)
-	assert.Zero(t, reloadedModern.Quota)
+	assert.Equal(t, modernTaskQuota, reloadedModern.Quota)
 	assert.Contains(t, reloadedLegacy.FailReason, "旧系统遗留任务")
 	assert.Contains(t, reloadedModern.FailReason, "任务超时")
+	assert.Equal(t, initialQuota, getUserQuota(t, userID))
+	assert.Zero(t, countLogs(t))
+	job := loadTaskBillingJobByTaskID(t, modernTask.ID)
+	assert.Equal(t, model.TaskBillingOperationRefund, job.Operation)
+	var legacyJobs int64
+	require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("task_id = ?", legacyTask.ID).Count(&legacyJobs).Error)
+	assert.Zero(t, legacyJobs, "legacy timeout must never create a new refund")
+
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "timeout-refund-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Succeeded)
 	assert.Equal(t, initialQuota+modernTaskQuota, getUserQuota(t, userID))
+	assert.Zero(t, getTaskQuota(t, modernTask.ID))
 	assert.Equal(t, int64(1), countLogs(t))
 }
