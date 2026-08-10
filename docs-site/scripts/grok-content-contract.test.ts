@@ -6,6 +6,7 @@ import sidebars from '../sidebars';
 
 const siteRoot = join(import.meta.dir, '..');
 const sourceCommit = 'd396320dd9c0';
+const redirectFollowingOption = /(?:^|\s)(?:--location(?:-trusted)?|-L)(?:\s|$)/;
 const pages = [
   'docs/models/grok-imagine-image.mdx',
   'docs/models/grok-imagine-video.mdx',
@@ -104,9 +105,15 @@ describe('Grok Imagine public documentation contract', () => {
       expect(snippets.length, relativePath).toBeGreaterThan(0);
       for (const [, snippet] of snippets) {
         expect(snippet, relativePath).toContain('Authorization: Bearer $MOLII_API_KEY');
-        expect(snippet, relativePath).not.toMatch(/(?:^|\s)(?:--location|-L)(?:\s|$)/);
+        expect(snippet, relativePath).not.toMatch(redirectFollowingOption);
       }
     }
+  });
+
+  test('redirect matcher detects location-trusted on paid POST snippets', () => {
+    const snippet = 'curl --location-trusted --include --request POST --header "Authorization: Bearer $MOLII_API_KEY"';
+
+    expect(snippet).toMatch(redirectFollowingOption);
   });
 
   test('overview and sidebar expose Grok guides while excluding the retired technical preview', async () => {
