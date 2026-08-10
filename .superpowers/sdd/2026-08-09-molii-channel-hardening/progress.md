@@ -17,5 +17,6 @@ Task 5: complete (commits 3a1da182, c3630c51, 7881ab08; spec ✅; quality approv
 Task 6: fix round 1/5 in progress (self-contained preview retirement, pre-billing image mapping, requested/billed image snapshots; commit a7ca03de)
 Task 6: fix round 2/5 (2 addressed, 0 open — final selected-channel consistency, type 61/62 no-switch/no-replay, race-safe fixtures and single-call regression; commit ccf228c6)
 Task 6: complete (commits 1c7ebfe2, a7ca03de, ccf228c6; spec ✅; quality approved)
+Task 7: complete (commit 9c72d96c; spec ✅; quality approved — explicit poll resolution only, uncertain edits enter review_required)
 Preview retirement surface: fix round 1/5 (1 addressed, 0 open — Demo README; commit 74b73109)
 Preview retirement surface: complete (commits 626eed55, 74b73109; spec ✅; quality approved)
