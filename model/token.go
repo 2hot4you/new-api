@@ -546,3 +546,46 @@ func invalidateTokensCache(tokens []Token) error {
 	}
 	return firstErr
 }
+
+func applyTaskBillingTokenDeltaTx(tx *gorm.DB, tokenID int, userID int, delta int64) (*Token, error) {
+	if tx == nil || tokenID <= 0 || userID <= 0 {
+		return nil, errors.New("invalid task billing token")
+	}
+	var token Token
+	if err := lockForUpdate(tx).
+		Where("id = ? AND user_id = ?", tokenID, userID).
+		First(&token).Error; err != nil {
+		return nil, err
+	}
+
+	remainQuota := int64(token.RemainQuota)
+	if !token.UnlimitedQuota {
+		remainQuota -= delta
+		if remainQuota < 0 || remainQuota > int64(common.MaxQuota) {
+			return nil, fmt.Errorf("token remaining quota out of range: %d", remainQuota)
+		}
+	}
+	usedQuota := saturatingTaskBillingQuota(int64(token.UsedQuota), delta)
+	if err := tx.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]any{
+		"remain_quota":  int(remainQuota),
+		"used_quota":    usedQuota,
+		"accessed_time": common.GetTimestamp(),
+	}).Error; err != nil {
+		return nil, err
+	}
+	token.RemainQuota = int(remainQuota)
+	token.UsedQuota = usedQuota
+	token.AccessedTime = common.GetTimestamp()
+	return &token, nil
+}
+
+func syncTaskBillingTokenCacheAfterCommit(tokenID int) error {
+	if tokenID <= 0 || !common.RedisEnabled {
+		return nil
+	}
+	var token Token
+	if err := DB.Where("id = ?", tokenID).First(&token).Error; err != nil {
+		return err
+	}
+	return cacheSetToken(token)
+}

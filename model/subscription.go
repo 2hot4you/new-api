@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -1521,4 +1522,37 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 		sub.AmountUsed = newUsed
 		return tx.Save(&sub).Error
 	})
+}
+
+func applyTaskBillingSubscriptionDeltaTx(tx *gorm.DB, subscriptionID int, userID int, delta int64) error {
+	if tx == nil || subscriptionID <= 0 || userID <= 0 {
+		return errors.New("invalid task billing subscription")
+	}
+	var sub UserSubscription
+	if err := lockForUpdate(tx).
+		Where("id = ? AND user_id = ?", subscriptionID, userID).
+		First(&sub).Error; err != nil {
+		return err
+	}
+
+	newUsed := sub.AmountUsed
+	if delta > 0 {
+		if newUsed > math.MaxInt64-delta {
+			return errors.New("subscription used quota overflow")
+		}
+		newUsed += delta
+		if sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
+			return fmt.Errorf("subscription used exceeds total, used=%d total=%d", newUsed, sub.AmountTotal)
+		}
+	} else if delta < 0 {
+		if delta == math.MinInt64 || -delta >= newUsed {
+			newUsed = 0
+		} else {
+			newUsed += delta
+		}
+	}
+	return tx.Model(&UserSubscription{}).Where("id = ?", sub.Id).Updates(map[string]any{
+		"amount_used": newUsed,
+		"updated_at":  common.GetTimestamp(),
+	}).Error
 }
