@@ -60,7 +60,14 @@ func ApplyTaskBillingDeltaTx(tx *gorm.DB, task *Task, targetQuota int, expectedL
 		if job.TargetQuota == nil || *job.TargetQuota != targetQuota {
 			return errTaskBillingAlreadyAppliedWithDifferentTarget
 		}
-		task.Quota = targetQuota
+		var storedTask Task
+		if err := lockForUpdate(tx).Where("id = ?", task.ID).First(&storedTask).Error; err != nil {
+			return err
+		}
+		if storedTask.Quota != targetQuota {
+			return fmt.Errorf("succeeded task billing quota mismatch: task=%d job=%d", storedTask.Quota, targetQuota)
+		}
+		*task = storedTask
 		return nil
 	}
 	now := common.GetTimestamp()
@@ -104,6 +111,8 @@ func ApplyTaskBillingDeltaTx(tx *gorm.DB, task *Task, targetQuota int, expectedL
 	requestCountDelta := int64(0)
 	if targetQuota > 0 {
 		statisticsQuota = int64(targetQuota)
+	}
+	if job.Operation == TaskBillingOperationSettle {
 		requestCountDelta = 1
 	}
 	if _, err := applyTaskBillingUserDeltaTx(

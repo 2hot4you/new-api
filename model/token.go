@@ -558,22 +558,19 @@ func applyTaskBillingTokenDeltaTx(tx *gorm.DB, tokenID int, userID int, delta in
 		return nil, err
 	}
 
-	remainQuota := int64(token.RemainQuota)
-	if !token.UnlimitedQuota {
-		remainQuota -= delta
-		if remainQuota < 0 || remainQuota > int64(common.MaxQuota) {
-			return nil, fmt.Errorf("token remaining quota out of range: %d", remainQuota)
-		}
+	remainQuota, err := boundedTaskBillingQuotaAdd(int64(token.RemainQuota), -delta)
+	if err != nil {
+		return nil, fmt.Errorf("token remaining quota: %w", err)
 	}
 	usedQuota := saturatingTaskBillingQuota(int64(token.UsedQuota), delta)
 	if err := tx.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]any{
-		"remain_quota":  int(remainQuota),
+		"remain_quota":  remainQuota,
 		"used_quota":    usedQuota,
 		"accessed_time": common.GetTimestamp(),
 	}).Error; err != nil {
 		return nil, err
 	}
-	token.RemainQuota = int(remainQuota)
+	token.RemainQuota = remainQuota
 	token.UsedQuota = usedQuota
 	token.AccessedTime = common.GetTimestamp()
 	return &token, nil
@@ -587,5 +584,5 @@ func syncTaskBillingTokenCacheAfterCommit(tokenID int) error {
 	if err := DB.Where("id = ?", tokenID).First(&token).Error; err != nil {
 		return err
 	}
-	return cacheSetToken(token)
+	return cacheDeleteToken(token.Key)
 }

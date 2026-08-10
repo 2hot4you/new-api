@@ -1428,20 +1428,20 @@ func applyTaskBillingUserDeltaTx(tx *gorm.DB, userID int, walletDelta int64, use
 		return nil, err
 	}
 
-	quota := int64(user.Quota) + walletDelta
-	if quota < 0 || quota > int64(common.MaxQuota) {
-		return nil, fmt.Errorf("user wallet quota out of range: %d", quota)
+	quota, err := boundedTaskBillingQuotaAdd(int64(user.Quota), walletDelta)
+	if err != nil {
+		return nil, fmt.Errorf("user wallet quota: %w", err)
 	}
 	usedQuota := saturatingTaskBillingQuota(int64(user.UsedQuota), usedQuotaDelta)
 	requestCount := saturatingTaskBillingQuota(int64(user.RequestCount), requestCountDelta)
 	if err := tx.Model(&User{}).Where("id = ?", user.Id).Updates(map[string]any{
-		"quota":         int(quota),
+		"quota":         quota,
 		"used_quota":    usedQuota,
 		"request_count": requestCount,
 	}).Error; err != nil {
 		return nil, err
 	}
-	user.Quota = int(quota)
+	user.Quota = quota
 	user.UsedQuota = usedQuota
 	user.RequestCount = requestCount
 	return &user, nil
@@ -1463,13 +1463,23 @@ func saturatingTaskBillingQuota(current int64, delta int64) int {
 	return int(current + delta)
 }
 
+func boundedTaskBillingQuotaAdd(current int64, delta int64) (int, error) {
+	minimum, maximum := int64(common.MinQuota), int64(common.MaxQuota)
+	if current < minimum || current > maximum {
+		return 0, fmt.Errorf("current quota out of range: %d", current)
+	}
+	if delta > 0 && current > maximum-delta {
+		return 0, fmt.Errorf("quota overflow: current=%d delta=%d", current, delta)
+	}
+	if delta < 0 && current < minimum-delta {
+		return 0, fmt.Errorf("quota underflow: current=%d delta=%d", current, delta)
+	}
+	return int(current + delta), nil
+}
+
 func syncTaskBillingUserCacheAfterCommit(userID int) error {
 	if userID <= 0 || !common.RedisEnabled {
 		return nil
 	}
-	var user User
-	if err := DB.Where("id = ?", userID).First(&user).Error; err != nil {
-		return err
-	}
-	return updateUserCache(user)
+	return invalidateUserCache(userID)
 }
