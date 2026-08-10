@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"gorm.io/gorm"
 )
 
 const (
@@ -77,7 +78,7 @@ func ApplyTaskBillingJob(ctx context.Context, claimed *model.TaskBillingJob) err
 	}
 
 	var authoritative model.TaskBillingJob
-	if err := model.DB.First(&authoritative, claimed.ID).Error; err != nil {
+	if err := model.DB.WithContext(ctx).First(&authoritative, claimed.ID).Error; err != nil {
 		return err
 	}
 	if authoritative.Status == model.TaskBillingJobStatusSucceeded {
@@ -93,20 +94,29 @@ func ApplyTaskBillingJob(ctx context.Context, claimed *model.TaskBillingJob) err
 		return err
 	}
 	var task model.Task
-	if err := model.DB.First(&task, authoritative.TaskID).Error; err != nil {
+	if err := model.DB.WithContext(ctx).First(&task, authoritative.TaskID).Error; err != nil {
 		return err
 	}
-	if err := model.ApplyTaskBillingDelta(&task, targetQuota, authoritative.LockedBy, authoritative.Attempts); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// Bind cancellation to the caller-owned transaction while retaining Task 2's
+	// exact transaction body and fencing. Once committed, cache/log work stays
+	// best-effort and can never make the funding delta retryable.
+	if err := model.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return model.ApplyTaskBillingDeltaTx(tx, &task, targetQuota, authoritative.LockedBy, authoritative.Attempts)
+	}); err != nil {
+		return err
+	}
+	model.SyncTaskBillingCachesAfterCommit(&task)
 
-	if err := recordTaskBillingReconciliationEvent(&authoritative, &task, targetQuota); err != nil {
+	if err := recordTaskBillingReconciliationEvent(ctx, &authoritative, &task, targetQuota); err != nil {
 		common.SysLog(fmt.Sprintf("failed to record task billing event taskbill_%d: %v", authoritative.ID, err))
 	}
 	return nil
 }
 
-func recordTaskBillingReconciliationEvent(job *model.TaskBillingJob, task *model.Task, targetQuota int) error {
+func recordTaskBillingReconciliationEvent(ctx context.Context, job *model.TaskBillingJob, task *model.Task, targetQuota int) error {
 	if job == nil || task == nil {
 		return errors.New("billing event requires job and task")
 	}
@@ -127,19 +137,23 @@ func recordTaskBillingReconciliationEvent(job *model.TaskBillingJob, task *model
 	other["pre_consumed_quota"] = job.FromQuota
 	other["actual_quota"] = targetQuota
 
-	username, _ := model.GetUsernameById(task.UserId, false)
+	var userIdentity struct {
+		Username string
+	}
+	_ = model.DB.WithContext(ctx).Model(&model.User{}).Select("username").Where("id = ?", task.UserId).Scan(&userIdentity).Error
 	tokenName := ""
 	if task.PrivateData.TokenId > 0 {
-		if token, err := model.GetTokenById(task.PrivateData.TokenId); err == nil && token != nil {
+		var token model.Token
+		if err := model.DB.WithContext(ctx).Select("name").Where("id = ?", task.PrivateData.TokenId).First(&token).Error; err == nil {
 			tokenName = token.Name
 		}
 	}
-	return model.LOG_DB.Create(&model.Log{
+	return model.LOG_DB.WithContext(ctx).Create(&model.Log{
 		UserId:    task.UserId,
 		CreatedAt: common.GetTimestamp(),
 		Type:      logType,
 		Content:   content,
-		Username:  username,
+		Username:  userIdentity.Username,
 		TokenName: tokenName,
 		ModelName: taskModelName(task),
 		Quota:     quota,
@@ -156,19 +170,27 @@ func recordTaskBillingReconciliationEvent(job *model.TaskBillingJob, task *model
 // Application errors are converted to fenced reschedule/review transitions;
 // only claim/transition infrastructure failures are returned to the caller.
 func RunTaskBillingReconciliationOnce(ctx context.Context, runnerID string) (TaskBillingReconciliationSummary, error) {
-	return runTaskBillingReconciliationOnceAt(ctx, runnerID, common.GetTimestamp())
+	return runTaskBillingReconciliationOnceWithClock(ctx, runnerID, common.GetTimestamp)
 }
 
 func runTaskBillingReconciliationOnceAt(ctx context.Context, runnerID string, now int64) (TaskBillingReconciliationSummary, error) {
+	return runTaskBillingReconciliationOnceWithClock(ctx, runnerID, func() int64 { return now })
+}
+
+func runTaskBillingReconciliationOnceWithClock(ctx context.Context, runnerID string, now func() int64) (TaskBillingReconciliationSummary, error) {
 	summary := TaskBillingReconciliationSummary{}
 	if err := ctx.Err(); err != nil {
 		return summary, err
 	}
+	if now == nil {
+		return summary, errors.New("task billing reconciliation clock is required")
+	}
+	claimNow := now()
 	runnerID = strings.TrimSpace(runnerID)
 	claimed, err := model.ClaimTaskBillingJobs(
 		runnerID,
-		now,
-		now+taskBillingReconciliationLeaseSeconds,
+		claimNow,
+		claimNow+taskBillingReconciliationLeaseSeconds,
 		taskBillingReconciliationBatchSize,
 	)
 	if err != nil {
@@ -179,9 +201,10 @@ func runTaskBillingReconciliationOnceAt(ctx context.Context, runnerID string, no
 	var transitionErrors []error
 	for _, job := range claimed {
 		if err := ctx.Err(); err != nil {
-			if transitionErr := transitionFailedTaskBillingJob(job, now, err, &summary); transitionErr != nil {
+			if transitionErr := transitionFailedTaskBillingJob(job, now(), err, &summary); transitionErr != nil {
 				transitionErrors = append(transitionErrors, transitionErr)
 			}
+			transitionErrors = append(transitionErrors, err)
 			continue
 		}
 		if _, err := ResolveTerminalBillingIntent(job); err != nil {
@@ -193,8 +216,11 @@ func runTaskBillingReconciliationOnceAt(ctx context.Context, runnerID string, no
 			continue
 		}
 		if err := ApplyTaskBillingJob(ctx, job); err != nil {
-			if transitionErr := transitionFailedTaskBillingJob(job, now, err, &summary); transitionErr != nil {
+			if transitionErr := transitionFailedTaskBillingJob(job, now(), err, &summary); transitionErr != nil {
 				transitionErrors = append(transitionErrors, transitionErr)
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				transitionErrors = append(transitionErrors, err)
 			}
 			continue
 		}

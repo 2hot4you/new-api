@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -153,21 +156,43 @@ func TestTaskBillingReconciliationRetryBackoff(t *testing.T) {
 		})
 	}
 
-	setupTaskBillingReconciliationTest(t)
-	now := time.Now().Unix()
-	seedUser(t, 304, 900)
-	seedToken(t, 304, 304, "reconcile-backoff", 900)
-	seedChannel(t, 304)
-	task := makeTask(304, 304, 100, 304, BillingSourceSubscription, 999999)
-	job := seedReconciliationJob(t, task, model.TaskBillingOperationRefund, nil, now)
+	for _, tt := range []struct {
+		name             string
+		userID           int
+		startingAttempts int
+		wantDelay        int64
+	}{
+		{name: "first failure gets full five seconds", userID: 304, startingAttempts: 0, wantDelay: 5},
+		{name: "second failure gets full thirty seconds", userID: 311, startingAttempts: 1, wantDelay: 30},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			setupTaskBillingReconciliationTest(t)
+			claimNow := time.Now().Unix()
+			failureNow := claimNow + 90
+			seedUser(t, tt.userID, 900)
+			seedToken(t, tt.userID, tt.userID, fmt.Sprintf("reconcile-backoff-%d", tt.userID), 900)
+			seedChannel(t, tt.userID)
+			task := makeTask(tt.userID, tt.userID, 100, tt.userID, BillingSourceSubscription, 999999)
+			job := seedReconciliationJob(t, task, model.TaskBillingOperationRefund, nil, claimNow)
+			require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("id = ?", job.ID).
+				Update("attempts", tt.startingAttempts).Error)
 
-	summary, err := runTaskBillingReconciliationOnceAt(context.Background(), "retry-worker", now)
-	require.NoError(t, err)
-	assert.Equal(t, 1, summary.Rescheduled)
-	got := loadReconciliationJob(t, job.ID)
-	assert.Equal(t, model.TaskBillingJobStatusPending, got.Status)
-	assert.Equal(t, 1, got.Attempts)
-	assert.Equal(t, now+5, got.NextAttemptAt)
+			var clockCalls atomic.Int32
+			clock := func() int64 {
+				if clockCalls.Add(1) == 1 {
+					return claimNow
+				}
+				return failureNow
+			}
+			summary, err := runTaskBillingReconciliationOnceWithClock(context.Background(), "retry-worker", clock)
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.Rescheduled)
+			got := loadReconciliationJob(t, job.ID)
+			assert.Equal(t, model.TaskBillingJobStatusPending, got.Status)
+			assert.Equal(t, tt.startingAttempts+1, got.Attempts)
+			assert.Equal(t, failureNow+tt.wantDelay, got.NextAttemptAt)
+		})
+	}
 }
 
 func TestTaskBillingReconciliationTenthAttemptRequiresReview(t *testing.T) {
@@ -231,7 +256,31 @@ func TestTaskBillingReconciliationReclaimsExpiredLease(t *testing.T) {
 }
 
 func TestTaskBillingReconciliationConcurrentWorkersApplyOnce(t *testing.T) {
-	setupTaskBillingReconciliationTest(t)
+	previousDB := model.DB
+	previousLogDB := model.LOG_DB
+	previousMainDatabaseType := common.MainDatabaseType()
+	previousLogDatabaseType := common.LogDatabaseType()
+	dsn := fmt.Sprintf("file:task3-reconcile-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(4)
+	require.Equal(t, 4, sqlDB.Stats().MaxOpenConnections)
+	require.NoError(t, db.AutoMigrate(
+		&model.Task{}, &model.User{}, &model.Token{}, &model.Log{}, &model.Channel{},
+		&model.UserSubscription{}, &model.TaskBillingJob{},
+	))
+	model.DB = db
+	model.LOG_DB = db
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	t.Cleanup(func() {
+		model.DB = previousDB
+		model.LOG_DB = previousLogDB
+		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
+		require.NoError(t, sqlDB.Close())
+	})
+
 	now := time.Now().Unix()
 	seedUser(t, 308, 900)
 	seedToken(t, 308, 308, "reconcile-concurrent", 900)
@@ -239,6 +288,40 @@ func TestTaskBillingReconciliationConcurrentWorkersApplyOnce(t *testing.T) {
 	target := 40
 	task := makeTask(308, 308, 100, 308, BillingSourceWallet, 0)
 	job := seedReconciliationJob(t, task, model.TaskBillingOperationSettle, &target, now)
+
+	var activeClaims atomic.Int32
+	var maxActiveClaims atomic.Int32
+	var maxConnectionsInUse atomic.Int32
+	claimGate := make(chan struct{})
+	callbackName := "test:task_billing_claim_competition"
+	require.NoError(t, db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement == nil || tx.Statement.Schema == nil || tx.Statement.Schema.Name != "TaskBillingJob" {
+			return
+		}
+		connectionsInUse := int32(sqlDB.Stats().InUse)
+		for {
+			observed := maxConnectionsInUse.Load()
+			if connectionsInUse <= observed || maxConnectionsInUse.CompareAndSwap(observed, connectionsInUse) {
+				break
+			}
+		}
+		arrival := activeClaims.Add(1)
+		defer activeClaims.Add(-1)
+		for {
+			observed := maxActiveClaims.Load()
+			if arrival <= observed || maxActiveClaims.CompareAndSwap(observed, arrival) {
+				break
+			}
+		}
+		if arrival == 2 {
+			close(claimGate)
+		}
+		select {
+		case <-claimGate:
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	t.Cleanup(func() { db.Callback().Query().Remove(callbackName) })
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -255,13 +338,69 @@ func TestTaskBillingReconciliationConcurrentWorkersApplyOnce(t *testing.T) {
 	close(start)
 	wg.Wait()
 	close(errs)
+	successes := 0
 	for err := range errs {
-		require.NoError(t, err)
+		if err == nil {
+			successes++
+			continue
+		}
+		assert.Contains(t, err.Error(), "locked")
 	}
+	assert.GreaterOrEqual(t, successes, 1)
+	assert.GreaterOrEqual(t, maxActiveClaims.Load(), int32(2), "claims must overlap on distinct pooled connections")
+	assert.GreaterOrEqual(t, maxConnectionsInUse.Load(), int32(2), "two SQL connections must be in use during claim competition")
 	assert.Equal(t, model.TaskBillingJobStatusSucceeded, loadReconciliationJob(t, job.ID).Status)
 	assert.Equal(t, 960, getUserQuota(t, 308))
 	assert.Equal(t, 960, getTokenRemainQuota(t, 308))
 	assert.Equal(t, 40, loadReconciliationTask(t, task.ID).Quota)
+}
+
+func TestTaskBillingReconciliationPropagatesCancellationToDatabase(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	claimNow := time.Now().Unix()
+	failureNow := claimNow + 20
+	seedUser(t, 312, 900)
+	seedToken(t, 312, 312, "reconcile-cancel", 900)
+	seedChannel(t, 312)
+	task := makeTask(312, 312, 100, 312, BillingSourceWallet, 0)
+	job := seedReconciliationJob(t, task, model.TaskBillingOperationRefund, nil, claimNow)
+
+	type contextMarker struct{}
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), contextMarker{}, "task3"))
+	callbackName := "test:cancel_task_billing_query"
+	var sawContext atomic.Bool
+	var canceledQuery atomic.Bool
+	require.NoError(t, model.DB.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement == nil || tx.Statement.Schema == nil || tx.Statement.Schema.Name != "Task" {
+			return
+		}
+		if !canceledQuery.CompareAndSwap(false, true) {
+			return
+		}
+		if tx.Statement.Context.Value(contextMarker{}) == "task3" {
+			sawContext.Store(true)
+		}
+		cancel()
+		tx.AddError(context.Canceled)
+	}))
+	t.Cleanup(func() { model.DB.Callback().Query().Remove(callbackName) })
+
+	var clockCalls atomic.Int32
+	clock := func() int64 {
+		if clockCalls.Add(1) == 1 {
+			return claimNow
+		}
+		return failureNow
+	}
+	summary, err := runTaskBillingReconciliationOnceWithClock(ctx, "cancel-worker", clock)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.True(t, sawContext.Load())
+	assert.Equal(t, 1, summary.Rescheduled)
+	got := loadReconciliationJob(t, job.ID)
+	assert.Equal(t, model.TaskBillingJobStatusPending, got.Status)
+	assert.Equal(t, failureNow+5, got.NextAttemptAt)
+	assert.Equal(t, 900, getUserQuota(t, 312))
+	assert.Equal(t, 100, loadReconciliationTask(t, task.ID).Quota)
 }
 
 func TestTaskBillingReconciliationLogFailureDoesNotReplayFunds(t *testing.T) {
