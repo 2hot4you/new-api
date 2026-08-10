@@ -26,15 +26,26 @@ docker compose --env-file .env ps
 
 ## 数据库迁移
 
-`migrate` 服务会在应用启动前执行
-`migrations/20260803_molii_postgres.sql`。迁移可重复执行：已有数据库会补充
-`tokens.auto_groups`，全新数据库则由 New API 启动时的 GORM AutoMigrate 创建完整
+`migrate` 服务会在应用启动前按顺序执行以下迁移：
+
+1. `migrations/20260803_molii_postgres.sql`：为已有数据库补充
+   `tokens.auto_groups`。
+2. `migrations/20260810_async_task_billing_jobs.sql`：创建异步任务计费作业表及其唯一、
+   就绪队列和过期租约索引。
+
+两项迁移都可重复执行；随后 New API 启动时仍会由 GORM AutoMigrate 校验并补充完整
 Schema。
 
 手动重跑迁移：
 
 ```sh
 docker compose --env-file .env run --rm migrate
+```
+
+可用一次性的 PostgreSQL 15 容器运行计费作业迁移契约测试（不会连接部署数据库）：
+
+```sh
+./migrations/20260810_async_task_billing_jobs_test.sh
 ```
 
 升级已有环境前，建议先备份：

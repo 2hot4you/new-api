@@ -65,9 +65,11 @@ services:
           --username="$${POSTGRES_USER}" \
           --dbname="$${POSTGRES_DB}" \
           --set=ON_ERROR_STOP=1 \
-          --file=/migrations/20260803_molii_postgres.sql
+          --file=/migrations/20260803_molii_postgres.sql \
+          --file=/migrations/20260810_async_task_billing_jobs.sql
     volumes:
       - ./migrations/20260803_molii_postgres.sql:/migrations/20260803_molii_postgres.sql:ro
+      - ./migrations/20260810_async_task_billing_jobs.sql:/migrations/20260810_async_task_billing_jobs.sql:ro
     depends_on:
       postgres:
         condition: service_healthy
