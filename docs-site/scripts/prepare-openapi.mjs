@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace']);
@@ -73,6 +73,19 @@ function validatePublicDocument(document) {
   }
 }
 
+export async function resetGeneratedApiDirectory({ siteRoot } = {}) {
+  if (!siteRoot) throw new Error('siteRoot is required to reset generated API docs');
+  const normalizedSiteRoot = resolve(siteRoot);
+  const generatedRoot = resolve(normalizedSiteRoot, 'generated');
+  const generatedApiRoot = resolve(generatedRoot, 'api');
+  if (dirname(generatedApiRoot) !== generatedRoot || generatedApiRoot === normalizedSiteRoot) {
+    throw new Error(`Refusing to reset unsafe generated API path: ${generatedApiRoot}`);
+  }
+  await rm(generatedApiRoot, { force: true, recursive: true });
+  await mkdir(generatedApiRoot, { recursive: true });
+  return generatedApiRoot;
+}
+
 export async function prepareOpenApi({ templatePath, allowlistPath, outputPath, apiBaseUrl, document: suppliedDocument } = {}) {
   if (!templatePath || !allowlistPath || !outputPath || !apiBaseUrl) {
     throw new Error('templatePath, allowlistPath, outputPath, and apiBaseUrl are required');
@@ -136,12 +149,20 @@ export async function prepareOpenApi({ templatePath, allowlistPath, outputPath, 
 
 async function main() {
   const siteRoot = resolve(import.meta.dirname, '..');
+  const args = process.argv.slice(2);
+  const prepareForGeneration = args.length === 1 && args[0] === '--prepare-for-generation';
+  if (args.length > 0 && !prepareForGeneration) {
+    throw new Error(`Unknown prepare-openapi option: ${args.join(' ')}`);
+  }
   await prepareOpenApi({
     templatePath: resolve(siteRoot, 'openapi/relay.public.template.yaml'),
     allowlistPath: resolve(siteRoot, 'openapi/public-api-surface.json'),
     outputPath: resolve(siteRoot, 'generated/openapi/relay.public.json'),
     apiBaseUrl: process.env.DOCS_API_BASE_URL ?? 'http://127.0.0.1:3000',
   });
+  if (prepareForGeneration) {
+    await resetGeneratedApiDirectory({ siteRoot });
+  }
 }
 
 if (import.meta.main) {

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import siteConfig from '../docusaurus.config';
-import { prepareOpenApi } from './prepare-openapi.mjs';
+import { prepareOpenApi, resetGeneratedApiDirectory } from './prepare-openapi.mjs';
 
 const workspaces: string[] = [];
 
@@ -127,6 +127,24 @@ describe('prepareOpenApi', () => {
 
     await expect(prepareOpenApi({ ...files, apiBaseUrl: 'https://api.molii.example', document: unsafe }))
       .rejects.toThrow(/summary|BearerAuth/i);
+  });
+
+  test('resets only the fixed generated API directory', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'molii-generated-api-'));
+    workspaces.push(workspace);
+    const generatedApi = join(workspace, 'generated', 'api');
+    const generatedSibling = join(workspace, 'generated', 'keep.txt');
+    const siteSibling = join(workspace, 'keep.txt');
+    await mkdir(generatedApi, { recursive: true });
+    await writeFile(join(generatedApi, 'stale.api.mdx'), '# stale');
+    await writeFile(generatedSibling, 'generated sibling');
+    await writeFile(siteSibling, 'site sibling');
+
+    await resetGeneratedApiDirectory({ siteRoot: workspace });
+
+    expect(await Array.fromAsync(new Bun.Glob('*').scan(generatedApi))).toEqual([]);
+    expect(await readFile(generatedSibling, 'utf8')).toBe('generated sibling');
+    expect(await readFile(siteSibling, 'utf8')).toBe('site sibling');
   });
 
   test('publishes Molii Grok image fields implemented by the adaptor', async () => {

@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 
+import { resolveBrowserExecutable } from './browser-executable.mjs';
+
 const siteRoot = join(import.meta.dir, '..');
-const chromePath = process.env.DOCS_CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const generatedApiRoot = join(siteRoot, 'generated', 'api');
+const staleEndpointPath = join(generatedApiRoot, 'review-stale.api.mdx');
 const port = 3197;
 let buildOutput = '';
 let server: ReturnType<typeof Bun.spawn> | undefined;
@@ -19,6 +23,15 @@ async function run(command: string[]) {
 }
 
 beforeAll(async () => {
+  await mkdir(generatedApiRoot, { recursive: true });
+  await writeFile(staleEndpointPath, [
+    '---',
+    'id: review-stale',
+    'title: Review stale endpoint',
+    '---',
+    '',
+    '# Review stale endpoint',
+  ].join('\n'));
   const generated = await run(['bun', 'run', 'api:generate']);
   if (generated.exitCode !== 0) throw new Error(generated.output);
   const built = await run(['bun', 'run', 'build']);
@@ -48,10 +61,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   server?.kill();
+  await rm(staleEndpointPath, { force: true });
 });
 
 describe('generated API reference', () => {
   test('hydrates the generated introduction without browser console errors', async () => {
+    const chromePath = await resolveBrowserExecutable();
     const browser = await chromium.launch({ executablePath: chromePath, headless: true });
     const page = await browser.newPage();
     const errors: string[] = [];
@@ -71,5 +86,38 @@ describe('generated API reference', () => {
 
   test('builds without OpenAPI theme module export warnings', () => {
     expect(buildOutput).not.toContain("export 'default' (imported as 'SchemaTabs') was not found");
+  });
+
+  test('removes stale MDX before generation', async () => {
+    expect(await Bun.file(staleEndpointPath).exists()).toBe(false);
+  });
+
+  test('emits current asset and video response contracts', async () => {
+    const assetRequest = JSON.parse(await readFile(join(generatedApiRoot, 'create-asset.RequestSchema.json'), 'utf8'));
+    expect(assetRequest.body.content['application/json'].schema).toMatchObject({
+      required: ['url', 'asset_type', 'name'],
+      properties: { asset_type: { enum: ['image', 'video', 'audio'] }, name: { maxLength: 80 } },
+    });
+    const assetResponses = JSON.parse(await readFile(join(generatedApiRoot, 'create-asset.StatusCodes.json'), 'utf8'));
+    expect(assetResponses.responses['200'].content['application/json'].schema).toMatchObject({
+      required: ['id'],
+      properties: { id: { type: 'string' } },
+    });
+
+    const videoSubmit = JSON.parse(await readFile(join(generatedApiRoot, 'create-video-generation.StatusCodes.json'), 'utf8'));
+    expect(videoSubmit.responses['200'].content['application/json'].schema).toMatchObject({
+      required: ['id', 'object', 'model', 'status', 'progress', 'created_at'],
+      properties: { object: { const: 'video' } },
+    });
+    const videoFetch = JSON.parse(await readFile(join(generatedApiRoot, 'get-video-generation.StatusCodes.json'), 'utf8'));
+    expect(videoFetch.responses['200'].content['application/json'].schema).toMatchObject({
+      required: ['code', 'message', 'data'],
+      properties: {
+        data: {
+          required: ['task_id', 'status', 'progress'],
+          properties: { result_url: { format: 'uri' }, billing: { type: 'object' } },
+        },
+      },
+    });
   });
 });
