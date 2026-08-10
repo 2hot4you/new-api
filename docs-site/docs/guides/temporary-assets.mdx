@@ -1,0 +1,113 @@
+---
+title: 临时素材
+description: 创建、查询、引用和删除当前账户所属的 Seedance 临时素材。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 2
+---
+
+# 临时素材
+
+临时素材把一个可公开读取的媒体 URL 登记为短期 `asset://` 引用。它适用于 Seedance 图片、视频和音频输入，不等同于永久文件存储。
+
+所有端点都使用 `Authorization: Bearer $MOLII_API_KEY`。素材归属于创建它的账户；同一账户可以用自己的有效 API Key 查询、删除和引用素材。其他账户的素材不会对你可见。
+
+## 1. 创建素材
+
+`POST /v1/assets` 接受以下 JSON 字段：
+
+| 字段 | 规则 |
+| --- | --- |
+| `url` | 必填的公网 HTTP 或 HTTPS URL |
+| `asset_type` | 必须是 `image`、`video` 或 `audio` |
+| `name` | 必填，最多 80 个字符 |
+
+URL 必须能被媒体处理服务直接访问。不能使用 `localhost`、私有网络/内网地址、带用户名密码的 URL，也不要使用需要 Cookie 或自定义请求头的资源。URL 在素材处理完成前应持续可达。
+
+示例中的 `example.invalid` 是不会真实访问的安全占位域名。实际调用前必须替换为你拥有且可公开读取的媒体 URL。
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "url": "https://example.invalid/reference.png",
+    "asset_type": "image",
+    "name": "角色参考图"
+  }'
+```
+
+成功响应只返回公开素材 ID：
+
+```json
+{ "id": "asset-molii-example123" }
+```
+
+创建是有副作用的操作。如果连接在响应前中断，先通过自己的请求记录确认结果，不要盲目自动重发。
+
+## 2. 查询状态和有效期
+
+使用 `GET /v1/assets/{id}`：
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset-molii-example123" \
+  --header "Authorization: Bearer $MOLII_API_KEY"
+```
+
+典型响应：
+
+```json
+{
+  "id": "asset-molii-example123",
+  "asset_type": "image",
+  "name": "角色参考图",
+  "status": "ACTIVE",
+  "created_at": 1786300000,
+  "expires_at": 1786386400,
+  "verified_at": 1786300012
+}
+```
+
+| 状态 | 含义 | 是否可用于任务 |
+| --- | --- | --- |
+| `PROCESSING` | 正在准备 | 否，稍后再次 GET |
+| `ACTIVE` | 已激活 | 是 |
+| `SUCCESS` | 已成功准备 | 是 |
+| `FAILED` | 处理失败 | 否，检查源 URL 后创建新素材 |
+| `EXPIRED` | 已过期或已不可用 | 否 |
+
+有效期由响应决定：始终读取 `expires_at` 并以它为准，不要在客户端假设固定 TTL。计划任务时应预留排队和生成时间；接近过期的素材请先创建新素材。
+
+## 3. 在 Seedance 请求中引用
+
+把公开 ID 加上 `asset://` 前缀：
+
+```json
+{
+  "type": "image_url",
+  "image_url": { "url": "asset://asset-molii-example123" },
+  "role": "reference_image"
+}
+```
+
+平台会在创建视频任务时再次检查素材归属、状态和有效性。`PROCESSING`、`FAILED`、`EXPIRED`、已删除或不属于当前账户的 URI 都不能用于任务。不要使用裸素材 ID，也不要把其他账户返回的 ID 拼成 URI。
+
+## 4. 删除素材
+
+使用 `DELETE /v1/assets/{id}`：
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request DELETE \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset-molii-example123" \
+  --header "Authorization: Bearer $MOLII_API_KEY"
+```
+
+成功响应为 `{ "success": true }`。删除后，这个 `asset://` URI 不能再用于新任务；删除不会改变你原始 URL 所指向的外部文件。
+
+找不到、已过期或不属于当前账户的素材会以统一的“未找到或已过期”结果返回，客户端不要据此推断素材是否属于其他账户。

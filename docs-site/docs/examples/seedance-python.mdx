@@ -1,0 +1,145 @@
+---
+title: Seedance Python 完整示例
+description: 使用 httpx 提交一次 Seedance 任务，安全轮询并下载视频。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 2
+---
+
+# Seedance Python 完整示例
+
+需要 Python 3.11+ 和 `httpx`。示例为每次 GET 设置请求超时和总截止时间，对 `Retry-After`、`429`、`5xx` 与临时网络错误执行有限退避。付费 POST 只发送一次，并禁止自动跟随重定向。
+
+```python
+import asyncio
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+import os
+import random
+
+import httpx
+
+
+def retry_after_seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        target = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=timezone.utc)
+    return max(0.0, (target - datetime.now(timezone.utc)).total_seconds())
+
+
+async def get_before_deadline(
+    client: httpx.AsyncClient,
+    url: str,
+    deadline: float,
+    *,
+    follow_redirects: bool = False,
+) -> httpx.Response:
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining <= 0:
+        raise TimeoutError("GET deadline reached")
+    request_timeout = min(30.0, remaining)
+    async with asyncio.timeout(request_timeout):
+        return await client.get(url, follow_redirects=follow_redirects)
+
+
+async def sleep_before_deadline(seconds: float, deadline: float) -> None:
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining <= 0:
+        raise TimeoutError("polling deadline reached")
+    await asyncio.sleep(min(seconds, remaining))
+
+
+async def main() -> None:
+    api_key = os.environ["MOLII_API_KEY"]
+    base_url = os.getenv("MOLII_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(
+        headers=headers,
+        timeout=httpx.Timeout(30.0, connect=10.0),
+        follow_redirects=False,
+    ) as client:
+        # 付费 POST 恰好调用一次。传输异常时记录请求上下文，不要自动重放。
+        try:
+            created = await client.post(
+                f"{base_url}/v1/videos",
+                json={
+                    "model": "doubao-seedance-2-0-260128",
+                    "content": [
+                        {"type": "text", "text": "晨雾中的竹林，镜头缓慢向前移动"}
+                    ],
+                    "resolution": "720p",
+                    "ratio": "16:9",
+                    "duration": 5,
+                    "generate_audio": True,
+                    "watermark": False,
+                },
+                timeout=60.0,
+            )
+        except httpx.RequestError as error:
+            raise RuntimeError("create result is unknown; do not replay the paid POST automatically") from error
+
+        created.raise_for_status()
+        task_id = created.json()["id"]
+
+        deadline = asyncio.get_running_loop().time() + 600.0
+        attempt = 0
+        status = "queued"
+        while status in {"queued", "in_progress"}:
+            try:
+                response = await get_before_deadline(
+                    client,
+                    f"{base_url}/v1/videos/{task_id}",
+                    deadline,
+                )
+            except (httpx.RequestError, TimeoutError):
+                wait_seconds = min(2**attempt, 30) + random.random()
+            else:
+                if response.status_code == 429 or response.status_code >= 500:
+                    retry_after = retry_after_seconds(response.headers.get("Retry-After"))
+                    wait_seconds = retry_after if retry_after is not None else min(2**attempt, 30) + random.random()
+                else:
+                    response.raise_for_status()
+                    task = response.json()
+                    status = task["status"]
+                    print(f"status={status} progress={task.get('progress', 0)}%")
+                    if status == "completed":
+                        break
+                    if status == "failed":
+                        raise RuntimeError(task.get("error", {}).get("message", "task failed"))
+                    if status not in {"queued", "in_progress"}:
+                        raise RuntimeError(f"unexpected task status: {status}")
+                    wait_seconds = min(2**attempt, 30) + random.random()
+
+            await sleep_before_deadline(wait_seconds, deadline)
+            attempt += 1
+
+        download_deadline = asyncio.get_running_loop().time() + 120.0
+        content = await get_before_deadline(
+            client,
+            f"{base_url}/v1/videos/{task_id}/content",
+            download_deadline,
+            follow_redirects=True,
+        )
+        content.raise_for_status()
+        content_type = content.headers.get("Content-Type", "").lower()
+        if not content_type.startswith("video/"):
+            raise RuntimeError(f"expected video/* Content-Type, received {content_type or 'missing'}")
+        with open("seedance-result.mp4", "wb") as output:
+            output.write(content.content)
+
+
+asyncio.run(main())
+```
+
+`Retry-After` 可以是秒数或 HTTP 日期。缺失或无效时，示例使用带抖动的指数退避；所有等待都受同一个轮询截止时间限制。

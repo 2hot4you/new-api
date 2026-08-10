@@ -1,0 +1,127 @@
+---
+title: Seedance 多模态输入
+description: 正确组合文本、首尾帧、参考图片、参考视频和参考音频。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 1
+---
+
+# Seedance 多模态输入
+
+`content` 是有顺序的输入数组。每一项必须有 `type`，媒体项还必须提供与类型匹配的 URL 对象和正确 `role`。
+
+## 类型、角色和数量
+
+| `type` | 必需载荷 | `role` | 数量规则 |
+| --- | --- | --- | --- |
+| `text` | 非空 `text` | 不使用 | 文本数量没有额外上限 |
+| `image_url` | `image_url.url` | `first_frame`、`last_frame`、`reference_image`；省略按 `first_frame` 处理 | 所有图片合计最多 9 张；帧模式最多 2 张 |
+| `video_url` | `video_url.url` | 必须为 `reference_video` | 最多 3 个视频 |
+| `audio_url` | `audio_url.url` | 必须为 `reference_audio` | 最多 3 个音频 |
+
+请求至少需要非空文本，或至少一张图片/一个视频。参考音频不能单独作为唯一媒体输入，必须同时有 `reference_image` 或 `reference_video`。
+
+## 两种不能混用的媒体模式
+
+帧模式用于图生视频或首尾帧控制：必须恰好有一个 `first_frame`（省略图片角色也会按首帧计），可以再有至多一个 `last_frame`。
+
+参考模式用于多模态参考：图片必须全部使用 `reference_image`，视频必须使用 `reference_video`，音频必须使用 `reference_audio`。
+
+首帧和尾帧不能与多模态参考内容混用，这两种模式互斥。不要把 `first_frame` 或 `last_frame` 和 `reference_image`、`reference_video`、`reference_audio` 放进同一个请求。
+
+## 媒体地址
+
+- HTTP(S) URL 应能被媒体处理服务直接访问，并在排队和处理期间保持有效。不要使用需要 Cookie、登录页或自定义鉴权头的链接。
+- Data URL 可用于声明支持它的图片或音频输入；较大媒体更适合使用公开 URL 或临时素材。
+- `asset://asset-molii-...` 只能引用当前账户创建、尚未过期且状态可用的[临时素材](./temporary-assets)。
+
+## 有效示例
+
+### 首尾帧
+
+```json
+{
+  "model": "doubao-seedance-2-0-260128",
+  "content": [
+    { "type": "text", "text": "从日出平滑过渡到夜景" },
+    {
+      "type": "image_url",
+      "image_url": { "url": "https://example.invalid/first.jpg" },
+      "role": "first_frame"
+    },
+    {
+      "type": "image_url",
+      "image_url": { "url": "https://example.invalid/last.jpg" },
+      "role": "last_frame"
+    }
+  ],
+  "duration": 6,
+  "ratio": "16:9"
+}
+```
+
+### 图片、视频和音频参考
+
+```json
+{
+  "model": "doubao-seedance-2-0-260128",
+  "content": [
+    { "type": "text", "text": "沿用人物服装、镜头节奏和环境声音" },
+    {
+      "type": "image_url",
+      "image_url": { "url": "asset://asset-molii-exampleimage" },
+      "role": "reference_image"
+    },
+    {
+      "type": "video_url",
+      "video_url": { "url": "https://example.invalid/motion.mp4" },
+      "role": "reference_video"
+    },
+    {
+      "type": "audio_url",
+      "audio_url": { "url": "asset://asset-molii-exampleaudio" },
+      "role": "reference_audio"
+    }
+  ],
+  "generate_audio": true
+}
+```
+
+## 无效示例
+
+以下片段仅用于说明错误，请不要发送。
+
+只有尾帧而没有首帧：
+
+```json
+{
+  "content": [
+    { "type": "image_url", "image_url": { "url": "https://example.invalid/end.jpg" }, "role": "last_frame" }
+  ]
+}
+```
+
+把帧模式和参考模式混在一起：
+
+```json
+{
+  "content": [
+    { "type": "image_url", "image_url": { "url": "https://example.invalid/start.jpg" }, "role": "first_frame" },
+    { "type": "video_url", "video_url": { "url": "https://example.invalid/reference.mp4" }, "role": "reference_video" }
+  ]
+}
+```
+
+音频单独作为唯一媒体输入：
+
+```json
+{
+  "content": [
+    { "type": "audio_url", "audio_url": { "url": "https://example.invalid/voice.mp3" }, "role": "reference_audio" }
+  ]
+}
+```
+
+其他常见拒绝原因包括：图片超过 9 张、视频超过 3 个、音频超过 3 个；视频角色不是 `reference_video`；音频角色不是 `reference_audio`；或参考模式中的图片没有统一使用 `reference_image`。

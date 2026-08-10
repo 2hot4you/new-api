@@ -1,0 +1,137 @@
+---
+title: Seedance TypeScript 完整示例
+description: 使用 Node.js fetch 提交一次 Seedance 任务，安全轮询并下载视频。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 3
+---
+
+# Seedance TypeScript 完整示例
+
+示例适用于 Node.js 22+。创建请求禁用重定向跟随且只执行一次；后续 GET 有请求超时、总截止时间、`Retry-After` 与带抖动退避。下载前会验证响应是视频。
+
+```ts
+import { writeFile } from 'node:fs/promises';
+
+type VideoTask = {
+  id: string;
+  status: 'queued' | 'in_progress' | 'completed' | 'failed';
+  progress: number;
+  error?: { message?: string };
+};
+
+const apiKey = process.env.MOLII_API_KEY;
+if (!apiKey) throw new Error('MOLII_API_KEY is required');
+
+const baseUrl = (process.env.MOLII_API_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
+const headers = {
+  Authorization: `Bearer ${apiKey}`,
+  'Content-Type': 'application/json',
+};
+
+function retryAfterMilliseconds(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1_000;
+  const timestamp = Date.parse(trimmed);
+  if (Number.isNaN(timestamp)) return undefined;
+  return Math.max(0, timestamp - Date.now());
+}
+
+function fallbackDelay(attempt: number): number {
+  return Math.min(2 ** attempt * 1_000, 30_000) + Math.random() * 1_000;
+}
+
+async function sleepBeforeDeadline(milliseconds: number, deadline: number): Promise<void> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error('polling deadline reached');
+  await new Promise((resolve) => setTimeout(resolve, Math.min(milliseconds, remaining)));
+}
+
+async function getBeforeDeadline(url: string, deadline: number, redirect: RequestRedirect = 'manual') {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error('GET deadline reached');
+  return fetch(url, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    redirect,
+    signal: AbortSignal.timeout(Math.min(30_000, remaining)),
+  });
+}
+
+// 付费 POST 恰好调用一次；不要在 catch 分支自动重放。
+let created: Response;
+try {
+  created = await fetch(`${baseUrl}/v1/videos`, {
+    method: 'POST',
+    headers,
+    redirect: 'error',
+    body: JSON.stringify({
+      model: 'doubao-seedance-2-0-260128',
+      content: [
+        { type: 'text', text: '晨雾中的竹林，镜头缓慢向前移动' },
+      ],
+      resolution: '720p',
+      ratio: '16:9',
+      duration: 5,
+      generate_audio: true,
+      watermark: false,
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+} catch (error) {
+  throw new Error('create result is unknown; do not replay the paid POST automatically', { cause: error });
+}
+
+if (!created.ok) throw new Error(`create failed with HTTP ${created.status}: ${await created.text()}`);
+const { id: taskId } = await created.json() as VideoTask;
+
+const deadline = Date.now() + 600_000;
+let attempt = 0;
+let status: VideoTask['status'] = 'queued';
+
+while (status === 'queued' || status === 'in_progress') {
+  let response: Response | undefined;
+  let waitMilliseconds = fallbackDelay(attempt);
+  try {
+    response = await getBeforeDeadline(`${baseUrl}/v1/videos/${taskId}`, deadline);
+  } catch {
+    // GET is safe to retry within the deadline.
+  }
+
+  if (response) {
+    if (response.status === 429 || response.status >= 500) {
+      waitMilliseconds = retryAfterMilliseconds(response.headers.get('Retry-After')) ?? waitMilliseconds;
+    } else {
+      if (!response.ok) throw new Error(`task lookup failed with HTTP ${response.status}: ${await response.text()}`);
+      const task = await response.json() as VideoTask;
+      status = task.status;
+      if (!['queued', 'in_progress', 'completed', 'failed'].includes(status)) {
+        throw new Error(`unexpected task status: ${String(status)}`);
+      }
+      console.log(`status=${status} progress=${task.progress}%`);
+      if (status === 'completed') break;
+      if (status === 'failed') throw new Error(task.error?.message ?? 'task failed');
+    }
+  }
+
+  await sleepBeforeDeadline(waitMilliseconds, deadline);
+  attempt += 1;
+}
+
+const downloadDeadline = Date.now() + 120_000;
+const content = await getBeforeDeadline(
+  `${baseUrl}/v1/videos/${taskId}/content`,
+  downloadDeadline,
+  'follow',
+);
+if (!content.ok) throw new Error(`download failed with HTTP ${content.status}`);
+const contentType = content.headers.get('Content-Type')?.toLowerCase() ?? '';
+if (!contentType.startsWith('video/')) {
+  throw new Error(`expected video/* Content-Type, received ${contentType || 'missing'}`);
+}
+await writeFile('seedance-result.mp4', Buffer.from(await content.arrayBuffer()));
+```
+
+`fetch` 在网络失败时无法证明服务端没有收到 POST，因此 catch 分支只报告不确定结果。需要恢复时，请先查找已有任务或请求记录，不要自动再次付费创建。

@@ -1,0 +1,152 @@
+---
+title: Seedance curl 完整示例
+description: 使用 curl 只提交一次付费任务、安全轮询并验证下载内容。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 1
+---
+
+# Seedance curl 完整示例
+
+此脚本需要 Bash、curl 和 jq。它只调用一次付费 `POST /v1/videos`；如果创建请求的网络结果不确定，脚本会停止，而不会自动重放。任务查询使用有总截止时间的 GET，对 `429` 和 HTTP `500`–`599` 响应退避，并在写入文件前验证 `Content-Type`。
+
+代码不会由文档站执行。请先设置 `MOLII_API_KEY`，并按你的环境设置 `MOLII_API_BASE_URL`。
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+MOLII_API_BASE_URL="${MOLII_API_BASE_URL:-http://127.0.0.1:3000}"
+
+headers_file="$(mktemp)"
+body_file="$(mktemp)"
+trap 'rm -f "$headers_file" "$body_file"' EXIT
+
+# 付费 POST 恰好执行一次。不要为这一步配置自动重试或重定向跟随。
+if create_code="$(curl --silent --show-error \
+  --connect-timeout 10 \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "model": "doubao-seedance-2-0-260128",
+    "content": [
+      {"type": "text", "text": "晨雾中的竹林，镜头缓慢向前移动"}
+    ],
+    "resolution": "720p",
+    "ratio": "16:9",
+    "duration": 5,
+    "generate_audio": true,
+    "watermark": false
+  }' \
+  --dump-header "$headers_file" \
+  --output "$body_file" \
+  --write-out '%{http_code}')"; then
+  create_exit=0
+else
+  create_exit=$?
+fi
+
+if [ "$create_exit" -ne 0 ]; then
+  printf 'create transport failed (curl exit %s); do not replay the paid POST automatically\n' "$create_exit" >&2
+  exit 1
+fi
+case "$create_code" in
+  2??) ;;
+  *) printf 'create failed with HTTP %s: %s\n' "$create_code" "$(cat "$body_file")" >&2; exit 1 ;;
+esac
+
+task_id="$(jq -er '.id' "$body_file")"
+deadline="$(( $(date +%s) + 600 ))"
+delay=2
+status=queued
+
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  remaining="$(( deadline - $(date +%s) ))"
+  [ "$remaining" -gt 0 ] || break
+  request_timeout="$remaining"
+  [ "$request_timeout" -le 30 ] || request_timeout=30
+  : >"$headers_file"
+  : >"$body_file"
+
+  if poll_code="$(curl --silent --show-error \
+    --connect-timeout 10 \
+    --max-time "$request_timeout" \
+    --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id" \
+    --header "Authorization: Bearer $MOLII_API_KEY" \
+    --dump-header "$headers_file" \
+    --output "$body_file" \
+    --write-out '%{http_code}')"; then
+    poll_exit=0
+  else
+    poll_exit=$?
+  fi
+
+  wait_seconds="$(( delay + RANDOM % 2 ))"
+  if [ "$poll_exit" -ne 0 ]; then
+    printf 'temporary GET transport failure (curl exit %s)\n' "$poll_exit" >&2
+  else
+    case "$poll_code" in
+      200)
+        status="$(jq -er '.status' "$body_file")"
+        printf 'status=%s progress=%s%%\n' "$status" "$(jq -r '.progress' "$body_file")"
+        case "$status" in
+          completed) break ;;
+          failed) jq -r '.error.message // "task failed"' "$body_file" >&2; exit 1 ;;
+          queued|in_progress) ;;
+          *) printf 'unexpected task status: %s\n' "$status" >&2; exit 1 ;;
+        esac
+        ;;
+      429|5??)
+        # Retry-After delta-seconds overrides the fallback for HTTP 429/500-599.
+        retry_after="$(awk 'tolower($1) == "retry-after:" { value=$2 } END { gsub(/\r/, "", value); print value }' "$headers_file")"
+        case "$retry_after" in
+          ''|*[!0-9]*) ;;
+          *) wait_seconds="$retry_after" ;;
+        esac
+        ;;
+      *) printf 'task lookup failed with HTTP %s: %s\n' "$poll_code" "$(cat "$body_file")" >&2; exit 1 ;;
+    esac
+  fi
+
+  remaining="$(( deadline - $(date +%s) ))"
+  [ "$remaining" -gt 0 ] || break
+  [ "$wait_seconds" -le "$remaining" ] || wait_seconds="$remaining"
+  sleep "$wait_seconds"
+  [ "$delay" -ge 16 ] && delay=30 || delay="$(( delay * 2 ))"
+done
+
+[ "$status" = completed ] || { printf 'polling deadline reached\n' >&2; exit 1; }
+
+download_deadline="$(( $(date +%s) + 120 ))"
+download_remaining="$(( download_deadline - $(date +%s) ))"
+: >"$headers_file"
+: >"$body_file"
+if download_code="$(curl --location --silent --show-error \
+  --connect-timeout 10 \
+  --max-time "$download_remaining" \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id/content" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --dump-header "$headers_file" \
+  --output "$body_file" \
+  --write-out '%{http_code}')"; then
+  download_exit=0
+else
+  download_exit=$?
+fi
+
+[ "$download_exit" -eq 0 ] || { printf 'download transport failed\n' >&2; exit 1; }
+case "$download_code" in 2??) ;; *) printf 'download failed with HTTP %s\n' "$download_code" >&2; exit 1 ;; esac
+content_type="$(awk 'tolower($1) == "content-type:" { value=$0 } END { sub(/\r$/, "", value); sub(/^[^:]+:[[:space:]]*/, "", value); print tolower(value) }' "$headers_file")"
+case "$content_type" in
+  video/*) mv "$body_file" seedance-result.mp4 ;;
+  *) printf 'expected video/* Content-Type, received %s\n' "${content_type:-missing}" >&2; exit 1 ;;
+esac
+```
+
+对于 GET，传输失败、`429` 和 `5xx` 可以在截止时间内重试。对于付费 POST，超时只表示客户端没有拿到确定响应，不表示服务端没有受理，因此脚本不会重发。
