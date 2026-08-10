@@ -45,6 +45,35 @@ var buildFS embed.FS
 //go:embed web/dist/index.html
 var indexPage []byte
 
+func initializeChannelCacheAtStartup() {
+	if !common.MemoryCacheEnabled {
+		// The exact-one channel invariant is still checked when caching is off.
+		// InitChannelCache's cache-disabled branch only counts, warns, invalidates
+		// pricing, and returns without building any channel cache maps.
+		model.InitChannelCache()
+		return
+	}
+
+	common.SysLog("memory cache enabled")
+	common.SysLog(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))
+
+	// Add panic recovery and retry for InitChannelCache.
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				common.SysLog(fmt.Sprintf("InitChannelCache panic: %v, retrying once", r))
+				_, _, fixErr := model.FixAbility()
+				if fixErr != nil {
+					common.FatalLog(fmt.Sprintf("InitChannelCache failed: %s", fixErr.Error()))
+				}
+			}
+		}()
+		model.InitChannelCache()
+	}()
+
+	go model.SyncChannelCache(common.SyncFrequency)
+}
+
 func main() {
 	startTime := time.Now()
 	kitutil.SetLogging(common.SysLog, func(message string) {
@@ -79,27 +108,7 @@ func main() {
 		// for compatibility with old versions
 		common.MemoryCacheEnabled = true
 	}
-	if common.MemoryCacheEnabled {
-		common.SysLog("memory cache enabled")
-		common.SysLog(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))
-
-		// Add panic recovery and retry for InitChannelCache
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					common.SysLog(fmt.Sprintf("InitChannelCache panic: %v, retrying once", r))
-					// Retry once
-					_, _, fixErr := model.FixAbility()
-					if fixErr != nil {
-						common.FatalLog(fmt.Sprintf("InitChannelCache failed: %s", fixErr.Error()))
-					}
-				}
-			}()
-			model.InitChannelCache()
-		}()
-
-		go model.SyncChannelCache(common.SyncFrequency)
-	}
+	initializeChannelCacheAtStartup()
 
 	// Warm pricing after channel cache initialization so Advanced Custom
 	// endpoint inference can read cached route settings on first request.
