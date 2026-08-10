@@ -23,8 +23,23 @@ var channelsIDM map[int]*Channel                     // all channels include dis
 var channel2advancedCustomConfig map[int]*dto.AdvancedCustomConfig
 var channelSyncLock sync.RWMutex
 
+func warnIfEnabledStarAIChannelIsNotUnique(count int64, err error) {
+	if err != nil {
+		common.SysLog(fmt.Sprintf("warning: unable to validate the enabled channel count for type %d: %v; startup will continue and affected requests will be rejected", constant.ChannelTypeStarAI, err))
+		return
+	}
+	if count != 1 {
+		common.SysLog(fmt.Sprintf("warning: expected exactly one enabled channel for type %d, found %d; startup will continue and affected requests will be rejected", constant.ChannelTypeStarAI, count))
+	}
+}
+
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
+		var enabledStarAIChannels int64
+		err := DB.Model(&Channel{}).
+			Where("type = ? AND status = ?", constant.ChannelTypeStarAI, common.ChannelStatusEnabled).
+			Count(&enabledStarAIChannels).Error
+		warnIfEnabledStarAIChannelIsNotUnique(enabledStarAIChannels, err)
 		InvalidatePricingCache()
 		return
 	}
@@ -38,9 +53,7 @@ func InitChannelCache() {
 			enabledStarAIChannels++
 		}
 	}
-	if enabledStarAIChannels != 1 {
-		common.SysLog(fmt.Sprintf("warning: expected exactly one enabled channel for type %d, found %d; startup will continue and affected requests will be rejected", constant.ChannelTypeStarAI, enabledStarAIChannels))
-	}
+	warnIfEnabledStarAIChannelIsNotUnique(int64(enabledStarAIChannels), nil)
 	for _, channel := range channels {
 		newChannelId2channel[channel.Id] = channel
 		if channel.Type == constant.ChannelTypeAdvancedCustom {

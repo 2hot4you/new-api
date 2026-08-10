@@ -128,6 +128,29 @@ func TestInitChannelCacheWarnsAndContinuesWhenEnabledStarAIChannelIsNotUnique(t 
 	require.ErrorIs(t, err, model.ErrMultipleEnabledChannels)
 }
 
+func TestInitChannelCacheWarnsWhenMemoryCacheIsDisabled(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	seedChannelForSingleStarAITest(t, db, constant.ChannelTypeStarAI, common.ChannelStatusEnabled, "first")
+	seedChannelForSingleStarAITest(t, db, constant.ChannelTypeStarAI, common.ChannelStatusEnabled, "second")
+	common.MemoryCacheEnabled = false
+
+	var output bytes.Buffer
+	common.LogWriterMu.Lock()
+	previousWriter := gin.DefaultWriter
+	gin.DefaultWriter = &output
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultWriter = previousWriter
+		common.LogWriterMu.Unlock()
+	})
+
+	require.NotPanics(t, model.InitChannelCache)
+	assert.Contains(t, output.String(), "expected exactly one enabled channel")
+	assert.Contains(t, output.String(), "found 2")
+	assert.Contains(t, output.String(), "startup will continue")
+}
+
 func TestAddChannelRejectsSecondEnabledStarAIChannel(t *testing.T) {
 	db := setupSingleStarAIChannelTestDB(t)
 	seedChannelForSingleStarAITest(t, db, constant.ChannelTypeStarAI, common.ChannelStatusEnabled, "existing")
@@ -144,6 +167,21 @@ func TestAddChannelRejectsSecondEnabledStarAIChannel(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&model.Channel{}).Count(&count).Error)
 	assert.EqualValues(t, 1, count)
+}
+
+func TestBatchAddChannelRejectsCreatingTwoEnabledStarAIChannels(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+
+	recorder := performChannelJSONRequest(t, http.MethodPost, "/api/channel/", fmt.Sprintf(`{
+		"mode":"batch",
+		"channel":{"type":%d,"status":%d,"name":"batch","key":"key-one\nkey-two","models":"doubao-seedance-2-0-260128","group":"default"}
+	}`, constant.ChannelTypeStarAI, common.ChannelStatusEnabled), AddChannel)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	var count int64
+	require.NoError(t, db.Model(&model.Channel{}).Count(&count).Error)
+	assert.Zero(t, count)
 }
 
 func TestUpdateChannelRejectsChangingEnabledChannelToSecondStarAI(t *testing.T) {
@@ -209,6 +247,33 @@ func TestBatchUpdateChannelStatusRejectsSecondStarAIWithoutPartialEnable(t *test
 	require.NoError(t, db.First(&otherSaved, otherCandidate.Id).Error)
 	assert.Equal(t, common.ChannelStatusManuallyDisabled, starAISaved.Status)
 	assert.Equal(t, common.ChannelStatusManuallyDisabled, otherSaved.Status)
+}
+
+func TestEnableTagChannelsRejectsSecondEnabledStarAIChannel(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	seedChannelForSingleStarAITest(t, db, constant.ChannelTypeStarAI, common.ChannelStatusEnabled, "existing")
+	candidate := seedChannelForSingleStarAITest(t, db, constant.ChannelTypeStarAI, common.ChannelStatusManuallyDisabled, "candidate")
+	tag := "replacement"
+	require.NoError(t, db.Model(candidate).Update("tag", tag).Error)
+
+	recorder := performChannelJSONRequest(t, http.MethodPost, "/api/channel/tag/enable", `{"tag":"replacement"}`, EnableTagChannels)
+
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	var saved model.Channel
+	require.NoError(t, db.First(&saved, candidate.Id).Error)
+	assert.Equal(t, common.ChannelStatusManuallyDisabled, saved.Status)
+}
+
+func TestCopyChannelRejectsCopyingEnabledStarAIChannel(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	existing := seedChannelForSingleStarAITest(t, db, constant.ChannelTypeStarAI, common.ChannelStatusEnabled, "existing")
+
+	recorder := performChannelJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/channel/%d", existing.Id), "", CopyChannel)
+
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	var count int64
+	require.NoError(t, db.Model(&model.Channel{}).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
 }
 
 func TestStarAIChannelTestOnlyOpensTCPConnection(t *testing.T) {
