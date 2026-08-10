@@ -27,7 +27,17 @@ set -eu
 : "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
 MOLII_API_BASE_URL="${MOLII_API_BASE_URL:-http://127.0.0.1:3000}"
 
-created="$(curl --fail-with-body --silent --show-error \
+headers_file="$(mktemp)"
+body_file="$(mktemp)"
+trap 'rm -f "$headers_file" "$body_file"' EXIT
+
+sanitize_request_id() {
+  awk 'tolower($1) == "x-oneapi-request-id:" { value=$2 } END { gsub(/\r/, "", value); print value }' "$1" \
+    | LC_ALL=C tr -cd 'A-Za-z0-9._:-' \
+    | cut -c1-128
+}
+
+create_http_code="$(curl --silent --show-error \
   --connect-timeout 10 \
   --max-time 60 \
   --request POST \
@@ -41,26 +51,38 @@ created="$(curl --fail-with-body --silent --show-error \
     "duration": 5,
     "aspect_ratio": "16:9",
     "resolution": "480p"
-  }')"
+  }' \
+  --dump-header "$headers_file" \
+  --output "$body_file" \
+  --write-out '%{http_code}')"
+create_request_id="$(sanitize_request_id "$headers_file")"
+case "$create_http_code" in
+  2??) ;;
+  *) printf 'create failed with HTTP %s request_id=%s\n' "$create_http_code" "${create_request_id:-missing}" >&2; exit 1 ;;
+esac
 
-headers_file="$(mktemp)"
-body_file="$(mktemp)"
-trap 'rm -f "$headers_file" "$body_file"' EXIT
-task_id="$(printf '%s' "$created" | jq -er '.id')"
+task_id="$(jq -er '.id' "$body_file")"
 poll_deadline="$(( $(date +%s) + 180 ))"
 delay=2
 completed='false'
 while [ "$(date +%s)" -lt "$poll_deadline" ]; do
+  poll_remaining="$(( poll_deadline - $(date +%s) ))"
+  [ "$poll_remaining" -gt 0 ] || break
+  poll_timeout="$poll_remaining"
+  [ "$poll_timeout" -le 30 ] || poll_timeout=30
+  connect_timeout="$poll_timeout"
+  [ "$connect_timeout" -le 10 ] || connect_timeout=10
   : >"$headers_file"
   : >"$body_file"
   http_code="$(curl --silent --show-error \
-    --connect-timeout 10 \
-    --max-time 30 \
+    --connect-timeout "$connect_timeout" \
+    --max-time "$poll_timeout" \
     --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id" \
     --header "Authorization: Bearer $MOLII_API_KEY" \
     --dump-header "$headers_file" \
     --output "$body_file" \
     --write-out '%{http_code}')"
+  response_request_id="$(sanitize_request_id "$headers_file")"
 
   wait_seconds="$(( delay + RANDOM % 2 ))"
   case "$http_code" in
@@ -70,7 +92,7 @@ while [ "$(date +%s)" -lt "$poll_deadline" ]; do
       printf 'status=%s progress=%s%%\n' "$status" "$(printf '%s' "$task" | jq -r '.progress')"
       case "$status" in
         completed) completed='true'; break ;;
-        failed) printf '%s\n' "$task" >&2; exit 1 ;;
+        failed) printf 'task failed request_id=%s\n' "${response_request_id:-missing}" >&2; exit 1 ;;
       esac
       ;;
     429|5??)
@@ -81,7 +103,7 @@ while [ "$(date +%s)" -lt "$poll_deadline" ]; do
       esac
       ;;
     *)
-      printf 'task lookup failed with HTTP %s\n' "$http_code" >&2
+      printf 'task lookup failed with HTTP %s request_id=%s\n' "$http_code" "${response_request_id:-missing}" >&2
       exit 1
       ;;
   esac
@@ -96,32 +118,83 @@ done
 
 : >"$headers_file"
 : >"$body_file"
+download_remaining="$(( poll_deadline - $(date +%s) ))"
+[ "$download_remaining" -gt 0 ] || { printf 'download deadline reached\n' >&2; exit 1; }
+download_timeout="$download_remaining"
+[ "$download_timeout" -le 120 ] || download_timeout=120
+download_connect_timeout="$download_timeout"
+[ "$download_connect_timeout" -le 10 ] || download_connect_timeout=10
 download_http_code="$(curl --location --silent --show-error \
-  --connect-timeout 10 \
-  --max-time 120 \
+  --connect-timeout "$download_connect_timeout" \
+  --max-time "$download_timeout" \
   --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id/content" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --dump-header "$headers_file" \
   --output "$body_file" \
   --write-out '%{http_code}')"
+download_request_id="$(sanitize_request_id "$headers_file")"
 case "$download_http_code" in
   2??) ;;
-  *) printf 'download failed with HTTP %s\n' "$download_http_code" >&2; exit 1 ;;
+  *) printf 'download failed with HTTP %s request_id=%s\n' "$download_http_code" "${download_request_id:-missing}" >&2; exit 1 ;;
 esac
 content_type="$(awk 'tolower($1) == "content-type:" { value=$0 } END { sub(/\r$/, "", value); sub(/^[^:]+:[[:space:]]*/, "", value); print tolower(value) }' "$headers_file")"
 case "$content_type" in
   video/*) mv "$body_file" result.mp4 ;;
-  *) printf 'expected video/*, received %s\n' "${content_type:-missing Content-Type}" >&2; exit 1 ;;
+  *) printf 'expected video/*, received %s request_id=%s\n' "${content_type:-missing Content-Type}" "${download_request_id:-missing}" >&2; exit 1 ;;
 esac
 ```
+
+curl 示例只把纯非负整数解释为 `Retry-After` delta-seconds；空值、负数、HTTP-date 或其他非法值都回退到带抖动的指数退避，不会解析异常或意外零延迟。
 
 ## Python
 
 ```python
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import os
 import random
 import time
 import requests
+
+
+def sanitize_request_id(response):
+    raw = response.headers.get("X-Oneapi-Request-Id", "")
+    return "".join(
+        character
+        for character in raw
+        if character.isascii() and (character.isalnum() or character in "._:-")
+    )[:128]
+
+
+def raise_with_request_id(response, request_id):
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as error:
+        raise RuntimeError(
+            f"HTTP {response.status_code}; request_id={request_id or 'missing'}"
+        ) from error
+
+
+def retry_after_seconds(value, now=None):
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if value.isdigit():
+        return int(value)
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    delta = (retry_at - current).total_seconds()
+    return delta if delta >= 0 else None
+
 
 api_key = os.environ["MOLII_API_KEY"]
 base_url = os.getenv("MOLII_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
@@ -141,27 +214,39 @@ created = requests.post(
     },
     timeout=60,
 )
-created.raise_for_status()
+created_request_id = sanitize_request_id(created)
+raise_with_request_id(created, created_request_id)
 task_id = created.json()["id"]
 
 poll_deadline = time.monotonic() + 180
 attempt = 0
 completed = False
 while time.monotonic() < poll_deadline:
+    poll_remaining = poll_deadline - time.monotonic()
+    if poll_remaining <= 0:
+        break
+    poll_timeout = min(30, poll_remaining)
     response = requests.get(
-        f"{base_url}/v1/videos/{task_id}", headers=headers, timeout=(10, 30)
+        f"{base_url}/v1/videos/{task_id}",
+        headers=headers,
+        timeout=(min(10, poll_timeout), poll_timeout),
     )
+    response_request_id = sanitize_request_id(response)
     if response.status_code == 429 or response.status_code >= 500:
-        retry_after = response.headers.get("Retry-After")
-        wait_seconds = float(retry_after) if retry_after else min(2 ** attempt, 30) + random.random()
+        parsed_retry_after = retry_after_seconds(response.headers.get("Retry-After"))
+        fallback = min(2 ** attempt, 30) + random.random()
+        wait_seconds = parsed_retry_after if parsed_retry_after is not None else fallback
     else:
-        response.raise_for_status()
+        raise_with_request_id(response, response_request_id)
         task = response.json()
         if task["status"] == "completed":
             completed = True
             break
         if task["status"] == "failed":
-            raise RuntimeError(task.get("error", {}).get("message", "video task failed"))
+            message = task.get("error", {}).get("message", "video task failed")
+            raise RuntimeError(
+                f"{message}; request_id={response_request_id or 'missing'}"
+            )
         wait_seconds = min(2 ** attempt, 30) + random.random()
 
     remaining = poll_deadline - time.monotonic()
@@ -173,21 +258,56 @@ while time.monotonic() < poll_deadline:
 if not completed:
     raise TimeoutError(f"task {task_id} did not finish before the polling deadline")
 
+download_remaining = poll_deadline - time.monotonic()
+if download_remaining <= 0:
+    raise TimeoutError(f"task {task_id} finished, but the download deadline was reached")
+download_timeout = min(120, download_remaining)
 content = requests.get(
-    f"{base_url}/v1/videos/{task_id}/content", headers=headers, timeout=(10, 120)
+    f"{base_url}/v1/videos/{task_id}/content",
+    headers=headers,
+    timeout=(min(10, download_timeout), download_timeout),
 )
-content.raise_for_status()
+content_request_id = sanitize_request_id(content)
+raise_with_request_id(content, content_request_id)
 content_type = content.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
 if not content_type.startswith("video/"):
-    raise RuntimeError(f"expected video/*, received {content_type or 'missing Content-Type'}")
+    raise RuntimeError(
+        f"expected video/*, received {content_type or 'missing Content-Type'}; "
+        f"request_id={content_request_id or 'missing'}"
+    )
 with open("result.mp4", "wb") as output:
     output.write(content.content)
 ```
+
+`requests` 的 `(connect, read)` 是连接阶段与读取空闲超时，并非可严格中断整个调用的 wall-clock deadline。示例会在发起每个 GET 前检查剩余时间，并把连接与读取上限都压到剩余时间以内；若业务必须严格在总时限到点时中断底层 I/O，还需要使用可取消 worker 或适合运行环境的 signal/alarm。
 
 ## TypeScript（Node.js 22+）
 
 ```ts
 import { writeFile } from 'node:fs/promises';
+
+function sanitizeRequestId(response: Response): string {
+  return (response.headers.get('X-Oneapi-Request-Id') ?? '')
+    .replace(/[^A-Za-z0-9._:-]/g, '')
+    .slice(0, 128);
+}
+
+async function throwResponseError(response: Response, requestId: string): Promise<never> {
+  throw new Error(`HTTP ${response.status}; request_id=${requestId || 'missing'}`);
+}
+
+function retryAfterMilliseconds(value: string | null, now = Date.now()): number | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isSafeInteger(seconds) ? seconds * 1000 : null;
+  }
+  const retryAt = Date.parse(trimmed);
+  if (!Number.isFinite(retryAt)) return null;
+  const delta = retryAt - now;
+  return delta >= 0 ? delta : null;
+}
 
 const apiKey = process.env.MOLII_API_KEY;
 if (!apiKey) throw new Error('MOLII_API_KEY is required');
@@ -209,29 +329,34 @@ const createdResponse = await fetch(`${baseUrl}/v1/videos`, {
   }),
   signal: AbortSignal.timeout(60_000),
 });
-if (!createdResponse.ok) throw new Error(await createdResponse.text());
+const createdRequestId = sanitizeRequestId(createdResponse);
+if (!createdResponse.ok) await throwResponseError(createdResponse, createdRequestId);
 const created = await createdResponse.json() as { id: string };
 
 const pollDeadline = Date.now() + 180_000;
 let completed = false;
 for (let attempt = 0; Date.now() < pollDeadline; attempt += 1) {
+  const pollRemaining = pollDeadline - Date.now();
+  if (pollRemaining <= 0) break;
+  const pollTimeout = Math.min(30_000, pollRemaining);
   const response = await fetch(`${baseUrl}/v1/videos/${created.id}`, {
     headers,
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(pollTimeout),
   });
+  const responseRequestId = sanitizeRequestId(response);
   let waitMilliseconds: number;
   if (response.status === 429 || response.status >= 500) {
-    const retryAfter = response.headers.get('Retry-After');
-    const retryAfterSeconds = retryAfter === null ? Number.NaN : Number(retryAfter);
-    waitMilliseconds = Number.isFinite(retryAfterSeconds)
-      ? retryAfterSeconds * 1000
-      : Math.min(2 ** attempt, 30) * 1000 + Math.random() * 500;
+    const parsedRetryAfter = retryAfterMilliseconds(response.headers.get('Retry-After'));
+    waitMilliseconds = parsedRetryAfter
+      ?? Math.min(2 ** attempt, 30) * 1000 + Math.random() * 500;
   } else {
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) await throwResponseError(response, responseRequestId);
     const task = await response.json() as { status: string; progress: number; error?: { message: string } };
     console.log(task.status, `${task.progress}%`);
     if (task.status === 'completed') { completed = true; break; }
-    if (task.status === 'failed') throw new Error(task.error?.message ?? 'video task failed');
+    if (task.status === 'failed') {
+      throw new Error(`${task.error?.message ?? 'video task failed'}; request_id=${responseRequestId || 'missing'}`);
+    }
     waitMilliseconds = Math.min(2 ** attempt, 30) * 1000 + Math.random() * 500;
   }
   const remaining = pollDeadline - Date.now();
@@ -240,16 +365,22 @@ for (let attempt = 0; Date.now() < pollDeadline; attempt += 1) {
 }
 if (!completed) throw new Error(`task ${created.id} did not finish before the polling deadline`);
 
+const downloadRemaining = pollDeadline - Date.now();
+if (downloadRemaining <= 0) throw new Error(`task ${created.id} finished, but the download deadline was reached`);
+const downloadTimeout = Math.min(120_000, downloadRemaining);
 const content = await fetch(`${baseUrl}/v1/videos/${created.id}/content`, {
   headers,
-  signal: AbortSignal.timeout(120_000),
+  signal: AbortSignal.timeout(downloadTimeout),
 });
-if (!content.ok) throw new Error(await content.text());
+const contentRequestId = sanitizeRequestId(content);
+if (!content.ok) await throwResponseError(content, contentRequestId);
 const contentType = (content.headers.get('Content-Type') ?? '').split(';', 1)[0].trim().toLowerCase();
-if (!contentType.startsWith('video/')) throw new Error(`expected video/*, received ${contentType || 'missing Content-Type'}`);
+if (!contentType.startsWith('video/')) {
+  throw new Error(`expected video/*, received ${contentType || 'missing Content-Type'}; request_id=${contentRequestId || 'missing'}`);
+}
 await writeFile('result.mp4', Buffer.from(await content.arrayBuffer()));
 ```
 
-轮询仅在明确的终态停止：`completed` 可下载，`failed` 应展示公开错误。`queued` 和 `in_progress` 都要继续等待。GET 遇到 429 时优先遵循 `Retry-After`，否则使用带抖动的指数退避。
+轮询仅在明确的终态停止：`completed` 可下载，`failed` 应展示公开错误。`queued` 和 `in_progress` 都要继续等待。Python 与 TypeScript 会接受有效的非负 `Retry-After` delta-seconds，也会解析合法 HTTP-date；空值、负数或非法值会回退到带抖动的指数退避。GET 与下载都会先计算 deadline 剩余时间，剩余时间不大于零时不再发起请求。
 
 关于最终费用与退款状态，请读[计费与用量](../api-basics/billing-and-usage)。

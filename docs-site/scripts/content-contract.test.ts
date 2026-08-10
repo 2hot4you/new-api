@@ -49,6 +49,10 @@ function frontmatter(source: string) {
   );
 }
 
+function fencedCode(source: string, language: string): string {
+  return source.match(new RegExp(`\\\`\\\`\\\`${language}\\n([\\s\\S]*?)\\n\\\`\\\`\\\``))?.[1] ?? '';
+}
+
 describe('public API guide content contract', () => {
   test('all Task 3 pages carry public API provenance metadata', async () => {
     for (const relativePath of pages) {
@@ -78,7 +82,7 @@ describe('public API guide content contract', () => {
     }
     expect(video).toContain("import { writeFile } from 'node:fs/promises';");
     expect(video).not.toContain('Bun.write');
-    expect(video).toContain('retryAfter === null ? Number.NaN');
+    expect(video).toContain('retryAfterMilliseconds');
     expect(video).toContain("completed='false'");
   });
 
@@ -161,17 +165,81 @@ describe('public API guide content contract', () => {
 
   test('video polling applies request timeouts, retry headers, and wall-clock deadlines', async () => {
     const video = await page('docs/getting-started/video-workflow.mdx');
+    const shell = fencedCode(video, 'bash');
+    const python = fencedCode(video, 'python');
+    const typeScript = fencedCode(video, 'ts');
 
     expect(video).toContain("--write-out '%{http_code}'");
     expect(video).toContain('429|5??)');
     expect(video).toContain('"retry-after:"');
     expect(video).toMatch(/retry_after=.*awk[^\n]+\$headers_file/);
-    expect(video.match(/--connect-timeout\s+\d+/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
-    expect(video.match(/--max-time\s+\d+/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(shell).toContain('--connect-timeout "$connect_timeout"');
+    expect(shell).toContain('--connect-timeout "$download_connect_timeout"');
     expect(video).toContain('poll_deadline=');
     expect(video).toContain('time.monotonic()');
     expect(video).toContain('pollDeadline = Date.now()');
     expect(video.match(/signal:\s*AbortSignal\.timeout/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(shell.indexOf('poll_remaining=')).toBeLessThan(shell.indexOf('\n  http_code="$(curl'));
+    expect(shell).toContain('--max-time "$poll_timeout"');
+    expect(shell.indexOf('download_remaining=')).toBeLessThan(shell.indexOf('download_http_code="$(curl'));
+    expect(shell).toContain('--max-time "$download_timeout"');
+    expect(python.indexOf('poll_remaining = poll_deadline - time.monotonic()'))
+      .toBeLessThan(python.indexOf('response = requests.get('));
+    expect(python).toContain('poll_timeout = min(30, poll_remaining)');
+    expect(python).toContain('timeout=(min(10, poll_timeout), poll_timeout)');
+    expect(python.indexOf('download_remaining = poll_deadline - time.monotonic()'))
+      .toBeLessThan(python.indexOf('content = requests.get('));
+    expect(python).toContain('download_timeout = min(120, download_remaining)');
+    expect(python).toContain('timeout=(min(10, download_timeout), download_timeout)');
+    expect(typeScript.indexOf('const pollRemaining = pollDeadline - Date.now()'))
+      .toBeLessThan(typeScript.indexOf('const response = await fetch('));
+    expect(typeScript).toContain('const pollTimeout = Math.min(30_000, pollRemaining)');
+    expect(typeScript).toContain('AbortSignal.timeout(pollTimeout)');
+    expect(typeScript.indexOf('const downloadRemaining = pollDeadline - Date.now()'))
+      .toBeLessThan(typeScript.indexOf('const content = await fetch('));
+    expect(typeScript).toContain('const downloadTimeout = Math.min(120_000, downloadRemaining)');
+    expect(typeScript).toContain('AbortSignal.timeout(downloadTimeout)');
+  });
+
+  test('Python and TypeScript sanitize request ids before every response error', async () => {
+    const video = await page('docs/getting-started/video-workflow.mdx');
+    const python = fencedCode(video, 'python');
+    const typeScript = fencedCode(video, 'ts');
+
+    for (const [before, after] of [
+      ['created_request_id = sanitize_request_id(created)', 'raise_with_request_id(created, created_request_id)'],
+      ['response_request_id = sanitize_request_id(response)', 'raise_with_request_id(response, response_request_id)'],
+      ['content_request_id = sanitize_request_id(content)', 'raise_with_request_id(content, content_request_id)'],
+    ]) {
+      expect(python.indexOf(before), before).toBeGreaterThan(-1);
+      expect(python.indexOf(before), before).toBeLessThan(python.indexOf(after));
+    }
+    for (const [before, after] of [
+      ['const createdRequestId = sanitizeRequestId(createdResponse)', 'throwResponseError(createdResponse, createdRequestId)'],
+      ['const responseRequestId = sanitizeRequestId(response)', 'throwResponseError(response, responseRequestId)'],
+      ['const contentRequestId = sanitizeRequestId(content)', 'throwResponseError(content, contentRequestId)'],
+    ]) {
+      expect(typeScript.indexOf(before), before).toBeGreaterThan(-1);
+      expect(typeScript.indexOf(before), before).toBeLessThan(typeScript.indexOf(after));
+    }
+  });
+
+  test('Retry-After parsing supports delta seconds and HTTP dates with safe fallback', async () => {
+    const video = await page('docs/getting-started/video-workflow.mdx');
+    const python = fencedCode(video, 'python');
+    const typeScript = fencedCode(video, 'ts');
+
+    expect(python).toContain('def retry_after_seconds(value, now=None):');
+    expect(python).toContain('value.isdigit()');
+    expect(python).toContain('parsedate_to_datetime(value)');
+    expect(python).toContain('return delta if delta >= 0 else None');
+    expect(python).toContain('if parsed_retry_after is not None');
+    expect(typeScript).toContain('function retryAfterMilliseconds(value: string | null, now = Date.now())');
+    expect(typeScript).toContain('/^\\d+$/.test(trimmed)');
+    expect(typeScript).toContain('Date.parse(trimmed)');
+    expect(typeScript).toContain('return delta >= 0 ? delta : null');
+    expect(typeScript).toMatch(/parsedRetryAfter\s*\n\s*\?\?/);
+    expect(video).toMatch(/\u7a7a\u503c[^\u3002\n]*\u9000\u907f|\u975e\u6cd5[^\u3002\n]*\u9000\u907f/);
   });
 
   test('error guidance captures a sanitized public request id for support', async () => {
@@ -183,6 +251,14 @@ describe('public API guide content contract', () => {
     expect(errors).toContain('```bash');
     expect(errors).toContain('response.headers.get("X-Oneapi-Request-Id"');
     expect(errors).toContain("response.headers.get('X-Oneapi-Request-Id')");
+  });
+
+  test('billing unavailable state never guesses a charge', async () => {
+    const billing = await page('docs/api-basics/billing-and-usage.mdx');
+    expect(billing).toContain('unavailable');
+    expect(billing).toContain('\u8ba1\u8d39\u660e\u7ec6\u6682\u4e0d\u53ef\u7528');
+    expect(billing).toMatch(/\u7a0d\u540e\u91cd\u8bd5|\u8054\u7cfb\u652f\u6301/);
+    expect(billing).toMatch(/\u4e0d\u8981\u731c\u6d4b[^\u3002\n]*\u8d39\u7528|\u4e0d\u731c\u6d4b[^\u3002\n]*\u8d39\u7528/);
   });
 
   test('secret-like detector rejects credentials while allowing documented placeholders', async () => {
