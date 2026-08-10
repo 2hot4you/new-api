@@ -234,4 +234,25 @@ describe('default MDX API reference', () => {
       await browser.close();
     }
   }, 30_000);
+
+  test('renders complete developer and model decision guides', async () => {
+    const chromePath = await resolveBrowserExecutable();
+    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+
+    try {
+      for (const [route, headings, minimumLinks] of [
+        ['/api-basics', ['公共请求约定', '环境与身份验证', '选择媒体输入', '处理异步任务', '错误、超时与重试', '预计费用与最终结算', '选择语言示例', '生产上线清单'], 10],
+        ['/models', ['先按任务选择模型', '模型选择矩阵', 'Seedance 视频生成', 'Grok Imagine 图片', 'Grok Imagine 视频', '核对输入与输出能力', '查看权威参数与价格'], 8],
+      ] as const) {
+        await page.goto(`${baseUrl}${route}`, { waitUntil: 'networkidle' });
+        const renderedHeadings = (await page.locator('main h2').allTextContents())
+          .map((heading) => heading.replaceAll('\u200B', ''));
+        expect(renderedHeadings).toEqual(headings);
+        expect(await page.locator('main a[href^="/"]').count()).toBeGreaterThanOrEqual(minimumLinks);
+      }
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
 });
