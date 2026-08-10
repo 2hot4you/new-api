@@ -27,7 +27,7 @@
         "tags": ["Videos"], "summary": "创建兼容视频生成任务", "operationId": "createVideoGeneration",
         "description": "异步提交视频任务。`model`、`prompt` 必填；支持的模型和价格以 `/v1/models` 为准。`duration` 默认 5，范围 1–15 秒；`aspect_ratio` 默认 `16:9`，`resolution` 默认 `480p`。1.5 模型必须提供 `image` 或 `images` 之一。成功受理即开始计费；网络超时可用幂等业务策略查询任务，429/5xx 使用退避重试。",
         "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoGenerationRequest" }, "examples": { "imageToVideo": { "value": { "model": "grok-imagine-video-1.5", "prompt": "晨雾中的山谷，镜头缓慢推进", "image": "https://example.invalid/input.jpg", "duration": 5, "aspect_ratio": "16:9", "resolution": "480p" } } } } } },
-        "responses": { "200": { "$ref": "#/components/responses/TaskAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
+        "responses": { "200": { "$ref": "#/components/responses/OpenAIVideoAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },
     "/v1/video/generations/{task_id}": {
@@ -35,22 +35,22 @@
         "tags": ["Videos"], "summary": "查询兼容视频生成任务", "operationId": "getVideoGeneration",
         "description": "按 `task_id` 查询异步任务。`task_id` 是创建任务响应中的标识。任务未完成时按 2–5 秒递增间隔轮询；轮询本身不产生生成费用，最终费用取决于模型、时长、清晰度和输入媒体。",
         "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
-        "responses": { "200": { "$ref": "#/components/responses/TaskResult" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+        "responses": { "200": { "$ref": "#/components/responses/CompatibilityTaskResult" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
     "/v1/images/generations": {
       "post": {
         "tags": ["Images"], "summary": "创建图像生成", "operationId": "createImageGeneration",
-        "description": "根据 `model` 和必填 `prompt` 生成图像。可选 `size` 默认为 `1024x1024`，支持 `1024x1024`、`1024x1536`、`1536x1024`；`n` 默认 1，范围 1–4。图像费用按所选模型、尺寸和数量结算。429/5xx 可退避重试，参数错误不要重试。",
-        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageGenerationRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-image", "prompt": "一只戴宇航头盔的橘猫", "size": "1024x1024", "n": 1 } } } } } },
+        "description": "根据 `model` 和必填 `prompt` 生成图像。`resolution` 为 `1k`（默认）或 `2k`；`aspect_ratio` 默认 `16:9`，支持列出的宽高比；`n` 默认 1，范围 1–4。图像费用按所选模型、分辨率和数量结算。429/5xx 可退避重试，参数错误不要重试。",
+        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageGenerationRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-image", "prompt": "一只戴宇航头盔的橘猫", "resolution": "1k", "aspect_ratio": "1:1", "n": 1 } } } } } },
         "responses": { "200": { "$ref": "#/components/responses/ImageResult" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },
     "/v1/images/edits": {
       "post": {
         "tags": ["Images"], "summary": "创建图像编辑", "operationId": "createImageEdit",
-        "description": "编辑已存在图像。`model`、`prompt` 和 `images` 必填；`images` 至少包含一个可访问 URL 或资产引用。`size`、`n` 的默认值和范围同图像生成。按输出模型、尺寸、数量及输入媒体计费；仅对 429/5xx 使用退避重试。",
-        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageEditRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-image", "prompt": "将背景改为夜晚城市", "images": ["https://example.invalid/source.png"], "size": "1024x1024", "n": 1 } } } } } },
+        "description": "编辑已存在图像。`model`、`prompt` 必填，并且必须提供 `image` 或 `images`；合计支持 1–3 个输入，每项可为 URL 字符串或带 `url` 的对象。`resolution`、`aspect_ratio`、`n` 的默认值和范围同图像生成。按输出模型、分辨率、数量及输入媒体计费；仅对 429/5xx 使用退避重试。",
+        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageEditRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-image", "prompt": "将背景改为夜晚城市", "images": ["https://example.invalid/source.png"], "resolution": "1k", "aspect_ratio": "16:9", "n": 1 } } } } } },
         "responses": { "200": { "$ref": "#/components/responses/ImageResult" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },
@@ -59,7 +59,7 @@
         "tags": ["Videos"], "summary": "创建 OpenAI 兼容视频任务", "operationId": "createVideo",
         "description": "创建异步视频。`model`、`prompt` 必填；支持的模型由 `/v1/models` 决定。`duration` 默认 5、范围 1–15；`aspect_ratio` 默认 `16:9`；`resolution` 默认 `480p`。Grok 1.5 模型条件性要求 `image` 或 `images`。费用按模型、时长、分辨率和输入图像结算；429/5xx 使用指数退避，随后轮询任务。",
         "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoGenerationRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-video-1.5-preview", "prompt": "雨后街道的反射光", "image": "https://example.invalid/frame.jpg", "duration": 5 } } } } } },
-        "responses": { "200": { "$ref": "#/components/responses/TaskAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
+        "responses": { "200": { "$ref": "#/components/responses/OpenAIVideoAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },
     "/v1/videos/edits": {
@@ -67,7 +67,7 @@
         "tags": ["Videos"], "summary": "创建视频编辑任务", "operationId": "createVideoEdit",
         "description": "异步编辑输入视频。`model` 必须为 `grok-imagine-video`，且 `prompt` 与 `video` 必填；此操作不接受 `duration`、`aspect_ratio` 或 `resolution`。成功受理后按编辑输出和输入视频时长结算。对 429/5xx 退避重试，完成状态请轮询。",
         "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoEditRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-video", "prompt": "加入轻微的胶片颗粒", "video": "https://example.invalid/source.mp4" } } } } } },
-        "responses": { "200": { "$ref": "#/components/responses/TaskAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
+        "responses": { "200": { "$ref": "#/components/responses/OpenAIVideoAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },
     "/v1/videos/{task_id}": {
@@ -75,7 +75,7 @@
         "tags": ["Videos"], "summary": "查询视频任务", "operationId": "getVideo",
         "description": "查询创建或编辑视频的任务结果。`task_id` 必填。任务处理中每 2–5 秒轮询且逐步退避；查询不增加生成计费，实际账单依模型、时长、分辨率和输入媒体计算。",
         "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
-        "responses": { "200": { "$ref": "#/components/responses/TaskResult" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+        "responses": { "200": { "$ref": "#/components/responses/OpenAIVideoResult" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
     "/v1/videos/{task_id}/content": {
@@ -89,9 +89,9 @@
     "/v1/assets": {
       "post": {
         "tags": ["Assets"], "summary": "创建临时素材资产", "operationId": "createAsset",
-        "description": "通过公共 HTTP(S) `url` 创建可用于生成请求的临时资产。`url` 与 `asset_type` 必填，`asset_type` 为 `image` 或 `video`；可选 `name` 便于识别。资产有过期时间；上传或存储本身的费用以账户计费规则为准。429/5xx 可退避重试。",
+        "description": "通过公共 HTTP(S) `url` 创建可用于生成请求的临时资产。`url`、`asset_type`、`name` 必填；`asset_type` 为 `image`、`video` 或 `audio`，`name` 最长 80 个 Unicode 字符。成功响应只返回公开资产 `id`。资产有过期时间；上传或存储本身的费用以账户计费规则为准。429/5xx 可退避重试。",
         "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAssetRequest" }, "examples": { "success": { "value": { "url": "https://example.invalid/input.jpg", "asset_type": "image", "name": "reference-image" } } } } } },
-        "responses": { "200": { "$ref": "#/components/responses/AssetResult" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
+        "responses": { "200": { "$ref": "#/components/responses/CreateAssetResult" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },
     "/v1/assets/{id}": {
@@ -105,7 +105,7 @@
         "tags": ["Assets"], "summary": "删除临时素材资产", "operationId": "deleteAsset",
         "description": "删除当前 API Key 所属的必填 `id` 资产。删除后不可恢复，不退还已发生的生成或存储费用；客户端可在网络超时时安全地再次确认资源是否存在，429/5xx 使用退避重试。",
         "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/AssetId" }],
-        "responses": { "200": { "description": "删除成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DeleteAssetResponse" }, "examples": { "success": { "value": { "success": true, "id": "asset_public_123" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+        "responses": { "200": { "description": "删除成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DeleteAssetResponse" }, "examples": { "success": { "value": { "success": true } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     }
   },
@@ -116,10 +116,12 @@
       "AssetId": { "name": "id", "in": "path", "required": true, "description": "创建资产响应返回的资产 ID。", "schema": { "type": "string", "minLength": 1 }, "example": "asset_public_123" }
     },
     "responses": {
-      "TaskAccepted": { "description": "任务已受理", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" }, "examples": { "accepted": { "value": { "id": "task_public_123", "status": "queued", "model": "grok-imagine-video-1.5" } } } } } },
-      "TaskResult": { "description": "任务状态", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" }, "examples": { "completed": { "value": { "id": "task_public_123", "status": "completed", "result_url": "https://api.example.invalid/v1/videos/task_public_123/content" } } } } } },
+      "OpenAIVideoAccepted": { "description": "任务已受理（OpenAI Video 对象）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIVideo" }, "examples": { "accepted": { "value": { "id": "task_public_123", "task_id": "task_public_123", "object": "video", "model": "grok-imagine-video-1.5", "status": "queued", "progress": 0, "created_at": 0 } } } } } },
+      "OpenAIVideoResult": { "description": "OpenAI Video 任务状态", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OpenAIVideo" }, "examples": { "completed": { "value": { "id": "task_public_123", "task_id": "task_public_123", "object": "video", "model": "grok-imagine-video-1.5", "status": "completed", "progress": 100, "created_at": 1720000000, "completed_at": 1720000030, "metadata": { "url": "https://api.example.invalid/v1/videos/task_public_123/content" } } } } } } },
+      "CompatibilityTaskResult": { "description": "兼容任务响应包裹；仅展示稳定的公开任务字段", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompatibilityTaskResponse" }, "examples": { "completed": { "value": { "code": "success", "message": "", "data": { "task_id": "task_public_123", "status": "SUCCESS", "progress": "100%", "fail_reason": "", "result_url": "https://api.example.invalid/v1/videos/task_public_123/content", "video_params": { "resolution": "720p", "ratio": "16:9", "seconds": 6, "has_video": false }, "billing": { "state": "settled", "mode": "per_call", "model": "grok-imagine-video-1.5", "final_cost": 0.2, "group_ratio": 1, "detail_available": true } } } } } } } },
       "ImageResult": { "description": "生成图像", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageResponse" }, "examples": { "success": { "value": { "created": 1720000000, "data": [{ "url": "https://example.invalid/image.png" }] } } } } } },
-      "AssetResult": { "description": "资产元数据", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Asset" }, "examples": { "success": { "value": { "id": "asset_public_123", "asset_type": "image", "status": "ready", "created_at": 1720000000, "expires_at": 1720003600 } } } } } },
+      "CreateAssetResult": { "description": "资产已创建", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAssetResponse" }, "examples": { "success": { "value": { "id": "asset_public_123" } } } } } },
+      "AssetResult": { "description": "资产元数据", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Asset" }, "examples": { "success": { "value": { "id": "asset_public_123", "asset_type": "image", "name": "reference-image", "status": "ready", "created_at": 1720000000, "expires_at": 1720003600, "verified_at": 1720000001 } } } } } },
       "InvalidRequest": { "description": "请求参数无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "examples": { "invalid": { "value": { "error": { "code": "invalid_request", "message": "请检查必填字段和取值范围" } } } } } } },
       "Unauthorized": { "description": "缺少或无效的 API Key", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "examples": { "unauthorized": { "value": { "error": { "code": "invalid_api_key", "message": "Authentication failed" } } } } } } },
       "NotFound": { "description": "资源不存在或无权访问", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "examples": { "notFound": { "value": { "error": { "code": "not_found", "message": "Resource not found" } } } } } } },
@@ -131,13 +133,21 @@
       "Model": { "type": "object", "required": ["id", "object"], "properties": { "id": { "type": "string", "description": "传给 model 字段的模型 ID" }, "object": { "type": "string", "const": "model" }, "owned_by": { "type": "string" } } },
       "VideoGenerationRequest": { "type": "object", "required": ["model", "prompt"], "properties": { "model": { "type": "string", "description": "来自 GET /v1/models；Grok 1.5 模型需 image 或 images" }, "prompt": { "type": "string", "maxLength": 10000 }, "image": { "type": "string", "format": "uri", "description": "与 images 二选一；Grok 1.5 必填其一" }, "images": { "type": "array", "minItems": 1, "items": { "type": "string", "format": "uri" }, "description": "与 image 二选一，当前使用首个图像" }, "duration": { "type": "integer", "minimum": 1, "maximum": 15, "default": 5 }, "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16", "1:1"], "default": "16:9" }, "resolution": { "type": "string", "enum": ["480p", "720p"], "default": "480p" } } },
       "VideoEditRequest": { "type": "object", "required": ["model", "prompt", "video"], "properties": { "model": { "type": "string", "const": "grok-imagine-video" }, "prompt": { "type": "string", "maxLength": 10000 }, "video": { "type": "string", "format": "uri" } }, "description": "不允许 duration、aspect_ratio 或 resolution。" },
-      "ImageGenerationRequest": { "type": "object", "required": ["model", "prompt"], "properties": { "model": { "type": "string", "description": "来自 GET /v1/models" }, "prompt": { "type": "string", "minLength": 1 }, "size": { "type": "string", "enum": ["1024x1024", "1024x1536", "1536x1024"], "default": "1024x1024" }, "n": { "type": "integer", "minimum": 1, "maximum": 4, "default": 1 } } },
-      "ImageEditRequest": { "allOf": [{ "$ref": "#/components/schemas/ImageGenerationRequest" }, { "type": "object", "required": ["images"], "properties": { "images": { "type": "array", "minItems": 1, "items": { "type": "string", "format": "uri" } } } }] },
-      "Task": { "type": "object", "required": ["id", "status"], "properties": { "id": { "type": "string" }, "status": { "type": "string", "enum": ["queued", "processing", "completed", "failed"] }, "model": { "type": "string" }, "result_url": { "type": "string", "format": "uri" }, "error": { "$ref": "#/components/schemas/ErrorDetail" } } },
+      "ImageGenerationRequest": { "type": "object", "required": ["model", "prompt"], "properties": { "model": { "type": "string", "enum": ["grok-imagine-image", "grok-imagine-image-quality"] }, "prompt": { "type": "string", "minLength": 1, "maxLength": 10000 }, "resolution": { "type": "string", "enum": ["1k", "2k"], "default": "1k" }, "aspect_ratio": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"], "default": "16:9" }, "n": { "type": "integer", "minimum": 1, "maximum": 4, "default": 1 } } },
+      "ImageInput": { "oneOf": [{ "type": "string", "format": "uri", "minLength": 1, "description": "图像 URL" }, { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri", "minLength": 1 } } }] },
+      "ImageEditRequest": { "allOf": [{ "$ref": "#/components/schemas/ImageGenerationRequest" }, { "type": "object", "anyOf": [{ "required": ["image"] }, { "required": ["images"] }], "properties": { "image": { "$ref": "#/components/schemas/ImageInput" }, "images": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/components/schemas/ImageInput" } } } }] },
+      "OpenAIVideo": { "type": "object", "required": ["id", "object", "model", "status", "progress", "created_at"], "properties": { "id": { "type": "string" }, "task_id": { "type": "string", "deprecated": true }, "object": { "type": "string", "const": "video" }, "model": { "type": "string" }, "status": { "type": "string", "enum": ["queued", "in_progress", "completed", "failed"] }, "progress": { "type": "integer", "minimum": 0, "maximum": 100 }, "created_at": { "type": "integer" }, "completed_at": { "type": "integer" }, "expires_at": { "type": "integer" }, "seconds": { "type": "string" }, "size": { "type": "string" }, "remixed_from_video_id": { "type": "string" }, "error": { "$ref": "#/components/schemas/OpenAIVideoError" }, "usage": { "$ref": "#/components/schemas/OpenAIVideoUsage" }, "metadata": { "type": "object", "additionalProperties": true } } },
+      "OpenAIVideoError": { "type": "object", "required": ["message", "code"], "properties": { "message": { "type": "string" }, "code": { "type": "string" } } },
+      "OpenAIVideoUsage": { "type": "object", "required": ["completion_tokens", "total_tokens", "tool_usage"], "properties": { "completion_tokens": { "type": "integer" }, "total_tokens": { "type": "integer" }, "tool_usage": { "type": "object", "required": ["web_search"], "properties": { "web_search": { "type": "integer" } } } } },
+      "CompatibilityTaskResponse": { "type": "object", "required": ["code", "message", "data"], "properties": { "code": { "type": "string", "const": "success" }, "message": { "type": "string" }, "data": { "$ref": "#/components/schemas/CompatibilityTask" } } },
+      "CompatibilityTask": { "type": "object", "description": "兼容接口返回的公开稳定任务字段；服务端响应可能包含未在此固化的附加字段。", "required": ["task_id", "status", "progress"], "properties": { "task_id": { "type": "string" }, "status": { "type": "string" }, "progress": { "type": "string" }, "fail_reason": { "type": "string", "description": "失败时的公开错误说明" }, "result_url": { "type": "string", "format": "uri" }, "video_params": { "$ref": "#/components/schemas/PublicTaskVideoParams" }, "billing": { "$ref": "#/components/schemas/PublicTaskBillingSummary" } } },
+      "PublicTaskVideoParams": { "type": "object", "required": ["has_video"], "properties": { "resolution": { "type": "string" }, "ratio": { "type": "string" }, "seconds": { "type": "integer" }, "fps": { "type": "integer" }, "width": { "type": "integer" }, "height": { "type": "integer" }, "has_video": { "type": "boolean" } } },
+      "PublicTaskBillingSummary": { "type": "object", "required": ["state", "mode", "final_cost", "group_ratio", "detail_available"], "properties": { "state": { "type": "string" }, "mode": { "type": "string" }, "model": { "type": "string" }, "final_cost": { "type": "number" }, "group_ratio": { "type": "number" }, "detail_available": { "type": "boolean" }, "seedance": { "type": "object", "additionalProperties": true }, "grok_video": { "type": "object", "additionalProperties": true } } },
       "ImageResponse": { "type": "object", "required": ["created", "data"], "properties": { "created": { "type": "integer" }, "data": { "type": "array", "items": { "type": "object", "properties": { "url": { "type": "string", "format": "uri" } } } } } },
-      "CreateAssetRequest": { "type": "object", "required": ["url", "asset_type"], "properties": { "url": { "type": "string", "format": "uri", "description": "公开 HTTP(S) URL" }, "asset_type": { "type": "string", "enum": ["image", "video"] }, "name": { "type": "string", "maxLength": 255 } } },
-      "Asset": { "type": "object", "required": ["id", "asset_type", "status", "created_at", "expires_at"], "properties": { "id": { "type": "string" }, "asset_type": { "type": "string", "enum": ["image", "video"] }, "name": { "type": "string" }, "source_url": { "type": "string", "format": "uri" }, "preview_url": { "type": "string", "format": "uri" }, "status": { "type": "string", "enum": ["pending", "ready", "failed", "expired"] }, "created_at": { "type": "integer" }, "expires_at": { "type": "integer" } } },
-      "DeleteAssetResponse": { "type": "object", "required": ["success", "id"], "properties": { "success": { "type": "boolean", "const": true }, "id": { "type": "string" } } },
+      "CreateAssetRequest": { "type": "object", "required": ["url", "asset_type", "name"], "properties": { "url": { "type": "string", "format": "uri", "pattern": "^https?://", "description": "公开 HTTP(S) URL" }, "asset_type": { "type": "string", "enum": ["image", "video", "audio"] }, "name": { "type": "string", "minLength": 1, "maxLength": 80 } } },
+      "CreateAssetResponse": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } },
+      "Asset": { "type": "object", "required": ["id", "asset_type", "status", "created_at", "expires_at", "verified_at"], "properties": { "id": { "type": "string" }, "asset_type": { "type": "string", "enum": ["image", "video", "audio"] }, "name": { "type": "string" }, "source_url": { "type": "string", "format": "uri" }, "preview_url": { "type": "string", "format": "uri" }, "source_kind": { "type": "string" }, "file_name": { "type": "string" }, "content_type": { "type": "string" }, "file_size": { "type": "integer" }, "status": { "type": "string" }, "created_at": { "type": "integer" }, "expires_at": { "type": "integer" }, "verified_at": { "type": "integer" } } },
+      "DeleteAssetResponse": { "type": "object", "required": ["success"], "properties": { "success": { "type": "boolean", "const": true } } },
       "Error": { "type": "object", "required": ["error"], "properties": { "error": { "$ref": "#/components/schemas/ErrorDetail" } } },
       "ErrorDetail": { "type": "object", "required": ["code", "message"], "properties": { "code": { "type": "string" }, "message": { "type": "string" } } }
     }

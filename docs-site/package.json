@@ -31,6 +31,7 @@
     "@redocly/cli": "2.46.0",
     "@secretlint/secretlint-rule-preset-recommend": "13.0.4",
     "linkinator": "8.0.3",
+    "playwright-core": "1.62.1",
     "secretlint": "13.0.4",
     "typescript": "5.9.3"
   }

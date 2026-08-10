@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import siteConfig from '../docusaurus.config';
 import { prepareOpenApi } from './prepare-openapi.mjs';
 
 const workspaces: string[] = [];
@@ -126,5 +127,134 @@ describe('prepareOpenApi', () => {
 
     await expect(prepareOpenApi({ ...files, apiBaseUrl: 'https://api.molii.example', document: unsafe }))
       .rejects.toThrow(/summary|BearerAuth/i);
+  });
+
+  test('publishes Molii Grok image fields implemented by the adaptor', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'molii-owned-openapi-'));
+    workspaces.push(workspace);
+    const siteRoot = join(import.meta.dir, '..');
+    const document = await prepareOpenApi({
+      templatePath: join(siteRoot, 'openapi', 'relay.public.template.yaml'),
+      allowlistPath: join(siteRoot, 'openapi', 'public-api-surface.json'),
+      outputPath: join(workspace, 'relay.public.json'),
+      apiBaseUrl: 'https://api.molii.example',
+    });
+
+    const generation = document.components.schemas.ImageGenerationRequest;
+    expect(generation.properties).not.toHaveProperty('size');
+    expect(generation.properties.resolution).toMatchObject({ enum: ['1k', '2k'], default: '1k' });
+    expect(generation.properties.aspect_ratio).toMatchObject({
+      enum: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2', '19.5:9', '9:19.5', '20:9', '9:20', 'auto'],
+      default: '16:9',
+    });
+
+    const editInput = document.components.schemas.ImageEditRequest.allOf[1];
+    expect(editInput.anyOf).toEqual([{ required: ['image'] }, { required: ['images'] }]);
+    expect(editInput.properties.image.$ref).toBe('#/components/schemas/ImageInput');
+    expect(editInput.properties.images).toMatchObject({ minItems: 1, maxItems: 3 });
+
+    const imageInput = document.components.schemas.ImageInput;
+    expect(imageInput.oneOf[1]).toMatchObject({
+      type: 'object',
+      required: ['url'],
+      properties: { url: { type: 'string', format: 'uri', minLength: 1 } },
+    });
+    expect(JSON.stringify(imageInput)).not.toContain('file_id');
+    expect(JSON.stringify(document.paths['/v1/images/edits'])).not.toContain('file_id');
+  });
+
+  test('publishes the implemented asset request and mutation response shapes', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'molii-owned-openapi-'));
+    workspaces.push(workspace);
+    const siteRoot = join(import.meta.dir, '..');
+    const document = await prepareOpenApi({
+      templatePath: join(siteRoot, 'openapi', 'relay.public.template.yaml'),
+      allowlistPath: join(siteRoot, 'openapi', 'public-api-surface.json'),
+      outputPath: join(workspace, 'relay.public.json'),
+      apiBaseUrl: 'https://api.molii.example',
+    });
+
+    const request = document.components.schemas.CreateAssetRequest;
+    expect(request.required).toEqual(['url', 'asset_type', 'name']);
+    expect(request.properties.name.maxLength).toBe(80);
+    expect(request.properties.asset_type.enum).toEqual(['image', 'video', 'audio']);
+
+    const createSchema = document.components.responses.CreateAssetResult.content['application/json'].schema;
+    expect(createSchema.$ref).toBe('#/components/schemas/CreateAssetResponse');
+    expect(document.components.schemas.CreateAssetResponse).toEqual({
+      type: 'object',
+      required: ['id'],
+      properties: { id: { type: 'string' } },
+    });
+    expect(document.components.schemas.DeleteAssetResponse).toEqual({
+      type: 'object',
+      required: ['success'],
+      properties: { success: { type: 'boolean', const: true } },
+    });
+  });
+
+  test('uses the response builders for compatibility and OpenAI video routes', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'molii-owned-openapi-'));
+    workspaces.push(workspace);
+    const siteRoot = join(import.meta.dir, '..');
+    const document = await prepareOpenApi({
+      templatePath: join(siteRoot, 'openapi', 'relay.public.template.yaml'),
+      allowlistPath: join(siteRoot, 'openapi', 'public-api-surface.json'),
+      outputPath: join(workspace, 'relay.public.json'),
+      apiBaseUrl: 'https://api.molii.example',
+    });
+
+    expect(document.paths['/v1/video/generations'].post.responses['200'].$ref)
+      .toBe('#/components/responses/OpenAIVideoAccepted');
+    expect(document.paths['/v1/videos'].post.responses['200'].$ref)
+      .toBe('#/components/responses/OpenAIVideoAccepted');
+    expect(document.paths['/v1/videos/edits'].post.responses['200'].$ref)
+      .toBe('#/components/responses/OpenAIVideoAccepted');
+    expect(document.paths['/v1/video/generations/{task_id}'].get.responses['200'].$ref)
+      .toBe('#/components/responses/CompatibilityTaskResult');
+    expect(document.paths['/v1/videos/{task_id}'].get.responses['200'].$ref)
+      .toBe('#/components/responses/OpenAIVideoResult');
+
+    expect(document.components.schemas.OpenAIVideo).toMatchObject({
+      required: ['id', 'object', 'model', 'status', 'progress', 'created_at'],
+      properties: {
+        object: { type: 'string', const: 'video' },
+        status: { type: 'string', enum: ['queued', 'in_progress', 'completed', 'failed'] },
+      },
+    });
+    expect(document.components.schemas.CompatibilityTaskResponse).toMatchObject({
+      required: ['code', 'message', 'data'],
+      properties: { data: { $ref: '#/components/schemas/CompatibilityTask' } },
+    });
+
+    const compatibilityTask = document.components.schemas.CompatibilityTask;
+    expect(compatibilityTask.required).toEqual(['task_id', 'status', 'progress']);
+    expect(compatibilityTask.properties).toHaveProperty('result_url');
+    expect(compatibilityTask.properties).toHaveProperty('fail_reason');
+    expect(compatibilityTask.properties).toHaveProperty('billing');
+    for (const internalField of ['id', 'platform', 'user_id', 'group', 'channel_id', 'quota']) {
+      expect(compatibilityTask.properties).not.toHaveProperty(internalField);
+    }
+
+    const compatibilityExample = document.components.responses.CompatibilityTaskResult
+      .content['application/json'].examples.completed.value.data;
+    expect(compatibilityExample).toMatchObject({
+      task_id: 'task_public_123',
+      status: 'SUCCESS',
+      progress: '100%',
+    });
+    for (const internalField of ['id', 'platform', 'user_id', 'group', 'channel_id', 'quota']) {
+      expect(compatibilityExample).not.toHaveProperty(internalField);
+    }
+  });
+
+  test('points primary API reference navigation at the generated introduction', () => {
+    const navbar = siteConfig.themeConfig?.navbar as { items?: Array<{ label?: string; to?: string }> };
+    const footer = siteConfig.themeConfig?.footer as { links?: Array<{ items?: Array<{ label?: string; to?: string }> }> };
+
+    expect(navbar.items?.find((item) => item.label === 'API 参考')?.to)
+      .toBe('/api-reference/molii-public-api');
+    expect(footer.links?.flatMap((group) => group.items ?? []).find((item) => item.label === 'API 参考')?.to)
+      .toBe('/api-reference/molii-public-api');
   });
 });
