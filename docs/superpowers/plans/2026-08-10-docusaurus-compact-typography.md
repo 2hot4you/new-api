@@ -2,63 +2,87 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Reduce the complete Molii Docusaurus interface to 85% of its current typographic and `rem`-based visual scale without changing fonts, layout structure, or theme behavior.
+**Goal:** Make the Molii Docusaurus site use a `12px` root font size on desktop and a `14px` root font size at Docusaurus' `996px` mobile breakpoint and below.
 
-**Architecture:** Add one root `font-size: 85%` declaration to the existing font stylesheet so Docusaurus and Infima continue to own component sizing while their `rem` values scale consistently. Protect the contract with the existing default-theme test, then rebuild, inspect desktop and mobile layouts, and update the static background service.
+**Architecture:** Extend the existing `fonts.css` root declaration with one desktop font size and one breakpoint override, allowing Docusaurus and Infima's existing `rem` units to scale typography and spacing consistently. Protect the responsive behavior with a real Playwright browser test that checks computed styles and document overflow, then rebuild and redeploy the static site through the existing LaunchAgent.
 
-**Tech Stack:** Docusaurus 3.10.2, Infima, CSS, Bun test runner, Playwright-compatible in-app browser, macOS LaunchAgent.
+**Tech Stack:** Docusaurus 3.10.2, Infima, CSS, Bun test runner, Playwright Core, macOS LaunchAgent.
 
 ## Global Constraints
 
-- The root font size must be exactly `85%` on desktop and mobile.
-- Keep the existing Serif font stack and Docusaurus default theme.
+- The computed root font size must be exactly `12px` above `996px`.
+- The computed root font size must be exactly `14px` at `996px` and below.
+- Keep the existing Serif font stack, Docusaurus default theme, and monospace code font.
 - Do not use CSS `zoom`, `transform`, or JavaScript scaling.
 - Do not change colors, content width, breakpoints, border radius, or page structure.
-- Preserve browser zoom and the existing monospace code font.
+- Preserve browser zoom and existing responsive navigation behavior.
 - The deployed documentation must remain available at `http://127.0.0.1:3100` through `io.molii.docs`.
 
 ---
 
-### Task 1: Apply and deploy the compact root scale
+### Task 1: Add responsive compact typography and deploy it
 
 **Files:**
-- Modify: `docs-site/scripts/default-theme-contract.test.ts:12-24`
-- Modify: `docs-site/src/css/fonts.css:3-12`
+- Modify: `docs-site/scripts/api-reference.browser.test.ts`
+- Modify: `docs-site/src/css/fonts.css`
 
 **Interfaces:**
-- Consumes: Docusaurus' existing `customCss: './src/css/fonts.css'` registration and Infima's `rem`-based sizing.
-- Produces: A document root with computed font size `85%` of the browser default; no new JavaScript or component API.
+- Consumes: Docusaurus' existing `customCss: './src/css/fonts.css'` registration, Infima's `rem`-based sizing, and the browser-test server at `http://127.0.0.1:3197`.
+- Produces: A document root computed at `12px` on desktop and `14px` at widths up to `996px`, without page-level horizontal overflow.
 
-- [ ] **Step 1: Write the failing style contract test**
+- [ ] **Step 1: Write the failing browser behavior test**
 
-Add this test inside the existing `describe('Docusaurus default-theme contract', ...)` block:
+Add this test inside the existing `describe('default MDX API reference', ...)` block in `docs-site/scripts/api-reference.browser.test.ts`:
 
 ```ts
-test('scales the complete default theme to 85 percent without layout transforms', async () => {
-  const fonts = await source('src/css/fonts.css');
+  test('uses compact responsive root typography without page overflow', async () => {
+    const chromePath = await resolveBrowserExecutable();
+    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
 
-  expect(fonts).toMatch(/:root\s*\{[^}]*font-size:\s*85%;/s);
-  expect(fonts).not.toMatch(/\b(?:zoom|transform)\s*:/i);
-});
+    try {
+      await Promise.all([
+        desktop.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' }),
+        mobile.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' }),
+      ]);
+
+      const desktopLayout = await desktop.evaluate(() => ({
+        rootFontSize: getComputedStyle(document.documentElement).fontSize,
+        overflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      }));
+      const mobileLayout = await mobile.evaluate(() => ({
+        rootFontSize: getComputedStyle(document.documentElement).fontSize,
+        overflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      }));
+
+      expect(desktopLayout).toEqual({ rootFontSize: '12px', overflows: false });
+      expect(mobileLayout).toEqual({ rootFontSize: '14px', overflows: false });
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **Step 2: Run the browser test and verify RED**
 
 Run from `docs-site/`:
 
 ```bash
-bun test scripts/default-theme-contract.test.ts
+bun test scripts/api-reference.browser.test.ts
 ```
 
-Expected: FAIL in `scales the complete default theme to 85 percent without layout transforms` because `fonts.css` does not contain `font-size: 85%`.
+Expected: the new test fails because both viewports still compute the browser-default `16px` root font size; the pre-existing API reference tests continue to pass.
 
-- [ ] **Step 3: Add the minimal root scale**
+- [ ] **Step 3: Add the minimal responsive root sizes**
 
-Update the existing `:root` block in `docs-site/src/css/fonts.css`:
+Update `docs-site/src/css/fonts.css` to retain the existing font variables and add the desktop declaration plus the Docusaurus mobile breakpoint:
 
 ```css
+@import '@fontsource-variable/lora';
+
 :root {
-  font-size: 85%;
+  font-size: 12px;
   --ifm-font-family-base:
     'Lora Variable', 'Lora', 'Source Serif Pro', 'Source Serif 4',
     'Noto Serif SC', 'Noto Serif TC', 'Noto Serif JP', 'Noto Serif KR',
@@ -68,17 +92,23 @@ Update the existing `:root` block in `docs-site/src/css/fonts.css`:
     'Times New Roman', Cambria, 'Liberation Serif', serif;
   --ifm-heading-font-family: var(--ifm-font-family-base);
 }
+
+@media (max-width: 996px) {
+  :root {
+    font-size: 14px;
+  }
+}
 ```
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [ ] **Step 4: Run the browser test and verify GREEN**
 
 Run from `docs-site/`:
 
 ```bash
-bun test scripts/default-theme-contract.test.ts
+bun test scripts/api-reference.browser.test.ts
 ```
 
-Expected: all tests in the file PASS with no warnings.
+Expected: all four API reference browser tests pass, including exact `12px` and `14px` computed values and no page-level horizontal overflow.
 
 - [ ] **Step 5: Run the complete documentation quality gate**
 
@@ -88,9 +118,13 @@ Run from `docs-site/`:
 bun run check
 ```
 
-Expected: Bun tests, forbidden-term scan, secret scan, Docusaurus production build, local search index generation, and internal link check all PASS.
+Expected: Bun tests, forbidden-term scan, secret scan, Docusaurus production build, local search index generation, and internal link check all pass.
 
-- [ ] **Step 6: Deploy the generated static site to the background service**
+- [ ] **Step 6: Perform visual desktop and mobile verification**
+
+Open `/` and `/api-reference/seedance` in the in-app browser at desktop `1440×900` and mobile `390×844`. Confirm the computed root sizes are `12px` and `14px` respectively, navigation and mobile menus remain usable, and headings, tables, code blocks, and controls do not overlap or clip.
+
+- [ ] **Step 7: Deploy the generated static site to the background service**
 
 Run from the repository root:
 
@@ -101,32 +135,21 @@ launchctl kickstart -k gui/$(id -u)/io.molii.docs
 
 Expected: `io.molii.docs` restarts and serves the new build from `Application Support`.
 
-- [ ] **Step 7: Verify desktop and mobile rendering**
-
-Use the in-app browser against both `/` and `/api-reference/seedance` at desktop `1440×900` and mobile `390×844` viewports. For every page and viewport, verify:
-
-```js
-const rootSize = getComputedStyle(document.documentElement).fontSize;
-const overflows = document.documentElement.scrollWidth > document.documentElement.clientWidth;
-({ rootSize, overflows });
-```
-
-Expected: `rootSize` is `13.6px` when the browser default is `16px`, `overflows` is `false`, navigation remains usable, and tables/code blocks do not overlap or clip controls.
-
-- [ ] **Step 8: Verify the live service**
+- [ ] **Step 8: Verify the live service and deployed responsive CSS**
 
 Run:
 
 ```bash
 curl --fail --silent --show-error --output /tmp/molii-docs-compact.html --write-out '%{http_code}\n' http://127.0.0.1:3100/
 launchctl print gui/$(id -u)/io.molii.docs | rg '^\s*(state|pid|last exit code) ='
+rg -n 'font-size:\s*(12|14)px|max-width:\s*996px' '/Users/naf/Library/Application Support/molii-docs/site/assets/css/'
 ```
 
-Expected: curl prints `200`; LaunchAgent state is `running` with a PID and no nonzero exit code.
+Expected: curl prints `200`; LaunchAgent state is `running` with a PID and no nonzero exit code; the deployed CSS contains `12px`, `14px`, and the `996px` breakpoint.
 
 - [ ] **Step 9: Commit the implementation**
 
 ```bash
-git add docs-site/scripts/default-theme-contract.test.ts docs-site/src/css/fonts.css
+git add docs-site/scripts/api-reference.browser.test.ts docs-site/src/css/fonts.css
 git commit -m "style: compact Docusaurus typography"
 ```
