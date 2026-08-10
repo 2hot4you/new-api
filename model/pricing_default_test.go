@@ -22,4 +22,5 @@ func TestDefaultGrokDescriptionKeys(t *testing.T) {
 	for _, modelName := range models {
 		assert.NotEmpty(t, getDefaultModelDescriptionI18nKey(modelName), modelName)
 	}
+	assert.Empty(t, getDefaultModelDescriptionI18nKey("grok-imagine-video-1.5-preview"))
 }

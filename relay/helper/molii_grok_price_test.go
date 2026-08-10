@@ -24,6 +24,8 @@ func TestMoliiGrokModelsUseDirectCostAnchors(t *testing.T) {
 		_, hasDefaultRatio := ratio_setting.GetDefaultModelRatioMap()[modelName]
 		assert.False(t, hasDefaultRatio, "a token ratio must not silently replace fixed pricing: %s", modelName)
 	}
+	_, hasPreviewPrice := ratio_setting.GetDefaultModelPriceMap()["grok-imagine-video-1.5-preview"]
+	assert.False(t, hasPreviewPrice)
 }
 
 func TestMoliiGrokFixedPriceAnchorsAreAvailable(t *testing.T) {

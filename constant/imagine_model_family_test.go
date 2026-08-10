@@ -16,6 +16,8 @@ func TestValidateImagineModelMappingRejectsIncompatibleFamilies(t *testing.T) {
 		{name: "Grok basic to quality", requested: "grok-imagine-image", billed: "grok-imagine-image-quality"},
 		{name: "Grok image to video", requested: "grok-imagine-image", billed: "grok-imagine-video"},
 		{name: "Grok legacy to 1.5", requested: "grok-imagine-video", billed: "grok-imagine-video-1.5"},
+		{name: "Grok 1.5 to retired preview", requested: "grok-imagine-video-1.5", billed: "grok-imagine-video-1.5-preview"},
+		{name: "retired preview to Grok 1.5", requested: "grok-imagine-video-1.5-preview", billed: "grok-imagine-video-1.5"},
 	}
 
 	for _, tt := range tests {
@@ -33,7 +35,7 @@ func TestValidateImagineModelMappingAllowsCompatibleAndUnrelatedModels(t *testin
 		family    ImagineModelFamily
 	}{
 		{name: "identity", requested: "grok-imagine-image", billed: "grok-imagine-image", family: ImagineModelFamilyGrokImage},
-		{name: "Grok 1.5 preview", requested: "grok-imagine-video-1.5", billed: "grok-imagine-video-1.5-preview", family: ImagineModelFamilyGrokVideo15},
+		{name: "Grok 1.5 identity", requested: "grok-imagine-video-1.5", billed: "grok-imagine-video-1.5", family: ImagineModelFamilyGrokVideo15},
 		{name: "ordinary channel mapping", requested: "gpt-4o", billed: "gpt-4.1", family: ImagineModelFamilyUnknown},
 	}
 

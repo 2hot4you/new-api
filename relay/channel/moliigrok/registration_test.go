@@ -36,5 +36,6 @@ func TestMoliiGrokChannelRegistration(t *testing.T) {
 
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeImageGeneration}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-image"))
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-video-1.5"))
+	assert.Empty(t, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-video-1.5-preview"))
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-video"))
 }

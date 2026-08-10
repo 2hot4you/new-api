@@ -94,6 +94,8 @@ func TestAppendGrokImageBillingLogUsesActualEditCountsAndSettledQuota(t *testing
 	snapshot := &relaycommon.GrokImageBillingSnapshot{
 		Version:              1,
 		Model:                "grok-imagine-image-quality",
+		RequestedModel:       "grok-imagine-image-quality",
+		BilledModel:          "grok-imagine-image",
 		Operation:            "edit",
 		Resolution:           "2k",
 		AspectRatio:          "16:9",
@@ -116,12 +118,14 @@ func TestAppendGrokImageBillingLogUsesActualEditCountsAndSettledQuota(t *testing
 	got, ok := other["grok_image_billing"].(*relaycommon.GrokImageBillingSnapshot)
 	require.True(t, ok)
 	assert.Equal(t, 1, got.Version)
+	assert.Equal(t, "grok-imagine-image-quality", got.RequestedModel)
+	assert.Equal(t, "grok-imagine-image", got.BilledModel)
 	assert.InDelta(t, 1.5, got.GroupRatio, 0.000001)
 	assert.InDelta(t, 0.135, got.FinalCost, 0.000001)
 	assert.InDelta(t, 0.09, got.Subtotal, 0.000001)
 }
 
-func TestAppendGrokImageBillingLogGenerationAndOrdinaryCompatibility(t *testing.T) {
+func TestAppendGrokImageBillingLogSupportsLegacySnapshotWithoutModelSplit(t *testing.T) {
 	other := map[string]interface{}{}
 	relayInfo := &relaycommon.RelayInfo{GrokImageBilling: &relaycommon.GrokImageBillingSnapshot{
 		Version:              1,

@@ -61,6 +61,8 @@ type ResponsesUsageInfo struct {
 type GrokImageBillingSnapshot struct {
 	Version              int     `json:"version"`
 	Model                string  `json:"model"`
+	RequestedModel       string  `json:"requested_model,omitempty"`
+	BilledModel          string  `json:"billed_model,omitempty"`
 	Operation            string  `json:"operation"`
 	Resolution           string  `json:"resolution"`
 	AspectRatio          string  `json:"aspect_ratio"`
@@ -180,6 +182,12 @@ type RelayInfo struct {
 	PriceData hosttypes.PriceData
 
 	GrokImageBilling *GrokImageBillingSnapshot
+
+	// ImageModelMappingPrepared indicates that the controller already resolved
+	// the selected channel's image mapping before estimation and pre-consumption.
+	// ImageHelper consumes the marker on the first relay attempt; retries resolve
+	// the newly selected channel mapping again.
+	ImageModelMappingPrepared bool
 
 	// StarAI Seedance estimation values are persisted into the async task's
 	// billing snapshot and surfaced in usage logs.

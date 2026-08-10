@@ -214,6 +214,8 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	info.GrokImageBilling = &relaycommon.GrokImageBillingSnapshot{
 		Version:              1,
 		Model:                modelName,
+		RequestedModel:       modelName,
+		BilledModel:          billedModel,
 		Operation:            operation,
 		Resolution:           resolution,
 		AspectRatio:          aspectRatio,

@@ -103,7 +103,7 @@ func TestAddChannelAllowsCompatibleImagineModelMapping(t *testing.T) {
 
 	recorder := performChannelJSONRequest(t, http.MethodPost, "/api/channel/", fmt.Sprintf(`{
 		"mode":"single",
-		"channel":{"type":%d,"status":%d,"name":"valid-grok-map","key":"grok-key","models":"grok-imagine-video-1.5","group":"default","model_mapping":"{\"grok-imagine-video-1.5\":\"grok-imagine-video-1.5-preview\"}"}
+		"channel":{"type":%d,"status":%d,"name":"valid-grok-map","key":"grok-key","models":"grok-imagine-video-1.5","group":"default","model_mapping":"{\"grok-imagine-video-1.5\":\"grok-imagine-video-1.5\"}"}
 	}`, constant.ChannelTypeMoliiGrokAIGC, common.ChannelStatusEnabled), AddChannel)
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
@@ -111,5 +111,5 @@ func TestAddChannelAllowsCompatibleImagineModelMapping(t *testing.T) {
 	var saved model.Channel
 	require.NoError(t, db.Where("name = ?", "valid-grok-map").First(&saved).Error)
 	require.NotNil(t, saved.ModelMapping)
-	assert.Equal(t, `{"grok-imagine-video-1.5":"grok-imagine-video-1.5-preview"}`, *saved.ModelMapping)
+	assert.Equal(t, `{"grok-imagine-video-1.5":"grok-imagine-video-1.5"}`, *saved.ModelMapping)
 }

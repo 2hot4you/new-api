@@ -137,15 +137,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		meta = fastTokenCountMetaForPricing(request)
 	}
 	if imageRequest, ok := request.(*dto.ImageRequest); ok {
-		relayInfo.InitChannelMeta(c)
-		adaptor := relay.GetAdaptor(relayInfo.ApiType)
-		if estimator, ok := adaptor.(channel.ImageBillingEstimator); ok {
-			adaptor.Init(relayInfo)
-			ratios, estimateErr := estimator.EstimateImageBilling(c, relayInfo, *imageRequest)
-			if estimateErr != nil {
-				newAPIError = types.NewErrorWithStatusCode(estimateErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-				return
-			}
+		ratios, imageBillingErr := prepareImageRequestBilling(c, relayInfo, imageRequest)
+		if imageBillingErr != nil {
+			newAPIError = imageBillingErr
+			return
+		}
+		if len(ratios) > 0 {
 			if meta == nil {
 				meta = &types.TokenCountMeta{}
 			}
@@ -270,6 +267,28 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
 	}
+}
+
+// prepareImageRequestBilling resolves and validates the selected channel's
+// final upstream model before provider-specific estimation or pre-consumption.
+func prepareImageRequestBilling(c *gin.Context, relayInfo *relaycommon.RelayInfo, imageRequest *dto.ImageRequest) (map[string]float64, *types.NewAPIError) {
+	relayInfo.InitChannelMeta(c)
+	if err := helper.ModelMappedHelper(c, relayInfo, imageRequest); err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeChannelModelMappedError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	relayInfo.ImageModelMappingPrepared = true
+
+	adaptor := relay.GetAdaptor(relayInfo.ApiType)
+	estimator, ok := adaptor.(channel.ImageBillingEstimator)
+	if !ok {
+		return nil, nil
+	}
+	adaptor.Init(relayInfo)
+	ratios, err := estimator.EstimateImageBilling(c, relayInfo, *imageRequest)
+	if err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	return ratios, nil
 }
 
 var upgrader = websocket.Upgrader{

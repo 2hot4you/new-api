@@ -22,8 +22,6 @@ import (
 )
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
-	info.InitChannelMeta(c)
-
 	imageReq, ok := info.Request.(*dto.ImageRequest)
 	if !ok {
 		return types.NewErrorWithStatusCode(fmt.Errorf("invalid request type, expected dto.ImageRequest, got %T", info.Request), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -34,7 +32,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		return types.NewError(fmt.Errorf("failed to copy request to ImageRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
-	err = helper.ModelMappedHelper(c, info, request)
+	err = prepareImageModelMapping(c, info, request)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
@@ -174,4 +172,14 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)
 	return nil
+}
+
+func prepareImageModelMapping(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ImageRequest) error {
+	if info.ImageModelMappingPrepared {
+		info.ImageModelMappingPrepared = false
+		request.SetModelName(info.UpstreamModelName)
+		return nil
+	}
+	info.InitChannelMeta(c)
+	return helper.ModelMappedHelper(c, info, request)
 }

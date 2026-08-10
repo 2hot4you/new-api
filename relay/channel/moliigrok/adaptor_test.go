@@ -127,6 +127,8 @@ func TestEstimateImageBillingSeparatesInputAndOutputUnits(t *testing.T) {
 	require.NotNil(t, info.GrokImageBilling)
 	assert.Equal(t, 1, info.GrokImageBilling.Version)
 	assert.Equal(t, "grok-imagine-image-quality", info.GrokImageBilling.Model)
+	assert.Equal(t, "grok-imagine-image-quality", info.GrokImageBilling.RequestedModel)
+	assert.Equal(t, "grok-imagine-image-quality", info.GrokImageBilling.BilledModel)
 	assert.Equal(t, "edit", info.GrokImageBilling.Operation)
 	assert.Equal(t, "2k", info.GrokImageBilling.Resolution)
 	assert.Equal(t, "16:9", info.GrokImageBilling.AspectRatio)
@@ -149,6 +151,9 @@ func TestEstimateImageBillingSnapshotsGenerationDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, 0.02, ratios["molii_grok_direct_cost"], 0.000001)
 	require.NotNil(t, info.GrokImageBilling)
+	assert.Equal(t, "grok-imagine-image", info.GrokImageBilling.Model)
+	assert.Equal(t, "grok-imagine-image", info.GrokImageBilling.RequestedModel)
+	assert.Equal(t, "grok-imagine-image", info.GrokImageBilling.BilledModel)
 	assert.Equal(t, "generation", info.GrokImageBilling.Operation)
 	assert.Equal(t, "1k", info.GrokImageBilling.Resolution)
 	assert.Equal(t, "16:9", info.GrokImageBilling.AspectRatio)
@@ -159,6 +164,24 @@ func TestEstimateImageBillingSnapshotsGenerationDefaults(t *testing.T) {
 	assert.InDelta(t, 0.002, info.GrokImageBilling.InputUnitPrice, 0.000001)
 	assert.InDelta(t, 0.02, info.GrokImageBilling.OutputCost, 0.000001)
 	assert.InDelta(t, 0.02, info.GrokImageBilling.Subtotal, 0.000001)
+}
+
+func TestEstimateImageBillingSnapshotsFinalUpstreamModel(t *testing.T) {
+	body := `{"model":"future-grok-image-alias","prompt":"cat","resolution":"2k"}`
+	c := imageContext(t, body)
+	info := imageInfo()
+	info.OriginModelName = "future-grok-image-alias"
+	info.ChannelMeta.UpstreamModelName = "grok-imagine-image-quality"
+
+	ratios, err := (&Adaptor{}).EstimateImageBilling(c, info, dto.ImageRequest{Model: "future-grok-image-alias", Prompt: "cat"})
+
+	require.NoError(t, err)
+	assert.InDelta(t, 0.07, ratios["molii_grok_direct_cost"], 0.000001)
+	require.NotNil(t, info.GrokImageBilling)
+	assert.Equal(t, "future-grok-image-alias", info.GrokImageBilling.Model)
+	assert.Equal(t, "future-grok-image-alias", info.GrokImageBilling.RequestedModel)
+	assert.Equal(t, "grok-imagine-image-quality", info.GrokImageBilling.BilledModel)
+	assert.InDelta(t, 0.07, info.GrokImageBilling.OutputUnitPrice, 0.000001)
 }
 
 func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {

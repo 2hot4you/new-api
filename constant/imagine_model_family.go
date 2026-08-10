@@ -33,7 +33,7 @@ func GetImagineModelFamily(modelName string) ImagineModelFamily {
 		return ImagineModelFamilyGrokImageQuality
 	case "grok-imagine-video":
 		return ImagineModelFamilyGrokVideoLegacy
-	case "grok-imagine-video-1.5", "grok-imagine-video-1.5-preview":
+	case "grok-imagine-video-1.5":
 		return ImagineModelFamilyGrokVideo15
 	default:
 		return ImagineModelFamilyUnknown

@@ -250,7 +250,7 @@ Cover generation and edits, URL/Data URL media, response count, result URL lifet
 
 - [ ] **Step 3: Write video documentation**
 
-Cover legacy/1.5/1.5 Preview differences, text/image/video inputs, generation/edit restrictions, async create/status/content flow, resolution billing source, refund/review states, preview and download.
+Cover legacy/1.5 differences, text/image/video inputs, generation/edit restrictions, async create/status/content flow, resolution billing source, refund/review states, result preview and download. Do not publish the retired `grok-imagine-video-1.5-preview` technical-preview model.
 
 - [ ] **Step 4: Verify and commit**
 

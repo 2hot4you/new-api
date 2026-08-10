@@ -262,7 +262,7 @@ git commit -m "fix: enforce a single Seedance channel"
 
 - [ ] **Step 1: Write mapping matrix tests**
 
-Reject Seedance standard→fast, Grok basic→quality, image→video, legacy→1.5; allow identity and 1.5↔1.5-preview; prove unrelated channel behavior is unchanged.
+Reject Seedance standard→fast, Grok basic→quality, image→video, legacy→1.5, and both directions between 1.5 and 1.5-preview. Every Imagine model ID may map only to itself; prove unrelated channel behavior is unchanged.
 
 - [ ] **Step 2: Verify failures**
 

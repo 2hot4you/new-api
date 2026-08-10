@@ -70,4 +70,7 @@ func TestMoliiGrokCatalogPricingExposesDirectPrices(t *testing.T) {
 	assert.Equal(t, 0.002, video.ImageInputPrice)
 	assert.Equal(t, 0.01, video.VideoInputPrice)
 	assert.NotContains(t, video.OutputPrices, "1080p")
+
+	_, ok = GetMoliiGrokCatalogPricing("grok-imagine-video-1.5-preview")
+	assert.False(t, ok)
 }

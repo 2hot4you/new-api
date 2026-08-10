@@ -17,7 +17,6 @@ const (
 	grokVideoBillingVersion = 1
 	grokVideoModelLegacy    = "grok-imagine-video"
 	grokVideoModel15        = "grok-imagine-video-1.5"
-	grokVideoModel15Preview = "grok-imagine-video-1.5-preview"
 	grokVideoEditOperation  = "video_edit"
 	imageToVideoOperation   = "image_to_video"
 	textToVideoOperation    = "text_to_video"
@@ -41,7 +40,7 @@ func isMoliiGrokFinalUsageTask(task *model.Task) bool {
 }
 
 func isGrokVideoModel(modelName string) bool {
-	return modelName == grokVideoModelLegacy || modelName == grokVideoModel15 || modelName == grokVideoModel15Preview
+	return modelName == grokVideoModelLegacy || modelName == grokVideoModel15
 }
 
 func validGrokBillingNumber(value float64) bool {
