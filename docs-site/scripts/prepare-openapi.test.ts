@@ -198,6 +198,20 @@ describe('prepareOpenApi', () => {
     expect(serialized).not.toContain(retiredModel);
   });
 
+  test('does not generate a broken external license link', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'molii-owned-openapi-'));
+    workspaces.push(workspace);
+    const siteRoot = join(import.meta.dir, '..');
+    const document = await prepareOpenApi({
+      templatePath: join(siteRoot, 'openapi', 'relay.public.template.yaml'),
+      allowlistPath: join(siteRoot, 'openapi', 'public-api-surface.json'),
+      outputPath: join(workspace, 'relay.public.json'),
+      apiBaseUrl: 'https://api.molii.example',
+    });
+
+    expect(document.info).not.toHaveProperty('license');
+  });
+
   test('publishes the implemented asset request and mutation response shapes', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'molii-owned-openapi-'));
     workspaces.push(workspace);

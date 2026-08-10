@@ -20,10 +20,21 @@ trap cleanup EXIT HUP INT TERM
 docs_pid=$!
 
 attempt=0
-while ! curl --fail --silent "$site_url" >/dev/null; do
+while :; do
   attempt=$((attempt + 1))
   if ! kill -0 "$docs_pid" 2>/dev/null; then
     echo 'The documentation preview server exited before it became ready.' >&2
+    cat "$log_file" >&2
+    exit 1
+  fi
+  if curl --fail --silent "$site_url" | grep -Fq '<title data-rh="true">Molii 开发者文档</title>'; then
+    # A different process may already own port 3100. Confirm that the preview
+    # process which we started is still alive before accepting the response.
+    sleep 1
+    if kill -0 "$docs_pid" 2>/dev/null; then
+      break
+    fi
+    echo 'Port 3100 responded, but the documentation preview server exited.' >&2
     cat "$log_file" >&2
     exit 1
   fi

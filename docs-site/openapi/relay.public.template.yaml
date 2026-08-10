@@ -3,8 +3,7 @@
   "info": {
     "title": "Molii Public API",
     "version": "1.0.0",
-    "description": "仅包含面向 API 用户的 Molii 创作接口。使用 Bearer API Key 鉴权；请勿将密钥置于浏览器或公开仓库。",
-    "license": { "name": "Proprietary", "identifier": "LicenseRef-Proprietary" }
+    "description": "仅包含面向 API 用户的 Molii 创作接口。使用 Bearer API Key 鉴权；请勿将密钥置于浏览器或公开仓库。"
   },
   "servers": [{ "url": "http://127.0.0.1:3000", "description": "由 DOCS_API_BASE_URL 在生成时替换" }],
   "tags": [

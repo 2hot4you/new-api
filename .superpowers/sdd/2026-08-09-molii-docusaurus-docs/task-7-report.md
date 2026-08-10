@@ -8,6 +8,8 @@
 - Added a focused forbidden-content scanner with precise `file:line` output. It rejects user-documentation paths and terminology that expose non-public operation surfaces, internal domains, and realistic secrets while allowing documented placeholders and the New API / QuantumNous attribution.
 - Added Secretlint configuration, a separate optional external-link command, and a deterministic internal-link command that serves the already-built static site locally before crawling it.
 - Added a static-only Nginx example with SPA fallback and immutable `/assets/` caching. It has no certificate, upload, container, credential, or deployment automation configuration.
+- Bounded the local link-check server startup, verifies that the process it started still owns the expected Molii page, and cleans up its process and temporary log on every exit path. A preoccupied port now fails explicitly instead of crawling the unrelated service.
+- Removed the custom SPDX license identifier that generated a nonexistent external URL from the API reference.
 
 ## RED / GREEN
 
@@ -16,7 +18,7 @@
 | RED | `cd docs-site && bun test scripts/check-forbidden-terms.test.ts` | Expected failure: scanner module did not exist. |
 | GREEN | `cd docs-site && bun test scripts/check-forbidden-terms.test.ts` | Pass: 2 tests, including exact location reporting and safe placeholders/attribution. |
 | Focused gates | `bun run check:forbidden && bun run check:secrets` | Pass. |
-| Full gate | `bun run check` | Pass: 66 tests, 0 failures; forbidden-content, Secretlint, production build, and 51-link deterministic local crawl all pass. |
+| Full gate | `bun run check` | Pass: 67 tests, 0 failures; forbidden-content, Secretlint, production build, and 51-link deterministic local crawl all pass. |
 | Frozen install | `bun install --frozen-lockfile` | Pass: no lockfile changes. |
 | Explicit build | `bun run build` | Pass: static site and two local-search indexes generated. |
 | Diff check | `git diff --check` | Pass. |
@@ -34,12 +36,16 @@
 - `docs-site/docusaurus.config.ts`
 - `docs-site/examples/nginx.conf.example`
 - `docs-site/package.json`
+- `docs-site/openapi/relay.public.template.yaml`
 - `docs-site/quality/forbidden-terms.txt`
+- `docs-site/redocly.yaml`
 - `docs-site/scripts/check-forbidden-terms.mjs`
 - `docs-site/scripts/check-forbidden-terms.test.ts`
+- `docs-site/scripts/check-links.sh`
+- `docs-site/scripts/prepare-openapi.test.ts`
 
 ## Notes
 
 - `check:links:external` remains intentionally outside the default `check` gate because it depends on external network state.
-- The required production build and Chinese local-search index generation both pass with `@node-rs/jieba@2.0.1`; no fallback tokenizer warning is emitted.
-- No commit was created, per handoff instruction.
+- The required production build and Chinese local-search index generation both pass with `@node-rs/jieba@2.0.1`; no fallback tokenizer warning is emitted. Bun also installs `nodejieba` because `@cmfcmf/docusaurus-search-local@2.0.1` declares it as an optional peer, although the active Lunr tokenizer does not use it.
+- Implementation commits: `25d244e8`, `0fe89625`; review fixes are recorded in the subsequent Task 7 fix commit.

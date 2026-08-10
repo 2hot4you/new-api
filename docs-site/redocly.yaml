@@ -1,6 +1,10 @@
 extends:
   - recommended
+
 rules:
   operation-description: off
   operation-4xx-response: off
   no-server-example.com: off
+  # Molii does not publish a clickable public license page yet. Omitting the
+  # field is more accurate than generating a broken SPDX/custom-license link.
+  info-license: off
