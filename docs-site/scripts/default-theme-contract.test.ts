@@ -10,7 +10,7 @@ async function source(relativePath: string) {
 }
 
 describe('Docusaurus default-theme contract', () => {
-  test('uses the stock Infima theme with only the shared font stylesheet and no React landing page', async () => {
+  test('keeps global CSS limited to typography while the portal owns isolated styles', async () => {
     const config = await source('docusaurus.config.ts');
     const fonts = await source('src/css/fonts.css');
 
@@ -18,27 +18,6 @@ describe('Docusaurus default-theme contract', () => {
     expect(fonts).toContain("@import '@fontsource-variable/lora';");
     expect(fonts).not.toMatch(/(?:^|[;{])\s*(?:color|background|border|margin|padding|gap|display|position|width|height|shadow)\s*:/i);
     await expect(access(join(siteRoot, 'src/css/custom.css'), constants.F_OK)).rejects.toThrow();
-    await expect(access(join(siteRoot, 'src/pages/index.tsx'), constants.F_OK)).rejects.toThrow();
-    await expect(access(join(siteRoot, 'src/pages/index.module.css'), constants.F_OK)).rejects.toThrow();
-  });
-
-  test('serves the root route as a plain default Docs page with every primary destination', async () => {
-    const index = await source('docs/index.mdx');
-
-    expect(index).toContain('slug: /');
-    expect(index).not.toMatch(/<style|className=|gradient|animation/i);
-    for (const [label, route] of [
-      ['快速开始', '/quick-start'],
-      ['平台', '/platform'],
-      ['API 基础', '/api-basics'],
-      ['模型', '/models'],
-      ['API 参考', '/api-reference'],
-      ['示例', '/examples'],
-      ['帮助', '/help'],
-      ['更新日志', '/changelog'],
-    ]) {
-      expect(index).toContain(`[${label}](${route})`);
-    }
   });
 
   test('uses only the default Docs renderer for guides and API reference pages', async () => {

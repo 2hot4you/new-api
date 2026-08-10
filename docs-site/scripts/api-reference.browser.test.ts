@@ -125,4 +125,61 @@ describe('default MDX API reference', () => {
       await browser.close();
     }
   }, 30_000);
+
+  test('renders the developer portal with complete desktop and mobile reading paths', async () => {
+    const chromePath = await resolveBrowserExecutable();
+    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const errors: string[] = [];
+    for (const page of [desktop, mobile]) {
+      page.on('pageerror', (error) => errors.push(error.stack ?? error.message));
+      page.on('console', (message) => {
+        if (message.type() === 'error') errors.push(message.text());
+      });
+    }
+
+    try {
+      await Promise.all([
+        desktop.goto(`${baseUrl}/`, { waitUntil: 'networkidle' }),
+        mobile.goto(`${baseUrl}/`, { waitUntil: 'networkidle' }),
+      ]);
+
+      await expect(desktop.getByRole('heading', {
+        level: 1,
+        name: '把 AI 图片与视频能力，可靠地接入你的产品',
+      }).count()).resolves.toBe(1);
+      for (const heading of [
+        '选择你的接入路径',
+        '模型与能力一目了然',
+        '从请求到结算的完整链路',
+        '生产环境接入清单',
+        '继续深入',
+      ]) {
+        await expect(desktop.getByRole('heading', { level: 2, name: heading }).count())
+          .resolves.toBe(1);
+      }
+      await expect(desktop.getByRole('link', { name: '5 分钟快速开始' }).getAttribute('href'))
+        .resolves.toBe('/quick-start');
+      await expect(desktop.getByRole('link', { name: '浏览 API 参考' }).getAttribute('href'))
+        .resolves.toBe('/api-reference');
+
+      const desktopLayout = await desktop.evaluate(() => ({
+        overflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        scrollHeight: document.documentElement.scrollHeight,
+        viewportHeight: innerHeight,
+      }));
+      const mobileLayout = await mobile.evaluate(() => ({
+        overflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        h1Visible: Boolean(document.querySelector('main h1')),
+      }));
+
+      expect(desktopLayout.overflows).toBe(false);
+      expect(desktopLayout.scrollHeight).toBeGreaterThanOrEqual(desktopLayout.viewportHeight * 2);
+      expect(mobileLayout).toEqual({ overflows: false, h1Visible: true });
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
 });
