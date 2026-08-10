@@ -1,6 +1,6 @@
 ---
 title: 模型概览
-description: 选择 Seedance 2.0 标准版或 Fast 版，并确认各自的分辨率范围。
+description: 比较 Molii 当前公开的 Seedance 与 Grok Imagine 图片、视频模型。
 audience: user
 apiVersion: v1
 lastReviewed: 2026-08-10
@@ -10,15 +10,19 @@ sidebar_position: 1
 
 # 模型概览
 
-Molii 当前提供两个 Seedance 2.0 视频模型。它们使用相同的异步视频接口和多模态 `content` 结构，主要差异是定位和可选分辨率。
+Molii 当前公开 Seedance 2.0 和 Grok Imagine 模型。以下内容只描述普通用户可以通过 API Key 调用的模型，不包含渠道或管理配置。
 
-| 模型 ID | 版本 | 支持的分辨率 |
-| --- | --- | --- |
-| `doubao-seedance-2-0-260128` | 标准版 | `480p`、`720p`、`1080p`、`4k` |
-| `doubao-seedance-2-0-fast-260128` | Fast 版 | `480p`、`720p` |
+| 模型 ID | 类型 | 主要能力 | 支持的分辨率 |
+| --- | --- | --- | --- |
+| `doubao-seedance-2-0-260128` | 视频 | 文本、多模态参考、音频与联网工具 | `480p`、`720p`、`1080p`、`4k` |
+| `doubao-seedance-2-0-fast-260128` | 视频 | Seedance Fast 生成 | `480p`、`720p` |
+| `grok-imagine-image` | 图片 | 图片生成与编辑 | `1k`、`2k` |
+| `grok-imagine-image-quality` | 图片 | 高质量图片生成与编辑 | `1k`、`2k` |
+| `grok-imagine-video` | 视频 | 文生视频、图生视频、视频编辑 | `480p`、`720p` |
+| `grok-imagine-video-1.5` | 视频 | 图生视频 | `480p`、`720p`、`1080p` |
 
 Fast 版不可使用 `1080p` 或 `4k`。如果请求需要这两个分辨率，请选择标准版。
 
-两个模型都通过 `POST /v1/videos` 创建异步任务。创建成功后保存响应中的公开 `id`，再通过 `GET /v1/videos/{task_id}` 查询。视频创建可能产生费用，网络结果不确定时不要自动重发 POST。
+Seedance 与 Grok 视频都通过 `POST /v1/videos` 创建异步任务。Grok 图片使用 `POST /v1/images/generations` 或 `POST /v1/images/edits` 同步返回结果。视频创建可能产生费用，网络结果不确定时不要自动重发 POST。
 
-继续阅读：[Seedance 2.0 参数](./seedance-2)、[多模态输入](../guides/seedance-multimodal)和[临时素材](../guides/temporary-assets)。
+继续阅读：[Seedance 2.0](./seedance-2)、[Grok Imagine 图片](./grok-imagine-image)、[Grok Imagine 视频](./grok-imagine-video)、[多模态输入](../guides/seedance-multimodal)和[临时素材](../guides/temporary-assets)。

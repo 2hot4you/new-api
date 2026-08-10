@@ -1,0 +1,216 @@
+---
+title: Seedance API
+description: Seedance 2.0 多模态视频生成和兼容任务查询接口。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 5
+---
+
+# Seedance API
+
+Seedance 2.0 支持文字、首尾帧、参考图片、参考视频和参考音频组合生成。创建任务使用多模态 `content` 数组，查询返回公共任务状态和最终计费摘要。
+
+| 模型 ID | 定位 | 分辨率 |
+| --- | --- | --- |
+| `doubao-seedance-2-0-260128` | 标准版 | `480p`、`720p`、`1080p`、`4k` |
+| `doubao-seedance-2-0-fast-260128` | Fast 版 | `480p`、`720p` |
+
+## `POST /v1/video/generations`
+
+创建 Seedance 多模态异步视频任务。该路径的真实请求结构是 `content` 数组，而不是 Grok 的 `image`、`aspect_ratio` 请求结构。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+请求体类型为 `application/json`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值/范围 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `model` | string | 是 | 无 | 两个 Seedance 模型 ID | 生成模型 |
+| `content` | object[] | 条件必填 | `[]` | 见下文 | 有顺序的文本和媒体输入 |
+| `prompt` | string | 条件必填 | 无 | 非空字符串 | 纯文本便捷字段 |
+| `generate_audio` | boolean | 否 | `true` | `true`、`false` | 是否生成同步音频 |
+| `resolution` | string | 否 | `720p` | `480p`、`720p`、`1080p`、`4k` | Fast 不支持后两档 |
+| `ratio` | string | 否 | `adaptive` | `16:9`、`4:3`、`1:1`、`3:4`、`9:16`、`21:9`、`adaptive` | 输出比例 |
+| `duration` | integer | 否 | `5` | `4`–`15` 或 `-1` | 秒；`-1` 为智能时长 |
+| `watermark` | boolean | 否 | `false` | `true`、`false` | 是否请求添加水印 |
+| `tools` | object[] | 否 | `[]` | 当前仅 `web_search` | 可用工具 |
+
+`content` 与 `prompt` 至少提供一种有效输入。若同时提供 `prompt` 和 `content` 中的 `text`，两段文字会一并发送，通常不建议重复。
+
+#### Content 项
+
+| `type` | 载荷 | `role` | 数量和约束 |
+| --- | --- | --- | --- |
+| `text` | `text` | 无 | 非空文本 |
+| `image_url` | `image_url.url` | `first_frame`、`last_frame`、`reference_image` | 图片总数最多 9；省略 role 按首帧处理 |
+| `video_url` | `video_url.url` | 必须为 `reference_video` | 最多 3 个 |
+| `audio_url` | `audio_url.url` | 必须为 `reference_audio` | 最多 3 个；不能脱离图片或视频单独使用 |
+
+首尾帧模式要求正好一个首帧、最多一个尾帧，并且不能与 `reference_image`、`reference_video`、`reference_audio` 混用。多模态参考图必须使用 `reference_image`。
+
+图片地址可使用公网 URL、受支持的 Data URL 或 `asset://` 临时素材 URI；视频使用公网 URL 或 `asset://`；音频可使用公网 URL、受支持的 Data URL 或 `asset://`。素材必须在排队和生成期间保持可访问。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/video/generations" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --header "Accept: application/json" \
+  --data '{
+    "model": "doubao-seedance-2-0-260128",
+    "content": [
+      {
+        "type": "text",
+        "text": "镜头缓慢向前推进，云层从山峰之间流过"
+      },
+      {
+        "type": "image_url",
+        "image_url": {"url": "https://example.invalid/first-frame.jpg"},
+        "role": "first_frame"
+      }
+    ],
+    "generate_audio": true,
+    "resolution": "720p",
+    "ratio": "adaptive",
+    "duration": 5,
+    "watermark": false,
+    "tools": [{"type": "web_search"}]
+  }'
+```
+
+### 成功响应
+
+HTTP `200`：
+
+```json
+{
+  "id": "task_public_789",
+  "task_id": "task_public_789",
+  "object": "video",
+  "model": "doubao-seedance-2-0-260128",
+  "status": "queued",
+  "progress": 0,
+  "created_at": 1785744000
+}
+```
+
+必须保存 `id`。查询、预览和下载只能使用 Molii 返回的公共任务 ID，不要构造或记录供应商任务标识。
+
+### 错误与重试
+
+- `400 invalid_request`：内容组合、role、比例、模型能力或工具不合法。
+- `400 invalid_seconds`：时长不是 `-1` 或 `4`–`15` 的整数。
+- `400 temporary_asset_not_ready`：临时素材仍在处理。
+- `400 temporary_asset_expired`：临时素材已过期。
+- `401`/`403`：修复鉴权或模型权限。
+- 创建 POST 不承诺幂等；任何网络超时都不得自动重放。
+
+### 计费
+
+创建时按模型、分辨率、时长、媒体输入和工具使用进行预扣；任务终态后按实际服务用量结算。查询响应中的 `usage` 是模型用量，不是固定人民币金额。
+
+失败任务由异步账务流程退款。账务仍在处理时 `billing.state` 为 `refund_pending`；已退款为 `refunded`；成功结算为 `settled`。
+
+## `GET /v1/video/generations/{task_id}`
+
+查询 Seedance 任务的兼容视图。该视图适合读取通用状态、结果入口、视频参数和公开计费摘要。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`，任务必须属于当前用户。
+
+### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `task_id` | path | string | 是 | 创建响应返回的公共任务 ID |
+
+该接口没有请求体。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/video/generations/task_public_789" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+### 成功响应
+
+处理中：
+
+```json
+{
+  "code": "success",
+  "message": "",
+  "data": {
+    "task_id": "task_public_789",
+    "status": "IN_PROGRESS",
+    "progress": "42%",
+    "fail_reason": "",
+    "result_url": ""
+  }
+}
+```
+
+完成后可能包含：
+
+```json
+{
+  "code": "success",
+  "message": "",
+  "data": {
+    "task_id": "task_public_789",
+    "status": "SUCCESS",
+    "progress": "100%",
+    "fail_reason": "",
+    "result_url": "https://example.invalid/v1/videos/task_public_789/content",
+    "video_params": {
+      "resolution": "720p",
+      "ratio": "16:9",
+      "seconds": 6,
+      "has_video": false
+    },
+    "billing": {
+      "state": "settled",
+      "mode": "seedance",
+      "model": "doubao-seedance-2-0-260128",
+      "final_cost": 0.2,
+      "group_ratio": 1,
+      "detail_available": true
+    }
+  }
+}
+```
+
+| 状态 | 含义 | 是否继续轮询 |
+| --- | --- | --- |
+| `SUBMITTED`、`QUEUED` | 已提交或排队 | 是 |
+| `IN_PROGRESS` | 生成中 | 是 |
+| `SUCCESS` | 成功终态 | 否 |
+| `FAILURE` | 失败终态 | 否 |
+
+响应可能增加其他公开字段，客户端应忽略不认识的字段。完成后使用 `GET /v1/videos/{task_id}/content` 下载，不能直接把查询 JSON 保存为视频。
+
+### 错误与重试
+
+- `404`：任务不存在或不属于当前用户。
+- `429`、暂时性 `5xx` 和传输错误：GET 可按 3–5 秒间隔轮询并逐步退避。
+- 只有 `SUCCESS` 与 `FAILURE` 是兼容视图终态；设置总截止时间。
+- 结果地址过期时重新查询任务，再获取新的内容入口。
+
+### 计费
+
+查询本身不产生第二次生成费用。`billing.final_cost` 是服务端公开的最终费用摘要；`detail_available:false` 或 `state:unavailable` 表示缺少可靠明细，客户端不能自行猜价。
+
+状态为 `refund_pending` 时继续查询即可，不要在客户端重复退款或重新提交任务。

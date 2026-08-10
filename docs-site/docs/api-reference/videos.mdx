@@ -1,0 +1,277 @@
+---
+title: 视频 API
+description: 使用 Grok Imagine 创建、编辑、查询和下载异步视频任务。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 4
+---
+
+# 视频 API
+
+Grok Imagine 视频接口采用异步任务。创建或编辑成功后保存公共任务 ID，轮询任务状态，完成后再下载内容。
+
+| 模型 | 文生视频 | 图生视频 | 视频编辑 | 分辨率 |
+| --- | --- | --- | --- | --- |
+| `grok-imagine-video` | 支持 | 支持 | 支持 | `480p`、`720p` |
+| `grok-imagine-video-1.5` | 不支持 | 必须提供图片 | 不支持 | `480p`、`720p`、`1080p` |
+
+## `POST /v1/videos`
+
+创建 Grok Imagine 视频生成任务。`grok-imagine-video-1.5` 是独立模型 ID，只支持图生视频，不与其他模型映射。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+请求体类型为 `application/json`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值/范围 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `model` | string | 是 | 无 | 两个 Grok 视频模型 | 模型 ID |
+| `prompt` | string | 是 | 无 | 1–10,000 个字符 | 视频生成指令 |
+| `image` | string 或 object | 条件必填 | 无 | URL 或 `{ "url": "..." }` | 图生视频输入；1.5 必填 |
+| `images` | string[] | 否 | 无 | 至少一项 | `image` 的兼容数组形式；当前只使用第一张 |
+| `duration` | integer | 否 | `5` | `1`–`15` 秒 | 请求时长 |
+| `aspect_ratio` | string | 否 | `16:9` | `1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3` | 输出比例 |
+| `resolution` | string | 否 | `480p` | 取决于模型 | 输出分辨率 |
+
+输入图片使用可直连的 HTTP(S) URL。`file_id` 目前不受支持；提交后会返回 `400 file_id_not_supported`，且不会向生成服务发送请求。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --header "Accept: application/json" \
+  --data '{
+    "model": "grok-imagine-video-1.5",
+    "prompt": "雨后街道上的反射光，镜头缓慢向前推进",
+    "image": {"url": "https://example.invalid/first-frame.jpg"},
+    "duration": 5,
+    "aspect_ratio": "16:9",
+    "resolution": "720p"
+  }'
+```
+
+### 成功响应
+
+HTTP `200`：
+
+```json
+{
+  "id": "task_public_123",
+  "task_id": "task_public_123",
+  "object": "video",
+  "model": "grok-imagine-video-1.5",
+  "status": "queued",
+  "progress": 0,
+  "created_at": 1785744000
+}
+```
+
+保存 `id`。`task_id` 是兼容字段，与 `id` 相同；新代码应优先读取 `id`。
+
+### 错误与重试
+
+- `400`：参数、模型、比例、分辨率或图片输入无效。
+- `401`/`403`：API Key 或模型权限无效。
+- `429`/暂时性 `5xx`：创建可能已受理，禁止自动重放付费 POST。
+- 连接超时时记录本地请求时间和 Request ID，先检查使用记录再人工决定。
+
+### 计费
+
+文生视频：
+
+```text
+输出秒单价 × 实际视频时长 × 分组倍率 = 最终费用
+```
+
+图生视频：
+
+```text
+(输出秒单价 × 实际视频时长 + 输入图片单价 × 1) × 分组倍率 = 最终费用
+```
+
+服务端创建时预扣，任务达到终态后按实际结果结算或退款。目录价以模型广场当前配置为准。
+
+## `POST /v1/videos/edits`
+
+使用 `grok-imagine-video` 编辑已有视频。该接口不支持 1.5 模型。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值/范围 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `model` | string | 是 | 无 | 仅 `grok-imagine-video` | 编辑模型 |
+| `prompt` | string | 是 | 无 | 1–10,000 个字符 | 编辑指令 |
+| `video` | string 或 object | 是 | 无 | URL 或 `{ "url": "..." }` | 输入视频 |
+
+不要发送 `duration`、`aspect_ratio` 或 `resolution`。编辑任务的实际时长和实际分辨率从任务完成结果取得；客户端不能指定，也不要根据金额反推。
+
+`file_id` 不受支持，输入视频必须使用可访问 URL。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/edits" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --header "Accept: application/json" \
+  --data '{
+    "model": "grok-imagine-video",
+    "prompt": "保持主体运动，加入轻微胶片颗粒和暖色夕阳",
+    "video": {"url": "https://example.invalid/source.mp4"}
+  }'
+```
+
+### 成功响应
+
+HTTP `200`，响应为异步视频对象：
+
+```json
+{
+  "id": "task_public_456",
+  "task_id": "task_public_456",
+  "object": "video",
+  "model": "grok-imagine-video",
+  "status": "queued",
+  "progress": 0,
+  "created_at": 1785744000
+}
+```
+
+### 错误与重试
+
+- `400 invalid_model`：编辑使用了不支持的模型。
+- `400 invalid_video`：缺少视频或 URL 无效。
+- `400 invalid_request`：发送了编辑接口不接受的生成参数。
+- `429`/暂时性 `5xx`：不要自动重放；先检查任务和账单记录。
+
+### 计费
+
+```text
+(输出秒单价 × 实际视频时长 + 输入视频秒单价 × 实际计费时长) × 分组倍率 = 最终费用
+```
+
+编辑结果缺少可靠实际分辨率时，Molii 不猜价；账单摘要会暂时显示 `unavailable` 并等待核对，预扣不会被错误地当成最终结算。
+
+## `GET /v1/videos/{task_id}`
+
+查询 Grok 或其他兼容视频任务的精简状态视图。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`，并且任务必须属于当前用户。
+
+### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `task_id` | path | string | 是 | 创建响应返回的公共任务 ID |
+
+该接口没有请求体。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/task_public_123" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+### 成功响应
+
+处理中：
+
+```json
+{
+  "id": "task_public_123",
+  "task_id": "task_public_123",
+  "object": "video",
+  "model": "grok-imagine-video-1.5",
+  "status": "in_progress",
+  "progress": 42,
+  "created_at": 1785744000
+}
+```
+
+完成后 `status` 为 `completed`、`progress` 为 `100`，`metadata.url` 可能提供短期内容地址。失败时 `status` 为 `failed`，并返回公开 `error.code` 与 `error.message`。
+
+| 状态 | 含义 | 是否继续轮询 |
+| --- | --- | --- |
+| `queued` | 已提交或排队 | 是 |
+| `in_progress` | 处理中 | 是 |
+| `completed` | 成功终态 | 否 |
+| `failed` | 失败终态 | 否 |
+| `unknown` | 暂时无法识别 | 是，但受总截止时间限制 |
+
+### 错误与重试
+
+- `404`：任务不存在或不属于当前用户。
+- `429`、暂时性 `5xx` 和传输错误：GET 可以每 2–5 秒轮询并逐步退避。
+- 设置单次请求超时和总轮询截止时间；未知状态不能当成成功。
+
+### 计费
+
+查询不产生第二次生成费用。该精简视图不保证包含完整人民币账单；需要计费摘要时，可查询同一公共任务 ID 的兼容任务视图，或在 Molii 生成记录中查看最终明细。
+
+## `GET /v1/videos/{task_id}/content`
+
+代理下载已完成任务的视频内容。只有任务属于当前用户且已完成时才返回视频。
+
+### 鉴权
+
+API 客户端发送 `Authorization: Bearer $MOLII_API_KEY`。任务响应中的短期签名 URL 可在有效期内按其自身规则访问，不要同时转发 API Key。
+
+### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `task_id` | path | string | 是 | 已完成任务的公共 ID |
+| `Range` | header | string | 否 | 断点续传范围，例如 `bytes=1048576-` |
+| `If-Range` | header | string | 否 | 与 `Range` 配合使用 |
+
+该接口没有请求体。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/task_public_123/content" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --output result.mp4
+```
+
+### 成功响应
+
+- HTTP `200`：完整视频内容。
+- HTTP `206`：响应 `Range` 的部分内容。
+- `Content-Type` 应为 `video/*`，常见为 `video/mp4`。
+- 可能包含 `Content-Length`、`Content-Range`、`Accept-Ranges` 和缓存相关响应头。
+
+下载前应验证 HTTP 状态和 `Content-Type`，不要把 JSON 错误体保存成 `.mp4`。
+
+### 错误与重试
+
+- 任务未完成、失败或内容暂不可用时，不要把响应写入视频文件。
+- 短期地址过期时重新查询任务，获取最新内容入口。
+- `429`、暂时性 `5xx` 和传输错误可在总截止时间内退避重试 GET。
+- 下载 URL 和签名参数属于临时凭据，不要写入分析日志或公开分享。
+
+### 计费
+
+下载本身不再次收取视频生成费用。存储、流量或其他账户级费用若存在，以 Molii 当前账户规则为准。

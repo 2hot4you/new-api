@@ -1,0 +1,13 @@
+{
+  "id": "match-docusaurus-public-sans",
+  "title": "Docusaurus 使用 New API 前端同款字体",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "等待用户在本地文档站验收字体效果",
+  "createdAt": "2026-08-10T00:00:00+08:00",
+  "completedAt": "2026-08-10T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

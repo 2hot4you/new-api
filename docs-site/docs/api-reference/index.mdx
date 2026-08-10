@@ -1,0 +1,57 @@
+---
+id: index
+slug: /api-reference
+title: API 参考
+description: Molii 用户侧创作 API 的端点、参数、响应、错误与计费参考。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 1
+---
+
+# API 参考
+
+本参考只包含普通用户使用 API Key 调用的公开接口。所有示例都使用环境变量，内容严格限定为用户侧产品能力。
+
+## 基础约定
+
+所有请求以你的 Molii 环境地址为 Base URL：
+
+```bash
+export MOLII_API_BASE_URL="http://127.0.0.1:3000"
+export MOLII_API_KEY="your-api-key"
+```
+
+需要鉴权的请求发送：
+
+```http
+Authorization: Bearer $MOLII_API_KEY
+```
+
+JSON 请求还应发送 `Content-Type: application/json` 和 `Accept: application/json`。
+
+:::warning 保护 API Key
+
+API Key 代表你的账户并可能触发计费。只能从服务端或本机安全环境读取，不要放入浏览器代码、移动端包、日志或公开仓库。
+
+:::
+
+## 接口分组
+
+- [模型](/api-reference/models)：查询当前 API Key 可使用的模型 ID。
+- [图片](/api-reference/images)：Grok Imagine 图片生成与图片编辑。
+- [视频](/api-reference/videos)：Grok Imagine 视频创建、编辑、查询与下载。
+- [Seedance](/api-reference/seedance)：Seedance 2.0 多模态视频生成与任务查询。
+- [临时素材](/api-reference/assets)：创建、查询和删除 Seedance 临时素材。
+- [错误](/api-reference/errors)：错误结构、HTTP 状态、Request ID 与重试规则。
+
+## 异步任务
+
+视频接口采用异步流程：创建任务只提交一次，保存返回的 `id`，通过 GET 查询状态，完成后再下载内容。创建与编辑 POST 可能产生费用，网络超时不能证明服务端未受理，因此不要自动重放。
+
+状态、轮询截止时间和安全重试策略见 [异步任务](../api-basics/async-tasks) 与 [错误与重试](../api-basics/errors-retries)。
+
+## 响应兼容性
+
+客户端应读取本文列出的稳定字段，并忽略响应中不认识的附加字段。不要依赖渠道编号、内部任务编号、上游地址或供应商原始错误。

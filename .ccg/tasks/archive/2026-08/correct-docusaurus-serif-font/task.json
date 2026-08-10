@@ -1,0 +1,13 @@
+{
+  "id": "correct-docusaurus-serif-font",
+  "title": "纠正文档站为 New API Serif 字体",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "等待用户在本地文档站验收 Lora Serif 效果",
+  "createdAt": "2026-08-10T00:00:00+08:00",
+  "completedAt": "2026-08-10T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

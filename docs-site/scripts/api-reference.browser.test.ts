@@ -1,74 +1,45 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 
 import { resolveBrowserExecutable } from './browser-executable.mjs';
 
-const siteRoot = join(import.meta.dir, '..');
-const generatedApiRoot = join(siteRoot, 'generated', 'api');
-const staleEndpointPath = join(generatedApiRoot, 'review-stale.api.mdx');
+const siteRoot = new URL('..', import.meta.url).pathname;
 const port = 3197;
-let buildOutput = '';
+const baseUrl = `http://127.0.0.1:${port}`;
 let server: ReturnType<typeof Bun.spawn> | undefined;
 
-async function run(command: string[]) {
-  const process = Bun.spawn(command, { cwd: siteRoot, stdout: 'pipe', stderr: 'pipe' });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  return { exitCode, output: `${stdout}\n${stderr}` };
-}
-
 beforeAll(async () => {
-  await mkdir(generatedApiRoot, { recursive: true });
-  await writeFile(staleEndpointPath, [
-    '---',
-    'id: review-stale',
-    'title: Review stale endpoint',
-    '---',
-    '',
-    '# Review stale endpoint',
-  ].join('\n'));
-  const generated = await run(['bun', 'run', 'api:generate']);
-  if (generated.exitCode !== 0) throw new Error(generated.output);
-  const built = await run(['bun', 'run', 'build']);
-  buildOutput = built.output;
-  if (built.exitCode !== 0) throw new Error(buildOutput);
-
   server = Bun.spawn(
-    ['bun', 'x', 'docusaurus', 'serve', '--host', '127.0.0.1', '--port', String(port), '--no-open'],
-    { cwd: siteRoot, stdout: 'pipe', stderr: 'pipe' },
+    ['bun', 'x', 'docusaurus', 'start', '--host', '127.0.0.1', '--port', String(port), '--no-open'],
+    { cwd: siteRoot, stdout: 'ignore', stderr: 'pipe' },
   );
-  const deadline = Date.now() + 15_000;
-  let ready = false;
+
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
+    if (server.exitCode !== null) {
+      throw new Error(`Docusaurus development server exited with ${server.exitCode}`);
+    }
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/api-reference/molii-public-api`);
-      if (response.ok) {
-        ready = true;
-        break;
-      }
+      const response = await fetch(`${baseUrl}/api-reference`);
+      if (response.ok) return;
     } catch {
-      // Server is still starting.
+      // Development server is still compiling.
     }
     await Bun.sleep(100);
   }
-  if (!ready) throw new Error('Docusaurus preview server did not become ready');
-}, 30_000);
+  throw new Error('Docusaurus development server did not become ready');
+}, 35_000);
 
 afterAll(async () => {
   server?.kill();
-  await rm(staleEndpointPath, { force: true });
+  await server?.exited;
 });
 
-describe('generated API reference', () => {
-  test('hydrates the generated introduction without browser console errors', async () => {
+describe('default MDX API reference', () => {
+  test('renders the API overview with the stock Docs layout and no OpenAPI explorer', async () => {
     const chromePath = await resolveBrowserExecutable();
     const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const page = await browser.newPage();
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.stack ?? error.message));
     page.on('console', (message) => {
@@ -76,48 +47,54 @@ describe('generated API reference', () => {
     });
 
     try {
-      await page.goto(`http://127.0.0.1:${port}/api-reference/molii-public-api`, { waitUntil: 'networkidle' });
-      await expect(page.locator('h1').filter({ hasText: 'Molii Public API' }).count()).resolves.toBe(1);
+      await page.goto(`${baseUrl}/api-reference`, { waitUntil: 'networkidle' });
+      await expect(page.locator('main .theme-doc-markdown h1').filter({ hasText: 'API 参考' }).count())
+        .resolves.toBe(1);
+      await expect(page.locator('.theme-doc-sidebar-container').count()).resolves.toBe(1);
+      await expect(page.locator('.table-of-contents').count()).resolves.toBe(1);
+      await expect(page.locator('.pagination-nav').count()).resolves.toBe(1);
+      await expect(page.locator('[class*="openapi"], [class*="api-explorer"]').count()).resolves.toBe(0);
       expect(errors).toEqual([]);
     } finally {
       await browser.close();
     }
   }, 30_000);
 
-  test('builds without OpenAPI theme module export warnings', () => {
-    expect(buildOutput).not.toContain("export 'default' (imported as 'SchemaTabs') was not found");
-  });
+  test('renders method-style image endpoints as ordinary headings, tables, and code blocks', async () => {
+    const chromePath = await resolveBrowserExecutable();
+    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
-  test('removes stale MDX before generation', async () => {
-    expect(await Bun.file(staleEndpointPath).exists()).toBe(false);
-  });
+    try {
+      await page.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' });
+      await expect(page.locator('h2').filter({ hasText: 'POST /v1/images/generations' }).count())
+        .resolves.toBe(1);
+      await expect(page.locator('h2').filter({ hasText: 'POST /v1/images/edits' }).count())
+        .resolves.toBe(1);
+      expect(await page.locator('main table').count()).toBeGreaterThanOrEqual(4);
+      expect(await page.locator('main pre').count()).toBeGreaterThanOrEqual(4);
+      await expect(page.locator('[class*="openapi"], [class*="api-explorer"]').count()).resolves.toBe(0);
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
 
-  test('emits current asset and video response contracts', async () => {
-    const assetRequest = JSON.parse(await readFile(join(generatedApiRoot, 'create-asset.RequestSchema.json'), 'utf8'));
-    expect(assetRequest.body.content['application/json'].schema).toMatchObject({
-      required: ['url', 'asset_type', 'name'],
-      properties: { asset_type: { enum: ['image', 'video', 'audio'] }, name: { maxLength: 80 } },
-    });
-    const assetResponses = JSON.parse(await readFile(join(generatedApiRoot, 'create-asset.StatusCodes.json'), 'utf8'));
-    expect(assetResponses.responses['200'].content['application/json'].schema).toMatchObject({
-      required: ['id'],
-      properties: { id: { type: 'string' } },
-    });
+  test('uses the New API Serif font for prose while preserving monospace code', async () => {
+    const chromePath = await resolveBrowserExecutable();
+    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
-    const videoSubmit = JSON.parse(await readFile(join(generatedApiRoot, 'create-video-generation.StatusCodes.json'), 'utf8'));
-    expect(videoSubmit.responses['200'].content['application/json'].schema).toMatchObject({
-      required: ['id', 'object', 'model', 'status', 'progress', 'created_at'],
-      properties: { object: { const: 'video' } },
-    });
-    const videoFetch = JSON.parse(await readFile(join(generatedApiRoot, 'get-video-generation.StatusCodes.json'), 'utf8'));
-    expect(videoFetch.responses['200'].content['application/json'].schema).toMatchObject({
-      required: ['code', 'message', 'data'],
-      properties: {
-        data: {
-          required: ['task_id', 'status', 'progress'],
-          properties: { result_url: { format: 'uri' }, billing: { type: 'object' } },
-        },
-      },
-    });
-  });
+    try {
+      await page.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' });
+      const bodyFont = await page.locator('body').evaluate((element) => getComputedStyle(element).fontFamily);
+      const headingFont = await page.locator('main h1').evaluate((element) => getComputedStyle(element).fontFamily);
+      const codeFont = await page.locator('main pre code').first().evaluate((element) => getComputedStyle(element).fontFamily);
+
+      expect(bodyFont).toStartWith('"Lora Variable"');
+      expect(headingFont).toStartWith('"Lora Variable"');
+      expect(codeFont).not.toContain('Lora');
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
 });

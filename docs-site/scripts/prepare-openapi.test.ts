@@ -196,6 +196,22 @@ describe('prepareOpenApi', () => {
 
     expect(serialized).toContain('grok-imagine-video-1.5');
     expect(serialized).not.toContain(retiredModel);
+    expect(JSON.stringify(document.components.schemas.VideoGenerationRequest)).not.toContain('file_id');
+    expect(JSON.stringify(document.components.schemas.VideoEditRequest)).not.toContain('file_id');
+    expect(JSON.stringify(document.components.schemas.ImageInput)).not.toContain('file_id');
+    expect(JSON.stringify(document.components.schemas.ImageEditRequest)).not.toContain('file_id');
+    expect(JSON.stringify(document.paths['/v1/images/generations'])).not.toContain('file_id');
+    expect(JSON.stringify(document.paths['/v1/images/edits'])).not.toContain('file_id');
+    expect(JSON.stringify(document.paths['/v1/videos'])).not.toContain('file_id');
+    expect(JSON.stringify(document.paths['/v1/videos/edits'])).not.toContain('file_id');
+    expect(document.components.schemas.VideoGenerationRequest.properties.aspect_ratio).toMatchObject({
+      enum: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
+      default: '16:9',
+    });
+    expect(document.components.schemas.VideoGenerationRequest.properties.resolution).toMatchObject({
+      enum: ['480p', '720p', '1080p'],
+      default: '480p',
+    });
   });
 
   test('does not generate a broken external license link', async () => {
@@ -300,13 +316,13 @@ describe('prepareOpenApi', () => {
     }
   });
 
-  test('points primary API reference navigation at the generated introduction', () => {
+  test('points primary API reference navigation at the default MDX overview', () => {
     const navbar = siteConfig.themeConfig?.navbar as { items?: Array<{ label?: string; to?: string }> };
     const footer = siteConfig.themeConfig?.footer as { links?: Array<{ items?: Array<{ label?: string; to?: string }> }> };
 
     expect(navbar.items?.find((item) => item.label === 'API 参考')?.to)
-      .toBe('/api-reference/molii-public-api');
+      .toBe('/api-reference');
     expect(footer.links?.flatMap((group) => group.items ?? []).find((item) => item.label === 'API 参考')?.to)
-      .toBe('/api-reference/molii-public-api');
+      .toBe('/api-reference');
   });
 });

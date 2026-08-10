@@ -1,0 +1,77 @@
+---
+title: 模型 API
+description: 查询当前 API Key 可使用的模型。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 2
+---
+
+# 模型 API
+
+模型列表以当前账户授权为准。把响应中的 `id` 原样传给图片或视频请求的 `model` 字段。
+
+## `GET /v1/models`
+
+返回当前 API Key 可以调用的公开模型列表。模型是否可用可能随账户权限和产品上架状态变化，不要在客户端长期缓存固定列表。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+该接口没有路径参数、查询参数或请求体。
+
+| 请求头 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `Authorization` | string | 是 | `Bearer $MOLII_API_KEY` |
+| `Accept` | string | 否 | 建议为 `application/json` |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/models" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+### 成功响应
+
+HTTP `200`：
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "grok-imagine-image",
+      "object": "model",
+      "owned_by": "molii"
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `object` | string | 固定为 `list` |
+| `data` | object[] | 当前可用模型 |
+| `data[].id` | string | 请求时使用的模型 ID |
+| `data[].object` | string | 固定为 `model` |
+| `data[].owned_by` | string | 模型归属标识；不用于路由 |
+
+### 错误与重试
+
+- `401`：API Key 缺失或无效，修复密钥后再请求。
+- `403`：当前 API Key 无权访问，不要重试。
+- `429`：按 `Retry-After` 或有界指数退避重试。
+- 暂时性 `5xx`：可以在总截止时间内退避重试 GET。
+
+错误响应和 Request ID 见 [错误 API](./errors)。
+
+### 计费
+
+查询模型列表不产生模型生成费用。模型价格不在此响应中返回，请以 Molii 模型广场和账户当前计费配置为准。

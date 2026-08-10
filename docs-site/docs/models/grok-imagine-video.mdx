@@ -1,0 +1,98 @@
+---
+title: Grok Imagine 视频
+description: Grok Imagine 视频生成、图生视频和视频编辑的参数、异步流程与计费说明。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 4
+---
+
+import ParameterTable from '../../src/components/ParameterTable';
+
+export const videoParameters = [
+  { name: 'model', type: 'string', required: true, description: 'grok-imagine-video 或 grok-imagine-video-1.5。' },
+  { name: 'prompt', type: 'string', required: true, description: '生成或编辑指令，长度 1–10,000 个字符。' },
+  { name: 'image', type: 'string | object', required: '条件', description: '图生视频的输入图片 URL；1.5 模型必须提供。' },
+  { name: 'images', type: 'array', required: '条件', description: 'image 的兼容数组形式；当前只使用第一张。' },
+  { name: 'duration', type: 'integer', required: false, defaultValue: '5', description: '生成视频时长，范围 1–15 秒。' },
+  { name: 'aspect_ratio', type: 'string', required: false, defaultValue: '16:9', description: '生成视频宽高比。' },
+  { name: 'resolution', type: 'string', required: false, defaultValue: '480p', description: '输出分辨率；支持范围取决于模型。' },
+  { name: 'video', type: 'string | object', required: '条件', description: '视频编辑的输入视频 URL。' },
+];
+
+# Grok Imagine 视频
+
+两个模型是不同的公开模型 ID，不进行相互映射：
+
+| 模型 ID | 文生视频 | 图生视频 | 视频编辑 | 生成分辨率 |
+| --- | --- | --- | --- | --- |
+| `grok-imagine-video` | 支持 | 支持 | 支持 | `480p`、`720p` |
+| `grok-imagine-video-1.5` | 不支持 | 必须提供图片，仅支持图生视频 | 不支持 | `480p`、`720p`、`1080p` |
+
+生成使用 `POST /v1/videos`。视频编辑只允许 `grok-imagine-video`，使用 `POST /v1/videos/edits`。两者都是异步任务。
+
+## 请求参数
+
+<ParameterTable rows={videoParameters} />
+
+生成请求的 `aspect_ratio` 可选值为 `1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3`。
+
+`grok-imagine-video` 支持 `480p`、`720p`；`grok-imagine-video-1.5` 支持 `480p`、`720p`、`1080p`。`duration` 为 1–15 秒的整数。
+
+建议只使用 `image` 提供一张首帧图片。图片可为公网 HTTP(S) URL 或 `data:image/...` Data URL；较大的素材建议使用可直接访问的 HTTPS URL。
+
+## 视频编辑限制
+
+视频编辑请求必须提供 `model`、`prompt` 和 `video`。视频编辑不接受 `duration`、`aspect_ratio`、`resolution`；输出时长和宽高比由输入与实际处理结果决定，分辨率最高为 `720p`。输入视频建议不超过 8.7 秒。
+
+```json
+{
+  "model": "grok-imagine-video",
+  "prompt": "保持主体运动，加入轻微的胶片颗粒和暖色夕阳",
+  "video": {
+    "url": "https://example.com/source.mp4"
+  }
+}
+```
+
+## 异步流程
+
+1. 只发送一次创建或编辑 POST，并保存返回的 `id`。
+2. 调用 `GET /v1/videos/{task_id}` 查询 `queued`、`in_progress`、`completed` 或 `failed`。
+3. 完成后调用 `GET /v1/videos/{task_id}/content` 下载视频。
+4. 查询兼容路径 `GET /v1/video/generations/{task_id}` 可读取 `data.billing` 的公开结算摘要。
+
+结果内容入口由 Molii 按当前任务生成。视频地址和签名可能过期，应在任务完成后及时下载；预览失败时先刷新任务记录，再重新获取内容入口。
+
+## 当前目录计费
+
+下表采用 Molii 当前目录价，并按“1 美元数值对应 1 元人民币”展示；实际结算还会应用账户当前分组倍率。
+
+| 模型 | 输入图片 | 输入视频 | `480p` 输出 | `720p` 输出 | `1080p` 输出 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `grok-imagine-video` | ¥0.002 / 张 | ¥0.01 / 秒 | ¥0.05 / 秒 | ¥0.07 / 秒 | 不支持 |
+| `grok-imagine-video-1.5` | ¥0.01 / 张 | 不支持 | ¥0.08 / 秒 | ¥0.14 / 秒 | ¥0.25 / 秒 |
+
+文生视频公式：`输出秒单价 × 实际视频时长 × 分组倍率 = 最终费用`。
+
+图生视频公式：`(输出秒单价 × 实际视频时长 + 输入图片单价 × 1) × 分组倍率 = 最终费用`。
+
+视频编辑公式：`(输出秒单价 × 实际视频时长 + 输入视频秒单价 × 实际计费时长) × 分组倍率 = 最终费用`。
+
+生成任务按请求分辨率选择价格档位；视频编辑没有请求分辨率，因此只使用轮询响应中的实际分辨率决定 `480p` 或 `720p` 档位，不根据上游金额反推。若轮询没有返回可靠的实际分辨率，系统不会猜价，计费摘要会显示 `unavailable` 并进入人工核对。
+
+公开计费状态：
+
+| 状态 | 含义 |
+| --- | --- |
+| `settled` | 已按实际结果完成结算，可读取费用公式明细 |
+| `refund_pending` | 失败任务的退款仍在处理，请继续查询 |
+| `refunded` | 失败任务已完成退款 |
+| `unavailable` | 暂时缺少可靠计费维度，不应由客户端自行推算 |
+
+## 重试原则
+
+创建与编辑 POST 可能产生费用，不要自动重试。客户端超时并不表示服务端没有受理任务。只有任务查询和内容下载 GET 才适合在截止时间内对 `429`、暂时性 `5xx` 和传输错误执行退避。
+
+命令示例见 [Grok 视频创建与编辑](../examples/grok-video-curl) 和 [任务查询与下载](../examples/grok-poll-download)。

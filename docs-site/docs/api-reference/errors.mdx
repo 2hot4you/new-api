@@ -1,0 +1,77 @@
+---
+title: 错误 API
+description: Molii 公开错误结构、HTTP 状态、Request ID 和安全重试规则。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 7
+---
+
+# 错误 API
+
+Molii 使用 HTTP 状态表示请求结果，并在 JSON 响应中返回公开错误码和可读消息。
+
+## 标准错误结构
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "请检查必填字段和取值范围"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `error.code` | string | 程序可以判断的公开错误码 |
+| `error.message` | string | 面向开发者的错误说明；不要依赖其精确文案分支 |
+
+兼容任务查询可能使用以下包裹：
+
+```json
+{
+  "code": "fail",
+  "message": "Task not found",
+  "data": null
+}
+```
+
+## HTTP 状态
+
+| 状态 | 含义 | 建议操作 |
+| --- | --- | --- |
+| `400` | 参数、模型或媒体输入无效 | 修正请求，不重试 |
+| `401` | API Key 缺失、过期或无效 | 修复密钥，不重试 |
+| `403` | 当前密钥无权调用 | 修复权限，不重试 |
+| `404` | 任务或素材不存在，或不属于当前用户 | 核对 ID 和 API Key |
+| `409` | 当前资源状态不允许该操作 | 先查询最新状态 |
+| `429` | 请求频率受限 | 尊重 `Retry-After` 并退避 |
+| `5xx` | 服务暂时不可用 | GET 可有界退避；付费 POST 不自动重放 |
+
+## Request ID
+
+响应头 `X-Oneapi-Request-Id` 是 Molii 的公开排障标识。联系支持时提供脱敏后的 Request ID、HTTP 状态、公开错误码、请求时间和公共任务 ID。
+
+不要提交 `Authorization`、完整 API Key、Cookie、带签名的结果 URL或客户素材内容。
+
+## 重试规则
+
+:::danger 不要自动重试付费 POST
+
+图片生成、图片编辑、视频创建、视频编辑和临时素材创建都可能已被服务端受理。客户端超时或连接断开不等于创建失败，自动重发可能产生重复任务与额外费用。
+
+:::
+
+以下 GET 可以在总截止时间内对 `429`、暂时性 `5xx` 和传输错误执行指数退避：
+
+- `GET /v1/models`
+- `GET /v1/video/generations/{task_id}`
+- `GET /v1/videos/{task_id}`
+- `GET /v1/videos/{task_id}/content`
+- `GET /v1/assets/{id}`
+
+使用 `Retry-After` 时，同时支持非负整数秒和合法 HTTP 日期；设置最大尝试次数、单次请求超时和总等待截止时间，并加入随机抖动。
+
+完整实现示例见 [错误与重试](../api-basics/errors-retries) 和 [任务查询与下载](../examples/grok-poll-download)。

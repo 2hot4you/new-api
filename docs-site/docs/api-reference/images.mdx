@@ -1,0 +1,180 @@
+---
+title: 图片 API
+description: 使用 Grok Imagine 模型生成和编辑图片。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 3
+---
+
+# 图片 API
+
+图片接口是同步请求。成功响应直接返回图片 URL；调用方应及时下载或转存结果，不要假设 URL 永久有效。
+
+支持的模型：
+
+- `grok-imagine-image`
+- `grok-imagine-image-quality`
+
+## `POST /v1/images/generations`
+
+根据文字提示生成一到四张图片。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+请求体类型为 `application/json`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值/范围 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `model` | string | 是 | 无 | `grok-imagine-image`、`grok-imagine-image-quality` | 图片模型 ID |
+| `prompt` | string | 是 | 无 | 1–10,000 个字符 | 生成提示词 |
+| `resolution` | string | 否 | `1k` | `1k`、`2k` | 输出分辨率档位 |
+| `aspect_ratio` | string | 否 | `16:9` | 见下表 | 输出宽高比 |
+| `n` | integer | 否 | `1` | `1`–`4` | 生成数量 |
+
+`aspect_ratio` 支持：
+
+| 横向/方形 | 竖向 | 自动 |
+| --- | --- | --- |
+| `1:1`、`16:9`、`4:3`、`3:2`、`2:1`、`19.5:9`、`20:9` | `9:16`、`3:4`、`2:3`、`1:2`、`9:19.5`、`9:20` | `auto` |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/images/generations" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --header "Accept: application/json" \
+  --data '{
+    "model": "grok-imagine-image",
+    "prompt": "一只戴着宇航头盔的橘猫，电影感灯光",
+    "resolution": "1k",
+    "aspect_ratio": "1:1",
+    "n": 1
+  }'
+```
+
+### 成功响应
+
+HTTP `200`：
+
+```json
+{
+  "created": 1785744000,
+  "data": [
+    {
+      "url": "https://example.invalid/generated-image.png"
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `created` | integer | Unix 秒时间戳 |
+| `data` | object[] | 生成结果；通常与成功生成数量一致 |
+| `data[].url` | string | 结果图片地址，应及时下载 |
+
+### 错误与重试
+
+- `400`：模型、提示词、分辨率、比例或数量无效，修正请求。
+- `401`/`403`：修复密钥或权限，不重试。
+- `429`/暂时性 `5xx`：不要由客户端自动重放本次付费 POST；先确认是否产生使用记录，再决定是否人工重试。
+
+记录响应头中的 `X-Oneapi-Request-Id`，但不要记录完整鉴权头。
+
+### 计费
+
+最终费用由模型、输出分辨率、实际成功图片数量和账户分组倍率决定：
+
+```text
+输出图片单价 × 实际成功数量 × 分组倍率 = 最终费用
+```
+
+目录价以模型广场当前展示为准。请求中的 `n` 用于预估，最终以服务端实际返回数量结算。
+
+## `POST /v1/images/edits`
+
+根据提示词编辑一到三张输入图片。必须提供 `image` 或 `images`，二者建议只使用一个。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+请求体类型为 `application/json`。
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值/范围 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `model` | string | 是 | 无 | 两个 Grok 图片模型 | 图片模型 ID |
+| `prompt` | string | 是 | 无 | 1–10,000 个字符 | 编辑指令 |
+| `image` | string 或 object | 条件必填 | 无 | URL 字符串或 `{ "url": "..." }` | 单张输入图 |
+| `images` | array | 条件必填 | 无 | 1–3 项 | 多张输入图；每项格式同 `image` |
+| `resolution` | string | 否 | `1k` | `1k`、`2k` | 输出分辨率档位 |
+| `aspect_ratio` | string | 否 | `16:9` | 与图片生成相同 | 输出宽高比 |
+| `n` | integer | 否 | `1` | `1`–`4` | 输出数量 |
+
+输入图片只支持可访问的 HTTP(S) URL 或后端当前接受的图片 URL 对象。`file_id` 目前不属于 Grok 图片公开契约；不要提交其他账户或无法验证归属的文件标识。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/images/edits" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --header "Accept: application/json" \
+  --data '{
+    "model": "grok-imagine-image",
+    "prompt": "保持主体和构图不变，将背景改为夜晚城市",
+    "images": [
+      {"url": "https://example.invalid/source.png"}
+    ],
+    "resolution": "1k",
+    "aspect_ratio": "16:9",
+    "n": 1
+  }'
+```
+
+### 成功响应
+
+HTTP `200`，响应结构与图片生成相同：
+
+```json
+{
+  "created": 1785744000,
+  "data": [
+    {
+      "url": "https://example.invalid/edited-image.png"
+    }
+  ]
+}
+```
+
+输入图只参与编辑，不会原样出现在响应中。调用方应及时下载 `data[].url`。
+
+### 错误与重试
+
+- `400`：缺少输入图、输入超过三张、媒体 URL 无效或输出参数不合法。
+- `401`/`403`：修复鉴权或模型权限。
+- 输入 URL 返回 HTML、登录页、错误 Content-Type 或已过期时，请更换可直连地址。
+- `429`/暂时性 `5xx`：不要自动重放付费 POST；先检查使用日志和 Request ID。
+
+### 计费
+
+图片编辑包含输入图片和输出图片两个计费维度：
+
+```text
+(输入图片单价 × 实际输入数量 + 输出图片单价 × 实际成功数量) × 分组倍率 = 最终费用
+```
+
+不同模型和分辨率使用不同输出价格。实际账单以 Molii 使用记录中的计费明细为准。

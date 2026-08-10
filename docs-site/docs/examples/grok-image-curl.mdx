@@ -1,0 +1,95 @@
+---
+title: Grok 图片 curl
+description: 分段测试 Grok Imagine 图片生成和图片编辑。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 4
+---
+
+# Grok 图片 curl
+
+先为当前终端设置环境。`MOLII_API_BASE_URL` 可以切换为本地、测试或生产环境；不要把真实 Key 写入代码仓库。
+
+```bash
+export MOLII_API_BASE_URL='http://127.0.0.1:3000'
+export MOLII_API_KEY='YOUR_API_KEY'
+```
+
+## 标准图片生成
+
+```bash
+curl --location --include --request POST \
+  "$MOLII_API_BASE_URL/v1/images/generations" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: application/json' \
+  --data '{
+    "model": "grok-imagine-image",
+    "prompt": "一只戴着墨镜的橘猫坐在未来城市的霓虹灯下，电影感摄影，细节丰富",
+    "aspect_ratio": "16:9",
+    "resolution": "1k",
+    "n": 1
+  }'
+```
+
+## 高质量图片生成
+
+```bash
+curl --location --include --request POST \
+  "$MOLII_API_BASE_URL/v1/images/generations" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: application/json' \
+  --data '{
+    "model": "grok-imagine-image-quality",
+    "prompt": "现代产品摄影，一只银色机械蜂鸟悬停在透明玻璃花朵上，柔和棚拍光",
+    "aspect_ratio": "1:1",
+    "resolution": "2k",
+    "n": 2
+  }'
+```
+
+## 单图编辑
+
+```bash
+curl --location --include --request POST \
+  "$MOLII_API_BASE_URL/v1/images/edits" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: application/json' \
+  --data '{
+    "model": "grok-imagine-image",
+    "prompt": "保持主体和构图不变，将背景改为雨夜城市，并增加自然的路面反射",
+    "image": {
+      "url": "https://example.com/source.png"
+    },
+    "aspect_ratio": "16:9",
+    "resolution": "1k",
+    "n": 1
+  }'
+```
+
+## 多图编辑
+
+```bash
+curl --location --include --request POST \
+  "$MOLII_API_BASE_URL/v1/images/edits" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: application/json' \
+  --data '{
+    "model": "grok-imagine-image-quality",
+    "prompt": "使用第一张图的主体和第二张图的配色，生成统一风格的产品海报",
+    "images": [
+      { "url": "https://example.com/subject.png" },
+      { "url": "https://example.com/style.png" }
+    ],
+    "aspect_ratio": "3:4",
+    "resolution": "2k",
+    "n": 1
+  }'
+```
+
+成功响应的图片位于 `data[].url`。URL 可能具有有效期，请及时下载。图片 POST 是否已被服务端处理在网络超时时可能不确定，因此不要自动重试付费请求。

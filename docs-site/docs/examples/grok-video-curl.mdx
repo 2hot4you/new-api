@@ -1,0 +1,78 @@
+---
+title: Grok 视频 curl
+description: 分段测试 Grok Imagine 文生视频、图生视频和视频编辑。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 5
+---
+
+# Grok 视频 curl
+
+```bash
+export MOLII_API_BASE_URL='http://127.0.0.1:3000'
+export MOLII_API_KEY='YOUR_API_KEY'
+```
+
+## 文生视频
+
+`grok-imagine-video` 可以不传图片：
+
+```bash
+curl --location --include --request POST \
+  "$MOLII_API_BASE_URL/v1/videos" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: application/json' \
+  --data '{
+    "model": "grok-imagine-video",
+    "prompt": "雨后的东京街道，霓虹灯映在水面，镜头平稳向前移动",
+    "duration": 6,
+    "aspect_ratio": "16:9",
+    "resolution": "720p"
+  }'
+```
+
+## 1.5 图生视频
+
+`grok-imagine-video-1.5` 必须提供输入图片：
+
+```bash
+curl --location --include --request POST \
+  "$MOLII_API_BASE_URL/v1/videos" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: application/json' \
+  --data '{
+    "model": "grok-imagine-video-1.5",
+    "prompt": "保持人物外观一致，微风吹动头发，镜头缓慢环绕主体",
+    "image": {
+      "url": "https://example.com/first-frame.png"
+    },
+    "duration": 8,
+    "aspect_ratio": "9:16",
+    "resolution": "1080p"
+  }'
+```
+
+## 视频编辑
+
+视频编辑只支持 `grok-imagine-video`，不要传时长、宽高比或分辨率：
+
+```bash
+curl --location --include --request POST \
+  "$MOLII_API_BASE_URL/v1/videos/edits" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: application/json' \
+  --data '{
+    "model": "grok-imagine-video",
+    "prompt": "保留原始运动和镜头，将环境改成日落海边，并加入自然暖色光",
+    "video": {
+      "url": "https://example.com/source.mp4"
+    }
+  }'
+```
+
+三种请求成功后都会返回公开任务 `id`。把它保存为 `TASK_ID`，再按[任务查询与下载](./grok-poll-download)继续。创建和编辑都是可能计费的 POST，不要自动重试。

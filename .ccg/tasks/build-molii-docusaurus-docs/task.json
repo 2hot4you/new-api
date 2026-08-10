@@ -5,8 +5,8 @@
   "complexity": "L+",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "编写后端五项加固与 Docusaurus 文档站实施计划",
+  "currentPhase": "review",
+  "nextAction": "用户验收本地默认 MDX 文档与 API 页面",
   "createdAt": "2026-08-09T00:00:00+08:00",
   "branch": "feat/molii-auth"
 }

@@ -1,0 +1,65 @@
+---
+title: Grok 任务查询与下载
+description: 使用分段 curl 查询 Grok 视频状态、读取结算摘要并下载结果。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 6
+---
+
+# Grok 任务查询与下载
+
+先设置创建响应中的公开任务 ID：
+
+```bash
+export MOLII_API_BASE_URL='http://127.0.0.1:3000'
+export MOLII_API_KEY='YOUR_API_KEY'
+export TASK_ID='task_REPLACE_WITH_YOUR_TASK_ID'
+```
+
+## 查询任务状态
+
+```bash
+curl --location --include --request GET \
+  "$MOLII_API_BASE_URL/v1/videos/$TASK_ID" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Accept: application/json'
+```
+
+当 `status` 为 `queued` 或 `in_progress` 时，每隔几秒重复这个 GET。遇到 `429` 时遵循 `Retry-After`；暂时性 `5xx` 可以退避重试。设置总截止时间，避免无限轮询。
+
+`completed` 表示可以下载；`failed` 表示任务终止，不要为了重试而自动再次发送原付费 POST。
+
+## 查询兼容状态与计费
+
+```bash
+curl --location --include --request GET \
+  "$MOLII_API_BASE_URL/v1/video/generations/$TASK_ID" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Accept: application/json'
+```
+
+该响应的 `data.billing` 会给出 `state`、`final_cost`、`group_ratio` 和模型对应的安全计费明细。仅在 `state` 为 `settled` 时把 `final_cost` 当作最终费用；`refund_pending` 需要继续查询，`unavailable` 不应由客户端自行猜价。
+
+## 检查下载响应头
+
+先查看状态码与 `Content-Type`：
+
+```bash
+curl --request GET \
+  "$MOLII_API_BASE_URL/v1/videos/$TASK_ID/content" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Accept: video/*' \
+  --dump-header grok-video.headers \
+  --output grok-result.mp4
+```
+
+确认 HTTP 状态为 `2xx` 且 `Content-Type` 为 `video/*`，再播放或移动文件。若下载到的文件只有几十或几百字节，先检查它是否实际上是 JSON 错误响应，不要按 MP4 处理。
+
+```bash
+grep -i '^Content-Type:' grok-video.headers
+file grok-result.mp4
+```
+
+不要把含 API Key 的下载请求自动重定向到其他主机。若内容入口失效，重新查询任务或刷新生成记录以获取当前入口。

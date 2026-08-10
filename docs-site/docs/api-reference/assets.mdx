@@ -1,0 +1,198 @@
+---
+title: 临时素材 API
+description: 创建、查询和删除 Seedance 临时素材。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: d396320dd9c0
+sidebar_position: 6
+---
+
+# 临时素材 API
+
+临时素材用于把图片、视频或音频转换成 Seedance 请求可引用的 `asset://` URI。素材属于当前用户并有过期时间，不是永久文件存储。
+
+:::info 适用范围
+
+临时素材 API 当前用于 Molii Volcengine Imagine API 的 Seedance 请求。Grok Imagine 图片和视频公开契约使用媒体 URL，不接受 `file_id` 或 Seedance `asset://` URI。
+
+:::
+
+## `POST /v1/assets`
+
+通过可公开访问的 HTTP(S) URL 创建临时素材。服务会验证并处理源文件，创建成功不代表素材已经立即可用于生成。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值/范围 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `url` | string | 是 | 无 | `http://` 或 `https://` | 服务端可直接访问的素材 URL |
+| `asset_type` | string | 是 | 无 | `image`、`video`、`audio` | 素材类型 |
+| `name` | string | 是 | 无 | 1–80 个 Unicode 字符 | 用户可识别名称 |
+
+源 URL 不能依赖 Molii API Key、Cookie 或调用方自定义请求头。带签名的 URL 必须在验证和上传期间保持有效，并返回正确的媒体 `Content-Type`。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --header "Accept: application/json" \
+  --data '{
+    "url": "https://example.invalid/reference.jpg",
+    "asset_type": "image",
+    "name": "reference-image"
+  }'
+```
+
+### 成功响应
+
+HTTP `200`：
+
+```json
+{
+  "id": "asset_public_123"
+}
+```
+
+保存 `id`，随后通过查询接口等待素材进入可用状态。在 Seedance 请求中使用：
+
+```json
+{
+  "type": "image_url",
+  "image_url": {
+    "url": "asset://asset_public_123"
+  },
+  "role": "reference_image"
+}
+```
+
+### 错误与重试
+
+- `400`：URL、类型或名称无效。
+- `401`/`403`：修复 API Key 或权限。
+- `502`：源地址不可访问、类型不匹配或素材服务暂时失败。
+- 创建可能已经受理，网络超时后不要自动重复 POST；先使用已保存 ID 或平台临时素材记录确认。
+
+### 计费
+
+临时素材创建本身是否产生存储或处理费用，以账户当前规则为准。素材被视频任务引用后，视频生成费用仍按对应模型、媒体输入与最终结果单独计算。
+
+## `GET /v1/assets/{id}`
+
+查询当前用户临时素材的状态和安全元数据。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`，素材必须属于当前用户。
+
+### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | 是 | 创建响应返回的资产 ID |
+
+该接口没有请求体。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset_public_123" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+### 成功响应
+
+HTTP `200`：
+
+```json
+{
+  "id": "asset_public_123",
+  "asset_type": "image",
+  "name": "reference-image",
+  "status": "ready",
+  "created_at": 1785744000,
+  "expires_at": 1785830400,
+  "verified_at": 1785744001
+}
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | string | 公共素材 ID |
+| `asset_type` | string | `image`、`video` 或 `audio` |
+| `name` | string | 创建时指定的名称 |
+| `status` | string | 当前处理状态；只有就绪状态可用于生成 |
+| `created_at` | integer | Unix 秒时间戳 |
+| `expires_at` | integer | 过期时间；过期后不能再引用 |
+| `verified_at` | integer | 最近验证时间 |
+| `preview_url` | string | 可能存在的短期预览入口 |
+
+### 错误与重试
+
+- `404`：素材不存在、已清理或不属于当前用户。
+- `429`、暂时性 `5xx` 和传输错误：GET 可有界退避。
+- 素材仍在处理时继续轮询，但设置总截止时间。
+- 素材过期后应重新创建，不要继续提交旧 `asset://` URI。
+
+### 计费
+
+查询素材状态不产生视频生成费用，也不会延长素材有效期。响应中的时间字段决定生命周期，客户端不应假设固定 TTL。
+
+## `DELETE /v1/assets/{id}`
+
+删除当前用户的临时素材绑定和可清理内容。删除后该 `asset://` URI 不能继续用于新任务。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`，素材必须属于当前用户。
+
+### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | 是 | 要删除的资产 ID |
+
+该接口没有请求体。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request DELETE \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset_public_123" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+### 成功响应
+
+HTTP `200`：
+
+```json
+{
+  "success": true
+}
+```
+
+删除是不可恢复操作。已经创建的视频任务不因删除素材自动取消。
+
+### 错误与重试
+
+- `404`：素材不存在或不属于当前用户；可先查询确认最终状态。
+- `401`/`403`：修复鉴权或权限。
+- 网络超时时不要假设删除失败；先执行一次 GET 确认素材是否仍存在。
+- `429` 和暂时性 `5xx` 可在确认资源状态后有界重试。
+
+### 计费
+
+删除不会退还已经发生的视频生成、素材处理、存储或流量费用，也不会影响已完成任务的最终账单。
