@@ -1,0 +1,12 @@
+# Only public, ordinary-user documentation belongs in this site.
+/channels
+/users
+/system-settings
+/api/channels
+/api/users
+/api/system
+管理员
+管理 API
+渠道管理
+上游品牌
+内部供应商

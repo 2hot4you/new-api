@@ -1,0 +1,44 @@
+#!/bin/sh
+
+set -eu
+
+site_url='http://127.0.0.1:3100/'
+log_file="$(mktemp "${TMPDIR:-/tmp}/molii-docs-link-check.XXXXXX.log")"
+docs_pid=''
+
+cleanup() {
+  if [ -n "$docs_pid" ] && kill -0 "$docs_pid" 2>/dev/null; then
+    kill "$docs_pid" 2>/dev/null || true
+    wait "$docs_pid" 2>/dev/null || true
+  fi
+  rm -f "$log_file"
+}
+
+trap cleanup EXIT HUP INT TERM
+
+./node_modules/.bin/docusaurus serve --host 127.0.0.1 --port 3100 >"$log_file" 2>&1 &
+docs_pid=$!
+
+attempt=0
+while ! curl --fail --silent "$site_url" >/dev/null; do
+  attempt=$((attempt + 1))
+  if ! kill -0 "$docs_pid" 2>/dev/null; then
+    echo 'The documentation preview server exited before it became ready.' >&2
+    cat "$log_file" >&2
+    exit 1
+  fi
+  if [ "$attempt" -ge 30 ]; then
+    echo 'Timed out waiting 30 seconds for the documentation preview server.' >&2
+    cat "$log_file" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+if [ "${1:-}" = '--external' ]; then
+  ./node_modules/.bin/linkinator "$site_url" --recurse --check-fragments
+  exit $?
+fi
+
+./node_modules/.bin/linkinator "$site_url" --recurse --check-fragments \
+  --skip '^https?://(?!127[.]0[.]0[.]1:3100)'

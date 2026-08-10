@@ -1,0 +1,16 @@
+# Replace this path with the absolute path to the generated static build directory.
+server {
+    listen 8080;
+    root /absolute/path/to/docs-site/build;
+    index index.html;
+
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

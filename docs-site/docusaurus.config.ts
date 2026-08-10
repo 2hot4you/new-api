@@ -138,7 +138,7 @@ const config: Config = {
   ],
   themes: [
     'docusaurus-theme-openapi-docs',
-    ['@cmfcmf/docusaurus-search-local', { indexBlog: false }],
+    ['@cmfcmf/docusaurus-search-local', { indexBlog: false, language: ['zh'] }],
   ],
   themeConfig: {
     image: 'img/molii-mark.svg',
