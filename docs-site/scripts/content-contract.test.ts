@@ -53,6 +53,11 @@ function fencedCode(source: string, language: string): string {
   return source.match(new RegExp(`\\\`\\\`\\\`${language}\\n([\\s\\S]*?)\\n\\\`\\\`\\\``))?.[1] ?? '';
 }
 
+function fencedCodes(source: string, language: string): string[] {
+  return [...source.matchAll(new RegExp(`\\\`\\\`\\\`${language}\\n([\\s\\S]*?)\\n\\\`\\\`\\\``, 'g'))]
+    .map((match) => match[1]);
+}
+
 describe('public API guide content contract', () => {
   test('all Task 3 pages carry public API provenance metadata', async () => {
     for (const relativePath of pages) {
@@ -72,7 +77,6 @@ describe('public API guide content contract', () => {
       expect(source).toContain('```bash');
       expect(source).toContain('curl');
       expect(source).toContain('```python');
-      expect(source).toContain('requests.');
       expect(source).toContain('```ts');
       expect(source).toContain('fetch(');
       expect(source).toContain('Authorization');
@@ -80,6 +84,8 @@ describe('public API guide content contract', () => {
       expect(source).toContain('MOLII_API_KEY');
       expect(source).toContain('MOLII_API_BASE_URL');
     }
+    expect(quickstart).toContain('requests.');
+    expect(video).toContain('httpx.AsyncClient');
     expect(video).toContain("import { writeFile } from 'node:fs/promises';");
     expect(video).not.toContain('Bun.write');
     expect(video).toContain('retryAfterMilliseconds');
@@ -163,7 +169,7 @@ describe('public API guide content contract', () => {
     expect(typeScriptHeaderCheck).toBeLessThan(typeScriptWrite);
   });
 
-  test('video polling applies request timeouts, retry headers, and wall-clock deadlines', async () => {
+  test('video polling applies request timeouts, retry headers, and strict wall-clock deadlines', async () => {
     const video = await page('docs/getting-started/video-workflow.mdx');
     const shell = fencedCode(video, 'bash');
     const python = fencedCode(video, 'python');
@@ -176,21 +182,28 @@ describe('public API guide content contract', () => {
     expect(shell).toContain('--connect-timeout "$connect_timeout"');
     expect(shell).toContain('--connect-timeout "$download_connect_timeout"');
     expect(video).toContain('poll_deadline=');
-    expect(video).toContain('time.monotonic()');
+    expect(video).toContain('asyncio.get_running_loop().time()');
+    expect(video).toContain('async with asyncio.timeout(remaining):');
+    expect(video).toContain('await client.get(url, follow_redirects=follow_redirects)');
+    expect(video).toContain('Python 3.11+');
+    expect(video).toContain('pip install httpx');
+    expect(video).not.toContain('requests` 的 `(connect, read)`');
     expect(video).toContain('pollDeadline = Date.now()');
     expect(video.match(/signal:\s*AbortSignal\.timeout/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
     expect(shell.indexOf('poll_remaining=')).toBeLessThan(shell.indexOf('\n  http_code="$(curl'));
     expect(shell).toContain('--max-time "$poll_timeout"');
     expect(shell.indexOf('download_remaining=')).toBeLessThan(shell.indexOf('download_http_code="$(curl'));
     expect(shell).toContain('--max-time "$download_timeout"');
-    expect(python.indexOf('poll_remaining = poll_deadline - time.monotonic()'))
-      .toBeLessThan(python.indexOf('response = requests.get('));
-    expect(python).toContain('poll_timeout = min(30, poll_remaining)');
-    expect(python).toContain('timeout=(min(10, poll_timeout), poll_timeout)');
-    expect(python.indexOf('download_remaining = poll_deadline - time.monotonic()'))
-      .toBeLessThan(python.indexOf('content = requests.get('));
-    expect(python).toContain('download_timeout = min(120, download_remaining)');
-    expect(python).toContain('timeout=(min(10, download_timeout), download_timeout)');
+    expect(python.match(/await client\.post\(/g)?.length ?? 0).toBe(1);
+    expect(python).not.toMatch(/AsyncClient\([^)]*follow_redirects=True/);
+    expect(python).toContain('follow_redirects=True');
+    expect(python).toContain('response = await get_before_deadline(');
+    expect(python).toContain('content = await get_before_deadline(');
+    expect(python).toContain('poll_deadline = asyncio.get_running_loop().time() + 180');
+    expect(python.indexOf('remaining = deadline - asyncio.get_running_loop().time()'))
+      .toBeLessThan(python.indexOf('async with asyncio.timeout(remaining):'));
+    expect(python.indexOf('async with asyncio.timeout(remaining):'))
+      .toBeLessThan(python.indexOf('return await client.get(url, follow_redirects=follow_redirects)'));
     expect(typeScript.indexOf('const pollRemaining = pollDeadline - Date.now()'))
       .toBeLessThan(typeScript.indexOf('const response = await fetch('));
     expect(typeScript).toContain('const pollTimeout = Math.min(30_000, pollRemaining)');
@@ -244,6 +257,9 @@ describe('public API guide content contract', () => {
 
   test('error guidance captures a sanitized public request id for support', async () => {
     const errors = await page('docs/api-basics/errors-retries.mdx');
+    const shell = fencedCode(errors, 'bash');
+    const python = fencedCode(errors, 'python');
+    const typeScript = fencedCodes(errors, 'ts').join('\n');
 
     expect(errors).toContain('X-Oneapi-Request-Id');
     expect(errors).toMatch(/\u8131\u654f|sanitize/i);
@@ -251,6 +267,40 @@ describe('public API guide content contract', () => {
     expect(errors).toContain('```bash');
     expect(errors).toContain('response.headers.get("X-Oneapi-Request-Id"');
     expect(errors).toContain("response.headers.get('X-Oneapi-Request-Id')");
+    expect(shell).toContain('set -e');
+    expect(shell).toContain('body_file="$(mktemp)"');
+    expect(shell).toContain('if http_code="$(curl');
+    expect(shell).toContain('--output "$body_file"');
+    expect(shell.indexOf('safe_request_id=')).toBeLessThan(shell.indexOf('exit 1'));
+    expect(python.indexOf('safe_request_id =')).toBeLessThan(python.indexOf('response.raise_for_status()'));
+    expect(typeScript.indexOf('const safeRequestId =')).toBeLessThan(typeScript.indexOf('throw new Error'));
+  });
+
+  test('error retryDelay accepts only safe delta seconds or future HTTP dates', async () => {
+    const errors = await page('docs/api-basics/errors-retries.mdx');
+    const typeScript = fencedCode(errors, 'ts');
+    const functionSource = typeScript.match(/function retryDelay\([\s\S]*?\n\}/)?.[0] ?? '';
+    const transpiler = new Bun.Transpiler({ loader: 'ts' });
+    const javascript = transpiler.transformSync(functionSource);
+    const retryDelay = new Function(`${javascript}; return retryDelay;`)() as (
+      attempt: number,
+      retryAfter: string | null,
+      now?: number,
+    ) => number;
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+    try {
+      const now = Date.parse('2026-08-10T00:00:00Z');
+      expect(retryDelay(0, '0', now)).toBe(0);
+      expect(retryDelay(0, '12', now)).toBe(12_000);
+      expect(retryDelay(0, 'Mon, 10 Aug 2026 00:00:05 GMT', now)).toBe(5_000);
+      for (const invalid of [null, '', '   ', '-1', '1.5', 'not-a-date', 'Sun, 09 Aug 2026 23:59:59 GMT']) {
+        expect(retryDelay(2, invalid, now), String(invalid)).toBe(4_000);
+      }
+      expect(retryDelay(2, String(Number.MAX_SAFE_INTEGER), now)).toBe(4_000);
+    } finally {
+      Math.random = originalRandom;
+    }
   });
 
   test('billing unavailable state never guesses a charge', async () => {

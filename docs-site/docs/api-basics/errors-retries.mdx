@@ -41,15 +41,28 @@ sidebar_position: 5
 安全 GET 可以对 429 和暂时性 5xx 使用指数退避（exponential backoff）：
 
 ```ts
-function retryDelay(attempt: number, retryAfter: string | null): number {
-  const serverSeconds = Number(retryAfter);
-  if (retryAfter && Number.isFinite(serverSeconds)) return serverSeconds * 1000;
+function retryDelay(attempt: number, retryAfter: string | null, now = Date.now()): number {
   const capped = Math.min(2 ** attempt, 30) * 1000;
-  return capped + Math.random() * 500; // jitter
+  const fallback = capped + Math.random() * 500; // jitter
+  if (retryAfter === null) return fallback;
+
+  const trimmed = retryAfter.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    if (Number.isSafeInteger(seconds) && seconds <= Number.MAX_SAFE_INTEGER / 1000) {
+      return seconds * 1000;
+    }
+    return fallback;
+  }
+
+  const retryAt = Date.parse(trimmed);
+  if (!Number.isFinite(retryAt)) return fallback;
+  const delta = retryAt - now;
+  return delta >= 0 ? delta : fallback;
 }
 ```
 
-始终设置最大尝试次数或总截止时间。`Retry-After` 存在时优先遵循；没有时使用带抖动（jitter）的退避，避免多个客户端同时重试。
+始终设置最大尝试次数或总截止时间。`Retry-After` 只接受非负整数 delta-seconds 或合法且不早于当前时间的 HTTP-date；空值、负数、非法值和溢出值都安全回退到带抖动（jitter）的退避，避免多个客户端同时重试。
 
 ## 记录公开 Request ID
 
@@ -60,16 +73,31 @@ function retryDelay(attempt: number, retryAfter: string | null): number {
 ### curl
 
 ```bash
+set -e
 headers_file="$(mktemp)"
-trap 'rm -f "$headers_file"' EXIT
-curl --fail-with-body --silent --show-error \
-  --connect-timeout 10 --max-time 30 \
+body_file="$(mktemp)"
+trap 'rm -f "$headers_file" "$body_file"' EXIT
+
+if http_code="$(curl --silent --show-error \
+  --connect-timeout 10 \
+  --max-time 30 \
   --url "${MOLII_API_BASE_URL%/}/v1/models" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
-  --dump-header "$headers_file" >/dev/null
+  --dump-header "$headers_file" \
+  --output "$body_file" \
+  --write-out '%{http_code}')"; then
+  curl_exit=0
+else
+  curl_exit=$?
+fi
 request_id="$(awk 'tolower($1) == "x-oneapi-request-id:" { value=$2 } END { gsub(/\r/, "", value); print value }' "$headers_file")"
 safe_request_id="$(printf '%s' "$request_id" | LC_ALL=C tr -cd 'A-Za-z0-9._:-' | cut -c1-128)"
 [ -z "$safe_request_id" ] || printf 'request_id=%s\n' "$safe_request_id"
+[ "$curl_exit" -eq 0 ] || { printf 'curl failed with exit %s\n' "$curl_exit" >&2; exit 1; }
+case "$http_code" in
+  2??) cat "$body_file" ;;
+  *) printf 'HTTP %s request_id=%s\n' "$http_code" "${safe_request_id:-missing}" >&2; exit 1 ;;
+esac
 ```
 
 ### Python
@@ -83,11 +111,16 @@ response = requests.get(
     headers={"Authorization": f"Bearer {os.environ['MOLII_API_KEY']}"},
     timeout=(10, 30),
 )
-response.raise_for_status()
 request_id = response.headers.get("X-Oneapi-Request-Id", "")
 safe_request_id = "".join(c for c in request_id if c.isascii() and (c.isalnum() or c in "._:-"))[:128]
 if safe_request_id:
     print(f"request_id={safe_request_id}")
+try:
+    response.raise_for_status()
+except requests.HTTPError as error:
+    raise RuntimeError(
+        f"HTTP {response.status_code}; request_id={safe_request_id or 'missing'}"
+    ) from error
 ```
 
 ### TypeScript
@@ -97,10 +130,12 @@ const response = await fetch(`${baseUrl}/v1/models`, {
   headers: { Authorization: `Bearer ${apiKey}` },
   signal: AbortSignal.timeout(30_000),
 });
-if (!response.ok) throw new Error(`HTTP ${response.status}`);
 const requestId = response.headers.get('X-Oneapi-Request-Id') ?? '';
 const safeRequestId = requestId.replace(/[^A-Za-z0-9._:-]/g, '').slice(0, 128);
 if (safeRequestId) console.info('request_id=%s', safeRequestId);
+if (!response.ok) {
+  throw new Error(`HTTP ${response.status}; request_id=${safeRequestId || 'missing'}`);
+}
 ```
 
 ## 付费 POST 超时时

@@ -149,12 +149,12 @@ curl 示例只把纯非负整数解释为 `Retry-After` delta-seconds；空值�
 ## Python
 
 ```python
+import asyncio
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import os
 import random
-import time
-import requests
+import httpx
 
 
 def sanitize_request_id(response):
@@ -169,7 +169,7 @@ def sanitize_request_id(response):
 def raise_with_request_id(response, request_id):
     try:
         response.raise_for_status()
-    except requests.HTTPError as error:
+    except httpx.HTTPStatusError as error:
         raise RuntimeError(
             f"HTTP {response.status_code}; request_id={request_id or 'missing'}"
         ) from error
@@ -196,90 +196,96 @@ def retry_after_seconds(value, now=None):
     return delta if delta >= 0 else None
 
 
-api_key = os.environ["MOLII_API_KEY"]
-base_url = os.getenv("MOLII_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
-headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
-# 付费 POST 只调用一次；不要给这个 Session 配置 POST 自动重试。
-created = requests.post(
-    f"{base_url}/v1/videos",
-    headers=headers,
-    json={
-        "model": "grok-imagine-video-1.5",
-        "prompt": "晨雾中的山谷，镜头缓慢推进",
-        "image": "https://example.invalid/first-frame.jpg",
-        "duration": 5,
-        "aspect_ratio": "16:9",
-        "resolution": "480p",
-    },
-    timeout=60,
-)
-created_request_id = sanitize_request_id(created)
-raise_with_request_id(created, created_request_id)
-task_id = created.json()["id"]
-
-poll_deadline = time.monotonic() + 180
-attempt = 0
-completed = False
-while time.monotonic() < poll_deadline:
-    poll_remaining = poll_deadline - time.monotonic()
-    if poll_remaining <= 0:
-        break
-    poll_timeout = min(30, poll_remaining)
-    response = requests.get(
-        f"{base_url}/v1/videos/{task_id}",
-        headers=headers,
-        timeout=(min(10, poll_timeout), poll_timeout),
-    )
-    response_request_id = sanitize_request_id(response)
-    if response.status_code == 429 or response.status_code >= 500:
-        parsed_retry_after = retry_after_seconds(response.headers.get("Retry-After"))
-        fallback = min(2 ** attempt, 30) + random.random()
-        wait_seconds = parsed_retry_after if parsed_retry_after is not None else fallback
-    else:
-        raise_with_request_id(response, response_request_id)
-        task = response.json()
-        if task["status"] == "completed":
-            completed = True
-            break
-        if task["status"] == "failed":
-            message = task.get("error", {}).get("message", "video task failed")
-            raise RuntimeError(
-                f"{message}; request_id={response_request_id or 'missing'}"
-            )
-        wait_seconds = min(2 ** attempt, 30) + random.random()
-
-    remaining = poll_deadline - time.monotonic()
+async def get_before_deadline(client, url, deadline, *, follow_redirects=False):
+    remaining = deadline - asyncio.get_running_loop().time()
     if remaining <= 0:
-        break
-    time.sleep(min(wait_seconds, remaining))
-    attempt += 1
+        raise TimeoutError("wall-clock deadline reached before GET")
+    async with asyncio.timeout(remaining):
+        return await client.get(url, follow_redirects=follow_redirects)
 
-if not completed:
-    raise TimeoutError(f"task {task_id} did not finish before the polling deadline")
 
-download_remaining = poll_deadline - time.monotonic()
-if download_remaining <= 0:
-    raise TimeoutError(f"task {task_id} finished, but the download deadline was reached")
-download_timeout = min(120, download_remaining)
-content = requests.get(
-    f"{base_url}/v1/videos/{task_id}/content",
-    headers=headers,
-    timeout=(min(10, download_timeout), download_timeout),
-)
-content_request_id = sanitize_request_id(content)
-raise_with_request_id(content, content_request_id)
-content_type = content.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-if not content_type.startswith("video/"):
-    raise RuntimeError(
-        f"expected video/*, received {content_type or 'missing Content-Type'}; "
-        f"request_id={content_request_id or 'missing'}"
-    )
-with open("result.mp4", "wb") as output:
-    output.write(content.content)
+async def main():
+    api_key = os.environ["MOLII_API_KEY"]
+    base_url = os.getenv("MOLII_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    timeout = httpx.Timeout(30, connect=10)
+
+    async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+        # 付费 POST 只调用一次；不要给客户端配置 POST 自动重试。
+        created = await client.post(
+            f"{base_url}/v1/videos",
+            json={
+                "model": "grok-imagine-video-1.5",
+                "prompt": "晨雾中的山谷，镜头缓慢推进",
+                "image": "https://example.invalid/first-frame.jpg",
+                "duration": 5,
+                "aspect_ratio": "16:9",
+                "resolution": "480p",
+            },
+            timeout=60,
+        )
+        created_request_id = sanitize_request_id(created)
+        raise_with_request_id(created, created_request_id)
+        task_id = created.json()["id"]
+
+        poll_deadline = asyncio.get_running_loop().time() + 180
+        attempt = 0
+        completed = False
+        while asyncio.get_running_loop().time() < poll_deadline:
+            response = await get_before_deadline(
+                client,
+                f"{base_url}/v1/videos/{task_id}",
+                poll_deadline,
+            )
+            response_request_id = sanitize_request_id(response)
+            if response.status_code == 429 or response.status_code >= 500:
+                parsed_retry_after = retry_after_seconds(response.headers.get("Retry-After"))
+                fallback = min(2 ** attempt, 30) + random.random()
+                wait_seconds = parsed_retry_after if parsed_retry_after is not None else fallback
+            else:
+                raise_with_request_id(response, response_request_id)
+                task = response.json()
+                if task["status"] == "completed":
+                    completed = True
+                    break
+                if task["status"] == "failed":
+                    message = task.get("error", {}).get("message", "video task failed")
+                    raise RuntimeError(
+                        f"{message}; request_id={response_request_id or 'missing'}"
+                    )
+                wait_seconds = min(2 ** attempt, 30) + random.random()
+
+            remaining = poll_deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(wait_seconds, remaining))
+            attempt += 1
+
+        if not completed:
+            raise TimeoutError(f"task {task_id} did not finish before the polling deadline")
+
+        content = await get_before_deadline(
+            client,
+            f"{base_url}/v1/videos/{task_id}/content",
+            poll_deadline,
+            follow_redirects=True,
+        )
+        content_request_id = sanitize_request_id(content)
+        raise_with_request_id(content, content_request_id)
+        content_type = content.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if not content_type.startswith("video/"):
+            raise RuntimeError(
+                f"expected video/*, received {content_type or 'missing Content-Type'}; "
+                f"request_id={content_request_id or 'missing'}"
+            )
+        with open("result.mp4", "wb") as output:
+            output.write(content.content)
+
+
+asyncio.run(main())
 ```
 
-`requests` 的 `(connect, read)` 是连接阶段与读取空闲超时，并非可严格中断整个调用的 wall-clock deadline。示例会在发起每个 GET 前检查剩余时间，并把连接与读取上限都压到剩余时间以内；若业务必须严格在总时限到点时中断底层 I/O，还需要使用可取消 worker 或适合运行环境的 signal/alarm。
+Python 示例需要 Python 3.11+ 和 HTTPX（`python -m pip install httpx`）。`httpx.Timeout` 只限制各 HTTP 阶段；轮询和下载的严格 wall-clock deadline 由 `asyncio.timeout(remaining)` 提供，到点会取消正在等待的异步 GET，且不依赖特定操作系统的 signal/alarm。
 
 ## TypeScript（Node.js 22+）
 
