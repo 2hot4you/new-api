@@ -218,7 +218,7 @@ describe('default MDX API reference', () => {
     try {
       for (const [route, headings, minimumLinks] of [
         ['/quick-start', ['你将完成什么', '开始前准备', '获取 API Key', '发送第一个请求', '理解响应', '继续完成视频工作流', '接下来'], 6],
-        ['/platform', ['平台能力地图', '从注册到生产使用', '看板与模型分析', '管理 API Key', '管理临时素材', '核对生成记录与费用', '保护账户', '下一步'], 8],
+        ['/platform', ['平台能力地图', '从注册到生产使用', '看板与模型分析', 'API Key 管理', '管理临时素材', '核对生成记录与费用', '保护账户', '下一步'], 8],
       ] as const) {
         await page.goto(`${baseUrl}${route}`, { waitUntil: 'networkidle' });
         const renderedHeadings = (await page.locator('main h2').allTextContents())
