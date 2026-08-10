@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
-import { CirclePlay, Music } from 'lucide-react'
+import { CirclePlay, Music, ReceiptText } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -36,6 +36,10 @@ import {
   taskStatusMapper,
 } from '../../lib/mappers'
 import {
+  formatTaskBillingCny,
+  getTaskBillingDisplay,
+} from '../../lib/task-billing'
+import {
   canPreviewVideoTask,
   isGeneratedVideoTask,
 } from '../../lib/task-video-preview'
@@ -45,6 +49,7 @@ import {
   type AudioClip,
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
+import { TaskBillingDialog } from '../dialogs/task-billing-dialog'
 import { VideoPreviewDialog } from '../dialogs/video-preview-dialog'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import { createDurationColumn, createChannelColumn } from './column-helpers'
@@ -146,6 +151,76 @@ function TaskProgressCell({ log }: { log: TaskLog }) {
     <span className='border-border/60 bg-muted/30 inline-flex items-center rounded-md border px-1.5 py-0.5 font-mono text-xs'>
       {log.progress}
     </span>
+  )
+}
+
+function TaskBillingCell({ log }: { log: TaskLog }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const billing = log.billing
+
+  if (!billing) {
+    return <span className='text-muted-foreground/60 text-xs'>-</span>
+  }
+  const display = getTaskBillingDisplay(billing)
+  if (display.kind === 'pending') {
+    return (
+      <StatusBadge
+        label={t('Pending')}
+        variant='orange'
+        size='sm'
+        copyable={false}
+      />
+    )
+  }
+  if (display.kind === 'refunded') {
+    return (
+      <StatusBadge
+        label={`${t('Refund')} · ${formatTaskBillingCny(0)}`}
+        variant='blue'
+        size='sm'
+        copyable={false}
+      />
+    )
+  }
+  if (display.kind === 'refund_pending') {
+    return (
+      <StatusBadge
+        label={`${t('Refund')} · ${t('Pending')}`}
+        variant='red'
+        size='sm'
+        copyable={false}
+      />
+    )
+  }
+  if (display.kind === 'unavailable') {
+    return (
+      <StatusBadge
+        label={t('Billing unavailable')}
+        variant='grey'
+        size='sm'
+        copyable={false}
+      />
+    )
+  }
+
+  return (
+    <>
+      <Button
+        type='button'
+        variant='outline'
+        size='sm'
+        className='h-7 gap-1.5 px-2 font-mono text-xs'
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpen(true)
+        }}
+      >
+        <ReceiptText className='size-3.5' />
+        {formatTaskBillingCny(display.amount)}
+      </Button>
+      <TaskBillingDialog billing={billing} open={open} onOpenChange={setOpen} />
+    </>
   )
 }
 
@@ -278,6 +353,11 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       accessorKey: 'progress',
       header: t('Progress'),
       cell: ({ row }) => <TaskProgressCell log={row.original} />,
+    },
+    {
+      accessorKey: 'billing',
+      header: t('Billing'),
+      cell: ({ row }) => <TaskBillingCell log={row.original} />,
     },
     {
       accessorKey: 'fail_reason',

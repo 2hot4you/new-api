@@ -382,10 +382,38 @@ export interface TaskLog {
     height?: number
     has_video: boolean
   }
+  billing?: TaskBillingSummary
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
   other?: string
   created_at?: number
   updated_at?: number
+}
+
+export type TaskBillingState =
+  | 'pending'
+  | 'settled'
+  | 'refunded'
+  | 'refund_pending'
+  | 'unavailable'
+
+export interface TaskSeedanceBilling {
+  actual_tokens: number
+  resolution?: string
+  ratio?: string
+  seconds?: number
+  has_video: boolean
+  unit_price: number
+}
+
+export interface TaskBillingSummary {
+  state: TaskBillingState
+  mode: 'seedance' | 'grok_video'
+  model?: string
+  final_cost: number
+  group_ratio: number
+  detail_available: boolean
+  seedance?: TaskSeedanceBilling
+  grok_video?: GrokVideoBillingV1
 }
 
 // ============================================================================

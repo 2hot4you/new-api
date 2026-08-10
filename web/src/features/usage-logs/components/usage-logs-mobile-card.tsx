@@ -405,6 +405,11 @@ function TaskLogsCard<TData>({
           className='col-span-2 bg-transparent px-0 py-0'
         />
         <SummaryField
+          label={t('Billing')}
+          cell={cells.get('billing')}
+          className='col-span-2'
+        />
+        <SummaryField
           label={t('Result')}
           cell={cells.get('fail_reason')}
           className='col-span-2 bg-transparent px-0 py-0'
