@@ -32,6 +32,15 @@ func InitChannelCache() {
 	newChannel2advancedCustomConfig := make(map[int]*dto.AdvancedCustomConfig)
 	var channels []*Channel
 	DB.Find(&channels)
+	enabledStarAIChannels := 0
+	for _, channel := range channels {
+		if channel.Type == constant.ChannelTypeStarAI && channel.Status == common.ChannelStatusEnabled {
+			enabledStarAIChannels++
+		}
+	}
+	if enabledStarAIChannels != 1 {
+		common.SysLog(fmt.Sprintf("warning: expected exactly one enabled channel for type %d, found %d; startup will continue and affected requests will be rejected", constant.ChannelTypeStarAI, enabledStarAIChannels))
+	}
 	for _, channel := range channels {
 		newChannelId2channel[channel.Id] = channel
 		if channel.Type == constant.ChannelTypeAdvancedCustom {

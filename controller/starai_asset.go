@@ -251,7 +251,7 @@ func isDashboardAssetRequest(c *gin.Context) bool {
 }
 
 func getStarAIAssetChannel() (*model.Channel, error) {
-	return model.GetFirstEnabledChannelByType(constant.ChannelTypeStarAI)
+	return model.GetUniqueEnabledChannelByType(constant.ChannelTypeStarAI)
 }
 
 func validatePublicAssetURL(raw string) error {
@@ -299,7 +299,8 @@ func doStarAIAssetRequest(channel *model.Channel, method, path string, body io.R
 func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, binding *service.StarAIAssetBinding) (*service.StarAIAssetBinding, bool) {
 	channel, err := getStarAIAssetChannel()
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Molii Volcengine Imagine API channel unavailable"})
+		logger.LogError(c.Request.Context(), fmt.Sprintf("asset channel configuration unavailable: type=%d error=%v", constant.ChannelTypeStarAI, err))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "asset service is temporarily unavailable"})
 		return nil, false
 	}
 	body, _ := common.Marshal(input)
