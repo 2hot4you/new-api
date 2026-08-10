@@ -1,0 +1,13 @@
+{
+  "id": "publish-current-branch",
+  "title": "提交并推送当前待发布代码",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-10T00:00:00+08:00",
+  "branch": "feat/molii-auth",
+  "completedAt": "2026-08-10T20:18:00+08:00"
+}

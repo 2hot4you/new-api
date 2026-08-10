@@ -17,11 +17,11 @@
 
 ## 验证证据
 
-- `bun test`：78 passed，0 failed。
+- `bun test`：79 passed，0 failed。
 - `bun run api:lint`：OpenAPI 3.1 文档有效。
 - `bun run check:forbidden`：公开内容禁词检查通过。
 - `bun run check:secrets`：文档密钥检查通过。
-- 本地浏览器：`/api-reference` 使用默认 Docs 布局，sidebar=1、toc=1、OpenAPI Explorer=0。
+- 本地浏览器：`/api-reference` 使用默认 Docs 布局，sidebar=1、toc=1、OpenAPI Explorer=0；正文与标题使用 New API 同款 Lora Serif，代码块保持等宽字体。
 - 本地服务：文档 `127.0.0.1:3100` 与后端 `127.0.0.1:3000` 均健康。
 - 未运行静态构建、Docker 或部署。
 
