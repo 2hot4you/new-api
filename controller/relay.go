@@ -136,19 +136,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	} else {
 		meta = fastTokenCountMetaForPricing(request)
 	}
-	if imageRequest, ok := request.(*dto.ImageRequest); ok {
-		ratios, imageBillingErr := prepareImageRequestBilling(c, relayInfo, imageRequest)
-		if imageBillingErr != nil {
-			newAPIError = imageBillingErr
-			return
-		}
-		if len(ratios) > 0 {
-			if meta == nil {
-				meta = &types.TokenCountMeta{}
-			}
-			meta.BillingRatios = ratios
-		}
-	}
+	imageRequest, isImageRequest := request.(*dto.ImageRequest)
 
 	if needSensitiveCheck && meta != nil {
 		contains, words := service.CheckSensitiveText(meta.CombineText)
@@ -167,20 +155,22 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	relayInfo.SetEstimatePromptTokens(tokens)
 
-	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
-	if err != nil {
-		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
-		return
-	}
-
-	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
-
-	if priceData.FreeModel {
-		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
-	} else {
-		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
-		if newAPIError != nil {
+	if !isImageRequest {
+		priceData, priceErr := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
+		if priceErr != nil {
+			newAPIError = types.NewError(priceErr, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 			return
+		}
+
+		// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
+
+		if priceData.FreeModel {
+			logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
+		} else {
+			newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
+			if newAPIError != nil {
+				return
+			}
 		}
 	}
 
@@ -214,6 +204,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		addUsedChannel(c, channel.Id)
+		if isImageRequest {
+			if imageBillingErr := prepareSelectedImageBilling(c, relayInfo, imageRequest, meta, tokens); imageBillingErr != nil {
+				newAPIError = imageBillingErr
+				break
+			}
+		}
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
 			break
@@ -269,26 +265,57 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 }
 
-// prepareImageRequestBilling resolves and validates the selected channel's
-// final upstream model before provider-specific estimation or pre-consumption.
-func prepareImageRequestBilling(c *gin.Context, relayInfo *relaycommon.RelayInfo, imageRequest *dto.ImageRequest) (map[string]float64, *types.NewAPIError) {
+// prepareSelectedImageBilling resolves the final upstream model and price only
+// after getChannel has installed the channel used by this attempt. It is called
+// again after every retry selection so mapping, credentials, estimator state,
+// and quota all belong to the same channel.
+func prepareSelectedImageBilling(c *gin.Context, relayInfo *relaycommon.RelayInfo, imageRequest *dto.ImageRequest, meta *types.TokenCountMeta, tokens int) *types.NewAPIError {
 	relayInfo.InitChannelMeta(c)
+	imageRequest.SetModelName(relayInfo.OriginModelName)
+	relayInfo.GrokImageBilling = nil
 	if err := helper.ModelMappedHelper(c, relayInfo, imageRequest); err != nil {
-		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeChannelModelMappedError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeChannelModelMappedError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
-	relayInfo.ImageModelMappingPrepared = true
 
 	adaptor := relay.GetAdaptor(relayInfo.ApiType)
+	if adaptor == nil {
+		return types.NewError(fmt.Errorf("invalid api type: %d", relayInfo.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
+	}
+	var ratios map[string]float64
 	estimator, ok := adaptor.(channel.ImageBillingEstimator)
-	if !ok {
-		return nil, nil
+	if ok {
+		adaptor.Init(relayInfo)
+		var err error
+		ratios, err = estimator.EstimateImageBilling(c, relayInfo, *imageRequest)
+		if err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
 	}
-	adaptor.Init(relayInfo)
-	ratios, err := estimator.EstimateImageBilling(c, relayInfo, *imageRequest)
+	if meta == nil {
+		meta = &types.TokenCountMeta{}
+	}
+	meta.BillingRatios = ratios
+	requestedModel := relayInfo.OriginModelName
+	if relayInfo.UpstreamModelName != "" {
+		relayInfo.OriginModelName = relayInfo.UpstreamModelName
+	}
+	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
+	relayInfo.OriginModelName = requestedModel
 	if err != nil {
-		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 	}
-	return ratios, nil
+	if priceData.FreeModel {
+		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
+		return nil
+	}
+	if relayInfo.Billing == nil {
+		return service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
+	}
+	if err := relayInfo.Billing.Reserve(priceData.QuotaToPreConsume); err != nil {
+		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+	}
+	relayInfo.FinalPreConsumedQuota = relayInfo.Billing.GetPreConsumedQuota()
+	return nil
 }
 
 var upgrader = websocket.Upgrader{
@@ -366,6 +393,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
 	if openaiErr == nil {
+		return false
+	}
+	if isMoliiImagineChannelType(common.GetContextKeyInt(c, constant.ContextKeyChannelType)) {
 		return false
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
@@ -748,8 +778,16 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 }
 
 func shouldRetryTaskRelayForPlatform(c *gin.Context, platform constant.TaskPlatform, channelID int, taskErr *taskdto.TaskError, retryTimes int) bool {
+	if platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) ||
+		platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeMoliiGrokAIGC)) {
+		return false
+	}
 	if !relay.TaskAdaptorAllowsRetry(platform) {
 		return false
 	}
 	return shouldRetryTaskRelay(c, channelID, taskErr, retryTimes)
+}
+
+func isMoliiImagineChannelType(channelType int) bool {
+	return channelType == constant.ChannelTypeStarAI || channelType == constant.ChannelTypeMoliiGrokAIGC
 }

@@ -28,11 +28,9 @@ func setupSingleStarAIChannelTestDB(t *testing.T) *gorm.DB {
 	previousDB := model.DB
 	previousLogDB := model.LOG_DB
 	previousMemoryCacheEnabled := common.MemoryCacheEnabled
-	previousRedisEnabled := common.RedisEnabled
 	previousMainDatabaseType := common.MainDatabaseType()
 	previousLogDatabaseType := common.LogDatabaseType()
 	common.MemoryCacheEnabled = false
-	common.RedisEnabled = false
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
@@ -46,7 +44,6 @@ func setupSingleStarAIChannelTestDB(t *testing.T) *gorm.DB {
 		model.DB = previousDB
 		model.LOG_DB = previousLogDB
 		common.MemoryCacheEnabled = previousMemoryCacheEnabled
-		common.RedisEnabled = previousRedisEnabled
 		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
 		sqlDB, sqlErr := db.DB()
 		if sqlErr == nil {

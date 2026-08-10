@@ -12,7 +12,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -32,10 +31,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		return types.NewError(fmt.Errorf("failed to copy request to ImageRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
-	err = prepareImageModelMapping(c, info, request)
-	if err != nil {
-		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
-	}
+	// Relay prepares and validates the model after selecting the channel for
+	// this attempt. Copy that exact model; mapping here would apply it twice.
+	prepareImageModelForAttempt(info, request)
 
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {
@@ -174,12 +172,6 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	return nil
 }
 
-func prepareImageModelMapping(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ImageRequest) error {
-	if info.ImageModelMappingPrepared {
-		info.ImageModelMappingPrepared = false
-		request.SetModelName(info.UpstreamModelName)
-		return nil
-	}
-	info.InitChannelMeta(c)
-	return helper.ModelMappedHelper(c, info, request)
+func prepareImageModelForAttempt(info *relaycommon.RelayInfo, request *dto.ImageRequest) {
+	request.SetModelName(info.UpstreamModelName)
 }

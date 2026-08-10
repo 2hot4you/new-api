@@ -43,6 +43,15 @@ func TestMoliiGrokTaskSubmitPolicyBlocksAllAutomaticRetries(t *testing.T) {
 	}
 }
 
+func TestOrdinaryTaskSubmitPolicyRetainsAutomaticRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(nil)
+	platform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeOpenAI))
+	taskErr := &taskdto.TaskError{Error: errors.New("upstream failed"), StatusCode: http.StatusBadGateway}
+
+	assert.True(t, shouldRetryTaskRelayForPlatform(ctx, platform, 1, taskErr, 3))
+}
+
 func TestStarAITaskSubmissionRejectsNonUniqueOrMismatchedSelectedChannelBeforeBilling(t *testing.T) {
 	tests := []struct {
 		name          string
