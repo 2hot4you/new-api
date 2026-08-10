@@ -31,6 +31,20 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: '用户平台操作',
+      items: [
+        'platform/register-and-sign-in',
+        'platform/dashboard',
+        'platform/api-keys',
+        'platform/model-square-and-playground',
+        'platform/temporary-assets',
+        'platform/usage-and-generation-records',
+        'platform/wallet-and-billing',
+        'platform/profile-and-security',
+      ],
+    },
+    {
+      type: 'category',
       label: '示例与工具',
       items: [
         'examples',
