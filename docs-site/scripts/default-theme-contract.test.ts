@@ -16,7 +16,7 @@ describe('Docusaurus default-theme contract', () => {
 
     expect(config).toContain("customCss: './src/css/fonts.css'");
     expect(fonts).toContain("@import '@fontsource-variable/lora';");
-    expect(fonts).not.toMatch(/(?:color|background|border|margin|padding|gap|display|position|width|height|shadow)\s*:/i);
+    expect(fonts).not.toMatch(/(?:^|[;{])\s*(?:color|background|border|margin|padding|gap|display|position|width|height|shadow)\s*:/i);
     await expect(access(join(siteRoot, 'src/css/custom.css'), constants.F_OK)).rejects.toThrow();
     await expect(access(join(siteRoot, 'src/pages/index.tsx'), constants.F_OK)).rejects.toThrow();
     await expect(access(join(siteRoot, 'src/pages/index.module.css'), constants.F_OK)).rejects.toThrow();

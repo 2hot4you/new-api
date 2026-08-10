@@ -1,6 +1,7 @@
 @import '@fontsource-variable/lora';
 
 :root {
+  font-size: 12px;
   --ifm-font-family-base:
     'Lora Variable', 'Lora', 'Source Serif Pro', 'Source Serif 4',
     'Noto Serif SC', 'Noto Serif TC', 'Noto Serif JP', 'Noto Serif KR',
@@ -9,4 +10,10 @@
     'NSimSun', '宋体', 'FangSong', '仿宋', 'KaiTi', '楷体', Georgia,
     'Times New Roman', Cambria, 'Liberation Serif', serif;
   --ifm-heading-font-family: var(--ifm-font-family-base);
+}
+
+@media (max-width: 996px) {
+  :root {
+    font-size: 14px;
+  }
 }

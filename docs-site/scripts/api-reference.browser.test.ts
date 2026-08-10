@@ -97,4 +97,32 @@ describe('default MDX API reference', () => {
       await browser.close();
     }
   }, 30_000);
+
+  test('uses compact responsive root typography without page overflow', async () => {
+    const chromePath = await resolveBrowserExecutable();
+    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+
+    try {
+      await Promise.all([
+        desktop.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' }),
+        mobile.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' }),
+      ]);
+
+      const desktopLayout = await desktop.evaluate(() => ({
+        rootFontSize: getComputedStyle(document.documentElement).fontSize,
+        overflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      }));
+      const mobileLayout = await mobile.evaluate(() => ({
+        rootFontSize: getComputedStyle(document.documentElement).fontSize,
+        overflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      }));
+
+      expect(desktopLayout).toEqual({ rootFontSize: '12px', overflows: false });
+      expect(mobileLayout).toEqual({ rootFontSize: '14px', overflows: false });
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
 });
