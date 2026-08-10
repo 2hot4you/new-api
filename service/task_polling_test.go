@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type taskPollingFetchAdaptor struct {
@@ -231,7 +233,8 @@ func TestPollingNullUpstreamBillingEnqueuesRefund(t *testing.T) {
 		constant.TaskQueryLimit = previousLimit
 	})
 
-	summary := RunTaskPollingOnce(context.Background(), nil)
+	summary, err := RunTaskPollingOnce(context.Background(), nil)
+	require.NoError(t, err)
 	assert.Equal(t, 1, summary.UnfinishedTasks)
 	assert.Equal(t, 1, summary.NullTasksFailed)
 	var terminal model.Task
@@ -269,6 +272,63 @@ func TestPollingChannelCacheBillingEnqueuesRefund(t *testing.T) {
 	assert.Equal(t, model.TaskBillingOperationRefund, job.Operation)
 	assert.Equal(t, model.TaskBillingJobStatusPending, job.Status)
 	assert.Equal(t, 9000, getUserQuota(t, userID))
+}
+
+func TestPollingTaskMapIsScopedByChannelAndUpstreamID(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	const firstChannelID, secondChannelID = 8101, 8102
+	const sharedUpstreamID = "same-upstream-id"
+	seedTaskPollingChannel(t, firstChannelID, true)
+	seedTaskPollingChannel(t, secondChannelID, true)
+	first := seedPollingTask(t, firstChannelID, "channel_scoped_public_1", sharedUpstreamID)
+	second := seedPollingTask(t, secondChannelID, "channel_scoped_public_2", sharedUpstreamID)
+	for _, task := range []*model.Task{first, second} {
+		task.Progress = "10%"
+		require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Update("progress", task.Progress).Error)
+	}
+
+	adaptor := &taskPollingFetchAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	previousLimit := constant.TaskQueryLimit
+	constant.TaskQueryLimit = 10
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() {
+		GetTaskAdaptorFunc = previousFactory
+		constant.TaskQueryLimit = previousLimit
+	})
+
+	summary, err := RunTaskPollingOnce(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, 2, summary.UnfinishedTasks)
+	assert.Equal(t, 2, adaptor.fetchCount())
+	var firstReloaded, secondReloaded model.Task
+	require.NoError(t, model.DB.First(&firstReloaded, first.ID).Error)
+	require.NoError(t, model.DB.First(&secondReloaded, second.ID).Error)
+	assert.Equal(t, "30%", firstReloaded.Progress)
+	assert.Equal(t, "30%", secondReloaded.Progress)
+}
+
+func TestRunTaskPollingOnceReportsUnfinishedQueryFailure(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	previousFactory := GetTaskAdaptorFunc
+	previousTimeout := constant.TaskTimeoutMinutes
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return &taskPollingFetchAdaptor{} }
+	constant.TaskTimeoutMinutes = 0
+	t.Cleanup(func() {
+		GetTaskAdaptorFunc = previousFactory
+		constant.TaskTimeoutMinutes = previousTimeout
+	})
+
+	callbackName := "test:fail_unfinished_task_query"
+	require.NoError(t, model.DB.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Schema != nil && tx.Statement.Schema.Name == "Task" {
+			tx.AddError(errors.New("injected unfinished query failure"))
+		}
+	}))
+	t.Cleanup(func() { model.DB.Callback().Query().Remove(callbackName) })
+
+	_, err := RunTaskPollingOnce(context.Background(), nil)
+	require.ErrorContains(t, err, "injected unfinished query failure")
 }
 
 func TestUpdateVideoTasksDefaultSleepWaitsBetweenTasks(t *testing.T) {
@@ -622,7 +682,8 @@ func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {
 	}
 	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
 
-	summary := RunTaskPollingOnce(context.Background(), nil)
+	summary, err := RunTaskPollingOnce(context.Background(), nil)
+	require.NoError(t, err)
 
 	assert.Zero(t, summary.UnfinishedTasks)
 	assert.Equal(t, initialQuota, getUserQuota(t, userID))

@@ -429,18 +429,18 @@ func TaskBillingPublicState(task *model.Task, job *model.TaskBillingJob) string 
 	}
 	switch task.Status {
 	case model.TaskStatusSuccess:
-		if job == nil || (job.Operation == model.TaskBillingOperationSettle && job.Status == model.TaskBillingJobStatusSucceeded) {
+		if job == nil {
+			return "unavailable"
+		}
+		if job.Operation == model.TaskBillingOperationSettle && job.Status == model.TaskBillingJobStatusSucceeded {
 			return "settled"
 		}
 		return "pending"
 	case model.TaskStatusFailure:
-		if job != nil {
-			if job.Operation == model.TaskBillingOperationRefund && job.Status == model.TaskBillingJobStatusSucceeded {
-				return "refunded"
-			}
-			return "refund_pending"
+		if job == nil {
+			return "unavailable"
 		}
-		if task.Quota == 0 {
+		if job.Operation == model.TaskBillingOperationRefund && job.Status == model.TaskBillingJobStatusSucceeded {
 			return "refunded"
 		}
 		return "refund_pending"

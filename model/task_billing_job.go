@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"strconv"
@@ -67,6 +68,10 @@ func (job *TaskBillingJob) BeforeCreate(_ *gorm.DB) error {
 }
 
 func FinalizeTaskAndEnqueueBilling(task *Task, fromStatus TaskStatus, job *TaskBillingJob) (bool, error) {
+	return FinalizeTaskAndEnqueueBillingWithContext(context.Background(), task, fromStatus, job)
+}
+
+func FinalizeTaskAndEnqueueBillingWithContext(ctx context.Context, task *Task, fromStatus TaskStatus, job *TaskBillingJob) (bool, error) {
 	if task == nil || job == nil {
 		return false, errors.New("task and billing job are required")
 	}
@@ -76,9 +81,12 @@ func FinalizeTaskAndEnqueueBilling(task *Task, fromStatus TaskStatus, job *TaskB
 	if job.TaskID != 0 && job.TaskID != task.ID {
 		return false, errors.New("billing job task id does not match task")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	won := false
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var err error
 		won, err = task.updateWithStatus(tx, fromStatus)
 		if err != nil || !won {

@@ -58,6 +58,14 @@ func privateTaskPollingAdaptor(adaptor TaskPollingAdaptor) (PrivateTaskPollingAd
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
 
+var taskPollingConcurrentLogMu sync.Mutex
+
+func logConcurrentTaskPollingInfo(ctx context.Context, message string) {
+	taskPollingConcurrentLogMu.Lock()
+	defer taskPollingConcurrentLogMu.Unlock()
+	logger.LogInfo(ctx, message)
+}
+
 func pollingUpstreamTaskID(task *model.Task) string {
 	if task == nil {
 		return ""
@@ -74,25 +82,51 @@ func pollingUpstreamTaskID(task *model.Task) string {
 	return ""
 }
 
+func pollingTaskMapKey(channelID int, upstreamID string) string {
+	return fmt.Sprintf("%d:%d:%s", channelID, len(upstreamID), upstreamID)
+}
+
+func addPollingTask(taskM map[string]*model.Task, channelID int, upstreamID string, task *model.Task) {
+	taskM[pollingTaskMapKey(channelID, upstreamID)] = task
+}
+
+func getPollingTask(taskM map[string]*model.Task, channelID int, upstreamID string) *model.Task {
+	if task := taskM[pollingTaskMapKey(channelID, upstreamID)]; task != nil {
+		return task
+	}
+	// Compatibility for existing direct callers that provide a single-channel
+	// flat map. RunTaskPollingOnce itself only constructs channel-scoped keys.
+	return taskM[upstreamID]
+}
+
 func finalizePolledTaskWithBilling(ctx context.Context, task *model.Task, fromStatus model.TaskStatus, adaptor TaskPollingAdaptor, result *relaycommon.TaskInfo) (bool, error) {
 	job := BuildTerminalTaskBillingJob(ctx, adaptor, task, result)
 	if job == nil {
 		return false, errors.New("terminal task billing intent is required")
 	}
-	return model.FinalizeTaskAndEnqueueBilling(task, fromStatus, job)
+	return model.FinalizeTaskAndEnqueueBillingWithContext(ctx, task, fromStatus, job)
 }
 
 // sweepTimedOutTasks 在主轮询之前独立清理超时任务。
 // 每次最多处理 100 条，剩余的下个周期继续处理。
 // 使用 per-task CAS (UpdateWithStatus) 防止覆盖被正常轮询已推进的任务。
 func sweepTimedOutTasks(ctx context.Context) {
+	if err := sweepTimedOutTasksWithError(ctx); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("sweepTimedOutTasks query error: %v", err))
+	}
+}
+
+func sweepTimedOutTasksWithError(ctx context.Context) error {
 	if constant.TaskTimeoutMinutes <= 0 {
-		return
+		return nil
 	}
 	cutoff := time.Now().Unix() - int64(constant.TaskTimeoutMinutes)*60
-	tasks := model.GetTimedOutUnfinishedTasks(cutoff, 100)
+	tasks, err := model.GetTimedOutUnfinishedTasksWithError(cutoff, 100)
+	if err != nil {
+		return err
+	}
 	if len(tasks) == 0 {
-		return
+		return nil
 	}
 
 	reason := fmt.Sprintf("任务超时（%d分钟）", constant.TaskTimeoutMinutes)
@@ -137,6 +171,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 	if timedOutCount > 0 {
 		logger.LogInfo(ctx, fmt.Sprintf("sweepTimedOutTasks: timed out %d tasks", timedOutCount))
 	}
+	return nil
 }
 
 // TaskPollSummary is the result recorded on an async_task_poll system task row,
@@ -152,18 +187,23 @@ type TaskPollSummary struct {
 // when the lease is lost) and, when report is non-nil, reports progress as
 // (processedPlatforms, totalPlatforms). It returns immediately if the task
 // adaptor factory has not been wired yet, to avoid a nil call during startup.
-func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) TaskPollSummary {
+func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) (TaskPollSummary, error) {
 	summary := TaskPollSummary{}
 	if GetTaskAdaptorFunc == nil {
-		return summary
+		return summary, nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	common.SysLog("任务进度轮询开始")
-	sweepTimedOutTasks(ctx)
-	allTasks := model.GetAllUnFinishSyncTasks(constant.TaskQueryLimit)
+	if err := sweepTimedOutTasksWithError(ctx); err != nil {
+		return summary, err
+	}
+	allTasks, err := model.GetAllUnFinishSyncTasksWithError(constant.TaskQueryLimit)
+	if err != nil {
+		return summary, err
+	}
 	summary.UnfinishedTasks = len(allTasks)
 	platformTask := make(map[constant.TaskPlatform][]*model.Task)
 	for _, t := range allTasks {
@@ -202,7 +242,7 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 				}
 				continue
 			}
-			taskM[upstreamID] = task
+			addPollingTask(taskM, task.ChannelId, upstreamID, task)
 			taskChannelM[task.ChannelId] = append(taskChannelM[task.ChannelId], upstreamID)
 		}
 		if len(taskChannelM) == 0 {
@@ -215,7 +255,7 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		report(totalPlatforms, totalPlatforms)
 	}
 	common.SysLog("任务进度轮询完成")
-	return summary
+	return summary, nil
 }
 
 // DispatchPlatformUpdate 按平台分发轮询更新
@@ -262,7 +302,7 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 		common.SysLog(fmt.Sprintf("CacheGetChannel: %v", err))
 		reason := fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId)
 		for _, upstreamID := range taskIds {
-			if t, ok := taskM[upstreamID]; ok {
+			if t := getPollingTask(taskM, channelId, upstreamID); t != nil {
 				oldStatus := t.Status
 				t.Status = model.TaskStatusFailure
 				t.Progress = "100%"
@@ -312,7 +352,7 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		task := taskM[responseItem.TaskID]
+		task := getPollingTask(taskM, channelId, responseItem.TaskID)
 		if task == nil {
 			logger.LogWarn(ctx, fmt.Sprintf("Suno task response ignored: unknown task_id=%s", responseItem.TaskID))
 			continue
@@ -437,7 +477,7 @@ func UpdateVideoTasks(ctx context.Context, platform constant.TaskPlatform, taskC
 }
 
 func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, channelId int, taskIds []string, taskM map[string]*model.Task) error {
-	logger.LogInfo(ctx, fmt.Sprintf("Channel #%d pending video tasks: %d", channelId, len(taskIds)))
+	logConcurrentTaskPollingInfo(ctx, fmt.Sprintf("Channel #%d pending video tasks: %d", channelId, len(taskIds)))
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -448,7 +488,7 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	if err != nil {
 		reason := fmt.Sprintf("Failed to get channel info, channel ID: %d", channelId)
 		for _, upstreamID := range taskIds {
-			if t, ok := taskM[upstreamID]; ok {
+			if t := getPollingTask(taskM, channelId, upstreamID); t != nil {
 				oldStatus := t.Status
 				t.Status = model.TaskStatusFailure
 				t.Progress = taskcommon.ProgressComplete
@@ -480,13 +520,13 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 		if err := updateVideoSingleTask(ctx, adaptor, cacheGetChannel, taskId, taskM); err != nil {
 			if cacheGetChannel.Type == constant.ChannelTypeStarAI {
 				publicTaskID := "unknown"
-				if task := taskM[taskId]; task != nil {
+				if task := getPollingTask(taskM, channelId, taskId); task != nil {
 					publicTaskID = task.TaskID
 				}
 				logger.LogError(ctx, fmt.Sprintf("Failed to update Molii Volcengine Imagine API public task %s", publicTaskID))
 			} else if privatePolling {
 				publicTaskID := "unknown"
-				if task := taskM[taskId]; task != nil {
+				if task := getPollingTask(taskM, channelId, taskId); task != nil {
 					publicTaskID = task.TaskID
 				}
 				logger.LogError(ctx, fmt.Sprintf("Failed to update private public task %s", publicTaskID))
@@ -519,7 +559,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	proxy := ch.GetSetting().Proxy
 
 	privacy, privatePolling := privateTaskPollingAdaptor(adaptor)
-	task := taskM[taskId]
+	task := getPollingTask(taskM, ch.Id, taskId)
 	if task == nil {
 		if ch.Type == constant.ChannelTypeStarAI {
 			logger.LogError(ctx, "Video polling response did not match a pending task")

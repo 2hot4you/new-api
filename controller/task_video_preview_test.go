@@ -1,17 +1,103 @@
 package controller
 
 import (
+	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func TestAsyncTaskPollHandlerReportsUnfinishedQueryFailure(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.TaskBillingJob{}, &model.SystemTask{}, &model.SystemTaskLock{}))
+	previousDB := model.DB
+	previousFactory := service.GetTaskAdaptorFunc
+	model.DB = db
+	service.GetTaskAdaptorFunc = func(constant.TaskPlatform) service.TaskPollingAdaptor { return nil }
+	t.Cleanup(func() {
+		model.DB = previousDB
+		service.GetTaskAdaptorFunc = previousFactory
+	})
+
+	const runnerID = "poll-handler-runner"
+	activeKey := model.SystemTaskTypeAsyncTaskPoll
+	task := &model.SystemTask{
+		TaskID: "poll-handler-query-failure", Type: model.SystemTaskTypeAsyncTaskPoll,
+		Status: model.SystemTaskStatusRunning, ActiveKey: &activeKey, LockedBy: runnerID,
+	}
+	require.NoError(t, db.Create(task).Error)
+	require.NoError(t, db.Create(&model.SystemTaskLock{
+		Type: model.SystemTaskTypeAsyncTaskPoll, TaskID: task.TaskID,
+		LockedBy: runnerID, LockedUntil: time.Now().Add(time.Minute).Unix(),
+	}).Error)
+
+	callbackName := "test:fail_handler_unfinished_query"
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Schema != nil && tx.Statement.Schema.Name == "Task" {
+			tx.AddError(errors.New("handler unfinished query failed"))
+		}
+	}))
+	t.Cleanup(func() { db.Callback().Query().Remove(callbackName) })
+
+	(asyncTaskPollHandler{}).Run(context.Background(), task, runnerID)
+	var reloaded model.SystemTask
+	require.NoError(t, db.Where("task_id = ?", task.TaskID).First(&reloaded).Error)
+	assert.Equal(t, model.SystemTaskStatusFailed, reloaded.Status)
+	assert.Contains(t, reloaded.Error, "handler unfinished query failed")
+}
+
+func setupTaskDTOBillingDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.TaskBillingJob{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+	return db
+}
+
+func TestTasksToDtoBillingStateUnavailableWhenJobLookupFails(t *testing.T) {
+	db := setupTaskDTOBillingDB(t)
+
+	callbackName := "test:fail_billing_job_lookup"
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Schema != nil && tx.Statement.Schema.Name == "TaskBillingJob" {
+			tx.AddError(errors.New("injected billing job lookup failure"))
+		}
+	}))
+	t.Cleanup(func() { db.Callback().Query().Remove(callbackName) })
+
+	task := &model.Task{
+		ID: 991, TaskID: "modern_terminal_without_lookup", UserId: 42,
+		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)),
+		Status:   model.TaskStatusSuccess, SubmitTime: model.TaskRefundLegacyCutoff + 1,
+	}
+	items := tasksToDto([]*model.Task{task}, false)
+	require.Len(t, items, 1)
+	require.NotNil(t, items[0].Billing)
+	assert.Equal(t, "unavailable", items[0].Billing.State)
+}
+
+func TestTaskBillingStateUnavailableWithoutJobForModernAndLegacyTerminalTasks(t *testing.T) {
+	modern := &model.Task{Status: model.TaskStatusFailure, Quota: 2500, SubmitTime: model.TaskRefundLegacyCutoff + 1}
+	legacy := &model.Task{Status: model.TaskStatusSuccess, Quota: 2500, SubmitTime: model.TaskRefundLegacyCutoff - 1}
+	assert.Equal(t, "unavailable", service.TaskBillingPublicState(modern, nil))
+	assert.Equal(t, "unavailable", service.TaskBillingPublicState(legacy, nil))
+}
 
 func TestTasksToDtoExposesOnlySignedStarAIPlaybackURL(t *testing.T) {
 	previousAddress := system_setting.ServerAddress
@@ -83,7 +169,9 @@ func TestTasksToDtoExposesOnlySignedMoliiGrokPlaybackURL(t *testing.T) {
 }
 
 func TestTasksToDtoExposesSafeSettledGrokBillingSummary(t *testing.T) {
+	db := setupTaskDTOBillingDB(t)
 	task := &model.Task{
+		ID:       1001,
 		TaskID:   "task_grok_billing",
 		UserId:   42,
 		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC)),
@@ -104,6 +192,10 @@ func TestTasksToDtoExposesSafeSettledGrokBillingSummary(t *testing.T) {
 			},
 		},
 	}
+	require.NoError(t, db.Create(&model.TaskBillingJob{
+		TaskID: task.ID, IdempotencyKey: "dto-grok-settled", Operation: model.TaskBillingOperationSettle,
+		Status: model.TaskBillingJobStatusSucceeded,
+	}).Error)
 
 	items := tasksToDto([]*model.Task{task}, false)
 	require.Len(t, items, 1)
@@ -123,9 +215,10 @@ func TestTasksToDtoExposesSafeSettledGrokBillingSummary(t *testing.T) {
 }
 
 func TestTasksToDtoExposesSeedanceSettlementAndRefundStates(t *testing.T) {
+	db := setupTaskDTOBillingDB(t)
 	platform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
 	settled := &model.Task{
-		TaskID: "task_seedance_settled", UserId: 42, Platform: platform,
+		ID: 1002, TaskID: "task_seedance_settled", UserId: 42, Platform: platform,
 		Status: model.TaskStatusSuccess, Quota: 277500,
 		PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
 			OriginModelName: "doubao-seedance-2-0-260128", GroupRatio: 1.5,
@@ -134,7 +227,7 @@ func TestTasksToDtoExposesSeedanceSettlementAndRefundStates(t *testing.T) {
 		}},
 	}
 	refunded := &model.Task{
-		TaskID: "task_seedance_refunded", UserId: 42, Platform: platform,
+		ID: 1003, TaskID: "task_seedance_refunded", UserId: 42, Platform: platform,
 		Status: model.TaskStatusFailure, Quota: 0,
 		PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
 			OriginModelName: "doubao-seedance-2-0-fast-260128",
@@ -147,6 +240,14 @@ func TestTasksToDtoExposesSeedanceSettlementAndRefundStates(t *testing.T) {
 			OriginModelName: "doubao-seedance-2-0-260128", EstimatedTokens: 10000,
 		}},
 	}
+	require.NoError(t, db.Create(&model.TaskBillingJob{
+		TaskID: settled.ID, IdempotencyKey: "dto-seedance-settled", Operation: model.TaskBillingOperationSettle,
+		Status: model.TaskBillingJobStatusSucceeded,
+	}).Error)
+	require.NoError(t, db.Create(&model.TaskBillingJob{
+		TaskID: refunded.ID, IdempotencyKey: "dto-seedance-refunded", Operation: model.TaskBillingOperationRefund,
+		Status: model.TaskBillingJobStatusSucceeded,
+	}).Error)
 
 	items := tasksToDto([]*model.Task{settled, refunded, pending}, false)
 	require.Len(t, items, 3)

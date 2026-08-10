@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -12,6 +13,39 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestFinalizeTaskAndEnqueueBillingWithContextCancellationRollsBack(t *testing.T) {
+	truncateTables(t)
+	prepareTaskBillingJobTest(t)
+	task := createInProgressBillingTask(t, "task_billing_context_cancel", 125)
+	task.Status = TaskStatusFailure
+	task.Progress = "100%"
+
+	type contextKey struct{}
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), contextKey{}, "billing-context"))
+	callbackName := "test:cancel_billing_job_create"
+	sawContext := false
+	require.NoError(t, DB.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement == nil || tx.Statement.Schema == nil || tx.Statement.Schema.Name != "TaskBillingJob" {
+			return
+		}
+		sawContext = tx.Statement.Context.Value(contextKey{}) == "billing-context"
+		cancel()
+		tx.AddError(context.Canceled)
+	}))
+	t.Cleanup(func() { DB.Callback().Create().Remove(callbackName) })
+
+	won, err := FinalizeTaskAndEnqueueBillingWithContext(ctx, task, TaskStatusInProgress, newRefundBillingJob(task))
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, won)
+	assert.True(t, sawContext)
+	var reloaded Task
+	require.NoError(t, DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, TaskStatusInProgress, reloaded.Status)
+	var jobs int64
+	require.NoError(t, DB.Model(&TaskBillingJob{}).Where("task_id = ?", task.ID).Count(&jobs).Error)
+	assert.Zero(t, jobs)
+}
 
 func prepareTaskBillingJobTest(t *testing.T) {
 	t.Helper()

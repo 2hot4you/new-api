@@ -341,6 +341,11 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 }
 
 func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
+	tasks, _ := GetTimedOutUnfinishedTasksWithError(cutoffUnix, limit)
+	return tasks
+}
+
+func GetTimedOutUnfinishedTasksWithError(cutoffUnix int64, limit int) ([]*Task, error) {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
@@ -349,20 +354,24 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 		Limit(limit).
 		Find(&tasks).Error
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return tasks
+	return tasks, nil
 }
 
 func GetAllUnFinishSyncTasks(limit int) []*Task {
-	var tasks []*Task
-	var err error
-	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
-	if err != nil {
-		return nil
-	}
+	tasks, _ := GetAllUnFinishSyncTasksWithError(limit)
 	return tasks
+}
+
+func GetAllUnFinishSyncTasksWithError(limit int) ([]*Task, error) {
+	var tasks []*Task
+	// get all tasks progress is not 100%
+	err := DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	if err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
 
 // ClearExpiredStarAIResultMetadata removes deliverable result URLs and the
