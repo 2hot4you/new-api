@@ -1,0 +1,46 @@
+---
+title: Base URL 与环境
+description: 为测试和生产环境安全配置 Molii API Base URL。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 2
+---
+
+# Base URL 与环境
+
+所有 v1 路径都相对于 API Base URL。示例统一读取 `MOLII_API_BASE_URL`，并在本地测试时默认使用：
+
+```text
+http://127.0.0.1:3000
+```
+
+生产域名是可配置的，不应从本页猜测或硬编码。请使用服务提供方为你的环境给出的 HTTPS Origin，并通过运行环境变量注入：
+
+```bash
+export MOLII_API_BASE_URL='https://your-configured-api-origin.example'
+```
+
+拼接路径前去掉末尾 `/`，避免生成双斜杠：
+
+```ts
+const baseUrl = (process.env.MOLII_API_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
+const modelsUrl = `${baseUrl}/v1/models`;
+```
+
+```python
+import os
+
+base_url = os.getenv("MOLII_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
+models_url = f"{base_url}/v1/models"
+```
+
+## 环境隔离
+
+- 测试和生产使用不同的 Base URL 与 API Key。
+- 启动时验证 Base URL 是预期的 `http://` 或 `https://` Origin，不携带路径、查询参数或凭据。
+- 正式服务只使用 HTTPS；回环地址的 HTTP 默认值仅用于本机测试。
+- 不要把生产 API Key 发送到测试地址，也不要让测试任务使用生产额度。
+
+文档站的 `DOCS_API_BASE_URL` 用于生成 API 参考中的服务器地址；应用调用时仍应使用自己的 `MOLII_API_BASE_URL` 配置。

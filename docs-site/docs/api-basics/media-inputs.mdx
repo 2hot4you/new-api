@@ -1,0 +1,70 @@
+---
+title: 媒体输入
+description: 根据模型能力选择 HTTP(S) URL、Data URL 或 asset URI。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 4
+---
+
+# 媒体输入
+
+媒体输入能力由模型和请求字段决定，不能把一种形式套用到所有创作接口。公开文档使用三种表示：
+
+| 形式 | 格式 | 适用范围 | 主要限制 |
+| --- | --- | --- | --- |
+| HTTP(S) URL | `https://example.invalid/media.png` | Grok 图像/视频输入、Seedance 支持的 content 输入、素材登记 | 服务端必须在任务处理期间可读 |
+| Data URL | `data:image/png;base64,...` | 仅限声明支持的 Seedance content 字段 | Base64 会增大请求体，不适合大文件 |
+| asset URI | `asset://asset_public_123` | 仅限声明支持的 Seedance content 字段 | 素材必须属于当前 API Key 且未过期 |
+
+Grok 公开图像和视频输入仅接受 URL，不要传 Data URL 或 `asset://` URI。Seedance 的 content 输入可根据具体模型支持 Data URL 或 asset URI；字段形状、MIME 类型和大小上限将在具体模型页展开，提交前应以该模型页为准。
+
+## 图像编辑
+
+`POST /v1/images/edits` 必须提供 `image` 或 `images` 之一：
+
+- `image`：单个 URL 字符串，或 `{ "url": "https://…" }` 对象。
+- `images`：1–3 个上述输入组成的数组。
+
+```json
+{
+  "model": "grok-imagine-image",
+  "prompt": "将背景改成夜晚城市",
+  "images": [
+    "https://example.invalid/source-1.png",
+    { "url": "https://example.invalid/source-2.png" }
+  ],
+  "resolution": "1k",
+  "aspect_ratio": "16:9",
+  "n": 1
+}
+```
+
+`resolution` 支持 `1k`、`2k`；`aspect_ratio` 的完整枚举以 API 参考为准。避免同时发送 `image` 和 `images`，这样业务意图最清晰。
+
+## 视频生成与编辑
+
+Grok 1.5 视频生成需通过 `image` 或 `images` 提供首帧 URL。`POST /v1/videos/edits` 则使用 `video` URL，并要求模型为 `grok-imagine-video`；编辑请求不接受时长、宽高比或分辨率字段。
+
+```json
+{
+  "model": "grok-imagine-video",
+  "prompt": "加入轻微的胶片颗粒",
+  "video": "https://example.invalid/source.mp4"
+}
+```
+
+## 临时素材资产
+
+如果工作流需要先登记素材，可调用 `POST /v1/assets`。`url`、`asset_type` 和 `name` 都必填；类型为 `image`、`video` 或 `audio`，名称最多 80 个 Unicode 字符。创建成功只返回 `{ "id": "…" }`。
+
+素材会过期。任务完成后可用 `DELETE /v1/assets/{id}` 清理；成功响应是 `{ "success": true }`。不要把过期时间当作永久存储承诺。
+
+## URL 检查清单
+
+- 使用 `https://`；本地测试服务可按环境需要使用 HTTP(S)。
+- 服务端必须能在无需 Molii API Key 的情况下读取媒体 URL。
+- URL 不要指向局域网地址或个人设备，也不要包含长期敏感凭据。
+- 保持源文件可用，直到任务进入终态。
+- 输入媒体可能影响费用；提交前核对数量、时长和分辨率。

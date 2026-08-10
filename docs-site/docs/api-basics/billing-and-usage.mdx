@@ -1,0 +1,54 @@
+---
+title: 计费与用量
+description: 区分预计费用、最终结算与异步退款状态。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 6
+---
+
+# 计费与用量
+
+图像和视频创作请求可能产生费用。模型、输出数量、分辨率、时长、输入媒体以及账户适用的倍率都可能影响金额；以当前账户的模型与价格信息为准。
+
+## 预计与最终费用
+
+提交前的预计费用用于预算和用户确认，不是最终账单。它基于请求参数，例如模型、预计时长和分辨率；异步任务完成后，服务端才会根据实际结果结算。
+
+兼容视频查询 `GET /v1/video/generations/{task_id}` 的 `data.billing` 提供公开结算摘要：
+
+```json
+{
+  "state": "settled",
+  "mode": "grok_video",
+  "model": "grok-imagine-video-1.5",
+  "final_cost": 0.2,
+  "group_ratio": 1,
+  "detail_available": true
+}
+```
+
+`final_cost` 只有在 `state` 为 `settled` 时才表示最终费用。`detail_available` 为 `true` 时，响应还可能带有与当前计费模式对应的公开明细；客户端应允许以后增加明细字段。
+
+## 结算状态
+
+| `billing.state` | 含义 | 客户端动作 |
+| --- | --- | --- |
+| `pending` | 任务尚未完成结算 | 稍后安全 GET |
+| `settled` | 已按实际结果结算 | 展示 `final_cost` |
+| `refunded` | 失败任务的费用已退回 | 展示已退款 |
+| `refund_pending` | 任务失败，但退款仍在异步处理 | 继续 GET，不要重复提交 |
+
+看到 `refund_pending` 时不要把 `final_cost: 0` 当成已退款凭据，也不要为了“触发退款”重复提交；等待状态变为 `refunded`，长时间不变再联系支持。
+
+## 避免意外费用
+
+- 先调用 `GET /v1/models` 确认当前 API Key 可用的模型。
+- 提交前向最终用户展示模型、数量、分辨率、时长和预计费用。
+- 对每次付费操作只发送一次 POST；不要自动重试。
+- 保存任务 ID，用 GET 查询进度、最终费用和退款状态。
+- 为轮询设置截止时间；轮询本身不增加生成费用。
+- 不要因界面刷新而重新创建任务，重复提交会产生独立任务并可能额外计费。
+
+费用单位与余额显示方式由账户配置决定。不要在代码中假设固定货币符号，展示时保留服务端或账户侧提供的单位上下文。

@@ -1,0 +1,122 @@
+---
+title: 五分钟生成第一张图片
+description: 使用 API Key 通过 curl、Python 或 TypeScript 调用 Molii 图像 API。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 1
+---
+
+# 五分钟生成第一张图片
+
+本页从环境变量读取 API Key 和 Base URL，并调用 `POST /v1/images/generations`。这个请求可能产生费用；运行示例前请核对模型、分辨率和数量。下面的代码不会由文档站点执行。
+
+## 1. 设置环境变量
+
+测试环境默认地址是 `http://127.0.0.1:3000`。生产环境请把服务提供方给你的可配置地址写入 `MOLII_API_BASE_URL`，不要把示例默认值用于正式流量。
+
+```bash
+export MOLII_API_KEY='your-api-key'
+export MOLII_API_BASE_URL='http://127.0.0.1:3000'
+```
+
+API Key 只应保存在服务端密钥存储或本地环境变量中，不要提交到仓库，也不要发送到浏览器。
+
+## 2. 选择并调用一种语言
+
+每个示例只发送一次付费 POST，不配置自动重试。
+
+### curl
+
+```bash
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+MOLII_API_BASE_URL="${MOLII_API_BASE_URL:-http://127.0.0.1:3000}"
+
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/images/generations" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "model": "grok-imagine-image",
+    "prompt": "一只戴着宇航头盔的橘猫，柔和棚拍光线",
+    "resolution": "1k",
+    "aspect_ratio": "1:1",
+    "n": 1
+  }'
+```
+
+### Python
+
+安装 `requests` 后运行：
+
+```python
+import os
+import requests
+
+api_key = os.environ["MOLII_API_KEY"]
+base_url = os.getenv("MOLII_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
+
+response = requests.post(
+    f"{base_url}/v1/images/generations",
+    headers={
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "model": "grok-imagine-image",
+        "prompt": "一只戴着宇航头盔的橘猫，柔和棚拍光线",
+        "resolution": "1k",
+        "aspect_ratio": "1:1",
+        "n": 1,
+    },
+    timeout=60,
+)
+response.raise_for_status()
+result = response.json()
+print(result["data"][0]["url"])
+```
+
+### TypeScript（Node.js 22+）
+
+```ts
+const apiKey = process.env.MOLII_API_KEY;
+if (!apiKey) throw new Error('MOLII_API_KEY is required');
+
+const baseUrl = (process.env.MOLII_API_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
+const response = await fetch(`${baseUrl}/v1/images/generations`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    model: 'grok-imagine-image',
+    prompt: '一只戴着宇航头盔的橘猫，柔和棚拍光线',
+    resolution: '1k',
+    aspect_ratio: '1:1',
+    n: 1,
+  }),
+  signal: AbortSignal.timeout(60_000),
+});
+
+if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
+const result = await response.json() as { data: Array<{ url: string }> };
+console.log(result.data[0].url);
+```
+
+## 3. 读取响应
+
+成功响应包含创建时间和图片 URL：
+
+```json
+{
+  "created": 1720000000,
+  "data": [{ "url": "https://example.invalid/generated.png" }]
+}
+```
+
+不要记录完整的 `Authorization` 请求头。遇到错误时先查看[错误与重试](../api-basics/errors-retries)；网络超时不代表付费 POST 没有被服务端接收，因此不要自动重发。
+
+下一步可阅读[视频工作流](./video-workflow)和[完整 API 参考](/api-reference/molii-public-api)。

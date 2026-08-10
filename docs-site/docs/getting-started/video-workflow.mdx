@@ -1,0 +1,189 @@
+---
+title: 视频生成工作流
+description: 提交一次视频任务，安全轮询状态并下载完成的视频。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 2
+---
+
+import ApiLifecycle from '../../src/components/ApiLifecycle';
+
+# 视频生成工作流
+
+视频生成是异步且可能产生费用的操作：先调用一次 `POST /v1/videos`，保存响应中的 `id`，再用 `GET /v1/videos/{task_id}` 查询状态。不要通过重复 POST 来“检查进度”。
+
+<ApiLifecycle />
+
+示例使用一个公开 HTTP(S) 图片 URL 作为首帧。先设置 `MOLII_API_KEY`；测试 Base URL 默认 `http://127.0.0.1:3000`，生产地址由你的环境配置。
+
+## curl
+
+下面先提交一次，再对安全 GET 使用逐步退避。脚本需要 `jq`。
+
+```bash
+set -eu
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+MOLII_API_BASE_URL="${MOLII_API_BASE_URL:-http://127.0.0.1:3000}"
+
+created="$(curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "model": "grok-imagine-video-1.5",
+    "prompt": "晨雾中的山谷，镜头缓慢推进",
+    "image": "https://example.invalid/first-frame.jpg",
+    "duration": 5,
+    "aspect_ratio": "16:9",
+    "resolution": "480p"
+  }')"
+
+task_id="$(printf '%s' "$created" | jq -er '.id')"
+completed='false'
+for delay in 2 3 5 8 13; do
+  task="$(curl --fail-with-body --silent --show-error \
+    --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id" \
+    --header "Authorization: Bearer $MOLII_API_KEY")"
+  status="$(printf '%s' "$task" | jq -r '.status')"
+  printf 'status=%s progress=%s%%\n' "$status" "$(printf '%s' "$task" | jq -r '.progress')"
+  case "$status" in
+    completed) completed='true'; break ;;
+    failed) printf '%s\n' "$task" >&2; exit 1 ;;
+  esac
+  sleep "$delay"
+done
+[ "$completed" = 'true' ] || { printf 'polling deadline reached\n' >&2; exit 1; }
+
+headers_file="$(mktemp)"
+body_file="$(mktemp)"
+trap 'rm -f "$headers_file" "$body_file"' EXIT
+curl --fail-with-body --location --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id/content" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --dump-header "$headers_file" \
+  --output "$body_file"
+content_type="$(awk 'BEGIN { IGNORECASE=1 } /^Content-Type:/ { value=$0 } END { sub(/\r$/, "", value); sub(/^[^:]+:[[:space:]]*/, "", value); print tolower(value) }' "$headers_file")"
+case "$content_type" in
+  video/*) mv "$body_file" result.mp4 ;;
+  *) printf 'expected video/*, received %s\n' "${content_type:-missing Content-Type}" >&2; exit 1 ;;
+esac
+```
+
+## Python
+
+```python
+import os
+import random
+import time
+import requests
+
+api_key = os.environ["MOLII_API_KEY"]
+base_url = os.getenv("MOLII_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
+headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+# 付费 POST 只调用一次；不要给这个 Session 配置 POST 自动重试。
+created = requests.post(
+    f"{base_url}/v1/videos",
+    headers=headers,
+    json={
+        "model": "grok-imagine-video-1.5",
+        "prompt": "晨雾中的山谷，镜头缓慢推进",
+        "image": "https://example.invalid/first-frame.jpg",
+        "duration": 5,
+        "aspect_ratio": "16:9",
+        "resolution": "480p",
+    },
+    timeout=60,
+)
+created.raise_for_status()
+task_id = created.json()["id"]
+
+for attempt in range(8):
+    response = requests.get(
+        f"{base_url}/v1/videos/{task_id}", headers=headers, timeout=30
+    )
+    if response.status_code == 429 or response.status_code >= 500:
+        retry_after = response.headers.get("Retry-After")
+        delay = float(retry_after) if retry_after else min(2 ** attempt, 30) + random.random()
+        time.sleep(delay)
+        continue
+    response.raise_for_status()
+    task = response.json()
+    if task["status"] == "completed":
+        break
+    if task["status"] == "failed":
+        raise RuntimeError(task.get("error", {}).get("message", "video task failed"))
+    time.sleep(min(2 ** attempt, 30) + random.random())
+else:
+    raise TimeoutError(f"task {task_id} did not finish before the polling deadline")
+
+content = requests.get(
+    f"{base_url}/v1/videos/{task_id}/content", headers=headers, timeout=120
+)
+content.raise_for_status()
+content_type = content.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+if not content_type.startswith("video/"):
+    raise RuntimeError(f"expected video/*, received {content_type or 'missing Content-Type'}")
+with open("result.mp4", "wb") as output:
+    output.write(content.content)
+```
+
+## TypeScript（Node.js 22+）
+
+```ts
+import { writeFile } from 'node:fs/promises';
+
+const apiKey = process.env.MOLII_API_KEY;
+if (!apiKey) throw new Error('MOLII_API_KEY is required');
+const baseUrl = (process.env.MOLII_API_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
+const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+// 付费 POST 只调用一次。
+const createdResponse = await fetch(`${baseUrl}/v1/videos`, {
+  method: 'POST',
+  headers,
+  body: JSON.stringify({
+    model: 'grok-imagine-video-1.5',
+    prompt: '晨雾中的山谷，镜头缓慢推进',
+    image: 'https://example.invalid/first-frame.jpg',
+    duration: 5,
+    aspect_ratio: '16:9',
+    resolution: '480p',
+  }),
+  signal: AbortSignal.timeout(60_000),
+});
+if (!createdResponse.ok) throw new Error(await createdResponse.text());
+const created = await createdResponse.json() as { id: string };
+
+let completed = false;
+for (let attempt = 0; attempt < 8; attempt += 1) {
+  const response = await fetch(`${baseUrl}/v1/videos/${created.id}`, { headers });
+  if (response.status === 429 || response.status >= 500) {
+    const retryAfter = response.headers.get('Retry-After');
+    const retryAfterSeconds = retryAfter === null ? Number.NaN : Number(retryAfter);
+    await sleep(Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : Math.min(2 ** attempt, 30) * 1000 + Math.random() * 500);
+    continue;
+  }
+  if (!response.ok) throw new Error(await response.text());
+  const task = await response.json() as { status: string; progress: number; error?: { message: string } };
+  console.log(task.status, `${task.progress}%`);
+  if (task.status === 'completed') { completed = true; break; }
+  if (task.status === 'failed') throw new Error(task.error?.message ?? 'video task failed');
+  await sleep(Math.min(2 ** attempt, 30) * 1000 + Math.random() * 500);
+}
+if (!completed) throw new Error(`task ${created.id} did not finish before the polling deadline`);
+
+const content = await fetch(`${baseUrl}/v1/videos/${created.id}/content`, { headers });
+if (!content.ok) throw new Error(await content.text());
+const contentType = (content.headers.get('Content-Type') ?? '').split(';', 1)[0].trim().toLowerCase();
+if (!contentType.startsWith('video/')) throw new Error(`expected video/*, received ${contentType || 'missing Content-Type'}`);
+await writeFile('result.mp4', Buffer.from(await content.arrayBuffer()));
+```
+
+轮询仅在明确的终态停止：`completed` 可下载，`failed` 应展示公开错误。`queued` 和 `in_progress` 都要继续等待。GET 遇到 429 时优先遵循 `Retry-After`，否则使用带抖动的指数退避。
+
+关于最终费用与退款状态，请读[计费与用量](../api-basics/billing-and-usage)。

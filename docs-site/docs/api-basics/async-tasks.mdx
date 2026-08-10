@@ -1,0 +1,47 @@
+---
+title: 异步任务
+description: 正确提交、轮询并结束 Molii 视频任务。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 3
+---
+
+import ApiLifecycle from '../../src/components/ApiLifecycle';
+
+# 异步任务
+
+视频生成和编辑不会在一个长连接内等待完成。创建接口先返回任务对象，客户端保存 `id`，再通过对应的 GET 接口查询。
+
+<ApiLifecycle />
+
+## 状态
+
+`GET /v1/videos/{task_id}` 使用以下公开状态：
+
+| 状态 | 含义 | 客户端动作 |
+| --- | --- | --- |
+| `queued` | 已受理，等待处理 | 继续轮询 |
+| `in_progress` | 正在生成 | 继续轮询并显示 `progress` |
+| `completed` | 已完成 | 读取 `metadata` 或下载 content |
+| `failed` | 已失败 | 停止并展示公开 `error` |
+
+创建响应中的 `task_id` 是兼容字段；新代码优先保存 `id`。不要依赖未在 API 参考中声明的额外字段。
+
+## 正确轮询
+
+1. 付费 POST（创建或编辑）只提交一次，并立即持久化返回的任务 ID。
+2. 首次等待约 2 秒，再调用 `GET /v1/videos/{task_id}`。
+3. 对仍在处理的任务逐步增加间隔，建议上限 30 秒，并加入随机抖动（jitter）。
+4. GET 返回 429 时优先遵循 `Retry-After`；GET 返回暂时性 5xx 时使用指数退避（exponential backoff）。
+5. 到达 `completed` 或 `failed` 后停止；同时设置总时限，超时后保留任务 ID，稍后继续 GET。
+
+付费 POST 不得自动重试。客户端超时可能发生在服务端已受理任务之后；盲目重发会创建第二个任务并可能再次计费。只有读取类 GET 适合按上述规则安全退避。
+
+## 两种查询响应
+
+- `GET /v1/videos/{task_id}` 返回 OpenAI 风格视频对象，状态为小写，并在完成时提供公开内容入口。
+- `GET /v1/video/generations/{task_id}` 返回 `{code, message, data}` 包裹，`data` 中包含 `task_id`、状态、进度、结果和公开计费摘要。
+
+选择与创建路径配套的查询形式，并以[API 参考](/api-reference/molii-public-api)中的响应结构为准。完整轮询代码见[视频工作流](../getting-started/video-workflow)。

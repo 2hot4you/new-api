@@ -1,0 +1,42 @@
+---
+title: 身份验证
+description: 使用 Bearer API Key 安全调用 Molii Public API。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-10
+sourceCommit: 8928d7bb8b95
+sidebar_position: 1
+---
+
+# 身份验证
+
+Molii Public API 使用 Bearer API Key。每个请求都把密钥放在标准请求头中：
+
+```http
+Authorization: Bearer $MOLII_API_KEY
+```
+
+## 最小请求
+
+`GET /v1/models` 可以验证密钥并返回当前账户可用的模型：
+
+```bash
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+MOLII_API_BASE_URL="${MOLII_API_BASE_URL:-http://127.0.0.1:3000}"
+
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/models" \
+  --header "Authorization: Bearer $MOLII_API_KEY"
+```
+
+## 密钥安全
+
+- 只在服务端进程、CI 密钥库或开发者本机环境变量中读取密钥。
+- 不要把密钥写入浏览器 JavaScript、移动应用包、日志、截图或公开仓库。
+- 不要在错误信息中打印完整的 `Authorization` 请求头。
+- 如果密钥可能泄露，请立即在账户侧撤销并换发，然后更新服务端配置。
+- 为不同环境和应用使用不同密钥，以便单独撤销和审计。
+
+缺少、过期或无效密钥通常返回 `401`；当前密钥无权使用某项能力时可能返回 `403`。这两类错误都不应重试，应先修复凭据或权限。
+
+API Key 代表你的账户并可能触发计费。不要把它交给不受信任的客户端代为调用；浏览器应用应请求你自己的服务端，由服务端再调用 Molii。
