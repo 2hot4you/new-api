@@ -47,3 +47,21 @@ func TestGrokVideoPromptsAreRequiredForGenerateAndEdit(t *testing.T) {
 		}
 	}
 }
+
+func TestGrokVideoAspectRatioUsesSupportedOptions(t *testing.T) {
+	for _, modelID := range []string{"grok-imagine-video", "grok-imagine-video-1.5"} {
+		model, ok := FindModel(modelID)
+		require.True(t, ok)
+		generate := model.Operations[0]
+		var aspectRatio *Field
+		for i := range generate.Fields {
+			if generate.Fields[i].Name == "aspect_ratio" {
+				aspectRatio = &generate.Fields[i]
+				break
+			}
+		}
+		require.NotNil(t, aspectRatio)
+		require.Equal(t, "select", aspectRatio.Type)
+		require.Equal(t, []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"}, aspectRatio.Options)
+	}
+}

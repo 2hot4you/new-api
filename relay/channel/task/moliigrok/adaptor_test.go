@@ -127,19 +127,87 @@ func TestGrokImagineVideoGenerationSupportsImageObject(t *testing.T) {
 	assert.InDelta(t, 0.422, info.EstimatedVideoPrice, 0.000001)
 }
 
-func TestGrokImagineVideoPreservesFileIDInput(t *testing.T) {
-	c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"animate","image":{"file_id":"file_abc"},"duration":5,"resolution":"480p"}`)
+func TestGrokImagineVideoRejectsFileIDBeforeBillingAndSubmit(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string
+		path  string
+		body  string
+	}{
+		{name: "generation image object", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"file_id":"file_abc"}}`},
+		{name: "generation direct file reference", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","image":"file_abc"}`},
+		{name: "generation images object", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","images":[{"file_id":"file_abc"}]}`},
+		{name: "generation images direct reference", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","images":["file_abc"]}`},
+		{name: "edit video object", model: LegacyVideoModel, path: "/v1/videos/edits", body: `{"model":"grok-imagine-video","prompt":"edit","video":{"file_id":"file_abc"}}`},
+		{name: "edit direct file reference", model: LegacyVideoModel, path: "/v1/videos/edits", body: `{"model":"grok-imagine-video","prompt":"edit","video":"file_abc"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := taskContext(t, tt.body)
+			c.Request.URL.Path = tt.path
+			info := taskInfo()
+			info.OriginModelName = tt.model
+			info.ChannelMeta.UpstreamModelName = tt.model
+			adaptor := &TaskAdaptor{}
+			adaptor.Init(info)
+
+			taskErr := adaptor.ValidateRequestAndSetAction(c, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+			assert.Equal(t, "file_id_not_supported", taskErr.Code)
+			assert.Equal(t, "Molii media file_id is not supported; use a URL instead", taskErr.Message)
+			assert.Nil(t, info.Billing, "unsupported media must fail before task precharge")
+			assert.Empty(t, adaptor.EstimateBilling(c, info), "unsupported media must fail before estimation")
+		})
+	}
+}
+
+func TestGrokImagineVideoURLObjectsNeverForwardFileID(t *testing.T) {
+	tests := []struct {
+		model string
+		path  string
+		body  string
+	}{
+		{model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"url":"https://images.example/cat.png"}}`},
+		{model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","images":["https://images.example/cat.png"]}`},
+		{model: LegacyVideoModel, path: "/v1/videos/edits", body: `{"model":"grok-imagine-video","prompt":"edit","video":{"url":"https://videos.example/a.mp4"}}`},
+	}
+	for _, tt := range tests {
+		c, _ := taskContext(t, tt.body)
+		c.Request.URL.Path = tt.path
+		info := taskInfo()
+		info.OriginModelName = tt.model
+		info.ChannelMeta.UpstreamModelName = tt.model
+		adaptor := &TaskAdaptor{}
+		adaptor.Init(info)
+		require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+		body, err := adaptor.BuildRequestBody(c, info)
+		require.NoError(t, err)
+		encoded, err := io.ReadAll(body)
+		require.NoError(t, err)
+		assert.NotContains(t, string(encoded), "file_id")
+	}
+}
+
+func TestGrokImagineVideoBuildRequestBodyDefensivelyRejectsDecodedFileID(t *testing.T) {
+	c, _ := taskContext(t, `{}`)
+	c.Set("task_request", relaycommon.TaskSubmitReq{
+		Model:       VideoModel,
+		Prompt:      "animate",
+		Image:       "file_abc",
+		ImageFileID: "file_abc",
+		Duration:    5,
+		AspectRatio: "16:9",
+		Resolution:  "480p",
+	})
 	info := taskInfo()
-	info.OriginModelName = LegacyVideoModel
-	info.ChannelMeta.UpstreamModelName = LegacyVideoModel
 	adaptor := &TaskAdaptor{}
 	adaptor.Init(info)
-	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
-	body, err := adaptor.BuildRequestBody(c, info)
-	require.NoError(t, err)
-	encoded, err := io.ReadAll(body)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"model":"grok-imagine-video","prompt":"animate","duration":5,"aspect_ratio":"16:9","resolution":"480p","image":{"file_id":"file_abc"}}`, string(encoded))
+
+	_, err := adaptor.BuildRequestBody(c, info)
+	require.Error(t, err)
+	assert.Equal(t, fileIDNotSupportedMessage, err.Error())
 }
 
 func TestGrokImagineVideoEditUsesOfficialEndpointAndPayload(t *testing.T) {
@@ -189,6 +257,35 @@ func TestGrokImagineVideo15RequiresImageAndRejectsOldModel1080p(t *testing.T) {
 		adaptor.Init(info)
 		require.NotNil(t, adaptor.ValidateRequestAndSetAction(c, info))
 	}
+}
+
+func TestGrokImagineVideoValidatesOfficialAspectRatios(t *testing.T) {
+	for _, ratio := range []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"} {
+		t.Run("accepts_"+strings.ReplaceAll(ratio, ":", "_"), func(t *testing.T) {
+			body := `{"model":"grok-imagine-video","prompt":"cat","aspect_ratio":"` + ratio + `"}`
+			c, _ := taskContext(t, body)
+			info := taskInfo()
+			info.OriginModelName = LegacyVideoModel
+			info.ChannelMeta.UpstreamModelName = LegacyVideoModel
+			adaptor := &TaskAdaptor{}
+			adaptor.Init(info)
+
+			require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+			assert.Equal(t, ratio, info.EstimatedVideoRatio)
+		})
+	}
+
+	c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"cat","aspect_ratio":"21:9"}`)
+	info := taskInfo()
+	info.OriginModelName = LegacyVideoModel
+	info.ChannelMeta.UpstreamModelName = LegacyVideoModel
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+
+	taskErr := adaptor.ValidateRequestAndSetAction(c, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+	assert.Equal(t, "invalid_aspect_ratio", taskErr.Code)
 }
 
 func TestGrokVideoEditCompletionUsesOnlyExplicitPollingResolution(t *testing.T) {

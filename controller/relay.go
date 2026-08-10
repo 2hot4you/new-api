@@ -288,6 +288,9 @@ func prepareSelectedImageBilling(c *gin.Context, relayInfo *relaycommon.RelayInf
 		var err error
 		ratios, err = estimator.EstimateImageBilling(c, relayInfo, *imageRequest)
 		if err != nil {
+			if sanitizer, ok := adaptor.(channel.ImageRequestErrorSanitizer); ok {
+				return sanitizer.SanitizeImageRequestError(err)
+			}
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 	}

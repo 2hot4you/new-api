@@ -101,6 +101,36 @@ func TestPrepareImageRequestBillingAllowsGrokImageIdentity(t *testing.T) {
 	}
 }
 
+func TestPrepareGrokImageFileIDFailsBeforeSnapshotOrPreconsume(t *testing.T) {
+	body := `{"model":"grok-imagine-image","prompt":"edit","images":[{"url":"https://images.example/a.png"},{"file_id":"file_abc"}]}`
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(common.KeyRequestBody, []byte(body))
+	c.Set("model_mapping", `{"grok-imagine-image":"grok-imagine-image"}`)
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeMoliiGrokAIGC)
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, "grok-imagine-image")
+	t.Cleanup(func() { common.CleanupBodyStorage(c) })
+	billing := &recordingImageBilling{}
+	request := &dto.ImageRequest{Model: "grok-imagine-image", Prompt: "edit"}
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "grok-imagine-image",
+		RelayMode:       relayconstant.RelayModeImagesEdits,
+		Request:         request,
+		Billing:         billing,
+		UserSetting:     dto.UserSetting{AcceptUnsetRatioModel: true},
+	}
+
+	apiErr := prepareSelectedImageBilling(c, info, request, request.GetTokenCountMeta(), 1)
+
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+	assert.Equal(t, types.ErrorCode("file_id_not_supported"), apiErr.GetErrorCode())
+	assert.Contains(t, apiErr.Error(), "Molii media file_id is not supported")
+	assert.Nil(t, info.GrokImageBilling)
+	assert.Empty(t, billing.reserved)
+}
+
 func TestPrepareImageRequestBillingPreservesOrdinaryImageMapping(t *testing.T) {
 	c := imageBillingMappingContext(t, "dall-e-3", `{"dall-e-3":"gpt-image-1"}`, constant.ChannelTypeOpenAI)
 	request := &dto.ImageRequest{Model: "dall-e-3", Prompt: "cat"}

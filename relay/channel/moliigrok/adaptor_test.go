@@ -11,6 +11,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	kittypes "github.com/QuantumNous/new-api/relaykit/types"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -109,6 +110,64 @@ func TestConvertImageRequestSupportsOfficialEditPayload(t *testing.T) {
 	encoded, err := common.Marshal(converted)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"model":"grok-imagine-image-quality","prompt":"oil painting","aspect_ratio":"16:9","resolution":"2k","n":1,"image":{"url":"https://images.example/input.png","type":"image_url"}}`, string(encoded))
+}
+
+func TestGrokImageRejectsFileIDBeforeBilling(t *testing.T) {
+	tests := []struct {
+		name string
+		mode int
+		body string
+	}{
+		{name: "generation single object", mode: relayconstant.RelayModeImagesGenerations, body: `{"model":"grok-imagine-image","prompt":"cat","image":{"file_id":"file_abc"}}`},
+		{name: "edit single object", mode: relayconstant.RelayModeImagesEdits, body: `{"model":"grok-imagine-image","prompt":"edit","image":{"file_id":"file_abc"}}`},
+		{name: "edit multiple objects", mode: relayconstant.RelayModeImagesEdits, body: `{"model":"grok-imagine-image","prompt":"edit","images":[{"url":"https://images.example/a.png"},{"file_id":"file_abc"}]}`},
+		{name: "edit direct file reference", mode: relayconstant.RelayModeImagesEdits, body: `{"model":"grok-imagine-image","prompt":"edit","image":"file_abc"}`},
+		{name: "url cannot hide file id", mode: relayconstant.RelayModeImagesEdits, body: `{"model":"grok-imagine-image","prompt":"edit","image":{"url":"https://images.example/a.png","file_id":"file_abc"}}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := imageContext(t, tt.body)
+			if tt.mode == relayconstant.RelayModeImagesEdits {
+				c.Request.URL.Path = "/v1/images/edits"
+			}
+			info := imageInfo()
+			info.RelayMode = tt.mode
+			var request dto.ImageRequest
+			require.NoError(t, common.Unmarshal([]byte(tt.body), &request))
+
+			_, err := (&Adaptor{}).EstimateImageBilling(c, info, request)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "Molii media file_id is not supported")
+			assert.Nil(t, info.GrokImageBilling, "unsupported media must fail before the billing snapshot is created")
+
+			apiErr := (&Adaptor{}).SanitizeImageRequestError(err)
+			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+			assert.Equal(t, kittypes.ErrorCode("file_id_not_supported"), apiErr.GetErrorCode())
+		})
+	}
+}
+
+func TestGrokImageURLStringAndObjectRemainSupported(t *testing.T) {
+	for _, body := range []string{
+		`{"model":"grok-imagine-image","prompt":"edit","image":"https://images.example/a.png"}`,
+		`{"model":"grok-imagine-image","prompt":"edit","images":[{"url":"https://images.example/a.png"},"data:image/png;base64,AA=="]}`,
+	} {
+		c := imageContext(t, body)
+		c.Request.URL.Path = "/v1/images/edits"
+		info := imageInfo()
+		info.RelayMode = relayconstant.RelayModeImagesEdits
+		var request dto.ImageRequest
+		require.NoError(t, common.Unmarshal([]byte(body), &request))
+
+		_, err := (&Adaptor{}).EstimateImageBilling(c, info, request)
+		require.NoError(t, err)
+		converted, err := (&Adaptor{}).ConvertImageRequest(c, info, request)
+		require.NoError(t, err)
+		encoded, err := common.Marshal(converted)
+		require.NoError(t, err)
+		assert.NotContains(t, string(encoded), "file_id")
+	}
 }
 
 func TestEstimateImageBillingSeparatesInputAndOutputUnits(t *testing.T) {

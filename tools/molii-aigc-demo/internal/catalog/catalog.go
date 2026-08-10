@@ -41,6 +41,7 @@ func intp(v int) *int { return &v }
 
 var imageRatios = []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"}
 var seedanceRatios = []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"}
+var grokVideoRatios = []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"}
 
 func seedanceFields(resolutions []string) []Field {
 	return []Field{
@@ -87,7 +88,7 @@ func grokVideoOperations(model string) []Operation {
 		{Name: "prompt", Label: "Prompt", Type: "textarea", Required: true, Maximum: intp(10000)},
 		{Name: "image", Label: "Input image", Type: "media", Required: imageRequired},
 		{Name: "duration", Label: "Duration", Type: "integer", Default: 5, Minimum: intp(1), Maximum: intp(15)},
-		{Name: "aspect_ratio", Label: "Aspect ratio", Type: "text", Default: "16:9", Maximum: intp(32)},
+		{Name: "aspect_ratio", Label: "Aspect ratio", Type: "select", Default: "16:9", Options: grokVideoRatios},
 		{Name: "resolution", Label: "Resolution", Type: "select", Default: "480p", Options: resolutions},
 	}
 	ops := []Operation{{ID: "grok.video.generate", Label: "Video generation", Method: "POST", Path: "/v1/videos", Async: true, Generation: true, Fields: fields}}

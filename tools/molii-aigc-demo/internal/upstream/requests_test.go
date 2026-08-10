@@ -17,7 +17,7 @@ func TestBuildSupportedGenerationOperations(t *testing.T) {
 		{"seedance.video.generate", `{"model":"doubao-seedance-2-0-260128","prompt":"cat"}`, "/v1/video/generations"},
 		{"grok.image.generate", `{"model":"grok-imagine-image","prompt":"cat"}`, "/v1/images/generations"},
 		{"grok.image.edit", `{"model":"grok-imagine-image-quality","prompt":"edit","images":["https://example.test/a.png"]}`, "/v1/images/edits"},
-		{"grok.video.generate", `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"file_id":"file_1"}}`, "/v1/videos"},
+		{"grok.video.generate", `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"url":"https://example.test/a.png"}}`, "/v1/videos"},
 		{"grok.video.edit", `{"model":"grok-imagine-video","prompt":"rain","video":"https://example.test/a.mp4"}`, "/v1/videos/edits"},
 	}
 	for _, tt := range tests {
@@ -26,6 +26,25 @@ func TestBuildSupportedGenerationOperations(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, request.Generation)
 			require.Equal(t, tt.path, request.Path)
+		})
+	}
+}
+
+func TestBuildRejectsGrokFileIDMedia(t *testing.T) {
+	tests := []struct{ op, body string }{
+		{"grok.image.generate", `{"model":"grok-imagine-image","prompt":"cat","image":{"file_id":"file_1"}}`},
+		{"grok.image.edit", `{"model":"grok-imagine-image","prompt":"edit","images":[{"file_id":"file_1"}]}`},
+		{"grok.image.edit", `{"model":"grok-imagine-image","prompt":"edit","image":"file_1"}`},
+		{"grok.video.generate", `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"file_id":"file_1"}}`},
+		{"grok.video.generate", `{"model":"grok-imagine-video-1.5","prompt":"animate","image":"file_1"}`},
+		{"grok.video.edit", `{"model":"grok-imagine-video","prompt":"edit","video":{"file_id":"file_1"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.op, func(t *testing.T) {
+			request, err := Build(tt.op, []byte(tt.body))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "file_id is not supported")
+			require.NotContains(t, string(request.Body), "file_id")
 		})
 	}
 }
@@ -69,7 +88,7 @@ func TestBuildRejectsContractViolations(t *testing.T) {
 
 func TestBuildRejectsRetiredGrokVideoAlias(t *testing.T) {
 	retiredModel := "grok-imagine-video-1.5-" + "pre" + "view"
-	body := fmt.Sprintf(`{"model":%q,"prompt":"animate","image":{"file_id":"file_1"}}`, retiredModel)
+	body := fmt.Sprintf(`{"model":%q,"prompt":"animate","image":{"url":"https://example.test/a.png"}}`, retiredModel)
 	_, err := Build("grok.video.generate", []byte(body))
 	require.Error(t, err)
 }

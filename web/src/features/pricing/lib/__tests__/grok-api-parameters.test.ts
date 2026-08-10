@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
 
 import { buildGrokApiParameters } from '../grok-api-parameters'
@@ -55,6 +56,10 @@ describe('Grok Imagine API parameters', () => {
       parameter('grok-imagine-image-quality', 'edit', 'images')?.range,
       '1–3 input images in total'
     )
+    assert.doesNotMatch(
+      params.map((item) => item.descriptionKey).join(' '),
+      /file_id/i
+    )
   })
 
   test('distinguishes legacy video and video 1.5 generation', () => {
@@ -66,6 +71,14 @@ describe('Grok Imagine API parameters', () => {
     )
     assert.equal(legacyImage?.required, false)
     assert.equal(video15Image?.required, true)
+    assert.equal(
+      parameter('grok-imagine-video', 'generate', 'prompt')?.required,
+      true
+    )
+    assert.deepEqual(
+      parameter('grok-imagine-video', 'generate', 'aspect_ratio')?.enumValues,
+      ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']
+    )
     assert.deepEqual(
       parameter('grok-imagine-video', 'generate', 'resolution')?.enumValues,
       ['480p', '720p']
@@ -77,6 +90,12 @@ describe('Grok Imagine API parameters', () => {
     assert.equal(
       parameter('grok-imagine-video-1.5', 'generate', 'duration')?.range,
       '1–15 seconds'
+    )
+    assert.doesNotMatch(
+      buildGrokApiParameters('grok-imagine-video-1.5', 'generate')
+        .map((item) => item.descriptionKey)
+        .join(' '),
+      /file_id/i
     )
   })
 
@@ -90,6 +109,10 @@ describe('Grok Imagine API parameters', () => {
     assert.equal(
       parameter('grok-imagine-video', 'edit', 'video')?.required,
       true
+    )
+    assert.doesNotMatch(
+      params.map((item) => item.descriptionKey).join(' '),
+      /file_id/i
     )
   })
 
@@ -107,6 +130,27 @@ describe('Grok Imagine API parameters', () => {
           },
         ]
       )
+    }
+  })
+
+  test('published locale strings do not advertise retired or unsupported Grok inputs', () => {
+    for (const locale of ['en', 'zh']) {
+      const document = JSON.parse(
+        readFileSync(
+          new URL(`../../../../i18n/locales/${locale}.json`, import.meta.url),
+          'utf8'
+        )
+      ) as { translation: Record<string, string> }
+      for (const retiredKey of [
+        'Single input image; provide image or images and include url or file_id',
+        'Multiple input images; provide image or images and include url or file_id',
+        'Input image with url or file_id; required by grok-imagine-video-1.5',
+        'Optional input image with url or file_id for image-to-video generation',
+        'Input video with url or file_id to edit',
+        'Grok Imagine Video 1.5 Preview model description',
+      ]) {
+        assert.equal(document.translation[retiredKey], undefined)
+      }
     }
   })
 })

@@ -192,7 +192,7 @@
     }
     if (item.type === "media") return renderMediaField(item, value);
     if (item.type === "array" && item.item_type === "media") {
-      return `<label class="field wide"><span>${label}${requiredMark}</span><textarea name="${name}"${required} placeholder="每行一个公开 URL 或 file_id">${escapeHTML(Array.isArray(value) ? value.map(mediaDisplayValue).join("\n") : (value || ""))}</textarea><small>每行一个输入，图片编辑合计支持 1–3 张</small></label>`;
+      return `<label class="field wide"><span>${label}${requiredMark}</span><textarea name="${name}"${required} placeholder="每行一个公开 URL">${escapeHTML(Array.isArray(value) ? value.map(mediaDisplayValue).join("\n") : (value || ""))}</textarea><small>每行一个公开 URL，图片编辑合计支持 1–3 张</small></label>`;
     }
     const inputType = item.type === "integer" ? "number" : (item.type === "url" ? "url" : "text");
     const min = item.minimum !== undefined ? ` min="${item.minimum}"` : "";
@@ -203,7 +203,7 @@
 
   function renderMediaField(item, value) {
     const normalized = normalizeMedia(value);
-    return `<div class="field wide media-field" data-media-field="${escapeAttr(item.name)}"><span>${escapeHTML(labels[item.name] || item.label || item.name)}${item.required ? " *" : ""}</span><div class="media-input-row"><select data-media-kind aria-label="输入类型"><option value="url"${normalized.kind === "url" ? " selected" : ""}>公开 URL</option><option value="file_id"${normalized.kind === "file_id" ? " selected" : ""}>file_id</option></select><input name="${escapeAttr(item.name)}" value="${escapeAttr(normalized.value)}"${item.required ? " required" : ""} placeholder="${normalized.kind === "url" ? "https://…" : "file_…"}"></div><small>Demo 不保存上传文件正文，请提供可访问 URL 或素材 file_id</small></div>`;
+    return `<div class="field wide media-field" data-media-field="${escapeAttr(item.name)}"><span>${escapeHTML(labels[item.name] || item.label || item.name)}${item.required ? " *" : ""}</span><div class="media-input-row"><input type="url" name="${escapeAttr(item.name)}" value="${escapeAttr(normalized.value)}"${item.required ? " required" : ""} placeholder="https://…"></div><small>Demo 不保存上传文件正文，请提供可访问的公开 URL</small></div>`;
   }
 
   function renderContent() {
@@ -249,17 +249,15 @@
     return payload;
   }
   function collectMedia(name, raw) {
-    const wrapper = $(`[data-media-field="${cssEscape(name)}"]`);
-    const kind = $("[data-media-kind]", wrapper)?.value || "url";
     const trimmed = String(raw || "").trim();
-    return trimmed ? { [kind]: trimmed } : "";
+    return trimmed ? { url: trimmed } : "";
   }
-  function mediaFromString(value) { return value.startsWith("file_") ? { file_id: value } : { url: value }; }
+  function mediaFromString(value) { return { url: value }; }
   function normalizeMedia(value) {
-    if (value && typeof value === "object") return value.file_id ? { kind: "file_id", value: value.file_id } : { kind: "url", value: value.url || "" };
-    const text = String(value || ""); return text.startsWith("file_") ? { kind: "file_id", value: text } : { kind: "url", value: text };
+    if (value && typeof value === "object") return { value: value.url || "" };
+    return { value: String(value || "") };
   }
-  function mediaDisplayValue(value) { return typeof value === "string" ? value : value?.file_id || value?.url || ""; }
+  function mediaDisplayValue(value) { return typeof value === "string" ? value : value?.url || ""; }
   function defaultRole(type) { return type === "image_url" ? "first_frame" : type === "video_url" ? "reference_video" : "reference_audio"; }
 
   function validatePayload(payload) {

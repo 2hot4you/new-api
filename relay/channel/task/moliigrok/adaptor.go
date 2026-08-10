@@ -3,6 +3,7 @@ package moliigrok
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,12 @@ type TaskAdaptor struct {
 	baseURL string
 }
 
+const fileIDNotSupportedMessage = "Molii media file_id is not supported; use a URL instead"
+
+var supportedVideoAspectRatios = map[string]struct{}{
+	"1:1": {}, "16:9": {}, "9:16": {}, "4:3": {}, "3:4": {}, "3:2": {}, "2:3": {},
+}
+
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	if info == nil {
 		return
@@ -46,12 +53,18 @@ func (a *TaskAdaptor) AllowAutomaticTaskSubmitRetry() bool { return false }
 func (a *TaskAdaptor) AllowPerCallCompletionAdjustment() bool { return true }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError {
+	if requestContainsFileID(c) {
+		return service.TaskErrorWrapperLocal(errors.New(fileIDNotSupportedMessage), "file_id_not_supported", http.StatusBadRequest)
+	}
 	if taskErr := relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate); taskErr != nil {
 		return taskErr
 	}
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+	}
+	if taskRequestContainsFileID(req) {
+		return service.TaskErrorWrapperLocal(errors.New(fileIDNotSupportedMessage), "file_id_not_supported", http.StatusBadRequest)
 	}
 	modelName := strings.TrimSpace(req.Model)
 	if modelName == "" {
@@ -98,12 +111,16 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 	if strings.TrimSpace(req.AspectRatio) == "" {
 		req.AspectRatio = "16:9"
+	} else {
+		req.AspectRatio = strings.TrimSpace(req.AspectRatio)
 	}
 	if strings.TrimSpace(req.Resolution) == "" {
 		req.Resolution = "480p"
+	} else {
+		req.Resolution = strings.ToLower(strings.TrimSpace(req.Resolution))
 	}
-	if len(req.AspectRatio) > 32 || len(req.Resolution) > 32 {
-		return service.TaskErrorWrapperLocal(errors.New("invalid video parameters"), "invalid_request", http.StatusBadRequest)
+	if _, ok := supportedVideoAspectRatios[req.AspectRatio]; !ok {
+		return service.TaskErrorWrapperLocal(errors.New("aspect_ratio is not supported"), "invalid_aspect_ratio", http.StatusBadRequest)
 	}
 	if _, _, _, ok := ratio_setting.GetMoliiGrokVideoPrices(modelName, req.Resolution); !ok {
 		return service.TaskErrorWrapperLocal(errors.New("resolution is not supported by the selected model"), "invalid_resolution", http.StatusBadRequest)
@@ -138,6 +155,9 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
+	if taskRequestContainsFileID(req) {
+		return nil, errors.New(fileIDNotSupportedMessage)
+	}
 	modelName := strings.TrimSpace(req.Model)
 	if modelName == "" {
 		modelName = VideoModel
@@ -149,7 +169,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		payload := videoEditRequestPayload{
 			Model:  modelName,
 			Prompt: strings.TrimSpace(req.Prompt),
-			Video:  buildMediaInput(req.Video, req.VideoFileID),
+			Video:  buildMediaInput(req.Video),
 		}
 		body, err := common.Marshal(payload)
 		if err != nil {
@@ -169,7 +189,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		imageURL = strings.TrimSpace(req.Images[0])
 	}
 	if imageURL != "" {
-		media := buildMediaInput(imageURL, req.ImageFileID)
+		media := buildMediaInput(imageURL)
 		payload.Image = &media
 	}
 	body, err := common.Marshal(payload)
@@ -179,11 +199,69 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	return bytes.NewReader(body), nil
 }
 
-func buildMediaInput(value, fileID string) mediaInput {
-	if strings.TrimSpace(fileID) != "" {
-		return mediaInput{FileID: strings.TrimSpace(fileID)}
-	}
+func buildMediaInput(value string) mediaInput {
 	return mediaInput{URL: strings.TrimSpace(value)}
+}
+
+func requestContainsFileID(c *gin.Context) bool {
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return false
+	}
+	body, err := storage.Bytes()
+	if err != nil {
+		return false
+	}
+	var request map[string]json.RawMessage
+	if err := common.Unmarshal(body, &request); err != nil {
+		return false
+	}
+	for _, field := range []string{"image", "images", "video"} {
+		if mediaContainsFileID(request[field]) {
+			return true
+		}
+	}
+	return false
+}
+
+func mediaContainsFileID(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false
+	}
+	var direct string
+	if err := common.Unmarshal(raw, &direct); err == nil {
+		return strings.HasPrefix(strings.ToLower(strings.TrimSpace(direct)), "file_")
+	}
+	var items []json.RawMessage
+	if err := common.Unmarshal(raw, &items); err == nil {
+		for _, item := range items {
+			if mediaContainsFileID(item) {
+				return true
+			}
+		}
+		return false
+	}
+	var object map[string]json.RawMessage
+	if err := common.Unmarshal(raw, &object); err == nil {
+		for key := range object {
+			if strings.EqualFold(key, "file_id") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func taskRequestContainsFileID(req relaycommon.TaskSubmitReq) bool {
+	if strings.TrimSpace(req.ImageFileID) != "" || strings.TrimSpace(req.VideoFileID) != "" {
+		return true
+	}
+	for _, value := range append([]string{req.Image, req.Video}, req.Images...) {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "file_") {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {

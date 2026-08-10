@@ -20,3 +20,5 @@ Task 6: complete (commits 1c7ebfe2, a7ca03de, ccf228c6; spec ✅; quality approv
 Task 7: complete (commit 9c72d96c; spec ✅; quality approved — explicit poll resolution only, uncertain edits enter review_required)
 Preview retirement surface: fix round 1/5 (1 addressed, 0 open — Demo README; commit 74b73109)
 Preview retirement surface: complete (commits 626eed55, 74b73109; spec ✅; quality approved)
+Task 8: fix round 1/5 (1 addressed, 0 open — preserve stable `file_id_not_supported` through pre-billing image validation)
+Task 8: complete (uncommitted integration; spec ✅; quality approved by primary-agent review)

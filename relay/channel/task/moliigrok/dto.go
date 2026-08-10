@@ -16,8 +16,7 @@ type videoEditRequestPayload struct {
 }
 
 type mediaInput struct {
-	URL    string `json:"url,omitempty"`
-	FileID string `json:"file_id,omitempty"`
+	URL string `json:"url"`
 }
 
 type videoSubmitResponse struct {

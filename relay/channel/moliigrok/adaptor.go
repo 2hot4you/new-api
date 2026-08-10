@@ -23,6 +23,10 @@ import (
 
 const validatedImageCountContextKey = "molii_grok_validated_image_count"
 
+const fileIDNotSupportedMessage = "Molii media file_id is not supported; use a URL instead"
+
+var errFileIDNotSupported = errors.New(fileIDNotSupportedMessage)
+
 const (
 	imageBillingOutputPriceContextKey = "molii_grok_image_output_price"
 	imageBillingInputPriceContextKey  = "molii_grok_image_input_price"
@@ -74,6 +78,9 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	var raw rawImageRequest
 	if err := common.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("invalid image request: %w", err)
+	}
+	if rawImageRequestContainsFileID(raw) {
+		return nil, errFileIDNotSupported
 	}
 
 	modelName := strings.TrimSpace(raw.Model)
@@ -161,6 +168,9 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	var raw rawImageRequest
 	if err := common.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("invalid image request: %w", err)
+	}
+	if rawImageRequestContainsFileID(raw) {
+		return nil, errFileIDNotSupported
 	}
 	modelName := strings.TrimSpace(raw.Model)
 	if modelName == "" {
@@ -252,23 +262,65 @@ func normalizeImageMedia(imageRaw, imagesRaw []byte) ([]imageMediaInput, error) 
 	for _, raw := range rawItems {
 		var direct string
 		if err := common.Unmarshal(raw, &direct); err == nil && strings.TrimSpace(direct) != "" {
+			if isFileIDReference(direct) {
+				return nil, errFileIDNotSupported
+			}
 			media = append(media, imageMediaInput{URL: strings.TrimSpace(direct), Type: "image_url"})
 			continue
 		}
-		var item imageMediaInput
-		if err := common.Unmarshal(raw, &item); err != nil || (strings.TrimSpace(item.URL) == "" && strings.TrimSpace(item.FileID) == "") {
-			return nil, errors.New("each input image must contain url or file_id")
+		var item struct {
+			URL    string `json:"url"`
+			FileID string `json:"file_id"`
 		}
-		item.URL = strings.TrimSpace(item.URL)
-		item.FileID = strings.TrimSpace(item.FileID)
-		if item.URL != "" {
-			item.Type = "image_url"
-		} else {
-			item.Type = ""
+		if err := common.Unmarshal(raw, &item); err != nil {
+			return nil, errors.New("each input image must contain url")
 		}
-		media = append(media, item)
+		if strings.TrimSpace(item.FileID) != "" {
+			return nil, errFileIDNotSupported
+		}
+		url := strings.TrimSpace(item.URL)
+		if url == "" {
+			return nil, errors.New("each input image must contain url")
+		}
+		media = append(media, imageMediaInput{URL: url, Type: "image_url"})
 	}
 	return media, nil
+}
+
+func rawImageRequestContainsFileID(raw rawImageRequest) bool {
+	return rawMediaContainsFileID(raw.Image) || rawMediaContainsFileID(raw.Images)
+}
+
+func rawMediaContainsFileID(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false
+	}
+	var direct string
+	if err := common.Unmarshal(raw, &direct); err == nil {
+		return isFileIDReference(direct)
+	}
+	var items []json.RawMessage
+	if err := common.Unmarshal(raw, &items); err == nil {
+		for _, item := range items {
+			if rawMediaContainsFileID(item) {
+				return true
+			}
+		}
+		return false
+	}
+	var object map[string]json.RawMessage
+	if err := common.Unmarshal(raw, &object); err == nil {
+		for key := range object {
+			if strings.EqualFold(key, "file_id") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isFileIDReference(value string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "file_")
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
@@ -322,6 +374,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 }
 
 func (a *Adaptor) SanitizeImageRequestError(err error) *types.NewAPIError {
+	if errors.Is(err, errFileIDNotSupported) {
+		return types.NewOpenAIError(err, types.ErrorCode("file_id_not_supported"), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
 	return types.NewOpenAIError(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 }
 

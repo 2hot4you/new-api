@@ -36,6 +36,8 @@ const IMAGE_ASPECT_RATIOS = [
   'auto',
 ]
 
+const VIDEO_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']
+
 function modelParameter(modelName: string): SupportedParameter {
   return {
     name: 'model',
@@ -54,11 +56,12 @@ const requiredImagePrompt: SupportedParameter = {
   required: true,
 }
 
-const optionalVideoPrompt: SupportedParameter = {
+const requiredVideoPrompt: SupportedParameter = {
   name: 'prompt',
   type: 'string',
-  range: 'Up to 10,000 characters',
-  descriptionKey: 'Optional text instruction for video generation or editing',
+  range: '1–10,000 characters',
+  descriptionKey: 'Text instruction for video generation or editing',
+  required: true,
 }
 
 const imageAspectRatio: SupportedParameter = {
@@ -96,15 +99,14 @@ function imageParameters(
             name: 'image',
             type: 'object',
             range: '1–3 input images in total',
-            descriptionKey:
-              'Single input image; provide image or images and include url or file_id',
+            descriptionKey: 'Single input image URL; provide image or images',
           },
           {
             name: 'images',
             type: 'array',
             range: '1–3 input images in total',
             descriptionKey:
-              'Multiple input images; provide image or images and include url or file_id',
+              'Multiple input image URLs; provide image or images',
           },
         ]
       : []
@@ -127,13 +129,13 @@ function videoGenerationParameters(modelName: string): SupportedParameter[] {
 
   return [
     modelParameter(modelName),
-    optionalVideoPrompt,
+    requiredVideoPrompt,
     {
       name: 'image',
       type: 'object',
       descriptionKey: imageRequired
-        ? 'Input image with url or file_id; required by grok-imagine-video-1.5'
-        : 'Optional input image with url or file_id for image-to-video generation',
+        ? 'Input image URL; required by grok-imagine-video-1.5'
+        : 'Optional input image URL for image-to-video generation',
       required: imageRequired,
     },
     {
@@ -145,8 +147,9 @@ function videoGenerationParameters(modelName: string): SupportedParameter[] {
     },
     {
       name: 'aspect_ratio',
-      type: 'string',
+      type: 'enum',
       defaultValue: '16:9',
+      enumValues: VIDEO_ASPECT_RATIOS,
       descriptionKey: 'Requested output video aspect ratio',
     },
     {
@@ -162,11 +165,11 @@ function videoGenerationParameters(modelName: string): SupportedParameter[] {
 function videoEditParameters(modelName: string): SupportedParameter[] {
   return [
     modelParameter(modelName),
-    optionalVideoPrompt,
+    requiredVideoPrompt,
     {
       name: 'video',
       type: 'object',
-      descriptionKey: 'Input video with url or file_id to edit',
+      descriptionKey: 'Input video URL to edit',
       required: true,
     },
   ]

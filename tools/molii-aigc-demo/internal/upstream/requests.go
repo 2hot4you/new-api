@@ -24,9 +24,8 @@ type PreparedRequest struct {
 }
 
 type mediaRef struct {
-	URL    string `json:"url,omitempty"`
-	FileID string `json:"file_id,omitempty"`
-	Type   string `json:"type,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Type string `json:"type,omitempty"`
 }
 
 func (m *mediaRef) UnmarshalJSON(data []byte) error {
@@ -36,17 +35,27 @@ func (m *mediaRef) UnmarshalJSON(data []byte) error {
 		if m.URL == "" {
 			return errors.New("media URL must not be empty")
 		}
+		if strings.HasPrefix(strings.ToLower(m.URL), "file_") {
+			return errors.New("file_id is not supported; use a URL instead")
+		}
 		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err == nil {
+		for key := range fields {
+			if strings.EqualFold(key, "file_id") {
+				return errors.New("file_id is not supported; use a URL instead")
+			}
+		}
 	}
 	type alias mediaRef
 	var value alias
 	if err := decodeStrict(data, &value); err != nil {
-		return errors.New("media must be a URL string or an object containing url or file_id")
+		return errors.New("media must be a URL string or an object containing url")
 	}
 	value.URL = strings.TrimSpace(value.URL)
-	value.FileID = strings.TrimSpace(value.FileID)
-	if (value.URL == "") == (value.FileID == "") {
-		return errors.New("media must contain exactly one of url or file_id")
+	if value.URL == "" {
+		return errors.New("media must contain url")
 	}
 	*m = mediaRef(value)
 	return nil
@@ -183,7 +192,7 @@ func Build(operation string, raw []byte) (PreparedRequest, error) {
 		if err := validatePrompt(req.Prompt, true); err != nil {
 			return PreparedRequest{}, err
 		}
-		if req.Video.URL == "" && req.Video.FileID == "" {
+		if req.Video.URL == "" {
 			return PreparedRequest{}, errors.New("video is required")
 		}
 		return marshalPrepared(operation, http.MethodPost, "/v1/videos/edits", req, true, true)
