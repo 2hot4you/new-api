@@ -165,7 +165,15 @@ type asyncTaskPollHandler struct{}
 func (asyncTaskPollHandler) Type() string { return model.SystemTaskTypeAsyncTaskPoll }
 
 func (asyncTaskPollHandler) Enabled() bool {
-	return constant.UpdateTask && model.HasUnfinishedSyncTasks()
+	if !constant.UpdateTask {
+		return false
+	}
+	hasUnfinished, err := model.HasUnfinishedSyncTasksWithError()
+	if err != nil {
+		common.SysLog(fmt.Sprintf("async task polling enablement query failed; scheduling diagnostic run: %v", err))
+		return true
+	}
+	return hasUnfinished
 }
 
 func (asyncTaskPollHandler) Interval() time.Duration { return 15 * time.Second }
@@ -173,7 +181,7 @@ func (asyncTaskPollHandler) Interval() time.Duration { return 15 * time.Second }
 func (asyncTaskPollHandler) NewPayload() any { return nil }
 
 func (asyncTaskPollHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
-	summary, err := service.RunTaskPollingOnce(ctx, service.NewSystemTaskProgressReporter(task, runnerID))
+	summary, err := service.RunTaskPollingOnceWithError(ctx, service.NewSystemTaskProgressReporter(task, runnerID))
 	status := model.SystemTaskStatusSucceeded
 	if err != nil {
 		status = model.SystemTaskStatusFailed

@@ -59,6 +59,30 @@ func TestAsyncTaskPollHandlerReportsUnfinishedQueryFailure(t *testing.T) {
 	assert.Contains(t, reloaded.Error, "handler unfinished query failed")
 }
 
+func TestAsyncTaskPollHandlerEnabledOnUnfinishedQueryFailure(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Task{}))
+	previousDB := model.DB
+	previousUpdateTask := constant.UpdateTask
+	model.DB = db
+	constant.UpdateTask = true
+	t.Cleanup(func() {
+		model.DB = previousDB
+		constant.UpdateTask = previousUpdateTask
+	})
+
+	callbackName := "test:fail_handler_enabled_query"
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Schema != nil && tx.Statement.Schema.Name == "Task" {
+			tx.AddError(errors.New("handler enabled query failed"))
+		}
+	}))
+	t.Cleanup(func() { db.Callback().Query().Remove(callbackName) })
+
+	assert.True(t, (asyncTaskPollHandler{}).Enabled(), "query failure must schedule a run that records failed")
+}
+
 func setupTaskDTOBillingDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

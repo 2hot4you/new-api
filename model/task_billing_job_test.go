@@ -3,20 +3,31 @@ package model
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
 func TestFinalizeTaskAndEnqueueBillingWithContextCancellationRollsBack(t *testing.T) {
-	truncateTables(t)
-	prepareTaskBillingJobTest(t)
+	previousDB := DB
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "context-cancel.db")), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&Task{}, &TaskBillingJob{}))
+	DB = db
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		DB = previousDB
+		require.NoError(t, sqlDB.Close())
+	})
 	task := createInProgressBillingTask(t, "task_billing_context_cancel", 125)
 	task.Status = TaskStatusFailure
 	task.Progress = "100%"

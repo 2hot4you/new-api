@@ -233,8 +233,7 @@ func TestPollingNullUpstreamBillingEnqueuesRefund(t *testing.T) {
 		constant.TaskQueryLimit = previousLimit
 	})
 
-	summary, err := RunTaskPollingOnce(context.Background(), nil)
-	require.NoError(t, err)
+	summary := RunTaskPollingOnce(context.Background(), nil)
 	assert.Equal(t, 1, summary.UnfinishedTasks)
 	assert.Equal(t, 1, summary.NullTasksFailed)
 	var terminal model.Task
@@ -297,7 +296,7 @@ func TestPollingTaskMapIsScopedByChannelAndUpstreamID(t *testing.T) {
 		constant.TaskQueryLimit = previousLimit
 	})
 
-	summary, err := RunTaskPollingOnce(context.Background(), nil)
+	summary, err := RunTaskPollingOnceWithError(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, 2, summary.UnfinishedTasks)
 	assert.Equal(t, 2, adaptor.fetchCount())
@@ -327,7 +326,7 @@ func TestRunTaskPollingOnceReportsUnfinishedQueryFailure(t *testing.T) {
 	}))
 	t.Cleanup(func() { model.DB.Callback().Query().Remove(callbackName) })
 
-	_, err := RunTaskPollingOnce(context.Background(), nil)
+	_, err := RunTaskPollingOnceWithError(context.Background(), nil)
 	require.ErrorContains(t, err, "injected unfinished query failure")
 }
 
@@ -682,8 +681,7 @@ func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {
 	}
 	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
 
-	summary, err := RunTaskPollingOnce(context.Background(), nil)
-	require.NoError(t, err)
+	summary := RunTaskPollingOnce(context.Background(), nil)
 
 	assert.Zero(t, summary.UnfinishedTasks)
 	assert.Equal(t, initialQuota, getUserQuota(t, userID))

@@ -58,14 +58,6 @@ func privateTaskPollingAdaptor(adaptor TaskPollingAdaptor) (PrivateTaskPollingAd
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
 
-var taskPollingConcurrentLogMu sync.Mutex
-
-func logConcurrentTaskPollingInfo(ctx context.Context, message string) {
-	taskPollingConcurrentLogMu.Lock()
-	defer taskPollingConcurrentLogMu.Unlock()
-	logger.LogInfo(ctx, message)
-}
-
 func pollingUpstreamTaskID(task *model.Task) string {
 	if task == nil {
 		return ""
@@ -187,7 +179,19 @@ type TaskPollSummary struct {
 // when the lease is lost) and, when report is non-nil, reports progress as
 // (processedPlatforms, totalPlatforms). It returns immediately if the task
 // adaptor factory has not been wired yet, to avoid a nil call during startup.
-func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) (TaskPollSummary, error) {
+// RunTaskPollingOnce preserves the historical summary-only API. New system
+// task callers use RunTaskPollingOnceWithError so database failures are
+// persisted as failed runs; legacy callers still compile and receive a safe
+// empty/partial summary while the error is logged.
+func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) TaskPollSummary {
+	summary, err := RunTaskPollingOnceWithError(ctx, report)
+	if err != nil {
+		logger.LogError(ctx, fmt.Sprintf("task polling pass failed: %v", err))
+	}
+	return summary
+}
+
+func RunTaskPollingOnceWithError(ctx context.Context, report func(processed, total int)) (TaskPollSummary, error) {
 	summary := TaskPollSummary{}
 	if GetTaskAdaptorFunc == nil {
 		return summary, nil
@@ -477,7 +481,7 @@ func UpdateVideoTasks(ctx context.Context, platform constant.TaskPlatform, taskC
 }
 
 func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, channelId int, taskIds []string, taskM map[string]*model.Task) error {
-	logConcurrentTaskPollingInfo(ctx, fmt.Sprintf("Channel #%d pending video tasks: %d", channelId, len(taskIds)))
+	logger.LogInfo(ctx, fmt.Sprintf("Channel #%d pending video tasks: %d", channelId, len(taskIds)))
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

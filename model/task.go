@@ -414,6 +414,11 @@ func ClearExpiredStarAIResultMetadata(cutoffUnix int64, limit int) (int64, error
 // whether the async_task_poll system task needs to run; when no task is pending
 // the scheduler skips creating a row entirely.
 func HasUnfinishedSyncTasks() bool {
+	hasUnfinished, _ := HasUnfinishedSyncTasksWithError()
+	return hasUnfinished
+}
+
+func HasUnfinishedSyncTasksWithError() (bool, error) {
 	var id int64
 	err := DB.Model(&Task{}).
 		Where("progress != ?", "100%").
@@ -421,7 +426,10 @@ func HasUnfinishedSyncTasks() bool {
 		Where("status != ?", TaskStatusSuccess).
 		Limit(1).
 		Pluck("id", &id).Error
-	return err == nil && id != 0
+	if err != nil {
+		return false, err
+	}
+	return id != 0, nil
 }
 
 func GetByTaskId(userId int, taskId string) (*Task, bool, error) {
