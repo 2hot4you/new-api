@@ -1,0 +1,12 @@
+{
+  "id": "fix-channel-edit-blank-api-key",
+  "title": "修复编辑渠道时留空 API 密钥被误判为必填",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档并交付用户验收",
+  "createdAt": "2026-08-11T19:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

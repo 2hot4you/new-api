@@ -17,7 +17,9 @@
 
 ## 验证证据
 
-- `bun test`：79 passed，0 failed。
+- `bun test`：92 passed，0 failed。
+- `web: bun run typecheck && bun test`：269 passed，0 failed。
+- `go test ./... -count=1` 与 `go vet ./...`：通过。
 - `bun run api:lint`：OpenAPI 3.1 文档有效。
 - `bun run check:forbidden`：公开内容禁词检查通过。
 - `bun run check:secrets`：文档密钥检查通过。

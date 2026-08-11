@@ -1,0 +1,13 @@
+{
+  "id": "default-expand-docs-sidebar",
+  "title": "默认展开文档开始使用与平台账户菜单",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "等待用户验收默认展开行为",
+  "createdAt": "2026-08-11T00:00:00+08:00",
+  "completedAt": "2026-08-11T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

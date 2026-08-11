@@ -1,12 +1,12 @@
 {
   "id": "grok-completion-and-playground-redesign",
   "title": "补齐 Grok Imagine P0/P1/P2 并重构 Playground",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "implementation",
-  "nextAction": "复审用户级 Files API，并同步用户侧 API 契约与模型目录",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并启动本地开发服务",
   "createdAt": "2026-08-11T00:00:00+08:00",
   "branch": "feat/molii-auth"
 }

@@ -1,0 +1,12 @@
+{
+  "id": "debug-grok-management-fields-visibility",
+  "title": "排查 Molii Grok 渠道表单未显示管理凭据",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档并告知正确的开发页面入口",
+  "createdAt": "2026-08-11T18:20:00+08:00",
+  "branch": "feat/molii-auth"
+}

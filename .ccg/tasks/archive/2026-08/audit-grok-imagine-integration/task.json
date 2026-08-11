@@ -1,0 +1,12 @@
+{
+  "id": "audit-grok-imagine-integration",
+  "title": "审计 Molii Grok Imagine API 生图生视频渠道的剩余对接缺口",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "按审计优先级由用户决定后续实施范围",
+  "createdAt": "2026-08-11T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
