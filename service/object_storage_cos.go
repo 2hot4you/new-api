@@ -1,0 +1,369 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	cos "github.com/tencentyun/cos-go-sdk-v5"
+)
+
+const (
+	objectStorageDefaultImageMaxBytes = int64(30 * 1024 * 1024)
+	objectStorageDefaultVideoMaxBytes = int64(200 * 1024 * 1024)
+	objectStorageMaximumSignTTL       = 24 * time.Hour
+)
+
+var ErrObjectStorageUnavailable = errors.New("COS object storage is unavailable")
+
+// StoredObject contains only Molii-owned object metadata. In particular, it
+// never contains the temporary upstream URL used to populate the object.
+type StoredObject struct {
+	ObjectKey string `json:"object_key"`
+	MIMEType  string `json:"mime_type"`
+	Size      int64  `json:"size"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+// ObjectKeySpec describes the destination and the limits applied while
+// copying a remote object. MIMEType is optional; when set, the upstream
+// response must match it exactly after MIME normalization.
+type ObjectKeySpec struct {
+	ObjectKey string
+	MediaType string
+	MIMEType  string
+	MaxBytes  int64
+	ExpiresAt int64
+}
+
+type objectStorageCOS struct {
+	client      *cos.Client
+	fetchClient *http.Client
+	config      operation_setting.COSConfig
+}
+
+func newObjectStorageFetchClient() *http.Client {
+	client := newProtectedFetchHTTPClientWithoutProxy(nil, nil, nil)
+	protectedRedirect := client.CheckRedirect
+	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if request == nil || request.URL == nil || request.URL.Scheme != "https" {
+			return errors.New("remote object redirects must use HTTPS")
+		}
+		return protectedRedirect(request, via)
+	}
+	return client
+}
+
+func buildObjectStorageCOSClient(config operation_setting.COSConfig) (*cos.Client, error) {
+	if err := config.ValidateCredentials(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrObjectStorageUnavailable, err)
+	}
+	endpoint := config.CustomDomain
+	if endpoint == "" {
+		endpoint = fmt.Sprintf("https://%s.cos.%s.myqcloud.com", config.Bucket, config.Region)
+	}
+	bucketURL, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid COS endpoint", ErrObjectStorageUnavailable)
+	}
+	return cos.NewClient(&cos.BaseURL{BucketURL: bucketURL}, &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &cos.AuthorizationTransport{
+			SecretID:  config.SecretID,
+			SecretKey: config.SecretKey,
+		},
+	}), nil
+}
+
+func newObjectStorageCOSClient(config operation_setting.COSConfig) (*cos.Client, error) {
+	return buildObjectStorageCOSClient(config)
+}
+
+func newObjectStorageCOS(config operation_setting.COSConfig) (*objectStorageCOS, error) {
+	client, err := newObjectStorageCOSClient(config)
+	if err != nil {
+		return nil, err
+	}
+	return &objectStorageCOS{client: client, fetchClient: newObjectStorageFetchClient(), config: config}, nil
+}
+
+// CopyRemoteObjectToCOS fetches one HTTPS object through the protected direct
+// fetch path, validates and bounds it on disk, then uploads it to COS. A HEAD
+// hit reuses an object previously written under the deterministic key.
+func CopyRemoteObjectToCOS(ctx context.Context, sourceURL string, key ObjectKeySpec) (*StoredObject, error) {
+	store, err := newObjectStorageCOS(operation_setting.GetCOSConfig())
+	if err != nil {
+		return nil, err
+	}
+	return store.copyRemoteObjectToCOS(ctx, sourceURL, key)
+}
+
+func (store *objectStorageCOS) copyRemoteObjectToCOS(ctx context.Context, sourceURL string, key ObjectKeySpec) (*StoredObject, error) {
+	stored, _, err := store.copyRemoteObjectToCOSWithStatus(ctx, sourceURL, key)
+	return stored, err
+}
+
+func (store *objectStorageCOS) copyRemoteObjectToCOSWithStatus(ctx context.Context, sourceURL string, key ObjectKeySpec) (*StoredObject, bool, error) {
+	if err := validateObjectKeySpec(key); err != nil {
+		return nil, false, err
+	}
+	parsed, err := url.Parse(strings.TrimSpace(sourceURL))
+	if err != nil || parsed == nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return nil, false, errors.New("remote object URL must be an HTTPS URL without credentials")
+	}
+
+	if store == nil || store.client == nil {
+		return nil, false, ErrObjectStorageUnavailable
+	}
+	if existing, found, err := headStoredCOSObject(ctx, store.client, key); err != nil {
+		return nil, false, err
+	} else if found {
+		return existing, false, nil
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, false, errors.New("remote object URL is invalid")
+	}
+	fetchClient := store.fetchClient
+	if fetchClient == nil {
+		return nil, false, errors.New("protected remote object client is unavailable")
+	}
+	response, err := fetchClient.Do(request)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, false, ctxErr
+		}
+		return nil, false, errors.New("remote object fetch failed")
+	}
+	if response == nil || response.Body == nil {
+		return nil, false, errors.New("remote object fetch returned no body")
+	}
+	defer response.Body.Close()
+	if response.Request != nil && response.Request.URL != nil && response.Request.URL.Scheme != "https" {
+		return nil, false, errors.New("remote object redirects must use HTTPS")
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, false, fmt.Errorf("remote object fetch failed with status %d", response.StatusCode)
+	}
+	mimeType, err := validateRemoteObjectMIME(response.Header.Get("Content-Type"), key)
+	if err != nil {
+		return nil, false, err
+	}
+	maxBytes := objectStorageMaxBytes(key)
+	if response.ContentLength > maxBytes {
+		return nil, false, fmt.Errorf("remote object exceeds maximum size of %d bytes", maxBytes)
+	}
+
+	temporary, err := os.CreateTemp("", "molii-cos-copy-*")
+	if err != nil {
+		return nil, false, fmt.Errorf("prepare bounded remote object copy: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryName)
+	}()
+
+	size, err := io.Copy(temporary, io.LimitReader(&objectStorageContextReader{ctx: ctx, reader: response.Body}, maxBytes+1))
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, false, ctxErr
+		}
+		return nil, false, fmt.Errorf("copy remote object: %w", err)
+	}
+	if size <= 0 {
+		return nil, false, errors.New("remote object is empty")
+	}
+	if size > maxBytes {
+		return nil, false, fmt.Errorf("remote object exceeds maximum size of %d bytes", maxBytes)
+	}
+	if _, err := temporary.Seek(0, io.SeekStart); err != nil {
+		return nil, false, fmt.Errorf("prepare COS upload: %w", err)
+	}
+	metadata := http.Header{}
+	metadata.Set("x-cos-meta-expires-at", strconv.FormatInt(key.ExpiresAt, 10))
+	putResponse, err := store.client.Object.Put(ctx, key.ObjectKey, temporary, &cos.ObjectPutOptions{
+		ObjectPutHeaderOptions: &cos.ObjectPutHeaderOptions{
+			ContentType:   mimeType,
+			ContentLength: size,
+			XCosMetaXXX:   &metadata,
+		},
+	})
+	if putResponse != nil && putResponse.Body != nil {
+		defer putResponse.Body.Close()
+	}
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, false, ctxErr
+		}
+		return nil, false, fmt.Errorf("upload remote object to COS: %w", err)
+	}
+	return &StoredObject{ObjectKey: key.ObjectKey, MIMEType: mimeType, Size: size, ExpiresAt: key.ExpiresAt}, true, nil
+}
+
+func validateObjectKeySpec(key ObjectKeySpec) error {
+	trimmedKey := strings.TrimSpace(key.ObjectKey)
+	if trimmedKey == "" || strings.HasPrefix(trimmedKey, "/") || path.Clean(trimmedKey) != trimmedKey || strings.HasPrefix(trimmedKey, "..") {
+		return errors.New("COS object key is invalid")
+	}
+	mediaType := strings.ToLower(strings.TrimSpace(key.MediaType))
+	if mediaType != "image" && mediaType != "video" {
+		return errors.New("COS object media type must be image or video")
+	}
+	if key.ExpiresAt <= 0 {
+		return errors.New("COS object expiry is required")
+	}
+	if key.MaxBytes < 0 {
+		return errors.New("COS object maximum size is invalid")
+	}
+	return nil
+}
+
+func objectStorageMaxBytes(key ObjectKeySpec) int64 {
+	if key.MaxBytes > 0 {
+		return key.MaxBytes
+	}
+	if strings.EqualFold(strings.TrimSpace(key.MediaType), "image") {
+		return objectStorageDefaultImageMaxBytes
+	}
+	return objectStorageDefaultVideoMaxBytes
+}
+
+func validateRemoteObjectMIME(raw string, key ObjectKeySpec) (string, error) {
+	mimeType, _, err := mime.ParseMediaType(strings.TrimSpace(raw))
+	if err != nil || mimeType == "" {
+		return "", errors.New("remote object content type is invalid")
+	}
+	mimeType = strings.ToLower(mimeType)
+	mediaType := strings.ToLower(strings.TrimSpace(key.MediaType))
+	if !strings.HasPrefix(mimeType, mediaType+"/") {
+		return "", fmt.Errorf("remote object content type %q does not match %s", mimeType, mediaType)
+	}
+	if expected := strings.TrimSpace(key.MIMEType); expected != "" {
+		normalizedExpected, _, expectedErr := mime.ParseMediaType(expected)
+		if expectedErr != nil || !strings.EqualFold(mimeType, normalizedExpected) {
+			return "", fmt.Errorf("remote object content type %q does not match %q", mimeType, expected)
+		}
+	}
+	return mimeType, nil
+}
+
+func headStoredCOSObject(ctx context.Context, client *cos.Client, key ObjectKeySpec) (*StoredObject, bool, error) {
+	response, err := client.Object.Head(ctx, key.ObjectKey, nil)
+	if err != nil {
+		if cos.IsNotFoundError(err) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("check COS object: %w", err)
+	}
+	if response != nil && response.Body != nil {
+		defer response.Body.Close()
+	}
+	if response == nil {
+		return nil, false, errors.New("COS object HEAD returned no response")
+	}
+	mimeType := ""
+	mimeType, err = validateRemoteObjectMIME(response.Header.Get("Content-Type"), key)
+	if err != nil {
+		return nil, false, fmt.Errorf("existing COS object metadata is invalid: %w", err)
+	}
+	expiresAt := key.ExpiresAt
+	if persistedExpiry := strings.TrimSpace(response.Header.Get("x-cos-meta-expires-at")); persistedExpiry != "" {
+		parsedExpiry, parseErr := strconv.ParseInt(persistedExpiry, 10, 64)
+		if parseErr != nil || parsedExpiry <= 0 {
+			return nil, false, errors.New("existing COS object expiry metadata is invalid")
+		}
+		expiresAt = parsedExpiry
+	}
+	return &StoredObject{
+		ObjectKey: key.ObjectKey,
+		MIMEType:  mimeType,
+		Size:      response.ContentLength,
+		ExpiresAt: expiresAt,
+	}, true, nil
+}
+
+func SignCOSObjectURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error) {
+	config := operation_setting.GetCOSConfig()
+	store, err := newObjectStorageCOS(config)
+	if err != nil {
+		return "", err
+	}
+	return store.signObjectURL(ctx, objectKey, ttl)
+}
+
+func (store *objectStorageCOS) signObjectURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error) {
+	if store == nil || store.client == nil {
+		return "", ErrObjectStorageUnavailable
+	}
+	return signCOSObjectURLWithClient(ctx, store.client, store.config, objectKey, ttl)
+}
+
+func signCOSObjectURLWithClient(ctx context.Context, client *cos.Client, config operation_setting.COSConfig, objectKey string, ttl time.Duration) (string, error) {
+	if strings.TrimSpace(objectKey) == "" {
+		return "", errors.New("COS object key is required")
+	}
+	if ttl <= 0 || ttl > objectStorageMaximumSignTTL {
+		return "", fmt.Errorf("COS object signing TTL must be greater than zero and at most %s", objectStorageMaximumSignTTL)
+	}
+	readURL, err := client.Object.GetPresignedURL(ctx, http.MethodGet, objectKey, config.SecretID, config.SecretKey, ttl, nil)
+	if err != nil {
+		return "", fmt.Errorf("%w: failed to sign object read", ErrObjectStorageUnavailable)
+	}
+	return readURL.String(), nil
+}
+
+func DeleteCOSObject(ctx context.Context, objectKey string) error {
+	if strings.TrimSpace(objectKey) == "" {
+		return nil
+	}
+	store, err := newObjectStorageCOS(operation_setting.GetCOSConfig())
+	if err != nil {
+		return err
+	}
+	return store.deleteObject(ctx, objectKey)
+}
+
+func (store *objectStorageCOS) deleteObject(ctx context.Context, objectKey string) error {
+	if strings.TrimSpace(objectKey) == "" {
+		return nil
+	}
+	if store == nil || store.client == nil {
+		return ErrObjectStorageUnavailable
+	}
+	response, err := store.client.Object.Delete(ctx, objectKey)
+	if response != nil && response.Body != nil {
+		defer response.Body.Close()
+	}
+	if cos.IsNotFoundError(err) {
+		return nil
+	}
+	return err
+}
+
+type objectStorageContextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader *objectStorageContextReader) Read(buffer []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	read, err := reader.reader.Read(buffer)
+	if contextErr := reader.ctx.Err(); contextErr != nil {
+		return read, contextErr
+	}
+	return read, err
+}

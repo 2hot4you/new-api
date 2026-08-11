@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -26,7 +25,7 @@ const (
 )
 
 var (
-	ErrStarAICOSUnavailable    = errors.New("COS object storage is unavailable")
+	ErrStarAICOSUnavailable    = ErrObjectStorageUnavailable
 	ErrStarAICOSUploadNotFound = errors.New("COS upload authorization not found or expired")
 	ErrStarAICOSUploadInvalid  = errors.New("COS uploaded object does not match the authorization")
 )
@@ -84,24 +83,7 @@ func ValidateStarAICOSUpload(fileName, contentType, assetType string, fileSize i
 }
 
 func newStarAICOSClient(config operation_setting.COSConfig) (*cos.Client, error) {
-	if err := config.ValidateCredentials(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrStarAICOSUnavailable, err)
-	}
-	endpoint := config.CustomDomain
-	if endpoint == "" {
-		endpoint = fmt.Sprintf("https://%s.cos.%s.myqcloud.com", config.Bucket, config.Region)
-	}
-	bucketURL, err := url.Parse(endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid COS endpoint", ErrStarAICOSUnavailable)
-	}
-	return cos.NewClient(&cos.BaseURL{BucketURL: bucketURL}, &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &cos.AuthorizationTransport{
-			SecretID:  config.SecretID,
-			SecretKey: config.SecretKey,
-		},
-	}), nil
+	return newObjectStorageCOSClient(config)
 }
 
 func BeginStarAICOSUpload(ctx context.Context, userID int, fileName, contentType, assetType, name string, fileSize int64) (*StarAICOSUploadAuthorization, error) {
@@ -221,11 +203,7 @@ func VerifyStarAICOSUpload(ctx context.Context, uploadID string, userID int) (*S
 }
 
 func signStarAICOSObjectURL(ctx context.Context, client *cos.Client, config operation_setting.COSConfig, objectKey string) (string, error) {
-	readURL, err := client.Object.GetPresignedURL(ctx, http.MethodGet, objectKey, config.SecretID, config.SecretKey, time.Duration(config.ReadExpiryMinutes)*time.Minute, nil)
-	if err != nil {
-		return "", fmt.Errorf("%w: failed to sign object read", ErrStarAICOSUnavailable)
-	}
-	return readURL.String(), nil
+	return signCOSObjectURLWithClient(ctx, client, config, objectKey, time.Duration(config.ReadExpiryMinutes)*time.Minute)
 }
 
 func GetStarAICOSPreviewURL(ctx context.Context, objectKey string) (string, error) {
@@ -255,12 +233,7 @@ func DeleteStarAICOSObject(ctx context.Context, objectKey string) error {
 	if strings.TrimSpace(objectKey) == "" {
 		return nil
 	}
-	config := operation_setting.GetCOSConfig()
-	client, err := newStarAICOSClient(config)
-	if err != nil {
-		return err
-	}
-	_, err = client.Object.Delete(ctx, objectKey)
+	err := DeleteCOSObject(ctx, objectKey)
 	if err == nil && common.RedisEnabled && common.RDB != nil {
 		_ = common.RDB.ZRem(ctx, starAICOSCleanupIndexKey, objectKey).Err()
 	}

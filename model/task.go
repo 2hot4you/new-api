@@ -103,15 +103,28 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key            string `json:"key,omitempty"`
-	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	Key            string            `json:"key,omitempty"`
+	UpstreamTaskID string            `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	ResultURL      string            `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	StoredResult   *TaskStoredResult `json:"stored_result,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
 	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
 	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
 	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+}
+
+// TaskStoredResult is the durable, provider-neutral metadata for a task result
+// copied into Molii-owned object storage. Legacy private_data JSON omits it.
+type TaskStoredResult struct {
+	ObjectKey       string  `json:"object_key"`
+	MIMEType        string  `json:"mime_type"`
+	Size            int64   `json:"size"`
+	ExpiresAt       int64   `json:"expires_at"`
+	Width           int     `json:"width,omitempty"`
+	Height          int     `json:"height,omitempty"`
+	DurationSeconds float64 `json:"duration_seconds,omitempty"`
 }
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
