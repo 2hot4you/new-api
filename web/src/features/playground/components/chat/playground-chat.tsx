@@ -213,9 +213,10 @@ export function PlaygroundChat({
 
   return (
     <Conversation>
-      {/* Remove outer padding; apply padding to inner centered container to align with input */}
       <ConversationContent className='p-0'>
-        <div className='mx-auto w-full max-w-4xl px-4 py-4'>{chatContent}</div>
+        <div className='mx-auto w-full max-w-[44rem] px-4 py-4'>
+          {chatContent}
+        </div>
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>
