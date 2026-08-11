@@ -3,8 +3,8 @@ title: 模型广场与 Playground
 description: 浏览公开模型信息，并在聊天 Playground 中试用当前可用的对话模型。
 audience: user
 apiVersion: v1
-lastReviewed: 2026-08-10
-sourceCommit: ce71f3ccab9d
+lastReviewed: 2026-08-11
+sourceCommit: 3ba29f07
 sidebar_position: 4
 ---
 
@@ -18,7 +18,15 @@ sidebar_position: 4
 
 ## Playground
 
-登录后打开 `/playground`。选择当前可用的分组和模型，在输入框写入消息并发送；生成过程中可停止，已有消息可按页面提供的操作重新生成、编辑或删除。需要清空会话时使用“清空”或等效操作。
+登录后打开 `/playground`。页面采用对话式布局：顶部用于新建对话，中间显示消息记录，底部输入区始终保留模型选择、参数设置和发送或停止操作。
+
+1. 在输入区选择当前可用的分组和模型。
+2. 输入消息并发送；生成过程中可使用“停止”。
+3. 如需覆盖模型默认行为，打开“参数”，再单独启用需要调整的高级参数。Temperature、Top P、Max Tokens、Frequency Penalty、Presence Penalty 和 Seed 默认均关闭；未启用的参数不会随请求发送。
+4. “流式输出”是独立开关。开启后会在生成过程中逐步显示内容，关闭后等待完整回复。
+5. 已有消息可按页面提供的操作重新生成、编辑或删除。使用“新建对话”会先要求确认，再清空当前消息记录；它不会更改已选择的模型、分组或参数值。
+
+模型列表或参数载入期间，以及正在生成回复时，相关选择器会暂时锁定，避免一次请求过程中改变模型或参数。
 
 Playground 目前仅支持 chat/对话。它不支持 Seedance 生成任务，也不支持 Grok 图片或视频生成；请不要把这类生成流程当作 Playground 功能。若 Playground 入口未显示或访问后回到看板，表示聊天模块当前未启用。
 

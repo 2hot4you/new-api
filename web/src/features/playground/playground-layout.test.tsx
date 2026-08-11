@@ -215,6 +215,19 @@ describe('Playground Base layout', () => {
     assert.equal(container.querySelector('[aria-label="Attach"]'), null)
     assert.equal(container.querySelector('[aria-label="Search"]'), null)
 
+    const modelSelector = container.querySelector<HTMLButtonElement>(
+      '[role="combobox"]'
+    )
+    const parameterSettings = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Parameters"]'
+    )
+    const send = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Send')
+    )
+    assert.ok(modelSelector)
+    assert.ok(parameterSettings)
+    assert.ok(send)
+
     const thread = container.querySelector<HTMLElement>(
       '[data-slot="playground-thread"]'
     )
@@ -246,6 +259,10 @@ describe('Playground Base layout', () => {
     )
     assert.ok(newConversation)
     assert.equal(newConversation.textContent?.includes('新建对话'), true)
+    assert.ok(
+      container.querySelector<HTMLButtonElement>('[aria-label="参数"]')
+    )
+    assert.equal(container.textContent?.includes('New conversation'), false)
 
     await act(async () => root.unmount())
     queryClient.clear()

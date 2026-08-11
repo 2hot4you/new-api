@@ -212,6 +212,8 @@ describe('PlaygroundParameterPanel', () => {
     })
     const stream = container.querySelector<HTMLElement>('[aria-label="Stream"]')
     assert.ok(stream)
+    assert.equal(stream.getAttribute('role'), 'switch')
+    assert.equal(stream.getAttribute('aria-checked'), 'true')
 
     await act(async () => stream.click())
 
