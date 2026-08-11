@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "planning",
-  "nextAction": "用户复核两份已确认设计后编写实施计划",
+  "nextAction": "按后端 P0-P2 计划与 Playground 计划测试驱动实施",
   "createdAt": "2026-08-11T00:00:00+08:00",
   "branch": "feat/molii-auth"
 }
