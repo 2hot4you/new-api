@@ -64,6 +64,14 @@ func newObjectStorageCOSTestServer(t *testing.T) *objectStorageCOSTestServer {
 			}
 			w.WriteHeader(http.StatusOK)
 		case http.MethodPut:
+			if strings.EqualFold(r.Header.Get("x-cos-forbid-overwrite"), "true") {
+				if _, exists := fake.objects[key]; exists {
+					w.Header().Set("Content-Type", "application/xml")
+					w.WriteHeader(http.StatusConflict)
+					_, _ = w.Write([]byte("<Error><Code>FileAlreadyExists</Code><Message>File already exists.</Message></Error>"))
+					return
+				}
+			}
 			body, readErr := io.ReadAll(r.Body)
 			require.NoError(t, readErr)
 			fake.objects[key] = body
@@ -229,6 +237,56 @@ func TestObjectStorageCOSPersistenceRequiresEnabledConfigWhileStarAIReadStillSig
 	signed, err := GetStarAICOSPreviewURL(context.Background(), "users/42/starai-assets/image/existing.png")
 	require.NoError(t, err)
 	require.NotEmpty(t, signed)
+}
+
+func TestObjectStorageCOSConcurrentSameKeyHasSingleCreateOwner(t *testing.T) {
+	fakeCOS := newObjectStorageCOSTestServer(t)
+	releaseRemote := make(chan struct{})
+	remoteCalls := make(chan struct{}, 2)
+	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		remoteCalls <- struct{}{}
+		<-releaseRemote
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("same-image"))
+	}))
+	t.Cleanup(remote.Close)
+	store := newObjectStorageCOSTestStore(t, fakeCOS, remote.Client())
+	key := ObjectKeySpec{
+		ObjectKey: "users/grok-results/42/image/2026/08/concurrent.jpg",
+		MediaType: "image",
+		MIMEType:  "image/jpeg",
+		ExpiresAt: 1_786_472_000,
+	}
+	type copyResult struct {
+		stored  *StoredObject
+		created bool
+		err     error
+	}
+	results := make(chan copyResult, 2)
+	for range 2 {
+		go func() {
+			stored, created, err := store.copyRemoteObjectToCOSWithStatus(context.Background(), remote.URL+"/result.jpg", key)
+			results <- copyResult{stored: stored, created: created, err: err}
+		}()
+	}
+	<-remoteCalls
+	<-remoteCalls
+	close(releaseRemote)
+	first := <-results
+	second := <-results
+
+	require.NoError(t, first.err)
+	require.NoError(t, second.err)
+	require.Equal(t, first.stored, second.stored)
+	createdCount := 0
+	if first.created {
+		createdCount++
+	}
+	if second.created {
+		createdCount++
+	}
+	require.Equal(t, 1, createdCount, "COS must atomically grant ownership to only one writer")
+	require.Equal(t, 1, fakeCOS.putCount)
 }
 
 func TestObjectStorageCOSHonorsCancellationWhileCopying(t *testing.T) {

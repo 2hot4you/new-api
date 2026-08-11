@@ -200,11 +200,17 @@ func (store *objectStorageCOS) copyRemoteObjectToCOSWithStatus(ctx context.Conte
 	}
 	metadata := http.Header{}
 	metadata.Set("x-cos-meta-expires-at", strconv.FormatInt(key.ExpiresAt, 10))
+	conditionalHeaders := http.Header{}
+	// COS atomically rejects a concurrent writer for the same key on
+	// unversioned buckets. This makes the returned created bit an ownership
+	// guarantee instead of a racy HEAD-then-PUT observation.
+	conditionalHeaders.Set("x-cos-forbid-overwrite", "true")
 	putResponse, err := store.client.Object.Put(ctx, key.ObjectKey, temporary, &cos.ObjectPutOptions{
 		ObjectPutHeaderOptions: &cos.ObjectPutHeaderOptions{
 			ContentType:   mimeType,
 			ContentLength: size,
 			XCosMetaXXX:   &metadata,
+			XOptionHeader: &conditionalHeaders,
 		},
 	})
 	if putResponse != nil && putResponse.Body != nil {
@@ -214,9 +220,26 @@ func (store *objectStorageCOS) copyRemoteObjectToCOSWithStatus(ctx context.Conte
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, false, ctxErr
 		}
+		if isCOSObjectAlreadyExists(err) {
+			existing, found, headErr := headStoredCOSObject(ctx, store.client, key)
+			if headErr != nil {
+				return nil, false, headErr
+			}
+			if found {
+				return existing, false, nil
+			}
+		}
 		return nil, false, fmt.Errorf("upload remote object to COS: %w", err)
 	}
 	return &StoredObject{ObjectKey: key.ObjectKey, MIMEType: mimeType, Size: size, ExpiresAt: key.ExpiresAt}, true, nil
+}
+
+func isCOSObjectAlreadyExists(err error) bool {
+	response, ok := cos.IsCOSError(err)
+	if !ok || response == nil || response.Response == nil || response.Response.StatusCode != http.StatusConflict {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(response.Code), "FileAlreadyExists")
 }
 
 func validateObjectKeySpec(key ObjectKeySpec) error {
