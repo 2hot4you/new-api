@@ -54,23 +54,19 @@ type GrokImagePersistedResult struct {
 }
 
 type grokImageResultPersistenceDeps struct {
-	persist     func(context.Context, GrokResultStoreRequest) (*StoredObject, bool, error)
-	sign        func(context.Context, string, time.Duration) (string, error)
-	rollback    func(context.Context, string) error
-	canRollback func() bool
-	now         func() time.Time
+	persist func(context.Context, GrokResultStoreRequest) (*StoredObject, bool, error)
+	sign    func(context.Context, string, time.Duration) (string, error)
+	now     func() time.Time
 }
 
 func PersistGrokImageResults(ctx context.Context, request GrokImagePersistenceRequest) ([]GrokImagePersistedResult, error) {
 	var results []GrokImagePersistedResult
-	err := withGrokImagePersistenceLock(ctx, request, func(lockedContext context.Context, owns func() bool) error {
+	err := withGrokImagePersistenceLock(ctx, request, func(lockedContext context.Context, _ func() bool) error {
 		var err error
 		results, err = persistGrokImageResults(lockedContext, request, grokImageResultPersistenceDeps{
-			persist:     PersistGrokResultWithStatus,
-			sign:        SignCOSObjectURL,
-			rollback:    DeleteGrokResultObject,
-			canRollback: owns,
-			now:         time.Now,
+			persist: PersistGrokResultWithStatus,
+			sign:    SignCOSObjectURL,
+			now:     time.Now,
 		})
 		return err
 	})
@@ -87,7 +83,7 @@ func persistGrokImageResults(ctx context.Context, request GrokImagePersistenceRe
 	if len(request.Images) < 1 || len(request.Images) > 4 {
 		return nil, errors.New("Grok image result count is invalid")
 	}
-	if deps.persist == nil || deps.sign == nil || deps.rollback == nil || deps.now == nil {
+	if deps.persist == nil || deps.sign == nil || deps.now == nil {
 		return nil, ErrObjectStorageUnavailable
 	}
 	for _, image := range request.Images {
@@ -96,23 +92,9 @@ func persistGrokImageResults(ctx context.Context, request GrokImagePersistenceRe
 		}
 	}
 
-	type createdObject struct {
-		key string
-	}
-	created := make([]createdObject, 0, len(request.Images))
-	rollback := func() {
-		for index := len(created) - 1; index >= 0; index-- {
-			if deps.canRollback != nil && !deps.canRollback() {
-				return
-			}
-			rollbackContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_ = deps.rollback(rollbackContext, created[index].key)
-			cancel()
-		}
-	}
 	results := make([]GrokImagePersistedResult, 0, len(request.Images))
 	for index, image := range request.Images {
-		stored, wasCreated, err := deps.persist(ctx, GrokResultStoreRequest{
+		stored, _, err := deps.persist(ctx, GrokResultStoreRequest{
 			SourceURL:      strings.TrimSpace(image.URL),
 			UserID:         request.UserID,
 			MediaType:      "image",
@@ -121,23 +103,16 @@ func persistGrokImageResults(ctx context.Context, request GrokImagePersistenceRe
 			CreatedAt:      request.CreatedAt,
 		})
 		if err != nil {
-			rollback()
 			return nil, err
 		}
 		if stored == nil || stored.ObjectKey == "" {
-			rollback()
 			return nil, errors.New("persisted Grok image metadata is invalid")
 		}
-		if wasCreated {
-			created = append(created, createdObject{key: stored.ObjectKey})
-		}
 		if stored.ExpiresAt <= 0 {
-			rollback()
 			return nil, errors.New("persisted Grok image metadata is invalid")
 		}
 		remaining := time.Unix(stored.ExpiresAt, 0).Sub(deps.now())
 		if remaining <= 0 {
-			rollback()
 			return nil, errors.New("persisted Grok image has expired")
 		}
 		if remaining > objectStorageMaximumSignTTL {
@@ -145,7 +120,6 @@ func persistGrokImageResults(ctx context.Context, request GrokImagePersistenceRe
 		}
 		signedURL, err := deps.sign(ctx, stored.ObjectKey, remaining)
 		if err != nil {
-			rollback()
 			return nil, err
 		}
 		results = append(results, GrokImagePersistedResult{
