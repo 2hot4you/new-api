@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { MESSAGE_STATUS, STORAGE_KEYS } from '../../constants'
+import {
+  DEFAULT_PARAMETER_ENABLED,
+  MESSAGE_STATUS,
+  STORAGE_KEYS,
+} from '../../constants'
 import type { PlaygroundConfig, ParameterEnabled, Message } from '../../types'
 import {
   finalizeMessage,
@@ -30,6 +34,7 @@ import {
   MAX_LOADED_MESSAGES_CHARS,
   MAX_STORED_MESSAGES,
   MAX_STORED_MESSAGES_BYTES,
+  PARAMETER_ENABLED_STORAGE_VERSION,
   STORAGE_VERSION,
   messagesSchema,
   parameterEnabledSchema,
@@ -84,6 +89,24 @@ function writeStoredValue<T>(key: string, data: T): void {
   }
 
   localStorage.setItem(key, JSON.stringify(payload))
+}
+
+function writeParameterEnabledValue(data: Partial<ParameterEnabled>): void {
+  const payload: StoredEnvelope<Partial<ParameterEnabled>> = {
+    version: PARAMETER_ENABLED_STORAGE_VERSION,
+    data,
+  }
+
+  localStorage.setItem(STORAGE_KEYS.PARAMETER_ENABLED, JSON.stringify(payload))
+}
+
+function getStoredValueVersion(value: unknown): number | null {
+  if (!value || typeof value !== 'object' || !('version' in value)) {
+    return null
+  }
+
+  const { version } = value as { version: unknown }
+  return typeof version === 'number' ? version : null
 }
 
 function trimMessages(messages: Message[]): Message[] {
@@ -307,12 +330,28 @@ export function saveConfig(config: Partial<PlaygroundConfig>): void {
 /**
  * Load parameter enabled state from localStorage
  */
+export function migrateParameterEnabledState(
+  value: unknown
+): Partial<ParameterEnabled> {
+  if (getStoredValueVersion(value) === PARAMETER_ENABLED_STORAGE_VERSION) {
+    return parameterEnabledSchema.parse(unwrapStoredValue(value))
+  }
+
+  return { ...DEFAULT_PARAMETER_ENABLED }
+}
+
 export function loadParameterEnabled(): Partial<ParameterEnabled> {
   try {
     const saved = readStoredValue(STORAGE_KEYS.PARAMETER_ENABLED)
     if (!saved) return {}
 
-    return parameterEnabledSchema.parse(unwrapStoredValue(saved))
+    const parameterEnabled = migrateParameterEnabledState(saved)
+
+    if (getStoredValueVersion(saved) !== PARAMETER_ENABLED_STORAGE_VERSION) {
+      writeParameterEnabledValue(parameterEnabled)
+    }
+
+    return parameterEnabled
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Failed to load parameter enabled:', error)
@@ -328,7 +367,7 @@ export function saveParameterEnabled(
 ): void {
   try {
     const parsed = parameterEnabledSchema.parse(parameterEnabled)
-    writeStoredValue(STORAGE_KEYS.PARAMETER_ENABLED, parsed)
+    writeParameterEnabledValue(parsed)
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Failed to save parameter enabled:', error)
