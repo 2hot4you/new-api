@@ -3,11 +3,26 @@ package common
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTaskSubmitReqParsesReferenceImageURLObjects(t *testing.T) {
+	var request TaskSubmitReq
+	require.NoError(t, common.Unmarshal([]byte(`{
+		"model":"grok-imagine-video-1.5",
+		"reference_images":[
+			{"url":"https://images.example/one.png"},
+			"https://images.example/two.png",
+			{"file_id":"file_future"}
+		]
+	}`), &request))
+	require.Equal(t, []string{"https://images.example/one.png", "https://images.example/two.png", "file_future"}, request.ReferenceImages)
+	require.Equal(t, []string{"", "", "file_future"}, request.ReferenceImageFileIDs)
+}
 
 func TestRelayInfoGetFinalRequestRelayFormatPrefersExplicitFinal(t *testing.T) {
 	info := &RelayInfo{

@@ -287,6 +287,104 @@ func TestGrokImagineVideoEditUsesOfficialEndpointAndPayload(t *testing.T) {
 	assert.InDelta(t, 0.36, info.EstimatedVideoPrice, 0.000001)
 }
 
+func TestGrokImagineVideoExtensionUsesOfficialEndpointPayloadAndBilling(t *testing.T) {
+	c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"continue the camera move","video":{"url":"https://videos.example/source.mp4"},"duration":5}`)
+	c.Request.URL.Path = "/v1/videos/extensions"
+	info := taskInfo()
+	info.OriginModelName = LegacyVideoModel
+	info.ChannelMeta.UpstreamModelName = LegacyVideoModel
+	adaptor := &TaskAdaptor{videoProber: stubVideoProber{result: &service.MediaProbeResult{
+		DurationSeconds: 10, Width: 1280, Height: 720, ResolutionTier: "720p", MIMEType: "video/mp4",
+	}}}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	adaptor.EstimateBilling(c, info)
+	requestURL, err := adaptor.BuildRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, "https://provider.invalid/xai/v1/videos/extensions", requestURL)
+	body, err := adaptor.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	encoded, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"model":"grok-imagine-video","prompt":"continue the camera move","duration":5,"video":{"url":"https://videos.example/source.mp4"}}`, string(encoded))
+	assert.Equal(t, videoExtensionAction, info.Action)
+	assert.Equal(t, 5, info.EstimatedVideoSeconds)
+	assert.Equal(t, "720p", info.EstimatedVideoResolution)
+	assert.Equal(t, 10.0, info.InputVideoDurationSeconds)
+	assert.InDelta(t, 0.45, info.EstimatedVideoPrice, 0.000001)
+}
+
+func TestGrokImagineVideoReferenceImagesUseOfficialPayloadAndPerImageBilling(t *testing.T) {
+	c, _ := taskContext(t, `{
+		"model":"grok-imagine-video-1.5",
+		"prompt":"the people walk through the scene",
+		"reference_images":[
+			{"url":"https://images.example/person.png"},
+			{"url":"https://images.example/outfit.png"},
+			"https://images.example/location.png"
+		],
+		"duration":10,
+		"aspect_ratio":"16:9",
+		"resolution":"720p"
+	}`)
+	info := taskInfo()
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	adaptor.EstimateBilling(c, info)
+	body, err := adaptor.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	encoded, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"model":"grok-imagine-video-1.5","prompt":"the people walk through the scene",
+		"duration":10,"aspect_ratio":"16:9","resolution":"720p",
+		"reference_images":[
+			{"url":"https://images.example/person.png"},
+			{"url":"https://images.example/outfit.png"},
+			{"url":"https://images.example/location.png"}
+		]
+	}`, string(encoded))
+	assert.Equal(t, referenceToVideoAction, info.Action)
+	assert.InDelta(t, 1.43, info.EstimatedVideoPrice, 0.000001)
+}
+
+func TestGrokImagineVideoExtensionAndReferencesRejectUnsupportedCombinations(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string
+		path  string
+		body  string
+	}{
+		{name: "extension wrong model", model: VideoModel, path: "/v1/videos/extensions", body: `{"model":"grok-imagine-video-1.5","prompt":"continue","video":{"url":"https://videos.example/a.mp4"}}`},
+		{name: "extension input too short", model: LegacyVideoModel, path: "/v1/videos/extensions", body: `{"model":"grok-imagine-video","prompt":"continue","video":{"url":"https://videos.example/a.mp4"}}`},
+		{name: "extension duration too long", model: LegacyVideoModel, path: "/v1/videos/extensions", body: `{"model":"grok-imagine-video","prompt":"continue","video":{"url":"https://videos.example/a.mp4"},"duration":11}`},
+		{name: "extension output fields", model: LegacyVideoModel, path: "/v1/videos/extensions", body: `{"model":"grok-imagine-video","prompt":"continue","video":{"url":"https://videos.example/a.mp4"},"resolution":"720p"}`},
+		{name: "references with image", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"scene","image":{"url":"https://images.example/start.png"},"reference_images":[{"url":"https://images.example/ref.png"}]}`},
+		{name: "references over limit", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"scene","reference_images":["https://images.example/1.png","https://images.example/2.png","https://images.example/3.png","https://images.example/4.png","https://images.example/5.png","https://images.example/6.png","https://images.example/7.png","https://images.example/8.png"]}`},
+		{name: "references 1080p", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"scene","reference_images":[{"url":"https://images.example/ref.png"}],"resolution":"1080p"}`},
+		{name: "references file id", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"scene","reference_images":[{"file_id":"file_future"}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := taskContext(t, tt.body)
+			c.Request.URL.Path = tt.path
+			info := taskInfo()
+			info.OriginModelName = tt.model
+			info.ChannelMeta.UpstreamModelName = tt.model
+			probeDuration := 10.0
+			if tt.name == "extension input too short" {
+				probeDuration = 1
+			}
+			adaptor := &TaskAdaptor{videoProber: stubVideoProber{result: &service.MediaProbeResult{
+				DurationSeconds: probeDuration, Width: 1280, Height: 720, ResolutionTier: "720p", MIMEType: "video/mp4",
+			}}}
+			adaptor.Init(info)
+			require.NotNil(t, adaptor.ValidateRequestAndSetAction(c, info))
+		})
+	}
+}
+
 func TestGrokImagineVideoEditRejectsNonPositiveOrOver87SecondInputBeforeBilling(t *testing.T) {
 	for _, duration := range []float64{0, -1, 8.700001} {
 		t.Run(strconv.FormatFloat(duration, 'f', -1, 64), func(t *testing.T) {
@@ -384,6 +482,27 @@ func TestGrokVideoEditCompletionUsesImmutableInputProbeRatherThanProviderValues(
 	assert.Equal(t, 6.0, billing.ActualDurationSeconds)
 	assert.Equal(t, 6.0, billing.VideoInputBilledSeconds)
 	assert.Equal(t, 0.05, billing.OutputUnitPrice)
+}
+
+func TestGrokVideoExtensionCompletionBillsOnlyRequestedExtensionAndInputVideo(t *testing.T) {
+	task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+		GroupRatio: 1, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
+		GrokVideoBilling: &model.GrokVideoBillingSnapshot{
+			Version: 1, Model: LegacyVideoModel, Operation: videoExtensionAction, InputType: "video",
+			RequestedDurationSeconds: 5, EstimatedDurationSeconds: 5,
+			RequestedResolution: "720p", EstimatedResolution: "720p", ResolutionSource: relaycommon.GrokVideoResolutionSourceInputProbeV1,
+			VideoInputBilledSeconds: 10, OutputUnitPrice: 0.07, VideoInputUnitPrice: 0.01,
+		},
+	}}}
+
+	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, &relaycommon.TaskInfo{ActualDurationSeconds: 15, ActualResolution: "1080p", ProviderCost: 999999})
+
+	assert.Equal(t, 225000, quota)
+	billing := task.PrivateData.BillingContext.GrokVideoBilling
+	assert.Equal(t, 5.0, billing.ActualDurationSeconds)
+	assert.Equal(t, 10.0, billing.VideoInputBilledSeconds)
+	assert.Equal(t, "720p", billing.ActualResolution)
+	assert.InDelta(t, 0.45, billing.Subtotal, 0.000001)
 }
 
 func TestGrokVideoEditCompletionWithoutTrustworthyResolutionIsIndeterminate(t *testing.T) {

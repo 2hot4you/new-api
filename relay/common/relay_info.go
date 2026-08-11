@@ -929,21 +929,23 @@ type TaskRelayInfo struct {
 }
 
 type TaskSubmitReq struct {
-	Prompt         string                 `json:"prompt"`
-	Model          string                 `json:"model,omitempty"`
-	Mode           string                 `json:"mode,omitempty"`
-	Image          string                 `json:"image,omitempty"`
-	ImageFileID    string                 `json:"-"`
-	Images         []string               `json:"images,omitempty"`
-	Video          string                 `json:"video,omitempty"`
-	VideoFileID    string                 `json:"-"`
-	Size           string                 `json:"size,omitempty"`
-	Duration       int                    `json:"duration,omitempty"`
-	Seconds        string                 `json:"seconds,omitempty"`
-	AspectRatio    string                 `json:"aspect_ratio,omitempty"`
-	Resolution     string                 `json:"resolution,omitempty"`
-	InputReference string                 `json:"input_reference,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	Prompt                string                 `json:"prompt"`
+	Model                 string                 `json:"model,omitempty"`
+	Mode                  string                 `json:"mode,omitempty"`
+	Image                 string                 `json:"image,omitempty"`
+	ImageFileID           string                 `json:"-"`
+	Images                []string               `json:"images,omitempty"`
+	ReferenceImages       []string               `json:"-"`
+	ReferenceImageFileIDs []string               `json:"-"`
+	Video                 string                 `json:"video,omitempty"`
+	VideoFileID           string                 `json:"-"`
+	Size                  string                 `json:"size,omitempty"`
+	Duration              int                    `json:"duration,omitempty"`
+	Seconds               string                 `json:"seconds,omitempty"`
+	AspectRatio           string                 `json:"aspect_ratio,omitempty"`
+	Resolution            string                 `json:"resolution,omitempty"`
+	InputReference        string                 `json:"input_reference,omitempty"`
+	Metadata              map[string]interface{} `json:"metadata,omitempty"`
 }
 
 func (t *TaskSubmitReq) GetPrompt() string {
@@ -957,10 +959,11 @@ func (t *TaskSubmitReq) HasImage() bool {
 func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	type Alias TaskSubmitReq
 	aux := &struct {
-		Metadata json.RawMessage `json:"metadata,omitempty"`
-		Duration json.RawMessage `json:"duration,omitempty"`
-		Image    json.RawMessage `json:"image,omitempty"`
-		Video    json.RawMessage `json:"video,omitempty"`
+		Metadata        json.RawMessage `json:"metadata,omitempty"`
+		Duration        json.RawMessage `json:"duration,omitempty"`
+		Image           json.RawMessage `json:"image,omitempty"`
+		Video           json.RawMessage `json:"video,omitempty"`
+		ReferenceImages json.RawMessage `json:"reference_images,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(t),
@@ -995,6 +998,22 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		t.Video, t.VideoFileID, err = parseTaskMediaReference(aux.Video)
 		if err != nil {
 			return fmt.Errorf("invalid video: %w", err)
+		}
+	}
+	if len(aux.ReferenceImages) > 0 && string(aux.ReferenceImages) != "null" {
+		var references []json.RawMessage
+		if err := common.Unmarshal(aux.ReferenceImages, &references); err != nil {
+			return errors.New("invalid reference_images: must be an array")
+		}
+		t.ReferenceImages = make([]string, 0, len(references))
+		t.ReferenceImageFileIDs = make([]string, 0, len(references))
+		for _, reference := range references {
+			value, fileID, parseErr := parseTaskMediaReference(reference)
+			if parseErr != nil {
+				return fmt.Errorf("invalid reference_images: %w", parseErr)
+			}
+			t.ReferenceImages = append(t.ReferenceImages, value)
+			t.ReferenceImageFileIDs = append(t.ReferenceImageFileIDs, fileID)
 		}
 	}
 

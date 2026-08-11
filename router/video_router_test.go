@@ -19,6 +19,8 @@ func TestVideoGenerationRouteRegistersOfficialAlias(t *testing.T) {
 	}
 	_, legacy := routes[http.MethodPost+" /v1/videos"]
 	_, official := routes[http.MethodPost+" /v1/videos/generations"]
+	_, extension := routes[http.MethodPost+" /v1/videos/extensions"]
 	assert.True(t, legacy)
 	assert.True(t, official)
+	assert.True(t, extension)
 }

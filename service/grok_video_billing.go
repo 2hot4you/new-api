@@ -14,12 +14,14 @@ import (
 )
 
 const (
-	grokVideoBillingVersion = 1
-	grokVideoModelLegacy    = "grok-imagine-video"
-	grokVideoModel15        = "grok-imagine-video-1.5"
-	grokVideoEditOperation  = "video_edit"
-	imageToVideoOperation   = "image_to_video"
-	textToVideoOperation    = "text_to_video"
+	grokVideoBillingVersion     = 1
+	grokVideoModelLegacy        = "grok-imagine-video"
+	grokVideoModel15            = "grok-imagine-video-1.5"
+	grokVideoEditOperation      = "video_edit"
+	grokVideoExtensionOperation = "video_extension"
+	referenceToVideoOperation   = "reference_to_video"
+	imageToVideoOperation       = "image_to_video"
+	textToVideoOperation        = "text_to_video"
 )
 
 func isMoliiGrokTask(task *model.Task) bool {
@@ -65,6 +67,10 @@ func validSubmittedGrokVideoBilling(snapshot *model.GrokVideoBillingSnapshot) bo
 		return snapshot.InputType == "image" && snapshot.InputImageCount == 1
 	case grokVideoEditOperation:
 		return snapshot.InputType == "video" && snapshot.VideoInputBilledSeconds > 0
+	case grokVideoExtensionOperation:
+		return snapshot.InputType == "video" && snapshot.VideoInputBilledSeconds >= 2 && snapshot.VideoInputBilledSeconds <= 15
+	case referenceToVideoOperation:
+		return snapshot.InputType == "image" && snapshot.InputImageCount >= 1 && snapshot.InputImageCount <= 7
 	default:
 		return false
 	}
@@ -80,7 +86,7 @@ func validFinalizedGrokVideoBilling(snapshot *model.GrokVideoBillingSnapshot) bo
 		return false
 	}
 	expectedSubtotal := snapshot.OutputCost + snapshot.ImageInputCost + snapshot.VideoInputCost
-	if snapshot.Operation == grokVideoEditOperation && snapshot.ResolutionSource != relaycommon.GrokVideoResolutionSourceInputProbeV1 {
+	if (snapshot.Operation == grokVideoEditOperation || snapshot.Operation == grokVideoExtensionOperation) && snapshot.ResolutionSource != relaycommon.GrokVideoResolutionSourceInputProbeV1 {
 		return false
 	}
 	return math.Abs(snapshot.Subtotal-expectedSubtotal) <= 1e-9
@@ -146,6 +152,13 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 	if action == grokVideoEditOperation {
 		operation = grokVideoEditOperation
 		inputType = "video"
+	} else if action == grokVideoExtensionOperation {
+		operation = grokVideoExtensionOperation
+		inputType = "video"
+	} else if action == referenceToVideoOperation {
+		operation = referenceToVideoOperation
+		inputType = "image"
+		inputImageCount = len(req.ReferenceImages)
 	} else if strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 {
 		operation = imageToVideoOperation
 		inputType = "image"
@@ -157,6 +170,11 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 	if operation == grokVideoEditOperation {
 		estimatedDuration = info.InputVideoDurationSeconds
 		if estimatedDuration <= 0 || strings.TrimSpace(info.InputVideoResolutionTier) == "" || info.InputVideoResolutionSource != relaycommon.GrokVideoResolutionSourceInputProbeV1 {
+			return nil
+		}
+	} else if operation == grokVideoExtensionOperation {
+		if estimatedDuration <= 0 || info.InputVideoDurationSeconds < 2 || info.InputVideoDurationSeconds > 15 ||
+			strings.TrimSpace(info.InputVideoResolutionTier) == "" || info.InputVideoResolutionSource != relaycommon.GrokVideoResolutionSourceInputProbeV1 {
 			return nil
 		}
 	}
@@ -192,6 +210,11 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 		snapshot.EstimatedResolution = snapshot.RequestedResolution
 		snapshot.ResolutionSource = info.InputVideoResolutionSource
 		snapshot.VideoInputBilledSeconds = estimatedDuration
+	} else if operation == grokVideoExtensionOperation {
+		snapshot.RequestedResolution = strings.ToLower(strings.TrimSpace(info.InputVideoResolutionTier))
+		snapshot.EstimatedResolution = snapshot.RequestedResolution
+		snapshot.ResolutionSource = info.InputVideoResolutionSource
+		snapshot.VideoInputBilledSeconds = info.InputVideoDurationSeconds
 	}
 	calculateGrokVideoBillingCosts(snapshot, estimatedDuration)
 	return snapshot
@@ -240,6 +263,14 @@ func finalGrokVideoBilling(task *model.Task) (*model.GrokVideoBillingSnapshot, s
 		operationName = "视频编辑"
 		formula = fmt.Sprintf("(¥%.6f × %.3g + ¥%.6f × %.3g) × %.4f",
 			snapshot.OutputUnitPrice, duration, snapshot.VideoInputUnitPrice, snapshot.VideoInputBilledSeconds, snapshot.GroupRatio)
+	case grokVideoExtensionOperation:
+		operationName = "视频延长"
+		formula = fmt.Sprintf("(¥%.6f × %.3g + ¥%.6f × %.3g) × %.4f",
+			snapshot.OutputUnitPrice, duration, snapshot.VideoInputUnitPrice, snapshot.VideoInputBilledSeconds, snapshot.GroupRatio)
+	case referenceToVideoOperation:
+		operationName = "参考图生视频"
+		formula = fmt.Sprintf("(¥%.6f × %.3g + ¥%.6f × %d) × %.4f",
+			snapshot.OutputUnitPrice, duration, snapshot.ImageInputUnitPrice, snapshot.InputImageCount, snapshot.GroupRatio)
 	}
 	content := fmt.Sprintf("Grok %s，模型 %s，实际 %s · %.3g 秒，计费 %s = ¥%.6f",
 		operationName, grokVideoRequestedModel(&snapshot), resolution, duration, formula, snapshot.FinalCost)

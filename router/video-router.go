@@ -37,6 +37,7 @@ func SetVideoRouter(router *gin.Engine) {
 		videoV1Router.POST("/videos", controller.RelayTask)
 		videoV1Router.POST("/videos/generations", controller.RelayTask)
 		videoV1Router.POST("/videos/edits", controller.RelayTask)
+		videoV1Router.POST("/videos/extensions", controller.RelayTask)
 		videoV1Router.GET("/videos/:task_id", controller.RelayTaskFetch)
 	}
 

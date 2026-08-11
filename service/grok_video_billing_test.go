@@ -32,6 +32,8 @@ func TestBuildGrokVideoBillingSnapshotOperations(t *testing.T) {
 		{name: "image", request: relaycommon.TaskSubmitReq{Image: "https://fixture.invalid/input.png", Duration: 6, Resolution: "720p", AspectRatio: "9:16"}, modelName: grokVideoModelLegacy, estimatedSecs: 6, estimatedRes: "720p", wantOperation: imageToVideoOperation, wantInputType: "image", wantImageCount: 1, wantEstimated: 6},
 		{name: "image 1.5 1080p", request: relaycommon.TaskSubmitReq{Image: "file_fixture", Duration: 4, Resolution: "1080p", AspectRatio: "16:9"}, modelName: grokVideoModel15, estimatedSecs: 4, estimatedRes: "1080p", wantOperation: imageToVideoOperation, wantInputType: "image", wantImageCount: 1, wantEstimated: 4},
 		{name: "edit", action: grokVideoEditOperation, request: relaycommon.TaskSubmitReq{Video: "https://fixture.invalid/input.mp4"}, modelName: grokVideoModelLegacy, estimatedSecs: 9, estimatedRes: "720p", wantOperation: grokVideoEditOperation, wantInputType: "video", wantEstimated: 8.7, wantVideoBilled: 8.7},
+		{name: "extension", action: grokVideoExtensionOperation, request: relaycommon.TaskSubmitReq{Video: "https://fixture.invalid/input.mp4", Duration: 5}, modelName: grokVideoModelLegacy, estimatedSecs: 5, estimatedRes: "720p", wantOperation: grokVideoExtensionOperation, wantInputType: "video", wantEstimated: 5, wantVideoBilled: 10},
+		{name: "references", action: referenceToVideoOperation, request: relaycommon.TaskSubmitReq{ReferenceImages: []string{"https://fixture.invalid/one.png", "https://fixture.invalid/two.png"}, Duration: 10, Resolution: "720p", AspectRatio: "16:9"}, modelName: grokVideoModel15, estimatedSecs: 10, estimatedRes: "720p", wantOperation: referenceToVideoOperation, wantInputType: "image", wantImageCount: 2, wantEstimated: 10},
 	}
 
 	for _, tt := range tests {
@@ -43,8 +45,11 @@ func TestBuildGrokVideoBillingSnapshotOperations(t *testing.T) {
 				EstimatedVideoSeconds: tt.estimatedSecs, EstimatedVideoResolution: tt.estimatedRes,
 				PriceData: types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1.25}},
 			}
-			if tt.action == grokVideoEditOperation {
+			if tt.action == grokVideoEditOperation || tt.action == grokVideoExtensionOperation {
 				info.InputVideoDurationSeconds = 8.7
+				if tt.action == grokVideoExtensionOperation {
+					info.InputVideoDurationSeconds = 10
+				}
 				info.InputVideoResolutionTier = "720p"
 				info.InputVideoResolutionSource = relaycommon.GrokVideoResolutionSourceInputProbeV1
 			}
@@ -163,6 +168,8 @@ func TestCalculateGrokVideoBillingCostsByOperation(t *testing.T) {
 		{name: "text", snapshot: model.GrokVideoBillingSnapshot{Operation: textToVideoOperation, OutputUnitPrice: 0.05}, seconds: 6, want: 0.3},
 		{name: "image", snapshot: model.GrokVideoBillingSnapshot{Operation: imageToVideoOperation, OutputUnitPrice: 0.07, ImageInputUnitPrice: 0.002, InputImageCount: 1}, seconds: 6, want: 0.422},
 		{name: "edit", snapshot: model.GrokVideoBillingSnapshot{Operation: grokVideoEditOperation, OutputUnitPrice: 0.05, VideoInputUnitPrice: 0.01, VideoInputBilledSeconds: 6}, seconds: 6, want: 0.36},
+		{name: "extension", snapshot: model.GrokVideoBillingSnapshot{Operation: grokVideoExtensionOperation, OutputUnitPrice: 0.05, VideoInputUnitPrice: 0.01, VideoInputBilledSeconds: 10}, seconds: 5, want: 0.35},
+		{name: "references", snapshot: model.GrokVideoBillingSnapshot{Operation: referenceToVideoOperation, OutputUnitPrice: 0.14, ImageInputUnitPrice: 0.01, InputImageCount: 3}, seconds: 10, want: 1.43},
 		{name: "explicit zero", snapshot: model.GrokVideoBillingSnapshot{Operation: imageToVideoOperation, InputImageCount: 1}, seconds: 6, want: 0},
 	}
 	for _, tt := range tests {
@@ -229,6 +236,38 @@ func TestFinalizeGrokVideoBillingUsesSettledQuotaAsLedgerAuthority(t *testing.T)
 	assert.Contains(t, content, "480p")
 	assert.NotContains(t, content, "task_")
 	assert.NotContains(t, string(mustJSON(t, got)), "provider_cost")
+}
+
+func TestFinalGrokVideoBillingDescribesExtensionAndReferenceFormulas(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation string
+		inputType string
+		images    int
+		videoSecs float64
+		wantText  string
+	}{
+		{name: "extension", operation: grokVideoExtensionOperation, inputType: "video", videoSecs: 10, wantText: "视频延长"},
+		{name: "references", operation: referenceToVideoOperation, inputType: "image", images: 3, wantText: "参考图生视频"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			task := &model.Task{Quota: 225000, PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+				GroupRatio: 1,
+				GrokVideoBilling: &model.GrokVideoBillingSnapshot{
+					Version: 1, Model: grokVideoModelLegacy, Operation: testCase.operation, InputType: testCase.inputType,
+					ActualDurationSeconds: 5, ActualResolution: "720p", ResolutionSource: relaycommon.GrokVideoResolutionSourceInputProbeV1,
+					InputImageCount: testCase.images, VideoInputBilledSeconds: testCase.videoSecs,
+					OutputUnitPrice: 0.07, ImageInputUnitPrice: 0.01, VideoInputUnitPrice: 0.01,
+				},
+			}}}
+
+			_, content := finalGrokVideoBilling(task)
+
+			assert.Contains(t, content, testCase.wantText)
+			assert.Contains(t, content, "计费")
+		})
+	}
 }
 
 func TestFinalizedGrokVideoEditRequiresExplicitVersionedResolutionSource(t *testing.T) {

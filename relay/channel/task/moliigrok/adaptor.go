@@ -124,6 +124,50 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	req.Model = modelName
 	req.Prompt = prompt
 	isEdit := strings.HasSuffix(c.Request.URL.Path, "/videos/edits")
+	isExtension := strings.HasSuffix(c.Request.URL.Path, "/videos/extensions")
+	if isExtension {
+		if modelName != LegacyVideoModel {
+			return service.TaskErrorWrapperLocal(errors.New("video extension requires grok-imagine-video"), "invalid_model", http.StatusBadRequest)
+		}
+		if strings.TrimSpace(req.Video) == "" {
+			return service.TaskErrorWrapperLocal(errors.New("video is required"), "invalid_video", http.StatusBadRequest)
+		}
+		if strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 || len(req.ReferenceImages) > 0 {
+			return service.TaskErrorWrapperLocal(errors.New("video extension cannot be combined with image inputs"), "invalid_request", http.StatusBadRequest)
+		}
+		if strings.TrimSpace(req.AspectRatio) != "" || strings.TrimSpace(req.Resolution) != "" {
+			return service.TaskErrorWrapperLocal(errors.New("aspect_ratio and resolution are not supported for video extensions"), "invalid_request", http.StatusBadRequest)
+		}
+		if req.Duration == 0 {
+			req.Duration = 6
+		}
+		if req.Duration < 2 || req.Duration > 10 {
+			return service.TaskErrorWrapperLocal(errors.New("duration must be between 2 and 10 seconds for video extensions"), "invalid_duration", http.StatusBadRequest)
+		}
+		probe, taskErr := a.probeInputVideo(c, req.Video)
+		if taskErr != nil {
+			return taskErr
+		}
+		if probe.DurationSeconds < 2 || probe.DurationSeconds > 15 {
+			return service.TaskErrorWrapperLocal(errors.New("input video duration must be between 2 and 15 seconds"), "invalid_video_duration", http.StatusBadRequest)
+		}
+		resolution := strings.ToLower(strings.TrimSpace(probe.ResolutionTier))
+		if resolution == "1080p" {
+			resolution = "720p"
+		}
+		if resolution != "480p" && resolution != "720p" {
+			return service.TaskErrorWrapperLocal(errors.New("input video resolution is not supported"), "invalid_video_resolution", http.StatusBadRequest)
+		}
+		c.Set("task_request", req)
+		info.Action = videoExtensionAction
+		info.InputVideoDurationSeconds = probe.DurationSeconds
+		info.InputVideoResolutionTier = resolution
+		info.InputVideoResolutionSource = relaycommon.GrokVideoResolutionSourceInputProbeV1
+		info.EstimatedVideoSeconds = req.Duration
+		info.EstimatedVideoResolution = resolution
+		info.EstimatedVideoHasInput = true
+		return nil
+	}
 	if isEdit {
 		if modelName != LegacyVideoModel {
 			return service.TaskErrorWrapperLocal(errors.New("video editing requires grok-imagine-video"), "invalid_model", http.StatusBadRequest)
@@ -134,13 +178,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		if req.Duration != 0 || strings.TrimSpace(req.AspectRatio) != "" || strings.TrimSpace(req.Resolution) != "" {
 			return service.TaskErrorWrapperLocal(errors.New("duration, aspect_ratio and resolution are not supported for video edits"), "invalid_request", http.StatusBadRequest)
 		}
-		videoProber := a.videoProber
-		if videoProber == nil {
-			videoProber = service.UserVideoProbeFunc(service.ProbeUserVideo)
-		}
-		probe, err := videoProber.ProbeUserVideo(c.Request.Context(), service.MediaSource{URL: strings.TrimSpace(req.Video)})
-		if err != nil {
-			return service.TaskErrorWrapperLocal(errors.New("video must be a valid MP4"), "invalid_video", http.StatusBadRequest)
+		probe, taskErr := a.probeInputVideo(c, req.Video)
+		if taskErr != nil {
+			return taskErr
 		}
 		if probe.DurationSeconds <= 0 || probe.DurationSeconds > 8.7 {
 			return service.TaskErrorWrapperLocal(errors.New("video duration must be greater than 0 and at most 8.7 seconds"), "invalid_video_duration", http.StatusBadRequest)
@@ -152,6 +192,54 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		info.InputVideoResolutionSource = relaycommon.GrokVideoResolutionSourceInputProbeV1
 		info.EstimatedVideoSeconds = int(math.Ceil(probe.DurationSeconds))
 		info.EstimatedVideoResolution = probe.ResolutionTier
+		info.EstimatedVideoHasInput = true
+		return nil
+	}
+	if len(req.ReferenceImages) > 0 {
+		if modelName != VideoModel {
+			return service.TaskErrorWrapperLocal(errors.New("reference_images require grok-imagine-video-1.5"), "invalid_model", http.StatusBadRequest)
+		}
+		if strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 || strings.TrimSpace(req.Video) != "" {
+			return service.TaskErrorWrapperLocal(errors.New("reference_images cannot be combined with image or video"), "invalid_request", http.StatusBadRequest)
+		}
+		if len(req.ReferenceImages) > 7 {
+			return service.TaskErrorWrapperLocal(errors.New("reference_images must contain at most 7 images"), "invalid_reference_images", http.StatusBadRequest)
+		}
+		for _, reference := range req.ReferenceImages {
+			if strings.TrimSpace(reference) == "" {
+				return service.TaskErrorWrapperLocal(errors.New("reference_images entries must contain a URL"), "invalid_reference_images", http.StatusBadRequest)
+			}
+		}
+		if req.Duration == 0 {
+			req.Duration = 5
+		}
+		if req.Duration < 1 || req.Duration > 15 {
+			return service.TaskErrorWrapperLocal(errors.New("duration must be between 1 and 15 seconds"), "invalid_duration", http.StatusBadRequest)
+		}
+		if strings.TrimSpace(req.AspectRatio) == "" {
+			req.AspectRatio = "16:9"
+		} else {
+			req.AspectRatio = strings.TrimSpace(req.AspectRatio)
+		}
+		if strings.TrimSpace(req.Resolution) == "" {
+			req.Resolution = "480p"
+		} else {
+			req.Resolution = strings.ToLower(strings.TrimSpace(req.Resolution))
+		}
+		if _, ok := supportedVideoAspectRatios[req.AspectRatio]; !ok {
+			return service.TaskErrorWrapperLocal(errors.New("aspect_ratio is not supported"), "invalid_aspect_ratio", http.StatusBadRequest)
+		}
+		if req.Resolution != "480p" && req.Resolution != "720p" {
+			return service.TaskErrorWrapperLocal(errors.New("reference_images support at most 720p"), "invalid_resolution", http.StatusBadRequest)
+		}
+		if _, _, _, ok := ratio_setting.GetMoliiGrokVideoPrices(modelName, req.Resolution); !ok {
+			return service.TaskErrorWrapperLocal(errors.New("resolution is not supported by the selected model"), "invalid_resolution", http.StatusBadRequest)
+		}
+		c.Set("task_request", req)
+		info.Action = referenceToVideoAction
+		info.EstimatedVideoSeconds = req.Duration
+		info.EstimatedVideoRatio = req.AspectRatio
+		info.EstimatedVideoResolution = req.Resolution
 		info.EstimatedVideoHasInput = true
 		return nil
 	}
@@ -188,12 +276,27 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	return nil
 }
 
+func (a *TaskAdaptor) probeInputVideo(c *gin.Context, value string) (*service.MediaProbeResult, *taskdto.TaskError) {
+	videoProber := a.videoProber
+	if videoProber == nil {
+		videoProber = service.UserVideoProbeFunc(service.ProbeUserVideo)
+	}
+	probe, err := videoProber.ProbeUserVideo(c.Request.Context(), service.MediaSource{URL: strings.TrimSpace(value)})
+	if err != nil || probe == nil {
+		return nil, service.TaskErrorWrapperLocal(errors.New("video must be a valid MP4"), "invalid_video", http.StatusBadRequest)
+	}
+	return probe, nil
+}
+
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if a.baseURL == "" {
 		return "", errors.New("Molii Grok Imagine API configuration is incomplete")
 	}
 	if info != nil && info.Action == videoEditAction {
 		return a.baseURL + "/v1/videos/edits", nil
+	}
+	if info != nil && info.Action == videoExtensionAction {
+		return a.baseURL + "/v1/videos/extensions", nil
 	}
 	return a.baseURL + "/v1/videos/generations", nil
 }
@@ -232,6 +335,19 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		}
 		return bytes.NewReader(body), nil
 	}
+	if info != nil && info.Action == videoExtensionAction {
+		payload := videoExtensionRequestPayload{
+			Model:    modelName,
+			Prompt:   strings.TrimSpace(req.Prompt),
+			Duration: req.Duration,
+			Video:    buildMediaInput(req.Video),
+		}
+		body, err := common.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		return bytes.NewReader(body), nil
+	}
 	payload := videoRequestPayload{
 		Model:       modelName,
 		Prompt:      strings.TrimSpace(req.Prompt),
@@ -246,6 +362,12 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if imageURL != "" {
 		media := buildMediaInput(imageURL)
 		payload.Image = &media
+	}
+	if info != nil && info.Action == referenceToVideoAction {
+		payload.ReferenceImages = make([]mediaInput, 0, len(req.ReferenceImages))
+		for _, reference := range req.ReferenceImages {
+			payload.ReferenceImages = append(payload.ReferenceImages, buildMediaInput(reference))
+		}
 	}
 	body, err := common.Marshal(payload)
 	if err != nil {
@@ -271,7 +393,7 @@ func requestContainsFileID(c *gin.Context) bool {
 	if err := common.Unmarshal(body, &request); err != nil {
 		return false
 	}
-	for _, field := range []string{"image", "images", "video"} {
+	for _, field := range []string{"image", "images", "video", "reference_images"} {
 		if mediaContainsFileID(request[field]) {
 			return true
 		}
@@ -311,7 +433,14 @@ func taskRequestContainsFileID(req relaycommon.TaskSubmitReq) bool {
 	if strings.TrimSpace(req.ImageFileID) != "" || strings.TrimSpace(req.VideoFileID) != "" {
 		return true
 	}
-	for _, value := range append([]string{req.Image, req.Video}, req.Images...) {
+	for _, fileID := range req.ReferenceImageFileIDs {
+		if strings.TrimSpace(fileID) != "" {
+			return true
+		}
+	}
+	values := append([]string{req.Image, req.Video}, req.Images...)
+	values = append(values, req.ReferenceImages...)
+	for _, value := range values {
 		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "file_") {
 			return true
 		}
@@ -343,6 +472,8 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	if info.Action == videoEditAction {
 		resolution = strings.ToLower(strings.TrimSpace(info.InputVideoResolutionTier))
 		seconds = info.InputVideoDurationSeconds
+	} else if info.Action == videoExtensionAction {
+		resolution = strings.ToLower(strings.TrimSpace(info.EstimatedVideoResolution))
 	}
 	outputPrice, imageInputPrice, videoInputPrice, ok := ratio_setting.GetMoliiGrokVideoPrices(modelName, resolution)
 	if !ok {
@@ -351,12 +482,16 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	cost := seconds * outputPrice
 	if info.Action == videoEditAction {
 		cost += seconds * videoInputPrice
+	} else if info.Action == videoExtensionAction {
+		cost = float64(req.Duration)*outputPrice + info.InputVideoDurationSeconds*videoInputPrice
+	} else if info.Action == referenceToVideoAction {
+		cost += float64(len(req.ReferenceImages)) * imageInputPrice
 	} else if strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 {
 		cost += imageInputPrice
 	}
 	info.EstimatedVideoPrice = cost
 	info.EstimatedVideoUnitPrice = outputPrice
-	if info.Action == videoEditAction {
+	if info.Action == videoEditAction || info.Action == videoExtensionAction {
 		info.EstimatedVideoInputUnitPrice = videoInputPrice
 		info.EstimatedVideoOutputUnitPrices = make(map[string]float64, 2)
 		for _, candidate := range []string{"480p", "720p"} {
@@ -365,7 +500,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 				info.EstimatedVideoOutputUnitPrices[candidate] = candidateOutput
 			}
 		}
-	} else if strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 {
+	} else if info.Action == referenceToVideoAction || strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 {
 		info.EstimatedVideoInputUnitPrice = imageInputPrice
 	}
 	return map[string]float64{"molii_grok_direct_cost": cost / basePrice}
@@ -388,7 +523,7 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 			return 0
 		}
 
-		if snapshot.Operation == videoEditAction {
+		if snapshot.Operation == videoEditAction || snapshot.Operation == videoExtensionAction {
 			duration = snapshot.RequestedDurationSeconds
 			if duration <= 0 {
 				return 0
@@ -398,7 +533,9 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 				return 0
 			}
 			snapshot.ActualDurationSeconds = duration
-			snapshot.VideoInputBilledSeconds = duration
+			if snapshot.Operation == videoEditAction {
+				snapshot.VideoInputBilledSeconds = duration
+			}
 			snapshot.ActualResolution = resolution
 		} else {
 			resolution := snapshot.RequestedResolution

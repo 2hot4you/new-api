@@ -1,18 +1,26 @@
 package moliigrok
 
 type videoRequestPayload struct {
-	Model       string      `json:"model"`
-	Prompt      string      `json:"prompt"`
-	Duration    int         `json:"duration"`
-	AspectRatio string      `json:"aspect_ratio"`
-	Resolution  string      `json:"resolution"`
-	Image       *mediaInput `json:"image,omitempty"`
+	Model           string       `json:"model"`
+	Prompt          string       `json:"prompt"`
+	Duration        int          `json:"duration"`
+	AspectRatio     string       `json:"aspect_ratio"`
+	Resolution      string       `json:"resolution"`
+	Image           *mediaInput  `json:"image,omitempty"`
+	ReferenceImages []mediaInput `json:"reference_images,omitempty"`
 }
 
 type videoEditRequestPayload struct {
 	Model  string     `json:"model"`
 	Prompt string     `json:"prompt"`
 	Video  mediaInput `json:"video"`
+}
+
+type videoExtensionRequestPayload struct {
+	Model    string     `json:"model"`
+	Prompt   string     `json:"prompt"`
+	Duration int        `json:"duration"`
+	Video    mediaInput `json:"video"`
 }
 
 type mediaInput struct {
