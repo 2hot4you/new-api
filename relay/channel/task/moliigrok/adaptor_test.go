@@ -2,6 +2,7 @@ package moliigrok
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -260,6 +261,60 @@ func TestGrokImagineVideoResolvesReferenceImageFileIDs(t *testing.T) {
 	assert.Contains(t, string(encoded), "https://cos.example/reference.png")
 	assert.NotContains(t, string(encoded), "file_id")
 	assert.Equal(t, referenceToVideoAction, info.Action)
+}
+
+func TestGrokImagineVideoRejectsOversizedFileIDCollectionsBeforeResolution(t *testing.T) {
+	tests := []string{
+		`{"model":"grok-imagine-video-1.5","prompt":"scene","images":[{"file_id":"file_a"},{"file_id":"file_b"}]}`,
+		`{"model":"grok-imagine-video-1.5","prompt":"scene","reference_images":[{"file_id":"file_a"},{"file_id":"file_b"},{"file_id":"file_c"},{"file_id":"file_d"},{"file_id":"file_e"},{"file_id":"file_f"},{"file_id":"file_g"},{"file_id":"file_h"}]}`,
+	}
+	for _, body := range tests {
+		c, _ := taskContext(t, body)
+		info := taskInfo()
+		info.UserId = 42
+		resolveCalls := 0
+		adaptor := &TaskAdaptor{resolveUserFile: func(context.Context, int, string, model.MoliiFileMediaType) (*model.MoliiFile, string, error) {
+			resolveCalls++
+			return nil, "", errors.New("must not resolve")
+		}}
+		adaptor.Init(info)
+		require.NotNil(t, adaptor.ValidateRequestAndSetAction(c, info))
+		assert.Zero(t, resolveCalls)
+	}
+}
+
+func TestGrokImagineVideoDeduplicatesRepeatedReferenceFileResolution(t *testing.T) {
+	c, _ := taskContext(t, `{"model":"grok-imagine-video-1.5","prompt":"scene","reference_images":[{"file_id":"file_same"},{"file_id":"file_same"}]}`)
+	info := taskInfo()
+	info.UserId = 42
+	resolveCalls := 0
+	adaptor := &TaskAdaptor{resolveUserFile: func(_ context.Context, _ int, fileID string, expected model.MoliiFileMediaType) (*model.MoliiFile, string, error) {
+		resolveCalls++
+		return &model.MoliiFile{FileID: fileID, MediaType: expected}, "https://cos.example/reference.png", nil
+	}}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	assert.Equal(t, 1, resolveCalls)
+}
+
+func TestGrokImagineVideoFileMetadataAvoidsRemoteProbe(t *testing.T) {
+	c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"edit","video":{"file_id":"file_video"}}`)
+	c.Request.URL.Path = "/v1/videos/edits"
+	info := taskInfo()
+	info.UserId = 42
+	info.OriginModelName = LegacyVideoModel
+	info.ChannelMeta.UpstreamModelName = LegacyVideoModel
+	adaptor := &TaskAdaptor{
+		videoProber: stubVideoProber{err: errors.New("remote probe must not run")},
+		resolveUserFile: func(_ context.Context, _ int, fileID string, expected model.MoliiFileMediaType) (*model.MoliiFile, string, error) {
+			return &model.MoliiFile{FileID: fileID, MediaType: expected, Width: 1280, Height: 720, DurationSeconds: 8.7}, "https://cos.example/video.mp4", nil
+		},
+	}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	assert.Equal(t, relaycommon.GrokVideoResolutionSourceInputProbeV1, info.InputVideoResolutionSource)
+	assert.Equal(t, "720p", info.InputVideoResolutionTier)
+	assert.InDelta(t, 8.7, info.InputVideoDurationSeconds, 0.0001)
 }
 
 func TestGrokImagineVideoURLObjectsNeverForwardFileID(t *testing.T) {

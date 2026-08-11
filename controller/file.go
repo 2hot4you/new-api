@@ -33,6 +33,7 @@ func newFileObject(file *model.MoliiFile) apiDTO.FileObject {
 	return apiDTO.FileObject{
 		ID: file.FileID, Object: "file", Bytes: file.Bytes, CreatedAt: file.CreatedAt,
 		ExpiresAt: file.ExpiresAt, Filename: file.Filename, Purpose: file.Purpose, MIMEType: file.MIMEType,
+		Width: file.Width, Height: file.Height, DurationSeconds: file.DurationSeconds,
 	}
 }
 
@@ -59,6 +60,11 @@ func CreateFile(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, moliiFileMultipartMaxBytes)
 	header, err := c.FormFile("file")
 	if err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			handleFileServiceError(c, service.ErrMoliiFileTooLarge)
+			return
+		}
 		fileAPIError(c, http.StatusBadRequest, "file_required", "file is required")
 		return
 	}

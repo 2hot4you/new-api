@@ -21,6 +21,15 @@ import (
 	"gorm.io/gorm"
 )
 
+type endlessZeroReader struct{}
+
+func (endlessZeroReader) Read(p []byte) (int, error) {
+	for index := range p {
+		p[index] = 0
+	}
+	return len(p), nil
+}
+
 func setupFilesControllerDB(t *testing.T) {
 	t.Helper()
 	previousDB := model.DB
@@ -66,6 +75,21 @@ func TestFilesAPICreateUsesAuthenticatedUserAndReturnsOpenAIShape(t *testing.T) 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), `"id":"file_created"`)
 	assert.Contains(t, recorder.Body.String(), `"object":"file"`)
+}
+
+func TestFilesAPICreateReturns413WhenMultipartBodyExceedsLimit(t *testing.T) {
+	const boundary = "molii-test-boundary"
+	prefix := "--" + boundary + "\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nvision\r\n" +
+		"--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.mp4\"\r\nContent-Type: video/mp4\r\n\r\n"
+	suffix := "\r\n--" + boundary + "--\r\n"
+	body := io.MultiReader(strings.NewReader(prefix), io.LimitReader(endlessZeroReader{}, moliiFileMultipartMaxBytes+1), strings.NewReader(suffix))
+	c, recorder := newFileControllerContext(http.MethodPost, "/v1/files", body)
+	c.Request.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
+
+	CreateFile(c)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"code":"file_too_large"`)
 }
 
 func TestFilesAPIRetrieveHidesForeignFilesAndMarksExpiredGone(t *testing.T) {

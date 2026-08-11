@@ -72,6 +72,9 @@ func TestMoliiFileListAndDeleteAreIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, changed)
 	assert.Equal(t, MoliiFileStatusDeleted, deleted.Status)
+	assert.Empty(t, deleted.Filename)
+	assert.Equal(t, int64(0), deleted.Bytes)
+	assert.Contains(t, deleted.ObjectKey, "deleted/")
 
 	deleted, changed, err = MarkMoliiFileDeleted(context.Background(), 7, active.FileID, now+1)
 	require.NoError(t, err)
@@ -80,4 +83,35 @@ func TestMoliiFileListAndDeleteAreIdempotent(t *testing.T) {
 
 	_, _, err = MarkMoliiFileDeleted(context.Background(), 8, active.FileID, now)
 	assert.True(t, errors.Is(err, ErrMoliiFileNotFound))
+}
+
+func TestExpireMoliiFileByObjectKeyScrubsMetadataAndKeepsGoneContract(t *testing.T) {
+	setupMoliiFileTestDB(t)
+	now := time.Now().Unix()
+	file := &MoliiFile{
+		FileID: "file_expiring", UserID: 7, ObjectKey: "p/grok-files/7/file_expiring.mp4",
+		Filename: "customer-video.mp4", Purpose: "video", Bytes: 1234, MIMEType: "video/mp4",
+		MediaType: MoliiFileMediaTypeVideo, Width: 1280, Height: 720, DurationSeconds: 8.7,
+		Status: MoliiFileStatusActive, CreatedAt: now - 86400, UpdatedAt: now - 86400, ExpiresAt: now,
+	}
+	require.NoError(t, CreateMoliiFile(context.Background(), file))
+	require.NoError(t, ExpireMoliiFileByObjectKey(context.Background(), file.ObjectKey, now))
+
+	_, err := GetMoliiFileForUser(context.Background(), 7, file.FileID, now)
+	assert.ErrorIs(t, err, ErrMoliiFileExpired)
+	record, err := GetMoliiFileRecordForUser(context.Background(), 7, file.FileID)
+	require.NoError(t, err)
+	assert.Equal(t, MoliiFileStatusExpired, record.Status)
+	assert.Contains(t, record.ObjectKey, "expired/")
+	assert.Empty(t, record.Filename)
+	assert.Empty(t, record.Purpose)
+	assert.Zero(t, record.Bytes)
+	assert.Zero(t, record.Width)
+	assert.Zero(t, record.Height)
+	assert.Zero(t, record.DurationSeconds)
+
+	deleted, changed, err := MarkMoliiFileDeleted(context.Background(), 7, file.FileID, now+1)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.Equal(t, MoliiFileStatusDeleted, deleted.Status)
 }

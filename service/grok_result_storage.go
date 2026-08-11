@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/go-redis/redis/v8"
 )
@@ -287,6 +288,12 @@ func cleanupExpiredGrokObjectsWithDelete(ctx context.Context, deleteObject func(
 		if err := deleteObject(ctx, objectKey); err != nil {
 			common.SysError("failed to delete expired Grok COS object: " + err.Error())
 			continue
+		}
+		if strings.Contains("/"+strings.TrimLeft(objectKey, "/"), "/grok-files/") {
+			if err := model.ExpireMoliiFileByObjectKey(ctx, objectKey, time.Now().Unix()); err != nil {
+				common.SysError("failed to expire Molii file metadata: " + err.Error())
+				continue
+			}
 		}
 		if err := common.RDB.ZRem(ctx, grokCOSCleanupIndexKey, objectKey).Err(); err != nil {
 			common.SysError("failed to remove expired Grok COS cleanup entry: " + err.Error())

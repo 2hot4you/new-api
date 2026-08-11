@@ -15,12 +15,19 @@ CREATE TABLE IF NOT EXISTS public.molii_files (
   bytes bigint,
   mime_type varchar(127),
   media_type varchar(16),
+  width bigint,
+  height bigint,
+  duration_seconds double precision,
   status varchar(20),
   created_at bigint,
   updated_at bigint,
   expires_at bigint,
   PRIMARY KEY (id)
 );
+
+ALTER TABLE public.molii_files ADD COLUMN IF NOT EXISTS width bigint;
+ALTER TABLE public.molii_files ADD COLUMN IF NOT EXISTS height bigint;
+ALTER TABLE public.molii_files ADD COLUMN IF NOT EXISTS duration_seconds double precision;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_molii_files_file_id
   ON public.molii_files (file_id);

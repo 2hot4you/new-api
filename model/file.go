@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -15,6 +16,7 @@ type MoliiFileMediaType string
 const (
 	MoliiFileStatusActive  MoliiFileStatus = "active"
 	MoliiFileStatusDeleted MoliiFileStatus = "deleted"
+	MoliiFileStatusExpired MoliiFileStatus = "expired"
 
 	MoliiFileMediaTypeImage MoliiFileMediaType = "image"
 	MoliiFileMediaTypeVideo MoliiFileMediaType = "video"
@@ -26,19 +28,22 @@ var (
 )
 
 type MoliiFile struct {
-	ID        int64              `json:"-" gorm:"primaryKey"`
-	FileID    string             `json:"id" gorm:"type:varchar(191);uniqueIndex"`
-	UserID    int                `json:"-" gorm:"index:idx_molii_files_user_status_expiry,priority:1"`
-	ObjectKey string             `json:"-" gorm:"type:varchar(512);uniqueIndex"`
-	Filename  string             `json:"filename" gorm:"type:varchar(255)"`
-	Purpose   string             `json:"purpose" gorm:"type:varchar(64)"`
-	Bytes     int64              `json:"bytes"`
-	MIMEType  string             `json:"mime_type" gorm:"type:varchar(127)"`
-	MediaType MoliiFileMediaType `json:"media_type" gorm:"type:varchar(16)"`
-	Status    MoliiFileStatus    `json:"status" gorm:"type:varchar(20);index:idx_molii_files_user_status_expiry,priority:2"`
-	CreatedAt int64              `json:"created_at" gorm:"bigint"`
-	UpdatedAt int64              `json:"-" gorm:"bigint"`
-	ExpiresAt int64              `json:"expires_at" gorm:"bigint;index:idx_molii_files_user_status_expiry,priority:3"`
+	ID              int64              `json:"-" gorm:"primaryKey"`
+	FileID          string             `json:"id" gorm:"type:varchar(191);uniqueIndex"`
+	UserID          int                `json:"-" gorm:"index:idx_molii_files_user_status_expiry,priority:1"`
+	ObjectKey       string             `json:"-" gorm:"type:varchar(512);uniqueIndex"`
+	Filename        string             `json:"filename" gorm:"type:varchar(255)"`
+	Purpose         string             `json:"purpose" gorm:"type:varchar(64)"`
+	Bytes           int64              `json:"bytes"`
+	MIMEType        string             `json:"mime_type" gorm:"type:varchar(127)"`
+	MediaType       MoliiFileMediaType `json:"media_type" gorm:"type:varchar(16)"`
+	Width           int                `json:"width,omitempty"`
+	Height          int                `json:"height,omitempty"`
+	DurationSeconds float64            `json:"duration_seconds,omitempty"`
+	Status          MoliiFileStatus    `json:"status" gorm:"type:varchar(20);index:idx_molii_files_user_status_expiry,priority:2"`
+	CreatedAt       int64              `json:"created_at" gorm:"bigint"`
+	UpdatedAt       int64              `json:"-" gorm:"bigint"`
+	ExpiresAt       int64              `json:"expires_at" gorm:"bigint;index:idx_molii_files_user_status_expiry,priority:3"`
 }
 
 func (MoliiFile) TableName() string { return "molii_files" }
@@ -90,7 +95,7 @@ func GetMoliiFileForUser(ctx context.Context, userID int, fileID string, now int
 	if err != nil {
 		return nil, err
 	}
-	if now >= file.ExpiresAt {
+	if file.Status == MoliiFileStatusExpired || now >= file.ExpiresAt {
 		return nil, ErrMoliiFileExpired
 	}
 	return &file, nil
@@ -146,16 +151,53 @@ func MarkMoliiFileDeleted(ctx context.Context, userID int, fileID string, now in
 	if file.Status == MoliiFileStatusDeleted {
 		return &file, false, nil
 	}
+	updates := scrubMoliiFileMetadata(file.FileID, MoliiFileStatusDeleted, now)
 	result := DB.WithContext(ctx).Model(&MoliiFile{}).
-		Where("id = ? AND status = ?", file.ID, MoliiFileStatusActive).
-		Updates(map[string]any{"status": MoliiFileStatusDeleted, "updated_at": now})
+		Where("id = ? AND status IN ?", file.ID, []MoliiFileStatus{MoliiFileStatusActive, MoliiFileStatusExpired}).
+		Updates(updates)
 	if result.Error != nil {
 		return nil, false, result.Error
 	}
 	if result.RowsAffected == 0 {
 		return MarkMoliiFileDeleted(ctx, userID, fileID, now)
 	}
-	file.Status = MoliiFileStatusDeleted
-	file.UpdatedAt = now
+	applyMoliiFileScrub(&file, MoliiFileStatusDeleted, now)
 	return &file, true, nil
+}
+
+func ExpireMoliiFileByObjectKey(ctx context.Context, objectKey string, now int64) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if DB == nil {
+		return errors.New("database is unavailable")
+	}
+	var file MoliiFile
+	err := DB.WithContext(ctx).Where("object_key = ? AND status = ?", strings.TrimSpace(objectKey), MoliiFileStatusActive).First(&file).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return DB.WithContext(ctx).Model(&MoliiFile{}).Where("id = ? AND status = ?", file.ID, MoliiFileStatusActive).
+		Updates(scrubMoliiFileMetadata(file.FileID, MoliiFileStatusExpired, now)).Error
+}
+
+func scrubMoliiFileMetadata(fileID string, status MoliiFileStatus, now int64) map[string]any {
+	return map[string]any{
+		"object_key": fmt.Sprintf("%s/%s", status, strings.TrimSpace(fileID)),
+		"filename":   "", "purpose": "", "bytes": int64(0), "mime_type": "", "media_type": "",
+		"width": 0, "height": 0, "duration_seconds": float64(0), "status": status, "updated_at": now,
+	}
+}
+
+func applyMoliiFileScrub(file *MoliiFile, status MoliiFileStatus, now int64) {
+	if file == nil {
+		return
+	}
+	file.ObjectKey = fmt.Sprintf("%s/%s", status, strings.TrimSpace(file.FileID))
+	file.Filename, file.Purpose, file.MIMEType, file.MediaType = "", "", "", ""
+	file.Bytes, file.Width, file.Height, file.DurationSeconds = 0, 0, 0, 0
+	file.Status, file.UpdatedAt = status, now
 }

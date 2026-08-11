@@ -109,9 +109,6 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
-	if taskErr := a.resolveTaskFileIDs(c, info, &req); taskErr != nil {
-		return taskErr
-	}
 	modelName := strings.TrimSpace(req.Model)
 	if modelName == "" {
 		modelName = strings.TrimSpace(info.OriginModelName)
@@ -130,6 +127,12 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	req.Prompt = prompt
 	isEdit := strings.HasSuffix(c.Request.URL.Path, "/videos/edits")
 	isExtension := strings.HasSuffix(c.Request.URL.Path, "/videos/extensions")
+	if taskErr := validateTaskMediaShape(&req, modelName, isEdit, isExtension); taskErr != nil {
+		return taskErr
+	}
+	if taskErr := a.resolveTaskFileIDs(c, info, &req); taskErr != nil {
+		return taskErr
+	}
 	if isExtension {
 		if modelName != LegacyVideoModel {
 			return service.TaskErrorWrapperLocal(errors.New("video extension requires grok-imagine-video"), "invalid_model", http.StatusBadRequest)
@@ -149,7 +152,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		if req.Duration < 2 || req.Duration > 10 {
 			return service.TaskErrorWrapperLocal(errors.New("duration must be between 2 and 10 seconds for video extensions"), "invalid_duration", http.StatusBadRequest)
 		}
-		probe, taskErr := a.probeInputVideo(c, req.Video)
+		probe, taskErr := a.probeInputVideo(c, info, req.Video)
 		if taskErr != nil {
 			return taskErr
 		}
@@ -183,7 +186,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		if req.Duration != 0 || strings.TrimSpace(req.AspectRatio) != "" || strings.TrimSpace(req.Resolution) != "" {
 			return service.TaskErrorWrapperLocal(errors.New("duration, aspect_ratio and resolution are not supported for video edits"), "invalid_request", http.StatusBadRequest)
 		}
-		probe, taskErr := a.probeInputVideo(c, req.Video)
+		probe, taskErr := a.probeInputVideo(c, info, req.Video)
 		if taskErr != nil {
 			return taskErr
 		}
@@ -281,7 +284,15 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	return nil
 }
 
-func (a *TaskAdaptor) probeInputVideo(c *gin.Context, value string) (*service.MediaProbeResult, *taskdto.TaskError) {
+func (a *TaskAdaptor) probeInputVideo(c *gin.Context, info *relaycommon.RelayInfo, value string) (*service.MediaProbeResult, *taskdto.TaskError) {
+	if info != nil && info.InputVideoResolutionSource == relaycommon.GrokVideoResolutionSourceInputProbeV1 &&
+		info.InputVideoDurationSeconds > 0 && strings.TrimSpace(info.InputVideoResolutionTier) != "" {
+		return &service.MediaProbeResult{
+			DurationSeconds: info.InputVideoDurationSeconds,
+			ResolutionTier:  info.InputVideoResolutionTier,
+			MIMEType:        "video/mp4",
+		}, nil
+	}
 	videoProber := a.videoProber
 	if videoProber == nil {
 		videoProber = service.UserVideoProbeFunc(service.ProbeUserVideo)
@@ -291,6 +302,54 @@ func (a *TaskAdaptor) probeInputVideo(c *gin.Context, value string) (*service.Me
 		return nil, service.TaskErrorWrapperLocal(errors.New("video must be a valid MP4"), "invalid_video", http.StatusBadRequest)
 	}
 	return probe, nil
+}
+
+func validateTaskMediaShape(req *relaycommon.TaskSubmitReq, modelName string, isEdit, isExtension bool) *taskdto.TaskError {
+	if req == nil {
+		return service.TaskErrorWrapperLocal(errors.New("request is missing"), "invalid_request", http.StatusBadRequest)
+	}
+	if len(req.Images) > 1 {
+		return service.TaskErrorWrapperLocal(errors.New("videos accept at most one image input"), "invalid_images", http.StatusBadRequest)
+	}
+	if len(req.ReferenceImages) > 7 {
+		return service.TaskErrorWrapperLocal(errors.New("reference_images must contain at most 7 images"), "invalid_reference_images", http.StatusBadRequest)
+	}
+	if len(req.ReferenceImages) > 0 && (strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 || strings.TrimSpace(req.Video) != "") {
+		return service.TaskErrorWrapperLocal(errors.New("reference_images cannot be combined with image or video"), "invalid_request", http.StatusBadRequest)
+	}
+	if isEdit || isExtension {
+		if modelName != LegacyVideoModel {
+			return service.TaskErrorWrapperLocal(errors.New("video editing and extension require grok-imagine-video"), "invalid_model", http.StatusBadRequest)
+		}
+		if strings.TrimSpace(req.Video) == "" {
+			return service.TaskErrorWrapperLocal(errors.New("video is required"), "invalid_video", http.StatusBadRequest)
+		}
+		if strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 || len(req.ReferenceImages) > 0 {
+			return service.TaskErrorWrapperLocal(errors.New("video input cannot be combined with image inputs"), "invalid_request", http.StatusBadRequest)
+		}
+		if isEdit && (req.Duration != 0 || strings.TrimSpace(req.AspectRatio) != "" || strings.TrimSpace(req.Resolution) != "") {
+			return service.TaskErrorWrapperLocal(errors.New("duration, aspect_ratio and resolution are not supported for video edits"), "invalid_request", http.StatusBadRequest)
+		}
+		if isExtension {
+			if strings.TrimSpace(req.AspectRatio) != "" || strings.TrimSpace(req.Resolution) != "" {
+				return service.TaskErrorWrapperLocal(errors.New("aspect_ratio and resolution are not supported for video extensions"), "invalid_request", http.StatusBadRequest)
+			}
+			if req.Duration != 0 && (req.Duration < 2 || req.Duration > 10) {
+				return service.TaskErrorWrapperLocal(errors.New("duration must be between 2 and 10 seconds for video extensions"), "invalid_duration", http.StatusBadRequest)
+			}
+		}
+		return nil
+	}
+	if strings.TrimSpace(req.Video) != "" {
+		return service.TaskErrorWrapperLocal(errors.New("video input requires the edits or extensions endpoint"), "invalid_video", http.StatusBadRequest)
+	}
+	if len(req.ReferenceImages) > 0 && modelName != VideoModel {
+		return service.TaskErrorWrapperLocal(errors.New("reference_images require grok-imagine-video-1.5"), "invalid_model", http.StatusBadRequest)
+	}
+	if modelName == VideoModel && strings.TrimSpace(req.Image) == "" && len(req.Images) == 0 && len(req.ReferenceImages) == 0 {
+		return service.TaskErrorWrapperLocal(errors.New("Grok Imagine Video 1.5 models require an image"), "invalid_image", http.StatusBadRequest)
+	}
+	return nil
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
@@ -386,30 +445,41 @@ func (a *TaskAdaptor) resolveTaskFileIDs(c *gin.Context, info *relaycommon.Relay
 		return service.TaskErrorWrapperLocal(errors.New("request context is missing"), "invalid_request", http.StatusBadRequest)
 	}
 	resolve := a.userFileResolver()
-	resolveOne := func(fileID string, expected model.MoliiFileMediaType) (string, *taskdto.TaskError) {
+	type resolvedFile struct {
+		file *model.MoliiFile
+		url  string
+	}
+	cache := make(map[string]resolvedFile)
+	resolveOne := func(fileID string, expected model.MoliiFileMediaType) (*model.MoliiFile, string, *taskdto.TaskError) {
 		fileID = strings.TrimSpace(fileID)
 		if fileID == "" {
-			return "", nil
+			return nil, "", nil
 		}
-		_, signedURL, err := resolve(c.Request.Context(), info.UserId, fileID, expected)
+		cacheKey := string(expected) + ":" + fileID
+		if cached, ok := cache[cacheKey]; ok {
+			return cached.file, cached.url, nil
+		}
+		file, signedURL, err := resolve(c.Request.Context(), info.UserId, fileID, expected)
 		if err == nil && strings.TrimSpace(signedURL) != "" {
-			return strings.TrimSpace(signedURL), nil
+			resolved := resolvedFile{file: file, url: strings.TrimSpace(signedURL)}
+			cache[cacheKey] = resolved
+			return resolved.file, resolved.url, nil
 		}
 		switch {
 		case errors.Is(err, model.ErrMoliiFileNotFound):
-			return "", service.TaskErrorWrapperLocal(errors.New("file not found"), "file_not_found", http.StatusNotFound)
+			return nil, "", service.TaskErrorWrapperLocal(errors.New("file not found"), "file_not_found", http.StatusNotFound)
 		case errors.Is(err, model.ErrMoliiFileExpired):
-			return "", service.TaskErrorWrapperLocal(errors.New("file has expired"), "file_expired", http.StatusGone)
+			return nil, "", service.TaskErrorWrapperLocal(errors.New("file has expired"), "file_expired", http.StatusGone)
 		case errors.Is(err, service.ErrMoliiFileTypeMismatch):
-			return "", service.TaskErrorWrapperLocal(errors.New("file media type does not match the requested input"), "file_type_mismatch", http.StatusBadRequest)
+			return nil, "", service.TaskErrorWrapperLocal(errors.New("file media type does not match the requested input"), "file_type_mismatch", http.StatusBadRequest)
 		default:
-			return "", service.TaskErrorWrapperLocal(errors.New("file service is temporarily unavailable"), "file_service_unavailable", http.StatusServiceUnavailable)
+			return nil, "", service.TaskErrorWrapperLocal(errors.New("file service is temporarily unavailable"), "file_service_unavailable", http.StatusServiceUnavailable)
 		}
 	}
 
 	if req.ImageFileID != "" {
 		fileID := req.ImageFileID
-		resolved, taskErr := resolveOne(fileID, model.MoliiFileMediaTypeImage)
+		_, resolved, taskErr := resolveOne(fileID, model.MoliiFileMediaTypeImage)
 		if taskErr != nil {
 			return taskErr
 		}
@@ -424,7 +494,7 @@ func (a *TaskAdaptor) resolveTaskFileIDs(c *gin.Context, info *relaycommon.Relay
 		if strings.TrimSpace(fileID) == "" {
 			continue
 		}
-		resolved, taskErr := resolveOne(fileID, model.MoliiFileMediaTypeImage)
+		_, resolved, taskErr := resolveOne(fileID, model.MoliiFileMediaTypeImage)
 		if taskErr != nil {
 			return taskErr
 		}
@@ -434,9 +504,18 @@ func (a *TaskAdaptor) resolveTaskFileIDs(c *gin.Context, info *relaycommon.Relay
 		req.ImageFileIDs[index] = ""
 	}
 	if req.VideoFileID != "" {
-		resolved, taskErr := resolveOne(req.VideoFileID, model.MoliiFileMediaTypeVideo)
+		file, resolved, taskErr := resolveOne(req.VideoFileID, model.MoliiFileMediaTypeVideo)
 		if taskErr != nil {
 			return taskErr
+		}
+		if file != nil && file.DurationSeconds > 0 && file.Height > 0 {
+			resolution := "720p"
+			if file.Height <= 480 {
+				resolution = "480p"
+			}
+			info.InputVideoDurationSeconds = file.DurationSeconds
+			info.InputVideoResolutionTier = resolution
+			info.InputVideoResolutionSource = relaycommon.GrokVideoResolutionSourceInputProbeV1
 		}
 		req.Video, req.VideoFileID = resolved, ""
 	}
@@ -444,7 +523,7 @@ func (a *TaskAdaptor) resolveTaskFileIDs(c *gin.Context, info *relaycommon.Relay
 		if strings.TrimSpace(fileID) == "" {
 			continue
 		}
-		resolved, taskErr := resolveOne(fileID, model.MoliiFileMediaTypeImage)
+		_, resolved, taskErr := resolveOne(fileID, model.MoliiFileMediaTypeImage)
 		if taskErr != nil {
 			return taskErr
 		}

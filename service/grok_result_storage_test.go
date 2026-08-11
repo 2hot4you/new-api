@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/go-redis/redis/v8"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -156,6 +157,32 @@ func TestGrokResultStorageCleanupKeepsTransientFailuresAndNeverTouchesStarAIQueu
 	require.NoError(t, err)
 	_, err = common.RDB.ZScore(ctx, starAICOSCleanupIndexKey, starAIKey).Result()
 	require.NoError(t, err)
+}
+
+func TestGrokResultStorageCleanupExpiresAndScrubsUserFileMetadata(t *testing.T) {
+	setupUserFileServiceDB(t)
+	useStarAIAssetRedis(t)
+	ctx := context.Background()
+	now := time.Now().Unix()
+	objectKey := "users/grok-files/42/2026/08/file_cleanup.mp4"
+	file := &model.MoliiFile{
+		FileID: "file_cleanup", UserID: 42, ObjectKey: objectKey, Filename: "private.mp4", Purpose: "video",
+		Bytes: 123, MIMEType: "video/mp4", MediaType: model.MoliiFileMediaTypeVideo,
+		Width: 1280, Height: 720, DurationSeconds: 8.7, Status: model.MoliiFileStatusActive,
+		CreatedAt: now - 86400, UpdatedAt: now - 86400, ExpiresAt: now - 1,
+	}
+	require.NoError(t, model.CreateMoliiFile(ctx, file))
+	require.NoError(t, common.RDB.ZAdd(ctx, grokCOSCleanupIndexKey, &redis.Z{Score: float64(now - 1), Member: objectKey}).Err())
+
+	cleanupExpiredGrokObjectsWithDelete(ctx, func(context.Context, string) error { return nil })
+
+	_, err := model.GetMoliiFileForUser(ctx, 42, file.FileID, now)
+	assert.ErrorIs(t, err, model.ErrMoliiFileExpired)
+	record, err := model.GetMoliiFileRecordForUser(ctx, 42, file.FileID)
+	require.NoError(t, err)
+	assert.Equal(t, model.MoliiFileStatusExpired, record.Status)
+	assert.Empty(t, record.Filename)
+	assert.Zero(t, record.Bytes)
 }
 
 func TestGrokResultStoragePreEnqueueFailureNeverWritesOrDeletesSharedObject(t *testing.T) {

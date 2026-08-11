@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"mime"
 	"net/http"
@@ -18,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	cos "github.com/tencentyun/cos-go-sdk-v5"
+	_ "golang.org/x/image/webp"
 )
 
 const (
@@ -39,20 +43,27 @@ var (
 )
 
 type moliiFileUploadMetadata struct {
-	MIMEType  string
-	MediaType model.MoliiFileMediaType
-	Extension string
+	MIMEType        string
+	MediaType       model.MoliiFileMediaType
+	Extension       string
+	Width           int
+	Height          int
+	DurationSeconds float64
 }
 
 type userFileDependencies struct {
 	upload          func(context.Context, ObjectKeySpec, []byte) error
 	registerCleanup func(string, int64) error
+	createMetadata  func(context.Context, *model.MoliiFile) error
+	deleteObject    func(context.Context, string) error
 }
 
 func defaultUserFileDependencies() userFileDependencies {
 	return userFileDependencies{
 		upload:          uploadMoliiFileObject,
 		registerCleanup: RegisterPendingGrokObjectCleanup,
+		createMetadata:  model.CreateMoliiFile,
+		deleteObject:    DeleteGrokResultObject,
 	}
 }
 
@@ -67,6 +78,9 @@ func validateMoliiFileUpload(filename, purpose string, data []byte) (moliiFileUp
 	if parsed, _, err := mime.ParseMediaType(detected); err == nil {
 		detected = strings.ToLower(parsed)
 	}
+	if detected == "application/octet-stream" && len(data) >= 12 && string(data[4:8]) == "ftyp" {
+		detected = "video/mp4"
+	}
 	var metadata moliiFileUploadMetadata
 	switch detected {
 	case "image/png":
@@ -77,9 +91,11 @@ func validateMoliiFileUpload(filename, purpose string, data []byte) (moliiFileUp
 		metadata = moliiFileUploadMetadata{MIMEType: detected, MediaType: model.MoliiFileMediaTypeImage, Extension: ".webp"}
 	case "video/mp4":
 		metadata = moliiFileUploadMetadata{MIMEType: detected, MediaType: model.MoliiFileMediaTypeVideo, Extension: ".mp4"}
-		if _, err := ProbeUserVideo(context.Background(), MediaSource{Data: data, MIMEType: detected}); err != nil {
+		probe, err := ProbeUserVideo(context.Background(), MediaSource{Data: data, MIMEType: detected})
+		if err != nil || probe == nil {
 			return moliiFileUploadMetadata{}, ErrMoliiFileUnsupportedMedia
 		}
+		metadata.Width, metadata.Height, metadata.DurationSeconds = probe.Width, probe.Height, probe.DurationSeconds
 	default:
 		return moliiFileUploadMetadata{}, ErrMoliiFileUnsupportedMedia
 	}
@@ -88,6 +104,13 @@ func validateMoliiFileUpload(filename, purpose string, data []byte) (moliiFileUp
 	}
 	if metadata.MediaType == model.MoliiFileMediaTypeVideo && int64(len(data)) > moliiFileVideoMaxBytes {
 		return moliiFileUploadMetadata{}, ErrMoliiFileTooLarge
+	}
+	if metadata.MediaType == model.MoliiFileMediaTypeImage {
+		config, _, err := image.DecodeConfig(bytes.NewReader(data))
+		if err != nil || config.Width <= 0 || config.Height <= 0 {
+			return moliiFileUploadMetadata{}, ErrMoliiFileUnsupportedMedia
+		}
+		metadata.Width, metadata.Height = config.Width, config.Height
 	}
 	if strings.TrimSpace(path.Base(filename)) == "." {
 		return moliiFileUploadMetadata{}, errors.New("file name is invalid")
@@ -124,7 +147,13 @@ func createUserFileWithDependencies(ctx context.Context, userID int, filename, p
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if userID <= 0 || content == nil || dependencies.upload == nil || dependencies.registerCleanup == nil {
+	if dependencies.createMetadata == nil {
+		dependencies.createMetadata = model.CreateMoliiFile
+	}
+	if dependencies.deleteObject == nil {
+		dependencies.deleteObject = DeleteGrokResultObject
+	}
+	if userID <= 0 || content == nil || dependencies.upload == nil || dependencies.registerCleanup == nil || dependencies.createMetadata == nil || dependencies.deleteObject == nil {
 		return nil, errors.New("valid file upload context is required")
 	}
 	data, err := io.ReadAll(io.LimitReader(&objectStorageContextReader{ctx: ctx, reader: content}, moliiFileVideoMaxBytes+1))
@@ -158,10 +187,12 @@ func createUserFileWithDependencies(ctx context.Context, userID int, filename, p
 	file := &model.MoliiFile{
 		FileID: fileID, UserID: userID, ObjectKey: objectKey, Filename: baseName,
 		Purpose: strings.TrimSpace(purpose), Bytes: int64(len(data)), MIMEType: metadata.MIMEType,
-		MediaType: metadata.MediaType, Status: model.MoliiFileStatusActive,
+		MediaType: metadata.MediaType, Width: metadata.Width, Height: metadata.Height, DurationSeconds: metadata.DurationSeconds,
+		Status:    model.MoliiFileStatusActive,
 		CreatedAt: createdAt.Unix(), UpdatedAt: createdAt.Unix(), ExpiresAt: expiresAt,
 	}
-	if err := model.CreateMoliiFile(ctx, file); err != nil {
+	if err := dependencies.createMetadata(ctx, file); err != nil {
+		_ = dependencies.deleteObject(ctx, objectKey)
 		return nil, fmt.Errorf("persist file metadata: %w", err)
 	}
 	return file, nil
@@ -237,8 +268,10 @@ func DeleteUserFile(ctx context.Context, userID int, fileID string) (*model.Moli
 	if file.Status == model.MoliiFileStatusDeleted {
 		return file, nil
 	}
-	if err := DeleteCOSObject(ctx, file.ObjectKey); err != nil {
-		return nil, err
+	if file.Status != model.MoliiFileStatusExpired {
+		if err := DeleteCOSObject(ctx, file.ObjectKey); err != nil {
+			return nil, err
+		}
 	}
 	deleted, _, err := model.MarkMoliiFileDeleted(ctx, userID, fileID, time.Now().Unix())
 	return deleted, err
