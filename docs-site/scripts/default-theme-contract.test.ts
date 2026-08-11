@@ -35,6 +35,13 @@ describe('Docusaurus default-theme contract', () => {
     }
   });
 
+  test('routes the mixed-capability Grok homepage card to model selection', async () => {
+    const homepage = await source('src/pages/index.tsx');
+
+    expect(homepage).toContain('<Link to="/models">查看 Grok 模型 →</Link>');
+    expect(homepage).not.toContain('<Link to="/models/grok-imagine-video">查看 Grok 模型 →</Link>');
+  });
+
   test('registers API reference pages in the ordinary Docs sidebar', async () => {
     const sidebar = await source('sidebars.ts');
 

@@ -21,7 +21,7 @@ export MOLII_API_KEY='YOUR_API_KEY'
 
 ```bash
 curl --include --request POST \
-  "$MOLII_API_BASE_URL/v1/images/generations" \
+  "${MOLII_API_BASE_URL%/}/v1/images/generations" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
   --header 'Accept: application/json' \
@@ -38,7 +38,7 @@ curl --include --request POST \
 
 ```bash
 curl --include --request POST \
-  "$MOLII_API_BASE_URL/v1/images/generations" \
+  "${MOLII_API_BASE_URL%/}/v1/images/generations" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
   --header 'Accept: application/json' \
@@ -55,7 +55,7 @@ curl --include --request POST \
 
 ```bash
 curl --include --request POST \
-  "$MOLII_API_BASE_URL/v1/images/edits" \
+  "${MOLII_API_BASE_URL%/}/v1/images/edits" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
   --header 'Accept: application/json' \
@@ -75,7 +75,7 @@ curl --include --request POST \
 
 ```bash
 curl --include --request POST \
-  "$MOLII_API_BASE_URL/v1/images/edits" \
+  "${MOLII_API_BASE_URL%/}/v1/images/edits" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header 'Content-Type: application/json' \
   --header 'Accept: application/json' \

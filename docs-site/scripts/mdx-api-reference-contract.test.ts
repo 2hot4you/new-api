@@ -134,4 +134,11 @@ describe('ordinary MDX API reference contract', () => {
       expect(index).toContain(`[${label}](${route})`);
     }
   });
+
+  test('API overview links developers to the concrete Base URL and authentication contracts', async () => {
+    const index = await source('docs/api-reference/index.mdx');
+
+    expect(index).toContain('[Base URL](/api-basics/base-url)');
+    expect(index).toContain('[身份验证](/api-basics/authentication)');
+  });
 });

@@ -110,6 +110,22 @@ describe('Grok Imagine public documentation contract', () => {
     }
   });
 
+  test('paid Grok POST examples normalize a trailing slash before the versioned path', async () => {
+    for (const relativePath of [
+      'docs/examples/grok-image-curl.mdx',
+      'docs/examples/grok-video-curl.mdx',
+    ]) {
+      const source = await page(relativePath);
+      const snippets = [...source.matchAll(/```bash\n(curl[\s\S]*?--request POST[\s\S]*?)\n```/g)];
+
+      expect(snippets.length, relativePath).toBeGreaterThan(0);
+      for (const [, snippet] of snippets) {
+        expect(snippet, relativePath).toContain('"${MOLII_API_BASE_URL%/}/v1/');
+        expect(snippet, relativePath).not.toContain('"$MOLII_API_BASE_URL/v1/');
+      }
+    }
+  });
+
   test('redirect matcher detects location-trusted on paid POST snippets', () => {
     const snippet = 'curl --location-trusted --include --request POST --header "Authorization: Bearer $MOLII_API_KEY"';
 

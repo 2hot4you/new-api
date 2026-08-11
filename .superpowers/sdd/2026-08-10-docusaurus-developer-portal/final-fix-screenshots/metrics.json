@@ -1,0 +1,47 @@
+{
+  "desktop": {
+    "viewport": { "width": 1440, "height": 900 },
+    "rootFontSize": "12px",
+    "pageOverflows": false,
+    "portalOverflowX": "visible",
+    "portalHeight": 2479,
+    "gridChildrenWithinViewport": true,
+    "gridChildrenMinWidthZero": true,
+    "codeOverflowX": "auto",
+    "codeScrollsIndependently": false,
+    "focusVisible": true,
+    "focusWithinViewport": true,
+    "grokHref": "/models",
+    "navigationLabels": ["开始使用", "平台与账户", "开发指南", "模型与能力", "API 参考", "帮助与更新"]
+  },
+  "mobile": {
+    "viewport": { "width": 390, "height": 844 },
+    "rootFontSize": "14px",
+    "pageOverflows": false,
+    "portalOverflowX": "visible",
+    "portalHeight": 4478,
+    "gridChildrenWithinViewport": true,
+    "gridChildrenMinWidthZero": true,
+    "codeOverflowX": "auto",
+    "codeScrollsIndependently": true,
+    "focusVisible": true,
+    "focusWithinViewport": true,
+    "grokHref": "/models",
+    "navigationLabels": ["开始使用", "平台与账户", "开发指南", "模型与能力", "API 参考", "帮助与更新"]
+  },
+  "zoomed-200pct-equivalent": {
+    "viewport": { "width": 320, "height": 720 },
+    "rootFontSize": "14px",
+    "pageOverflows": false,
+    "portalOverflowX": "visible",
+    "portalHeight": 4983,
+    "gridChildrenWithinViewport": true,
+    "gridChildrenMinWidthZero": true,
+    "codeOverflowX": "auto",
+    "codeScrollsIndependently": true,
+    "focusVisible": true,
+    "focusWithinViewport": true,
+    "grokHref": "/models",
+    "navigationLabels": ["开始使用", "平台与账户", "开发指南", "模型与能力", "API 参考", "帮助与更新"]
+  }
+}

@@ -183,6 +183,63 @@ describe('default MDX API reference', () => {
     }
   }, 30_000);
 
+  test('keeps zoomed narrow homepage content and keyboard focus inside visible bounds', async () => {
+    const chromePath = await resolveBrowserExecutable();
+    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    // A 320 CSS-pixel viewport is the layout width of a 640-pixel window at 200% zoom.
+    const page = await browser.newPage({ viewport: { width: 320, height: 720 } });
+
+    try {
+      await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+      const primaryAction = page.getByRole('link', { name: '5 分钟快速开始' });
+      await primaryAction.focus();
+
+      const layout = await page.evaluate(() => {
+        const portal = document.querySelector('main');
+        const pre = document.querySelector('main pre');
+        const focused = document.activeElement;
+        if (!portal || !pre || !focused) throw new Error('Homepage layout fixture is incomplete');
+
+        const gridChildren = [
+          ...document.querySelectorAll('main > header > div'),
+          ...document.querySelectorAll('main > section > div > article'),
+          ...document.querySelectorAll('main > section > div > a'),
+        ];
+        const elementsWithinViewport = gridChildren.every((element) => {
+          const bounds = element.getBoundingClientRect();
+          return bounds.left >= 0 && bounds.right <= innerWidth;
+        });
+
+        pre.scrollLeft = pre.scrollWidth;
+        const focusedBounds = focused.getBoundingClientRect();
+        const focusedStyle = getComputedStyle(focused);
+        const outlineWidth = Number.parseFloat(focusedStyle.outlineWidth);
+
+        return {
+          portalOverflowX: getComputedStyle(portal).overflowX,
+          gridChildrenMinWidth: gridChildren.map((element) => getComputedStyle(element).minWidth),
+          elementsWithinViewport,
+          codeOverflowX: getComputedStyle(pre).overflowX,
+          codeScrollsIndependently: pre.scrollWidth > pre.clientWidth && pre.scrollLeft > 0,
+          focusVisible: focusedStyle.outlineStyle !== 'none' && outlineWidth > 0,
+          focusWithinViewport:
+            focusedBounds.left - outlineWidth >= 0
+            && focusedBounds.right + outlineWidth <= innerWidth,
+        };
+      });
+
+      expect(layout.portalOverflowX).toBe('visible');
+      expect(layout.gridChildrenMinWidth.every((minWidth) => minWidth === '0px')).toBe(true);
+      expect(layout.elementsWithinViewport).toBe(true);
+      expect(layout.codeOverflowX).toBe('auto');
+      expect(layout.codeScrollsIndependently).toBe(true);
+      expect(layout.focusVisible).toBe(true);
+      expect(layout.focusWithinViewport).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
+
   test('exposes six focused top-level destinations and preserves nested routes', async () => {
     const chromePath = await resolveBrowserExecutable();
     const browser = await chromium.launch({ executablePath: chromePath, headless: true });

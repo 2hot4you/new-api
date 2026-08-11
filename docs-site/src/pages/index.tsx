@@ -122,7 +122,7 @@ export default function Home(): ReactNode {
             <article className={styles.modelCard}>
               <Heading as="h3">Grok Imagine</Heading>
               <p>覆盖图片生成、图片编辑和异步视频任务。</p>
-              <Link to="/models/grok-imagine-video">查看 Grok 模型 →</Link>
+              <Link to="/models">查看 Grok 模型 →</Link>
             </article>
           </div>
         </section>
