@@ -42,13 +42,14 @@ make dev-web
 ```
 
 `make dev-api` 会在首次启动时生成 Go `embed` 所需的 `web/dist`，但不会运行
-前端容器或后端容器。`make dev-web` 启动 Rsbuild 开发服务器，并将 `/api`、
-`/mj` 和 `/pg` 代理到本机 API。运行 `make dev` 可以再次查看三进程启动说明。
+前端容器或后端容器。开发时，Go 后端会把页面、静态资源与热更新连接转发给
+Rsbuild；`/api`、`/v1` 等接口仍由 Go 直接处理。`make dev-web` 启动内部
+Rsbuild 服务。运行 `make dev` 可以再次查看三进程启动说明。
 
 ## 首次配置与登录注册
 
 第一次使用全新的 PostgreSQL 数据卷时，打开
-<http://localhost:5173/setup/> 创建本地管理员并完成初始化。不要在生产环境复用
+<http://127.0.0.1:3000/setup/> 创建本地管理员并完成初始化。不要在生产环境复用
 本地管理员密码。
 
 初始化后的用户名、密码、注册开关和站点信息均由你在 New API 初始化向导与管理后台
@@ -58,10 +59,13 @@ make dev-web
 
 | 服务 | 地址 |
 | --- | --- |
-| Rsbuild 前端 | <http://localhost:5173> |
-| Go API | <http://localhost:3000> |
+| 统一浏览器入口与 Go API | <http://127.0.0.1:3000> |
+| Rsbuild 热更新服务（内部） | `http://127.0.0.1:3001` |
 | PostgreSQL | `127.0.0.1:5432` |
 | Redis | `127.0.0.1:6379` |
+
+日常开发只访问 `http://127.0.0.1:3000`。3001 仅供后端反向代理读取最新前端
+源码，不作为登录、管理或接口调用入口，也不需要执行前端生产构建。
 
 如果修改 `MOLII_POSTGRES_PORT` 或 `MOLII_REDIS_PORT`，也要同步修改 `.env`
 中的连接字符串。

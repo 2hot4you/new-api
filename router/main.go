@@ -18,6 +18,13 @@ func SetRouter(router *gin.Engine, assets WebAssets) {
 	SetDashboardRouter(router)
 	SetRelayRouter(router)
 	SetVideoRouter(router)
+	frontendDevServerURL := strings.TrimSpace(os.Getenv("FRONTEND_DEV_SERVER_URL"))
+	if frontendDevServerURL != "" {
+		if err := SetDevWebRouter(router, frontendDevServerURL); err != nil {
+			panic(err)
+		}
+		return
+	}
 	frontendBaseUrl := os.Getenv("FRONTEND_BASE_URL")
 	if common.IsMasterNode && frontendBaseUrl != "" {
 		frontendBaseUrl = ""

@@ -1,6 +1,7 @@
 WEB_DIR := ./web
 API_DIR := .
-DEV_WEB_PORT ?= 5173
+DEV_WEB_PORT ?= 3001
+FRONTEND_DEV_SERVER_URL ?= http://127.0.0.1:$(DEV_WEB_PORT)
 DEV_COMPOSE_FILE := docker-compose.dev.yml
 DEV_POSTGRES_SERVICE := postgres
 DEV_REDIS_SERVICE := redis
@@ -56,7 +57,7 @@ dev-api: prepare-api-assets
 		exit 1; \
 	fi
 	@echo "Starting Go API on http://localhost:3000 (host process)..."
-	@cd $(API_DIR) && go run .
+	@cd $(API_DIR) && FRONTEND_DEV_SERVER_URL="$(FRONTEND_DEV_SERVER_URL)" go run .
 
 dev-web:
 	@echo "Starting Rsbuild web app on http://localhost:$(DEV_WEB_PORT) (host process)..."
@@ -68,6 +69,7 @@ dev:
 	@echo "  1. make infra-up"
 	@echo "  2. make dev-api    # run in a second terminal"
 	@echo "  3. make dev-web    # run in a third terminal"
+	@echo "Open http://127.0.0.1:3000; port $(DEV_WEB_PORT) is internal hot-reload traffic only."
 	@echo "The API and web app run on the host; Docker runs only PostgreSQL and Redis."
 
 # The main package embeds the ignored web/dist output and is covered after build-web.
