@@ -25,6 +25,7 @@ import { ModelGroupSelector } from '@/components/model-group-selector'
 
 import { getInputControlState } from '../../lib'
 import type { GroupOption, ModelOption } from '../../types'
+import { applyPlaygroundSelection } from './playground-selection'
 
 type PlaygroundInputControlsProps = {
   disabled?: boolean
@@ -39,16 +40,6 @@ type PlaygroundInputControlsProps = {
   onStop?: () => void
   text: string
   tools: ReactNode
-}
-
-export function applyPlaygroundSelection(
-  locked: boolean,
-  onChange: (value: string) => void,
-  value: string
-) {
-  if (!locked) {
-    onChange(value)
-  }
 }
 
 export function PlaygroundInputControls({

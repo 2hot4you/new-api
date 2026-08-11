@@ -24,10 +24,8 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 
-import {
-  applyPlaygroundSelection,
-  PlaygroundInputControls,
-} from './playground-input-controls'
+import { PlaygroundInputControls } from './playground-input-controls'
+import { applyPlaygroundSelection } from './playground-selection'
 
 const domWindow = new Window()
 const globalKeys = [
