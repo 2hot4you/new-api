@@ -2841,6 +2841,7 @@
     "New API": "New API",
     "New API &lt;noreply@example.com&gt;": "New API &lt;noreply@example.com&gt;",
     "New API Project Repository:": "New API 项目仓库：",
+    "New conversation": "新建对话",
     "New Format Template": "新格式模板",
     "New Group": "新建分组",
     "New model": "新模型",
@@ -5596,4 +5597,3 @@
     "Molii public task ID returned by the creation request": "创建请求返回的 Molii 公共任务 ID"
   }
 }
-    "New conversation": "新建对话",
