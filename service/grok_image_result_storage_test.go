@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -125,6 +126,69 @@ func TestPersistGrokImageResultsRollsBackNewObjectWhenSigningFails(t *testing.T)
 	require.ErrorContains(t, err, "sign failed")
 	require.Nil(t, results)
 	require.Equal(t, []string{"req_sign:image:0"}, rolledBack)
+}
+
+func TestPersistGrokImageResultsSkipsDestructiveRollbackAfterLockOwnershipLost(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 11, 8, 0, 0, 0, time.UTC)
+	rollbackCalled := false
+	deps := grokImageResultPersistenceDeps{
+		persist: func(_ context.Context, request GrokResultStoreRequest) (*StoredObject, bool, error) {
+			return &StoredObject{ObjectKey: request.IdempotencyKey, MIMEType: request.MIMEType, ExpiresAt: createdAt.Add(24 * time.Hour).Unix()}, true, nil
+		},
+		sign: func(context.Context, string, time.Duration) (string, error) {
+			return "", errors.New("sign failed")
+		},
+		rollback: func(context.Context, string) error {
+			rollbackCalled = true
+			return nil
+		},
+		canRollback: func() bool { return false },
+		now:         func() time.Time { return createdAt },
+	}
+
+	_, err := persistGrokImageResults(context.Background(), GrokImagePersistenceRequest{
+		UserID: 42, RequestID: "req_lost_lock", CreatedAt: createdAt,
+		Images: []GrokImageSource{{URL: "https://upstream.invalid/one.png", MIMEType: "image/png"}},
+	}, deps)
+
+	require.ErrorContains(t, err, "sign failed")
+	require.False(t, rollbackCalled, "a process that lost ownership must leave deletion to the 24-hour queue")
+}
+
+func TestGrokImagePersistenceLockPreventsPeerReuseUntilOwnerFinishes(t *testing.T) {
+	useStarAIAssetRedis(t)
+	request := GrokImagePersistenceRequest{UserID: 42, RequestID: "req_shared_lock"}
+	ownerStarted := make(chan struct{})
+	releaseOwner := make(chan struct{})
+	ownerDone := make(chan error, 1)
+	go func() {
+		ownerDone <- withGrokImagePersistenceLock(context.Background(), request, func(_ context.Context, owns func() bool) error {
+			if !owns() {
+				return errors.New("owner unexpectedly lost the persistence lock")
+			}
+			close(ownerStarted)
+			<-releaseOwner
+			return nil
+		})
+	}()
+	<-ownerStarted
+
+	var peerEntered atomic.Bool
+	peerErr := withGrokImagePersistenceLock(context.Background(), request, func(context.Context, func() bool) error {
+		peerEntered.Store(true)
+		return nil
+	})
+	require.Error(t, peerErr)
+	require.False(t, peerEntered.Load())
+	close(releaseOwner)
+	require.NoError(t, <-ownerDone)
+
+	require.NoError(t, withGrokImagePersistenceLock(context.Background(), request, func(_ context.Context, owns func() bool) error {
+		require.True(t, owns())
+		peerEntered.Store(true)
+		return nil
+	}))
+	require.True(t, peerEntered.Load())
 }
 
 func TestPersistGrokImageResultsRollsBackCreatedObjectWithInvalidMetadata(t *testing.T) {
