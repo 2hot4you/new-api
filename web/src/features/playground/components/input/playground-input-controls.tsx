@@ -41,6 +41,16 @@ type PlaygroundInputControlsProps = {
   tools: ReactNode
 }
 
+export function applyPlaygroundSelection(
+  locked: boolean,
+  onChange: (value: string) => void,
+  value: string
+) {
+  if (!locked) {
+    onChange(value)
+  }
+}
+
 export function PlaygroundInputControls({
   disabled,
   groups,
@@ -66,16 +76,21 @@ export function PlaygroundInputControls({
       models,
       text,
     })
+  const isSelectionLocked = isSelectorDisabled || Boolean(isGenerating)
 
   const renderSelector = () => (
     <ModelGroupSelector
       selectedModel={modelValue}
       models={models}
-      onModelChange={onModelChange}
+      onModelChange={(value) =>
+        applyPlaygroundSelection(isSelectionLocked, onModelChange, value)
+      }
       selectedGroup={groupValue}
       groups={groups}
-      onGroupChange={onGroupChange}
-      disabled={isSelectorDisabled || isGenerating}
+      onGroupChange={(value) =>
+        applyPlaygroundSelection(isSelectionLocked, onGroupChange, value)
+      }
+      disabled={isSelectionLocked}
     />
   )
 

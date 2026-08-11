@@ -24,7 +24,10 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 
-import { PlaygroundInputControls } from './playground-input-controls'
+import {
+  applyPlaygroundSelection,
+  PlaygroundInputControls,
+} from './playground-input-controls'
 
 const domWindow = new Window()
 const globalKeys = [
@@ -140,5 +143,15 @@ describe('PlaygroundInputControls', () => {
 
     await act(async () => root.unmount())
     container.remove()
+  })
+
+  test('guards stale selector callbacks after generation locks selection', () => {
+    const changes: string[] = []
+    const onChange = (value: string) => changes.push(value)
+
+    applyPlaygroundSelection(false, onChange, 'model-before-generation')
+    applyPlaygroundSelection(true, onChange, 'model-during-generation')
+
+    assert.deepEqual(changes, ['model-before-generation'])
   })
 })
