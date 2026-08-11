@@ -109,6 +109,11 @@ function getStoredValueVersion(value: unknown): number | null {
   return typeof version === 'number' ? version : null
 }
 
+function isLegacyParameterEnabledState(value: unknown): boolean {
+  const version = getStoredValueVersion(value)
+  return version === null || version < PARAMETER_ENABLED_STORAGE_VERSION
+}
+
 function trimMessages(messages: Message[]): Message[] {
   if (messages.length <= MAX_STORED_MESSAGES) {
     return messages
@@ -333,11 +338,11 @@ export function saveConfig(config: Partial<PlaygroundConfig>): void {
 export function migrateParameterEnabledState(
   value: unknown
 ): Partial<ParameterEnabled> {
-  if (getStoredValueVersion(value) === PARAMETER_ENABLED_STORAGE_VERSION) {
-    return parameterEnabledSchema.parse(unwrapStoredValue(value))
+  if (isLegacyParameterEnabledState(value)) {
+    return { ...DEFAULT_PARAMETER_ENABLED }
   }
 
-  return { ...DEFAULT_PARAMETER_ENABLED }
+  return parameterEnabledSchema.parse(unwrapStoredValue(value))
 }
 
 export function loadParameterEnabled(): Partial<ParameterEnabled> {
@@ -347,7 +352,7 @@ export function loadParameterEnabled(): Partial<ParameterEnabled> {
 
     const parameterEnabled = migrateParameterEnabledState(saved)
 
-    if (getStoredValueVersion(saved) !== PARAMETER_ENABLED_STORAGE_VERSION) {
+    if (isLegacyParameterEnabledState(saved)) {
       writeParameterEnabledValue(parameterEnabled)
     }
 

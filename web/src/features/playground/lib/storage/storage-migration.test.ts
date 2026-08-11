@@ -25,12 +25,14 @@ import { loadParameterEnabled } from './storage'
 
 class MemoryStorage {
   private values = new Map<string, string>()
+  setItemCalls = 0
 
   getItem(key: string) {
     return this.values.get(key) ?? null
   }
 
   setItem(key: string, value: string) {
+    this.setItemCalls += 1
     this.values.set(key, value)
   }
 
@@ -40,6 +42,11 @@ class MemoryStorage {
 
   clear() {
     this.values.clear()
+    this.setItemCalls = 0
+  }
+
+  resetSetItemCalls() {
+    this.setItemCalls = 0
   }
 }
 
@@ -75,7 +82,7 @@ describe('parameter enabled storage migration', () => {
     assert.deepEqual(getInitialParameterEnabled(), allDisabled)
   })
 
-  test('resets version-one enabled flags while preserving the other storage keys', () => {
+  test('migrates version-one flags once while preserving the other storage keys', () => {
     const config = {
       version: 1,
       data: {
@@ -118,7 +125,9 @@ describe('parameter enabled storage migration', () => {
       })
     )
 
+    memoryStorage.resetSetItemCalls()
     assert.deepEqual(loadParameterEnabled(), allDisabled)
+    assert.equal(memoryStorage.setItemCalls, 1)
     assert.equal(
       localStorage.getItem(STORAGE_KEYS.CONFIG),
       JSON.stringify(config)
@@ -131,6 +140,8 @@ describe('parameter enabled storage migration', () => {
       JSON.parse(localStorage.getItem(STORAGE_KEYS.PARAMETER_ENABLED) ?? '{}'),
       { version: 2, data: allDisabled }
     )
+    assert.deepEqual(loadParameterEnabled(), allDisabled)
+    assert.equal(memoryStorage.setItemCalls, 1)
   })
 
   test('keeps choices stored with the current parameter-enabled version', () => {
@@ -152,6 +163,33 @@ describe('parameter enabled storage migration', () => {
     assert.equal(
       localStorage.getItem(STORAGE_KEYS.PARAMETER_ENABLED),
       JSON.stringify(currentEnvelope)
+    )
+  })
+
+  test('keeps a future parameter-enabled version without rewriting it', () => {
+    const futureChoices = {
+      temperature: true,
+      top_p: true,
+      max_tokens: true,
+      frequency_penalty: true,
+      presence_penalty: true,
+      seed: true,
+    }
+    const futureEnvelope = {
+      version: 3,
+      data: { ...futureChoices, future_parameter: true },
+    }
+    localStorage.setItem(
+      STORAGE_KEYS.PARAMETER_ENABLED,
+      JSON.stringify(futureEnvelope)
+    )
+
+    memoryStorage.resetSetItemCalls()
+    assert.deepEqual(loadParameterEnabled(), futureChoices)
+    assert.equal(memoryStorage.setItemCalls, 0)
+    assert.equal(
+      localStorage.getItem(STORAGE_KEYS.PARAMETER_ENABLED),
+      JSON.stringify(futureEnvelope)
     )
   })
 })
