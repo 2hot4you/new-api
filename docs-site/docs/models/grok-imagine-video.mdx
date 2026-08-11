@@ -1,69 +1,107 @@
 ---
 title: Grok Imagine 视频
-description: Grok Imagine 视频生成、图生视频和视频编辑的参数、异步流程与计费说明。
+description: Grok Imagine 视频生成、编辑、延长和多参考图的参数、异步流程与计费说明。
 audience: user
 apiVersion: v1
-lastReviewed: 2026-08-10
-sourceCommit: d396320dd9c0
+lastReviewed: 2026-08-11
+sourceCommit: 425af5f3
 sidebar_position: 4
 ---
-
-import ParameterTable from '../../src/components/ParameterTable';
-
-export const videoParameters = [
-  { name: 'model', type: 'string', required: true, description: 'grok-imagine-video 或 grok-imagine-video-1.5。' },
-  { name: 'prompt', type: 'string', required: true, description: '生成或编辑指令，长度 1–10,000 个字符。' },
-  { name: 'image', type: 'string | object', required: '条件', description: '图生视频的输入图片 URL；1.5 模型必须提供。' },
-  { name: 'images', type: 'array', required: '条件', description: 'image 的兼容数组形式；当前只使用第一张。' },
-  { name: 'duration', type: 'integer', required: false, defaultValue: '5', description: '生成视频时长，范围 1–15 秒。' },
-  { name: 'aspect_ratio', type: 'string', required: false, defaultValue: '16:9', description: '生成视频宽高比。' },
-  { name: 'resolution', type: 'string', required: false, defaultValue: '480p', description: '输出分辨率；支持范围取决于模型。' },
-  { name: 'video', type: 'string | object', required: '条件', description: '视频编辑的输入视频 URL。' },
-];
 
 # Grok Imagine 视频
 
 两个模型是不同的公开模型 ID，不进行相互映射：
 
-| 模型 ID | 文生视频 | 图生视频 | 视频编辑 | 生成分辨率 |
+| 模型 ID | 文生视频 | 图生视频 | 视频编辑或延长 | 输出分辨率 |
 | --- | --- | --- | --- | --- |
-| `grok-imagine-video` | 支持 | 支持 | 支持 | `480p`、`720p` |
-| `grok-imagine-video-1.5` | 不支持 | 必须提供图片，仅支持图生视频 | 不支持 | `480p`、`720p`、`1080p` |
+| `grok-imagine-video` | 支持 | 支持 | 支持编辑和延长 | `480p`、`720p` |
+| `grok-imagine-video-1.5` | 不支持 | 支持单张首帧或 1–7 张参考图 | 不支持 | `480p`、`720p`、`1080p` |
 
-生成使用 `POST /v1/videos`。视频编辑只允许 `grok-imagine-video`，使用 `POST /v1/videos/edits`。两者都是异步任务。
+生成使用 `POST /v1/videos` 或等价路径 `POST /v1/videos/generations`。视频编辑使用 `POST /v1/videos/edits`，视频延长使用 `POST /v1/videos/extensions`。所有操作都是异步任务。
 
 ## 请求参数
 
-<ParameterTable rows={videoParameters} />
+| 参数 | 类型 | 必填 | 默认值 | 可选值或范围 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `model` | string | 是 | 无 | `grok-imagine-video`、`grok-imagine-video-1.5` | 公开模型 ID。 |
+| `prompt` | string | 是 | 无 | 1–10,000 字符 | 生成、编辑或延长指令。 |
+| `image` | string 或 object | 条件必填 | 无 | URL 或 `{ "file_id": "file_xxx" }` | 1.5 单图生视频必须提供。 |
+| `images` | array | 否 | 无 | 最多一个 URL 或 `file_id` 对象 | `image` 的兼容数组形式。 |
+| `reference_images` | array | 条件必填 | 无 | 1–7 张 | 仅 1.5；不能与 `image`、`images` 或 `video` 同时使用。 |
+| `video` | string 或 object | 条件必填 | 无 | URL 或 `{ "file_id": "file_xxx" }` | 视频编辑和延长必填。 |
+| `duration` | integer | 否 | 生成 5；延长 6 | 生成 1–15；延长 2–10 | 编辑请求不接受。 |
+| `aspect_ratio` | string | 否 | `16:9` | `1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3` | 编辑和延长请求不接受。 |
+| `resolution` | string | 否 | `480p` | 取决于模型 | 参考图模式最高 `720p`；编辑和延长请求不接受。 |
 
-生成请求的 `aspect_ratio` 可选值为 `1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3`。
+输入媒体可以使用公网 URL，也可以先上传到 `POST /v1/files`，再传 `{ "file_id": "file_xxx" }`。本地文件和成功生成结果均只保留 24 小时。
 
-`grok-imagine-video` 支持 `480p`、`720p`；`grok-imagine-video-1.5` 支持 `480p`、`720p`、`1080p`。`duration` 为 1–15 秒的整数。
+## 单图生成
 
-建议只使用 `image` 提供一张首帧图片。图片可为公网 HTTP(S) URL 或 `data:image/...` Data URL；较大的素材建议使用可直接访问的 HTTPS URL。
+`grok-imagine-video-1.5` 必须通过 `image` 或 `images` 提供图片。`grok-imagine-video` 可以不提供图片进行文生视频，也可以提供一张图片进行图生视频。
 
-## 视频编辑限制
+```json
+{
+  "model": "grok-imagine-video-1.5",
+  "prompt": "让画面中的猫向镜头走来",
+  "image": { "file_id": "file_image_xxx" },
+  "duration": 5,
+  "resolution": "720p",
+  "aspect_ratio": "16:9"
+}
+```
 
-视频编辑请求必须提供 `model`、`prompt` 和 `video`。视频编辑不接受 `duration`、`aspect_ratio`、`resolution`；输出时长和宽高比由输入与实际处理结果决定，分辨率最高为 `720p`。输入视频建议不超过 8.7 秒。
+## 多参考图生成
+
+`grok-imagine-video-1.5` 可通过 `reference_images` 提供 1–7 张参考图。该模式不能同时传 `image`、`images` 或 `video`，输出只支持 `480p` 或 `720p`。
+
+```json
+{
+  "model": "grok-imagine-video-1.5",
+  "prompt": "让人物穿着参考服装走过参考场景",
+  "reference_images": [
+    { "file_id": "file_person_xxx" },
+    { "file_id": "file_outfit_xxx" },
+    { "url": "https://example.com/location.png" }
+  ],
+  "duration": 8,
+  "resolution": "720p",
+  "aspect_ratio": "16:9"
+}
+```
+
+## 视频编辑
+
+视频编辑仅支持 `grok-imagine-video`，必须提供 `model`、`prompt` 和 `video`。视频编辑不接受 `duration`、`aspect_ratio` 或 `resolution`。输入视频必须为可解析的 MP4，时长大于 0 且不超过 8.7 秒。
 
 ```json
 {
   "model": "grok-imagine-video",
   "prompt": "保持主体运动，加入轻微的胶片颗粒和暖色夕阳",
-  "video": {
-    "url": "https://example.com/source.mp4"
-  }
+  "video": { "file_id": "file_video_xxx" }
+}
+```
+
+## 视频延长
+
+视频延长仅支持 `grok-imagine-video`。输入视频必须为 2–15 秒，`duration` 表示新增时长，范围 2–10 秒，默认 6 秒。请求不能传 `aspect_ratio` 或 `resolution`；输出继承输入视频的比例和分辨率，最高为 `720p`。
+
+```json
+{
+  "model": "grok-imagine-video",
+  "prompt": "继续向前推进镜头，让夕阳逐渐落下",
+  "video": { "file_id": "file_video_xxx" },
+  "duration": 6
 }
 ```
 
 ## 异步流程
 
-1. 只发送一次创建或编辑 POST，并保存返回的 `id`。
+1. 只发送一次创建、编辑或延长 POST，并保存返回的 `id`。
 2. 调用 `GET /v1/videos/{task_id}` 查询 `queued`、`in_progress`、`completed` 或 `failed`。
 3. 完成后调用 `GET /v1/videos/{task_id}/content` 下载视频。
 4. 查询兼容路径 `GET /v1/video/generations/{task_id}` 可读取 `data.billing` 的公开结算摘要。
 
-结果内容入口由 Molii 按当前任务生成。视频地址和签名可能过期，应在任务完成后及时下载；预览失败时先刷新任务记录，再重新获取内容入口。
+Molii 会将成功结果保存到自有对象存储，任务完成后保留 24 小时。请在到期前下载；到期后返回 `410 file_expired` 或 `result_expired`。
 
 ## 当前目录计费
 
@@ -74,25 +112,24 @@ export const videoParameters = [
 | `grok-imagine-video` | ¥0.002 / 张 | ¥0.01 / 秒 | ¥0.05 / 秒 | ¥0.07 / 秒 | 不支持 |
 | `grok-imagine-video-1.5` | ¥0.01 / 张 | 不支持 | ¥0.08 / 秒 | ¥0.14 / 秒 | ¥0.25 / 秒 |
 
-文生视频公式：`输出秒单价 × 实际视频时长 × 分组倍率 = 最终费用`。
+- 文生视频：`输出秒单价 × 实际视频时长 × 分组倍率`。
+- 图生视频：`(输出秒单价 × 实际视频时长 + 输入图片单价) × 分组倍率`。
+- 多参考图：`(输出秒单价 × 实际视频时长 + 输入图片单价 × 参考图数量) × 分组倍率`。
+- 视频编辑：`(输出秒单价 × 实际视频时长 + 输入视频秒单价 × 输入视频秒数) × 分组倍率`。
+- 视频延长：`(输出秒单价 × 请求新增秒数 + 输入视频秒单价 × 输入视频秒数) × 分组倍率`。
 
-图生视频公式：`(输出秒单价 × 实际视频时长 + 输入图片单价 × 1) × 分组倍率 = 最终费用`。
+视频编辑和延长在提交前读取输入 MP4 元数据，冻结输入时长和分辨率计费档位，不根据上游金额反推。无法可靠读取时会在扣费前拒绝请求。
 
-视频编辑公式：`(输出秒单价 × 实际视频时长 + 输入视频秒单价 × 实际计费时长) × 分组倍率 = 最终费用`。
-
-生成任务按请求分辨率选择价格档位；视频编辑没有请求分辨率，因此只使用轮询响应中的实际分辨率决定 `480p` 或 `720p` 档位，不根据上游金额反推。若轮询没有返回可靠的实际分辨率，系统不会猜价，计费摘要会显示 `unavailable` 并进入人工核对。
-
-公开计费状态：
+终态账单摘要使用以下状态：
 
 | 状态 | 含义 |
 | --- | --- |
-| `settled` | 已按实际结果完成结算，可读取费用公式明细 |
-| `refund_pending` | 失败任务的退款仍在处理，请继续查询 |
-| `refunded` | 失败任务已完成退款 |
-| `unavailable` | 暂时缺少可靠计费维度，不应由客户端自行推算 |
+| `settled` | 已按最终结果完成结算。 |
+| `refund_pending` | 失败任务的退款正在补偿处理中。 |
+| `unavailable` | 缺少可靠结算维度，系统不会猜价，等待核对。 |
 
 ## 重试原则
 
-创建与编辑 POST 可能产生费用，不要自动重试。客户端超时并不表示服务端没有受理任务。只有任务查询和内容下载 GET 才适合在截止时间内对 `429`、暂时性 `5xx` 和传输错误执行退避。
+创建、编辑和延长 POST 可能产生费用，不要自动重试。客户端超时并不表示服务端没有受理任务。只有任务查询和内容下载 GET 才适合在截止时间内对 `429`、暂时性 `5xx` 和传输错误执行退避。
 
 命令示例见 [Grok 视频创建与编辑](../examples/grok-video-curl) 和 [任务查询与下载](../examples/grok-poll-download)。

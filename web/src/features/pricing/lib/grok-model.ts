@@ -40,14 +40,14 @@ export function getGrokModelCapabilities(modelName: string) {
         input: ['Text', 'Image'],
         output: 'Video',
         resolutions: ['480p', '720p', '1080p'],
-        operations: ['Image-to-video'],
+        operations: ['Image-to-video', 'Reference-to-video'],
       }
     default:
       return {
         input: ['Text', 'Image', 'Video'],
         output: 'Video',
         resolutions: ['480p', '720p'],
-        operations: ['Video generation', 'Video editing'],
+        operations: ['Video generation', 'Video editing', 'Video extension'],
       }
   }
 }

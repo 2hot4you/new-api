@@ -20,6 +20,7 @@ describe('Grok Imagine API samples', () => {
     assert.deepEqual(getGrokOperations('grok-imagine-video'), [
       'generate',
       'edit',
+      'extend',
       'status',
       'download',
     ])
@@ -49,9 +50,22 @@ describe('Grok Imagine API samples', () => {
     )
   })
 
+  test('documents video extension with a Molii file id', () => {
+    const extension = buildGrokApiSample('curl', {
+      baseUrl: 'http://127.0.0.1:3000',
+      modelName: 'grok-imagine-video',
+      operation: 'extend',
+    })
+    assert.match(extension, /\/v1\/videos\/extensions/)
+    assert.match(extension, /"file_id": "file_video_xxx"/)
+    assert.match(extension, /"duration": 6/)
+    assert.doesNotMatch(extension, /aspect_ratio|resolution/)
+  })
+
   test('does not advertise video editing for video 1.5', () => {
     assert.deepEqual(getGrokOperations('grok-imagine-video-1.5'), [
       'generate',
+      'reference',
       'status',
       'download',
     ])
@@ -63,5 +77,13 @@ describe('Grok Imagine API samples', () => {
     assert.match(video15, /"model": "grok-imagine-video-1\.5"/)
     assert.match(video15, /"image":/)
     assert.match(video15, /"resolution": "720p"/)
+
+    const references = buildGrokApiSample('curl', {
+      baseUrl: 'http://127.0.0.1:3000',
+      modelName: 'grok-imagine-video-1.5',
+      operation: 'reference',
+    })
+    assert.match(references, /"reference_images":/)
+    assert.match(references, /"file_id": "file_reference_xxx"/)
   })
 })

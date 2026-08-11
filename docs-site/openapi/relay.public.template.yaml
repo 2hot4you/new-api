@@ -10,6 +10,7 @@
     { "name": "Models", "description": "可用模型" },
     { "name": "Images", "description": "图像生成和编辑" },
     { "name": "Videos", "description": "异步视频任务" },
+    { "name": "Files", "description": "用户自有的 24 小时媒体文件" },
     { "name": "Seedance", "description": "Seedance 2.0 多模态视频生成" },
     { "name": "Assets", "description": "短期素材资产" }
   ],
@@ -62,12 +63,28 @@
         "responses": { "200": { "$ref": "#/components/responses/OpenAIVideoAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },
+    "/v1/videos/generations": {
+      "post": {
+        "tags": ["Videos"], "summary": "创建视频生成任务", "operationId": "createVideoGenerationOfficial",
+        "description": "`POST /v1/videos` 的等价生成路径。创建付费任务后不要自动重试；保存返回的任务 ID 并轮询状态。",
+        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoGenerationRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/OpenAIVideoAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
+      }
+    },
     "/v1/videos/edits": {
       "post": {
         "tags": ["Videos"], "summary": "创建视频编辑任务", "operationId": "createVideoEdit",
         "description": "异步编辑输入视频。`model` 必须为 `grok-imagine-video`，且 `prompt` 与 `video` 必填；此操作不接受 `duration`、`aspect_ratio` 或 `resolution`。成功受理后按编辑输出和输入视频时长结算。对 429/5xx 退避重试，完成状态请轮询。",
         "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoEditRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-video", "prompt": "加入轻微的胶片颗粒", "video": "https://example.invalid/source.mp4" } } } } } },
         "responses": { "200": { "$ref": "#/components/responses/OpenAIVideoAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
+      }
+    },
+    "/v1/videos/extensions": {
+      "post": {
+        "tags": ["Videos"], "summary": "创建视频延长任务", "operationId": "createVideoExtension",
+        "description": "仅支持 `grok-imagine-video`。输入 MP4 为 2–15 秒，`duration` 表示新增 2–10 秒，默认 6。不可传 `aspect_ratio` 或 `resolution`。费用由新增输出秒数和输入视频秒数构成。",
+        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoExtensionRequest" }, "examples": { "success": { "value": { "model": "grok-imagine-video", "prompt": "继续推进镜头", "video": { "file_id": "file_a1b2c3d4e5f6g7h8" }, "duration": 6 } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/OpenAIVideoAccepted" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "410": { "$ref": "#/components/responses/Gone" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },
     "/v1/videos/{task_id}": {
@@ -84,6 +101,41 @@
         "description": "返回已完成任务的视频内容。`task_id` 必填；任务尚未完成时先查询任务状态。下载不增加生成计费；仅在 429/5xx 使用退避重试，勿将返回 URL 或认证信息分享给无关人员。",
         "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
         "responses": { "200": { "description": "MP4 视频内容", "content": { "video/mp4": { "schema": { "type": "string", "format": "binary" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/files": {
+      "get": {
+        "tags": ["Files"], "summary": "列出当前文件", "operationId": "listFiles",
+        "description": "只返回当前 API 用户尚未删除且未过期的文件。文件固定保留 24 小时。",
+        "security": [{ "BearerAuth": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/FileListResult" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      },
+      "post": {
+        "tags": ["Files"], "summary": "上传媒体文件", "operationId": "createFile",
+        "description": "上传 PNG、JPEG、WebP（最大 30 MiB）或 MP4（最大 32 MiB）。返回的 `file_...` 只属于当前用户并固定保留 24 小时。",
+        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "$ref": "#/components/schemas/CreateFileRequest" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/FileResult" }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "413": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/files/{id}": {
+      "get": {
+        "tags": ["Files"], "summary": "获取文件元数据", "operationId": "getFile",
+        "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/FileId" }],
+        "responses": { "200": { "$ref": "#/components/responses/FileResult" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "410": { "$ref": "#/components/responses/Gone" } }
+      },
+      "delete": {
+        "tags": ["Files"], "summary": "删除文件", "operationId": "deleteFile",
+        "description": "提前删除当前用户的文件；对已删除文件重复调用仍返回删除成功。",
+        "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/FileId" }],
+        "responses": { "200": { "$ref": "#/components/responses/FileDeletedResult" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/v1/files/{id}/content": {
+      "get": {
+        "tags": ["Files"], "summary": "下载文件内容", "operationId": "downloadFileContent",
+        "description": "支持 Range 请求。响应使用 `private, no-store`，过期文件返回 410。",
+        "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/FileId" }],
+        "responses": { "200": { "description": "文件内容", "content": { "image/png": { "schema": { "type": "string", "format": "binary" } }, "image/jpeg": { "schema": { "type": "string", "format": "binary" } }, "image/webp": { "schema": { "type": "string", "format": "binary" } }, "video/mp4": { "schema": { "type": "string", "format": "binary" } } } }, "206": { "description": "部分内容" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "410": { "$ref": "#/components/responses/Gone" } }
       }
     },
     "/v1/assets": {
@@ -113,6 +165,7 @@
     "securitySchemes": { "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "API key", "description": "Authorization: Bearer $MOLII_API_KEY" } },
     "parameters": {
       "TaskId": { "name": "task_id", "in": "path", "required": true, "description": "创建响应返回的任务 ID。", "schema": { "type": "string", "minLength": 1 }, "example": "task_public_123" },
+      "FileId": { "name": "id", "in": "path", "required": true, "description": "上传响应返回的 Molii 文件 ID。", "schema": { "type": "string", "pattern": "^file_[A-Za-z0-9]+$" }, "example": "file_a1b2c3d4e5f6g7h8" },
       "AssetId": { "name": "id", "in": "path", "required": true, "description": "创建资产响应返回的资产 ID。", "schema": { "type": "string", "minLength": 1 }, "example": "asset_public_123" }
     },
     "responses": {
@@ -122,9 +175,13 @@
       "ImageResult": { "description": "生成图像", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageResponse" }, "examples": { "success": { "value": { "created": 1720000000, "data": [{ "url": "https://example.invalid/image.png" }] } } } } } },
       "CreateAssetResult": { "description": "资产已创建", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAssetResponse" }, "examples": { "success": { "value": { "id": "asset_public_123" } } } } } },
       "AssetResult": { "description": "资产元数据", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Asset" }, "examples": { "success": { "value": { "id": "asset_public_123", "asset_type": "image", "name": "reference-image", "status": "ready", "created_at": 1720000000, "expires_at": 1720003600, "verified_at": 1720000001 } } } } } },
+      "FileResult": { "description": "文件元数据", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileObject" }, "examples": { "success": { "value": { "id": "file_a1b2c3d4e5f6g7h8", "object": "file", "bytes": 12345, "created_at": 1720000000, "expires_at": 1720086400, "filename": "input.png", "purpose": "vision", "mime_type": "image/png", "width": 1280, "height": 720 } } } } } },
+      "FileListResult": { "description": "当前文件列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileList" } } } },
+      "FileDeletedResult": { "description": "文件已删除", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileDeleted" }, "examples": { "success": { "value": { "id": "file_a1b2c3d4e5f6g7h8", "object": "file", "deleted": true } } } } } },
       "InvalidRequest": { "description": "请求参数无效", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "examples": { "invalid": { "value": { "error": { "code": "invalid_request", "message": "请检查必填字段和取值范围" } } } } } } },
       "Unauthorized": { "description": "缺少或无效的 API Key", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "examples": { "unauthorized": { "value": { "error": { "code": "invalid_api_key", "message": "Authentication failed" } } } } } } },
       "NotFound": { "description": "资源不存在或无权访问", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "examples": { "notFound": { "value": { "error": { "code": "not_found", "message": "Resource not found" } } } } } } },
+      "Gone": { "description": "文件或结果已过期", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "examples": { "expired": { "value": { "error": { "code": "file_expired", "message": "File has expired" } } } } } } },
       "RateLimited": { "description": "请求频率受限；按 Retry-After 或指数退避后重试", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "examples": { "limited": { "value": { "error": { "code": "rate_limit_exceeded", "message": "Retry later" } } } } } } },
       "UpstreamFailure": { "description": "上游服务暂时不可用；使用指数退避重试", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "examples": { "upstream": { "value": { "error": { "code": "upstream_error", "message": "Please retry later" } } } } } } }
     },
@@ -139,10 +196,12 @@
       "SeedanceVideoContent": { "type": "object", "required": ["type", "video_url", "role"], "properties": { "type": { "type": "string", "const": "video_url" }, "video_url": { "$ref": "#/components/schemas/SeedanceMediaURL" }, "role": { "type": "string", "const": "reference_video" } }, "additionalProperties": false },
       "SeedanceAudioContent": { "type": "object", "required": ["type", "audio_url", "role"], "properties": { "type": { "type": "string", "const": "audio_url" }, "audio_url": { "$ref": "#/components/schemas/SeedanceMediaURL" }, "role": { "type": "string", "const": "reference_audio" } }, "additionalProperties": false },
       "SeedanceTool": { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "const": "web_search" } }, "additionalProperties": false },
-      "VideoGenerationRequest": { "type": "object", "required": ["model", "prompt"], "properties": { "model": { "type": "string", "enum": ["grok-imagine-video", "grok-imagine-video-1.5"], "description": "grok-imagine-video-1.5 仅支持图生视频，必须提供 image 或 images" }, "prompt": { "type": "string", "minLength": 1, "maxLength": 10000 }, "image": { "type": "string", "format": "uri", "description": "与 images 二选一；grok-imagine-video-1.5 必填其一" }, "images": { "type": "array", "minItems": 1, "items": { "type": "string", "format": "uri" }, "description": "与 image 二选一，当前使用首个图像" }, "duration": { "type": "integer", "minimum": 1, "maximum": 15, "default": 5 }, "aspect_ratio": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"], "default": "16:9" }, "resolution": { "type": "string", "enum": ["480p", "720p", "1080p"], "default": "480p", "description": "grok-imagine-video 支持 480p/720p；grok-imagine-video-1.5 还支持 1080p" } } },
-      "VideoEditRequest": { "type": "object", "required": ["model", "prompt", "video"], "properties": { "model": { "type": "string", "const": "grok-imagine-video" }, "prompt": { "type": "string", "maxLength": 10000 }, "video": { "type": "string", "format": "uri" } }, "description": "不允许 duration、aspect_ratio 或 resolution。" },
+      "GrokMediaInput": { "oneOf": [{ "type": "string", "format": "uri", "minLength": 1 }, { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri", "minLength": 1 } }, "additionalProperties": false }, { "type": "object", "required": ["file_id"], "properties": { "file_id": { "type": "string", "pattern": "^file_[A-Za-z0-9]+$" } }, "additionalProperties": false }] },
+      "VideoGenerationRequest": { "type": "object", "required": ["model", "prompt"], "properties": { "model": { "type": "string", "enum": ["grok-imagine-video", "grok-imagine-video-1.5"], "description": "grok-imagine-video-1.5 必须提供 image、images 或 reference_images" }, "prompt": { "type": "string", "minLength": 1, "maxLength": 10000 }, "image": { "$ref": "#/components/schemas/GrokMediaInput" }, "images": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/components/schemas/GrokMediaInput" }, "description": "image 的兼容单项数组形式" }, "reference_images": { "type": "array", "minItems": 1, "maxItems": 7, "items": { "$ref": "#/components/schemas/GrokMediaInput" }, "description": "仅 grok-imagine-video-1.5；不可与 image、images 或 video 组合，最高 720p" }, "duration": { "type": "integer", "minimum": 1, "maximum": 15, "default": 5 }, "aspect_ratio": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"], "default": "16:9" }, "resolution": { "type": "string", "enum": ["480p", "720p", "1080p"], "default": "480p", "description": "legacy 支持 480p/720p；1.5 单图还支持 1080p；参考图最高 720p" } } },
+      "VideoEditRequest": { "type": "object", "required": ["model", "prompt", "video"], "properties": { "model": { "type": "string", "const": "grok-imagine-video" }, "prompt": { "type": "string", "maxLength": 10000 }, "video": { "$ref": "#/components/schemas/GrokMediaInput" } }, "description": "不允许 duration、aspect_ratio 或 resolution。" },
+      "VideoExtensionRequest": { "type": "object", "required": ["model", "prompt", "video"], "properties": { "model": { "type": "string", "const": "grok-imagine-video" }, "prompt": { "type": "string", "minLength": 1, "maxLength": 10000 }, "video": { "$ref": "#/components/schemas/GrokMediaInput" }, "duration": { "type": "integer", "minimum": 2, "maximum": 10, "default": 6 } }, "additionalProperties": false },
       "ImageGenerationRequest": { "type": "object", "required": ["model", "prompt"], "properties": { "model": { "type": "string", "enum": ["grok-imagine-image", "grok-imagine-image-quality"] }, "prompt": { "type": "string", "minLength": 1, "maxLength": 10000 }, "resolution": { "type": "string", "enum": ["1k", "2k"], "default": "1k" }, "aspect_ratio": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"], "default": "16:9" }, "n": { "type": "integer", "minimum": 1, "maximum": 4, "default": 1 } } },
-      "ImageInput": { "oneOf": [{ "type": "string", "format": "uri", "minLength": 1, "description": "图像 URL" }, { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri", "minLength": 1 } } }] },
+      "ImageInput": { "$ref": "#/components/schemas/GrokMediaInput" },
       "ImageEditRequest": { "allOf": [{ "$ref": "#/components/schemas/ImageGenerationRequest" }, { "type": "object", "anyOf": [{ "required": ["image"] }, { "required": ["images"] }], "properties": { "image": { "$ref": "#/components/schemas/ImageInput" }, "images": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/components/schemas/ImageInput" } } } }] },
       "OpenAIVideo": { "type": "object", "required": ["id", "object", "model", "status", "progress", "created_at"], "properties": { "id": { "type": "string" }, "task_id": { "type": "string", "deprecated": true }, "object": { "type": "string", "const": "video" }, "model": { "type": "string" }, "status": { "type": "string", "enum": ["queued", "in_progress", "completed", "failed"] }, "progress": { "type": "integer", "minimum": 0, "maximum": 100 }, "created_at": { "type": "integer" }, "completed_at": { "type": "integer" }, "expires_at": { "type": "integer" }, "seconds": { "type": "string" }, "size": { "type": "string" }, "remixed_from_video_id": { "type": "string" }, "error": { "$ref": "#/components/schemas/OpenAIVideoError" }, "usage": { "$ref": "#/components/schemas/OpenAIVideoUsage" }, "metadata": { "type": "object", "additionalProperties": true } } },
       "OpenAIVideoError": { "type": "object", "required": ["message", "code"], "properties": { "message": { "type": "string" }, "code": { "type": "string" } } },
@@ -156,6 +215,10 @@
       "CreateAssetResponse": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } },
       "Asset": { "type": "object", "required": ["id", "asset_type", "status", "created_at", "expires_at", "verified_at"], "properties": { "id": { "type": "string" }, "asset_type": { "type": "string", "enum": ["image", "video", "audio"] }, "name": { "type": "string" }, "source_url": { "type": "string", "format": "uri" }, "preview_url": { "type": "string", "format": "uri" }, "source_kind": { "type": "string" }, "file_name": { "type": "string" }, "content_type": { "type": "string" }, "file_size": { "type": "integer" }, "status": { "type": "string" }, "created_at": { "type": "integer" }, "expires_at": { "type": "integer" }, "verified_at": { "type": "integer" } } },
       "DeleteAssetResponse": { "type": "object", "required": ["success"], "properties": { "success": { "type": "boolean", "const": true } } },
+      "CreateFileRequest": { "type": "object", "required": ["file", "purpose"], "properties": { "file": { "type": "string", "format": "binary" }, "purpose": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$", "example": "vision" } } },
+      "FileObject": { "type": "object", "required": ["id", "object", "bytes", "created_at", "expires_at", "filename", "purpose"], "properties": { "id": { "type": "string", "pattern": "^file_[A-Za-z0-9]+$" }, "object": { "type": "string", "const": "file" }, "bytes": { "type": "integer", "minimum": 1 }, "created_at": { "type": "integer" }, "expires_at": { "type": "integer", "description": "created_at 后 24 小时" }, "filename": { "type": "string" }, "purpose": { "type": "string" }, "mime_type": { "type": "string", "enum": ["image/png", "image/jpeg", "image/webp", "video/mp4"] }, "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 }, "duration_seconds": { "type": "number", "exclusiveMinimum": 0, "description": "视频文件的真实时长；图片响应不返回。" } } },
+      "FileList": { "type": "object", "required": ["object", "data"], "properties": { "object": { "type": "string", "const": "list" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/FileObject" } } } },
+      "FileDeleted": { "type": "object", "required": ["id", "object", "deleted"], "properties": { "id": { "type": "string" }, "object": { "type": "string", "const": "file" }, "deleted": { "type": "boolean", "const": true } } },
       "Error": { "type": "object", "required": ["error"], "properties": { "error": { "$ref": "#/components/schemas/ErrorDetail" } } },
       "ErrorDetail": { "type": "object", "required": ["code", "message"], "properties": { "code": { "type": "string" }, "message": { "type": "string" } } }
     }

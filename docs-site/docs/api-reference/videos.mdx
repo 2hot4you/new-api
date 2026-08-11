@@ -1,10 +1,10 @@
 ---
 title: 视频 API
-description: 使用 Grok Imagine 创建、编辑、查询和下载异步视频任务。
+description: 使用 Grok Imagine 创建、编辑、延长、查询和下载异步视频任务。
 audience: user
 apiVersion: v1
-lastReviewed: 2026-08-10
-sourceCommit: d396320dd9c0
+lastReviewed: 2026-08-11
+sourceCommit: 425af5f3
 sidebar_position: 4
 ---
 
@@ -12,10 +12,10 @@ sidebar_position: 4
 
 Grok Imagine 视频接口采用异步任务。创建或编辑成功后保存公共任务 ID，轮询任务状态，完成后再下载内容。
 
-| 模型 | 文生视频 | 图生视频 | 视频编辑 | 分辨率 |
+| 模型 | 文生视频 | 图生视频 | 视频编辑或延长 | 分辨率 |
 | --- | --- | --- | --- | --- |
 | `grok-imagine-video` | 支持 | 支持 | 支持 | `480p`、`720p` |
-| `grok-imagine-video-1.5` | 不支持 | 必须提供图片 | 不支持 | `480p`、`720p`、`1080p` |
+| `grok-imagine-video-1.5` | 不支持 | 必须提供图片或参考图 | 不支持 | `480p`、`720p`、`1080p` |
 
 ## `POST /v1/videos`
 
@@ -33,13 +33,14 @@ Grok Imagine 视频接口采用异步任务。创建或编辑成功后保存公�
 | --- | --- | --- | --- | --- | --- |
 | `model` | string | 是 | 无 | 两个 Grok 视频模型 | 模型 ID |
 | `prompt` | string | 是 | 无 | 1–10,000 个字符 | 视频生成指令 |
-| `image` | string 或 object | 条件必填 | 无 | URL 或 `{ "url": "..." }` | 图生视频输入；1.5 必填 |
-| `images` | string[] | 否 | 无 | 至少一项 | `image` 的兼容数组形式；当前只使用第一张 |
+| `image` | string 或 object | 条件必填 | 无 | URL、`{ "url": "..." }` 或 `{ "file_id": "file_xxx" }` | 图生视频输入；1.5 单图模式必填 |
+| `images` | array | 否 | 无 | 最多一项 | `image` 的兼容数组形式 |
+| `reference_images` | array | 否 | 无 | 1–7 个 URL 或 `file_id` 对象 | 仅 1.5；不能与其他媒体输入混用，最高 `720p` |
 | `duration` | integer | 否 | `5` | `1`–`15` 秒 | 请求时长 |
 | `aspect_ratio` | string | 否 | `16:9` | `1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3` | 输出比例 |
 | `resolution` | string | 否 | `480p` | 取决于模型 | 输出分辨率 |
 
-输入图片使用可直连的 HTTP(S) URL。`file_id` 目前不受支持；提交后会返回 `400 file_id_not_supported`，且不会向生成服务发送请求。
+媒体可使用可直连的 HTTP(S) URL，也可以先通过 `POST /v1/files` 上传，再传属于当前用户且未过期的 `file_id`。
 
 ### 请求示例
 
@@ -101,6 +102,47 @@ HTTP `200`：
 
 服务端创建时预扣，任务达到终态后按实际结果结算或退款。目录价以模型广场当前配置为准。
 
+## `POST /v1/videos/generations`
+
+这是 `POST /v1/videos` 的等价生成路径，参数、响应、验证和计费完全一致。客户端任选一个路径并保持一致即可。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+与 `POST /v1/videos` 相同，支持 `model`、`prompt`、单图或参考图、`duration`、`aspect_ratio` 和 `resolution`。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/generations" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "model": "grok-imagine-video-1.5",
+    "prompt": "让画面中的猫向镜头走来",
+    "image": {"file_id": "file_a1b2c3d4e5f6g7h8"},
+    "duration": 5,
+    "resolution": "720p"
+  }'
+```
+
+### 成功响应
+
+返回与 `POST /v1/videos` 相同的 `queued` 异步视频对象。保存响应中的公共 `id`。
+
+### 错误与重试
+
+错误码和重试规则与 `POST /v1/videos` 相同。该 POST 可能产生费用，不要自动重放。
+
+### 计费
+
+与 `POST /v1/videos` 使用同一价格、预扣和终态结算规则，不会因选择别名路径而额外收费。
+
 ## `POST /v1/videos/edits`
 
 使用 `grok-imagine-video` 编辑已有视频。该接口不支持 1.5 模型。
@@ -115,11 +157,11 @@ HTTP `200`：
 | --- | --- | --- | --- | --- | --- |
 | `model` | string | 是 | 无 | 仅 `grok-imagine-video` | 编辑模型 |
 | `prompt` | string | 是 | 无 | 1–10,000 个字符 | 编辑指令 |
-| `video` | string 或 object | 是 | 无 | URL 或 `{ "url": "..." }` | 输入视频 |
+| `video` | string 或 object | 是 | 无 | URL、`{ "url": "..." }` 或 `{ "file_id": "file_xxx" }` | 输入 MP4 视频 |
 
 不要发送 `duration`、`aspect_ratio` 或 `resolution`。编辑任务的实际时长和实际分辨率从任务完成结果取得；客户端不能指定，也不要根据金额反推。
 
-`file_id` 不受支持，输入视频必须使用可访问 URL。
+使用 `file_id` 时，Molii 会复用上传时记录的真实时长和分辨率，不会再次从公网下载探测同一文件。
 
 ### 请求示例
 
@@ -167,6 +209,60 @@ HTTP `200`，响应为异步视频对象：
 ```
 
 编辑结果缺少可靠实际分辨率时，Molii 不猜价；账单摘要会暂时显示 `unavailable` 并等待核对，预扣不会被错误地当成最终结算。
+
+## `POST /v1/videos/extensions`
+
+使用 `grok-imagine-video` 延长已有 MP4 视频。该接口不支持 1.5 模型。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+| 参数 | 类型 | 必填 | 默认值 | 可选值/范围 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `model` | string | 是 | 无 | 仅 `grok-imagine-video` | 延长模型 |
+| `prompt` | string | 是 | 无 | 1–10,000 个字符 | 后续镜头指令 |
+| `video` | string 或 object | 是 | 无 | URL 或 `{ "file_id": "file_xxx" }` | 2–15 秒 MP4 输入 |
+| `duration` | integer | 否 | `6` | `2`–`10` 秒 | 需要新增的时长 |
+
+不要发送 `aspect_ratio` 或 `resolution`。输出继承输入档位，最高按 `720p` 处理。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/extensions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "model": "grok-imagine-video",
+    "prompt": "继续向前推进镜头，让夕阳逐渐落下",
+    "video": {"file_id": "file_a1b2c3d4e5f6g7h8"},
+    "duration": 6
+  }'
+```
+
+### 成功响应
+
+返回 `queued` 异步视频对象。保存公共任务 `id`，随后通过状态和内容接口轮询、下载。
+
+### 错误与重试
+
+- `400 invalid_model`：使用了 1.5 或其他模型。
+- `400 invalid_video_duration`：输入视频不在 2–15 秒范围。
+- `400 invalid_duration`：新增时长不在 2–10 秒范围。
+- 付费 POST 不得自动重放；结果不确定时先查询任务和使用记录。
+
+### 计费
+
+```text
+(输出秒单价 × 请求新增秒数 + 输入视频秒单价 × 输入视频秒数) × 分组倍率 = 最终费用
+```
+
+输入视频时长和档位在提交前冻结，完成后按真实输出结果结算。
 
 ## `GET /v1/videos/{task_id}`
 

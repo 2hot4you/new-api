@@ -5,11 +5,13 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: '开始使用',
+      collapsed: false,
       items: ['quick-start', 'getting-started/quickstart', 'getting-started/video-workflow'],
     },
     {
       type: 'category',
       label: '平台与账户',
+      collapsed: false,
       items: [
         'platform',
         'platform/register-and-sign-in',
@@ -72,6 +74,7 @@ const sidebars: SidebarsConfig = {
         'api-reference/models',
         'api-reference/images',
         'api-reference/videos',
+        'api-reference/files',
         'api-reference/seedance',
         'api-reference/assets',
         'api-reference/errors',

@@ -99,14 +99,15 @@ function imageParameters(
             name: 'image',
             type: 'object',
             range: '1–3 input images in total',
-            descriptionKey: 'Single input image URL; provide image or images',
+            descriptionKey:
+              'Single input image URL or file_id; provide image or images',
           },
           {
             name: 'images',
             type: 'array',
             range: '1–3 input images in total',
             descriptionKey:
-              'Multiple input image URLs; provide image or images',
+              'Multiple input image URLs or file_id values; provide image or images',
           },
         ]
       : []
@@ -134,8 +135,8 @@ function videoGenerationParameters(modelName: string): SupportedParameter[] {
       name: 'image',
       type: 'object',
       descriptionKey: imageRequired
-        ? 'Input image URL; required by grok-imagine-video-1.5'
-        : 'Optional input image URL for image-to-video generation',
+        ? 'Input image URL or file_id; required by grok-imagine-video-1.5'
+        : 'Optional input image URL or file_id for image-to-video generation',
       required: imageRequired,
     },
     {
@@ -169,8 +170,63 @@ function videoEditParameters(modelName: string): SupportedParameter[] {
     {
       name: 'video',
       type: 'object',
-      descriptionKey: 'Input video URL to edit',
+      descriptionKey: 'Input video URL or file_id to edit',
       required: true,
+    },
+  ]
+}
+
+function videoExtensionParameters(modelName: string): SupportedParameter[] {
+  return [
+    modelParameter(modelName),
+    requiredVideoPrompt,
+    {
+      name: 'video',
+      type: 'object',
+      descriptionKey: 'Input video URL or file_id to extend; input must be 2–15 seconds',
+      required: true,
+    },
+    {
+      name: 'duration',
+      type: 'integer',
+      defaultValue: 6,
+      range: '2–10 seconds',
+      descriptionKey: 'Additional output duration in seconds',
+    },
+  ]
+}
+
+function referenceVideoParameters(modelName: string): SupportedParameter[] {
+  return [
+    modelParameter(modelName),
+    requiredVideoPrompt,
+    {
+      name: 'reference_images',
+      type: 'array',
+      range: '1–7 images',
+      descriptionKey: 'Reference image URLs or file_id values; cannot combine with image or video',
+      required: true,
+    },
+    {
+      name: 'duration',
+      type: 'integer',
+      defaultValue: 5,
+      range: '1–15 seconds',
+      descriptionKey: 'Requested output video duration in seconds',
+    },
+    {
+      name: 'aspect_ratio',
+      type: 'enum',
+      defaultValue: '16:9',
+      enumValues: VIDEO_ASPECT_RATIOS,
+      descriptionKey: 'Requested output video aspect ratio',
+    },
+    {
+      name: 'resolution',
+      type: 'enum',
+      defaultValue: '480p',
+      enumValues: ['480p', '720p'],
+      descriptionKey: 'Reference-to-video output resolution',
     },
   ]
 }
@@ -194,6 +250,12 @@ export function buildGrokApiParameters(
   }
   if (operation === 'edit') {
     return videoEditParameters(modelName)
+  }
+  if (operation === 'extend') {
+    return videoExtensionParameters(modelName)
+  }
+  if (operation === 'reference') {
+    return referenceVideoParameters(modelName)
   }
   return videoGenerationParameters(modelName)
 }

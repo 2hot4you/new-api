@@ -32,8 +32,13 @@ describe('Grok Imagine model metadata', () => {
         'Video editing'
       )
     )
+    assert.ok(
+      getGrokModelCapabilities('grok-imagine-video').operations.includes(
+        'Video extension'
+      )
+    )
     const video15 = getGrokModelCapabilities('grok-imagine-video-1.5')
-    assert.deepEqual(video15.operations, ['Image-to-video'])
+    assert.deepEqual(video15.operations, ['Image-to-video', 'Reference-to-video'])
     assert.ok(video15.resolutions.includes('1080p'))
   })
 })

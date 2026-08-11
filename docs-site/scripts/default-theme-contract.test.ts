@@ -50,6 +50,7 @@ describe('Docusaurus default-theme contract', () => {
       'api-reference/models',
       'api-reference/images',
       'api-reference/videos',
+      'api-reference/files',
       'api-reference/seedance',
       'api-reference/assets',
       'api-reference/errors',

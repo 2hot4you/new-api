@@ -1,5 +1,11 @@
 export type GrokSampleLanguage = 'curl' | 'python' | 'typescript' | 'javascript'
-export type GrokOperation = 'generate' | 'edit' | 'status' | 'download'
+export type GrokOperation =
+  | 'generate'
+  | 'edit'
+  | 'extend'
+  | 'reference'
+  | 'status'
+  | 'download'
 
 type Context = {
   baseUrl: string
@@ -30,11 +36,42 @@ function endpoint(ctx: Context): {
           ? 'Preserve the subject and change the scene to a neon city.'
           : 'An orange cat in a neon city, cinematic lighting.',
         ...(editing
-          ? { image: { url: 'https://example.com/source.png' } }
+          ? { image: { file_id: 'file_image_xxx' } }
           : {}),
         aspect_ratio: '16:9',
         resolution: '1k',
         n: 1,
+      },
+    }
+  }
+
+  if (ctx.operation === 'extend') {
+    return {
+      method: 'POST',
+      path: '/v1/videos/extensions',
+      body: {
+        model: 'grok-imagine-video',
+        prompt: 'Continue the camera movement as the sun slowly sets.',
+        video: { file_id: 'file_video_xxx' },
+        duration: 6,
+      },
+    }
+  }
+
+  if (ctx.operation === 'reference') {
+    return {
+      method: 'POST',
+      path: '/v1/videos/generations',
+      body: {
+        model: 'grok-imagine-video-1.5',
+        prompt: 'Place the referenced subject in the referenced scene.',
+        reference_images: [
+          { file_id: 'file_reference_xxx' },
+          { url: 'https://example.com/reference-scene.png' },
+        ],
+        duration: 5,
+        aspect_ratio: '16:9',
+        resolution: '720p',
       },
     }
   }
@@ -46,13 +83,13 @@ function endpoint(ctx: Context): {
       ? {
           model: ctx.modelName,
           prompt: 'Add gentle rain and cinematic lighting.',
-          video: { url: 'https://example.com/source.mp4' },
+          video: { file_id: 'file_video_xxx' },
         }
       : {
           model: ctx.modelName,
           prompt:
             'An orange cat runs through a neon city, cinematic camera movement.',
-          image: { url: 'https://example.com/source.png' },
+          image: { file_id: 'file_image_xxx' },
           duration: 5,
           aspect_ratio: '16:9',
           resolution: '720p',
@@ -117,7 +154,7 @@ export function getGrokOperations(modelName: string): GrokOperation[] {
     return ['generate', 'edit']
   }
   if (modelName === 'grok-imagine-video-1.5') {
-    return ['generate', 'status', 'download']
+    return ['generate', 'reference', 'status', 'download']
   }
-  return ['generate', 'edit', 'status', 'download']
+  return ['generate', 'edit', 'extend', 'status', 'download']
 }

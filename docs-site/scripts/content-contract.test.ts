@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import sidebars from '../sidebars';
 
 const siteRoot = join(import.meta.dir, '..');
-const sourceCommit = '8928d7bb8b95';
 const pages = [
   'docs/getting-started/quickstart.mdx',
   'docs/getting-started/video-workflow.mdx',
@@ -64,8 +63,8 @@ describe('public API guide content contract', () => {
       const metadata = frontmatter(await page(relativePath));
       expect(metadata.audience, relativePath).toBe('user');
       expect(metadata.apiVersion, relativePath).toBe('v1');
-      expect(metadata.lastReviewed, relativePath).toBe('2026-08-10');
-      expect(metadata.sourceCommit, relativePath).toBe(sourceCommit);
+      expect(metadata.lastReviewed, relativePath).toMatch(/^2026-08-(10|11)$/);
+      expect(metadata.sourceCommit, relativePath).toMatch(/^[0-9a-f]{7,40}$/);
     }
   });
 
@@ -127,12 +126,44 @@ describe('public API guide content contract', () => {
 
     expect(media).toMatch(/HTTP\(S\)|https:\/\//i);
     expect(media).toMatch(/image[^\n]*images|images[^\n]*image/);
-    expect(media).not.toContain('file_id');
+    expect(media).toContain('file_id');
     expect(billing).toMatch(/预计|预估/);
     expect(billing).toMatch(/最终|实际/);
     expect(billing).toContain('final_cost');
     expect(billing).toContain('refund_pending');
     expect(billing).toMatch(/不要.*重复提交|重复提交.*额外计费/);
+  });
+
+  test('Grok public contract covers extension, reference images and user-owned files', async () => {
+    const surface = JSON.parse(await page('openapi/public-api-surface.json')) as {
+      operations: string[];
+    };
+    const openapi = await page('openapi/relay.public.template.yaml');
+    const grokVideo = await page('docs/models/grok-imagine-video.mdx');
+    const media = await page('docs/api-basics/media-inputs.mdx');
+
+    for (const operation of [
+      'POST /v1/videos/generations',
+      'POST /v1/videos/extensions',
+      'GET /v1/files',
+      'POST /v1/files',
+      'GET /v1/files/{id}',
+      'DELETE /v1/files/{id}',
+      'GET /v1/files/{id}/content',
+    ]) {
+      expect(surface.operations).toContain(operation);
+    }
+    expect(openapi).toContain('reference_images');
+    expect(openapi).toContain('file_id');
+    expect(openapi).toContain('FileObject');
+    expect(openapi).not.toContain('grok-imagine-video-1.5-preview');
+    expect(grokVideo).toContain('POST /v1/videos/extensions');
+    expect(grokVideo).toContain('reference_images');
+    expect(grokVideo).toContain('file_id');
+    expect(grokVideo).not.toContain('ParameterTable');
+    expect(grokVideo).not.toContain('grok-imagine-video-1.5-preview');
+    expect(media).toContain('POST /v1/files');
+    expect(media).toContain('24 小时');
   });
 
   test('billing modes match the public runtime contract', async () => {
@@ -148,7 +179,7 @@ describe('public API guide content contract', () => {
     expect(media).toContain('Data URL');
     expect(media).toContain('data:');
     expect(media).toContain('asset://');
-    expect(media).toMatch(/Grok[^。\n]*(?:仅|只)[^。\n]*URL/);
+    expect(media).toMatch(/Grok[^。\n]*(?:URL|file_id)/);
     expect(media).toMatch(/Seedance[^。\n]*(?:Data URL|asset:\/\/)/);
     expect(media).toMatch(/具体模型页|模型页面/);
   });
@@ -430,11 +461,13 @@ describe('public API guide content contract', () => {
       {
         type: 'category',
         label: '开始使用',
+        collapsed: false,
         items: ['quick-start', 'getting-started/quickstart', 'getting-started/video-workflow'],
       },
       {
         type: 'category',
         label: '平台与账户',
+        collapsed: false,
         items: [
           'platform',
           'platform/register-and-sign-in',

@@ -171,14 +171,19 @@ describe('prepareOpenApi', () => {
     expect(editInput.properties.image.$ref).toBe('#/components/schemas/ImageInput');
     expect(editInput.properties.images).toMatchObject({ minItems: 1, maxItems: 3 });
 
-    const imageInput = document.components.schemas.ImageInput;
+    expect(document.components.schemas.ImageInput.$ref).toBe('#/components/schemas/GrokMediaInput');
+    const imageInput = document.components.schemas.GrokMediaInput;
     expect(imageInput.oneOf[1]).toMatchObject({
       type: 'object',
       required: ['url'],
       properties: { url: { type: 'string', format: 'uri', minLength: 1 } },
     });
-    expect(JSON.stringify(imageInput)).not.toContain('file_id');
-    expect(JSON.stringify(document.paths['/v1/images/edits'])).not.toContain('file_id');
+    expect(imageInput.oneOf[2]).toMatchObject({
+      type: 'object',
+      required: ['file_id'],
+      properties: { file_id: { type: 'string', pattern: '^file_[A-Za-z0-9]+$' } },
+    });
+    expect(JSON.stringify(document.paths['/v1/images/edits'])).toContain('ImageEditRequest');
   });
 
   test('publishes only the supported Grok video 1.5 model example', async () => {

@@ -60,6 +60,29 @@ describe('default MDX API reference', () => {
     }
   }, 30_000);
 
+  test('opens onboarding and account categories by default while keeping them collapsible', async () => {
+    const chromePath = await resolveBrowserExecutable();
+    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+
+    try {
+      await page.goto(`${baseUrl}/api-reference`, { waitUntil: 'networkidle' });
+      const sidebar = page.locator('.theme-doc-sidebar-container');
+      const gettingStarted = sidebar.getByRole('button', { name: '开始使用', exact: true });
+      const platform = sidebar.getByRole('button', { name: '平台与账户', exact: true });
+      const developerGuides = sidebar.getByRole('button', { name: '开发指南', exact: true });
+
+      await expect(gettingStarted.getAttribute('aria-expanded')).resolves.toBe('true');
+      await expect(platform.getAttribute('aria-expanded')).resolves.toBe('true');
+      await expect(developerGuides.getAttribute('aria-expanded')).resolves.toBe('false');
+
+      await gettingStarted.click();
+      await expect(gettingStarted.getAttribute('aria-expanded')).resolves.toBe('false');
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
+
   test('renders method-style image endpoints as ordinary headings, tables, and code blocks', async () => {
     const chromePath = await resolveBrowserExecutable();
     const browser = await chromium.launch({ executablePath: chromePath, headless: true });

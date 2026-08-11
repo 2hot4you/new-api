@@ -3,10 +3,11 @@ import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
 
 import { buildGrokApiParameters } from '../grok-api-parameters'
+import type { GrokOperation } from '../grok-api-sample'
 
 function parameter(
   modelName: string,
-  operation: 'generate' | 'edit' | 'status' | 'download',
+  operation: GrokOperation,
   name: string
 ) {
   return buildGrokApiParameters(modelName, operation).find(
@@ -56,7 +57,7 @@ describe('Grok Imagine API parameters', () => {
       parameter('grok-imagine-image-quality', 'edit', 'images')?.range,
       '1–3 input images in total'
     )
-    assert.doesNotMatch(
+    assert.match(
       params.map((item) => item.descriptionKey).join(' '),
       /file_id/i
     )
@@ -91,7 +92,7 @@ describe('Grok Imagine API parameters', () => {
       parameter('grok-imagine-video-1.5', 'generate', 'duration')?.range,
       '1–15 seconds'
     )
-    assert.doesNotMatch(
+    assert.match(
       buildGrokApiParameters('grok-imagine-video-1.5', 'generate')
         .map((item) => item.descriptionKey)
         .join(' '),
@@ -110,10 +111,34 @@ describe('Grok Imagine API parameters', () => {
       parameter('grok-imagine-video', 'edit', 'video')?.required,
       true
     )
-    assert.doesNotMatch(
+    assert.match(
       params.map((item) => item.descriptionKey).join(' '),
       /file_id/i
     )
+  })
+
+  test('video extension and reference modes expose only accepted fields', () => {
+    const extension = buildGrokApiParameters(
+      'grok-imagine-video',
+      'extend'
+    )
+    assert.deepEqual(
+      extension.map((item) => item.name),
+      ['model', 'prompt', 'video', 'duration']
+    )
+    assert.equal(parameter('grok-imagine-video', 'extend', 'duration')?.range, '2–10 seconds')
+    assert.equal(parameter('grok-imagine-video', 'extend', 'duration')?.defaultValue, 6)
+
+    const references = buildGrokApiParameters(
+      'grok-imagine-video-1.5',
+      'reference'
+    )
+    assert.deepEqual(
+      references.map((item) => item.name),
+      ['model', 'prompt', 'reference_images', 'duration', 'aspect_ratio', 'resolution']
+    )
+    assert.equal(parameter('grok-imagine-video-1.5', 'reference', 'reference_images')?.range, '1–7 images')
+    assert.deepEqual(parameter('grok-imagine-video-1.5', 'reference', 'resolution')?.enumValues, ['480p', '720p'])
   })
 
   test('task status and download only require the public task id', () => {

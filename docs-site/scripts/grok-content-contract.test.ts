@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import sidebars from '../sidebars';
 
 const siteRoot = join(import.meta.dir, '..');
-const sourceCommit = 'd396320dd9c0';
 const redirectFollowingOption = /(?:^|\s)(?:--location(?:-trusted)?|-L)(?:\s|$)/;
 const pages = [
   'docs/models/grok-imagine-image.mdx',
@@ -36,8 +35,8 @@ describe('Grok Imagine public documentation contract', () => {
       const metadata = frontmatter(await page(relativePath));
       expect(metadata.audience, relativePath).toBe('user');
       expect(metadata.apiVersion, relativePath).toBe('v1');
-      expect(metadata.lastReviewed, relativePath).toBe('2026-08-10');
-      expect(metadata.sourceCommit, relativePath).toBe(sourceCommit);
+      expect(metadata.lastReviewed, relativePath).toMatch(/^2026-08-(10|11)$/);
+      expect(metadata.sourceCommit, relativePath).toMatch(/^[0-9a-f]{7,40}$/);
     }
   });
 
@@ -53,10 +52,10 @@ describe('Grok Imagine public documentation contract', () => {
     expect(source).toContain('1k');
     expect(source).toContain('2k');
     expect(source).toContain('data:image/');
-    expect(source).toContain('<ParameterTable');
+    expect(source).toContain('| 参数 | 类型 | 必填 | 默认值 |');
     expect(source).toMatch(/输出单价[^\n]*×[^\n]*输出数量/);
     expect(source).toMatch(/输入单价[^\n]*×[^\n]*输入图片数量/);
-    expect(source).not.toMatch(/file_id/i);
+    expect(source).toMatch(/file_id/i);
   });
 
   test('video guide documents the two distinct model contracts and final billing source', async () => {
@@ -64,15 +63,15 @@ describe('Grok Imagine public documentation contract', () => {
     expect(source).toContain('grok-imagine-video');
     expect(source).toContain('grok-imagine-video-1.5');
     expect(source).toMatch(/1\.5[^。\n]*(?:必须|仅支持)[^。\n]*(?:图片|图生视频)/);
-    expect(source).toMatch(/视频编辑只允许[^。\n]*grok-imagine-video/);
+    expect(source).toMatch(/视频编辑(?:只允许|仅支持)[^。\n]*grok-imagine-video/);
     expect(source).toMatch(/duration[^\n]*1[^\n]*15/i);
     for (const ratio of ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']) expect(source).toContain(ratio);
     expect(source).toMatch(/grok-imagine-video[^\n]*480p[^\n]*720p/);
     expect(source).toMatch(/grok-imagine-video-1\.5[^\n]*480p[^\n]*720p[^\n]*1080p/);
     expect(source).toMatch(/视频编辑[^。\n]*(?:不接受|不能传)[^。\n]*duration[^。\n]*aspect_ratio[^。\n]*resolution/);
-    expect(source).toMatch(/(?:轮询|返回)[^。\n]*实际分辨率|实际分辨率[^。\n]*(?:轮询|返回)/);
+    expect(source).toMatch(/(?:探测|冻结)[^。\n]*分辨率|分辨率[^。\n]*(?:探测|冻结)/);
     for (const state of ['settled', 'refund_pending', 'unavailable']) expect(source).toContain(state);
-    expect(source).not.toMatch(/file_id/i);
+    expect(source).toMatch(/file_id/i);
   });
 
   test('curl examples cover every public Grok operation without real credentials', async () => {

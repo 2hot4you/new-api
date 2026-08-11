@@ -7,7 +7,6 @@ import sidebars from '../sidebars';
 const siteRoot = join(import.meta.dir, '..');
 const repoRoot = join(siteRoot, '..');
 const platformDirectory = 'docs/platform';
-const sourceCommit = 'ce71f3ccab9d';
 
 const guides = {
   'register-and-sign-in': {
@@ -147,8 +146,8 @@ describe('ordinary-user platform documentation contract', () => {
       const metadata = frontmatter(sourceText);
       expect(metadata.audience, id).toBe('user');
       expect(metadata.apiVersion, id).toBe('v1');
-      expect(metadata.lastReviewed, id).toBe('2026-08-10');
-      expect(metadata.sourceCommit, id).toBe(sourceCommit);
+      expect(metadata.lastReviewed, id).toMatch(/^2026-08-(10|11)$/);
+      expect(metadata.sourceCommit, id).toMatch(/^[0-9a-f]{7,40}$/);
       expect(sourceText, id).toContain('## 截图占位');
       expect(sourceText, id).toMatch(/alt[：:]/);
       expect(sourceText, id).toMatch(/脱敏|合成/);

@@ -1,0 +1,238 @@
+---
+title: 文件 API
+description: 上传、列出、查询、下载和删除当前用户的 24 小时媒体文件。
+audience: user
+apiVersion: v1
+lastReviewed: 2026-08-11
+sourceCommit: 425af5f3
+sidebar_position: 6
+---
+
+# 文件 API
+
+文件 API 为 Grok Imagine 提供属于当前 API Key 用户的图片和视频输入。文件保留时间固定为创建后 24 小时，不会因查询或使用而延长。
+
+支持 PNG、JPEG、WebP 和 MP4。响应中的 `file_id` 可用于 Grok 图片编辑、视频生成、视频编辑、视频延长和参考图输入。
+
+## `GET /v1/files`
+
+列出当前用户仍处于有效期内的文件。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+无路径参数、查询参数或请求体。
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/files" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+### 成功响应
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "file_a1b2c3d4e5f6g7h8",
+      "object": "file",
+      "bytes": 12345,
+      "created_at": 1786380000,
+      "expires_at": 1786466400,
+      "filename": "input.png",
+      "purpose": "vision",
+      "mime_type": "image/png",
+      "width": 1280,
+      "height": 720
+    }
+  ]
+}
+```
+
+### 错误与重试
+
+`401`/`403` 表示 API Key 无效或无权访问。查询是只读操作，`429`、暂时性 `5xx` 和传输错误可在总截止时间内退避重试。
+
+### 计费
+
+列出文件不产生图片或视频生成费用，也不会延长文件有效期。
+
+## `POST /v1/files`
+
+上传一个属于当前用户的媒体文件。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+请求体类型为 `multipart/form-data`。
+
+| 参数 | 类型 | 必填 | 可选值或范围 | 说明 |
+| --- | --- | --- | --- | --- |
+| `file` | binary | 是 | PNG、JPEG、WebP 或 MP4 | 图片最大 30 MiB；视频最大 32 MiB。 |
+| `purpose` | string | 是 | 1–64 个字母、数字、点、下划线或连字符 | 用于标识文件用途。 |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/files" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json" \
+  --form "purpose=vision" \
+  --form "file=@./input.png;type=image/png"
+```
+
+### 成功响应
+
+```json
+{
+  "id": "file_a1b2c3d4e5f6g7h8",
+  "object": "file",
+  "bytes": 12345,
+  "created_at": 1786380000,
+  "expires_at": 1786466400,
+  "filename": "input.png",
+  "purpose": "vision",
+  "mime_type": "image/png",
+  "width": 1280,
+  "height": 720
+}
+```
+
+视频文件还会返回 `duration_seconds`。服务根据文件内容识别类型，不信任客户端声明的扩展名或 MIME。
+
+### 错误与重试
+
+- `400 invalid_purpose`、`unsupported_file` 或 `empty_file`：修正输入。
+- `413 file_too_large`：缩小文件后重新上传。
+- `503 file_service_unavailable`：服务暂不可用；先检查文件列表，避免在结果不确定时自动重复上传。
+
+### 计费
+
+上传本身不产生图片或视频生成费用。文件被模型请求引用后，按对应模型的输入和输出计费规则结算。
+
+## `GET /v1/files/{id}`
+
+读取当前用户文件的安全元数据。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`，文件必须属于当前用户。
+
+### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | 是 | 上传响应返回的 `file_id`。 |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/files/file_a1b2c3d4e5f6g7h8" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+### 成功响应
+
+响应字段与上传成功响应相同。`expires_at` 是固定过期时间。
+
+### 错误与重试
+
+`404 file_not_found` 同时覆盖不存在和不属于当前用户的文件；`410 file_expired` 表示对象已到期。只读 GET 可对暂时性错误有界退避。
+
+### 计费
+
+查询元数据不收费，也不会延长保留时间。
+
+## `DELETE /v1/files/{id}`
+
+删除当前用户文件。删除后该 `file_id` 不能用于新请求。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`，文件必须属于当前用户。
+
+### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | 是 | 要删除的 `file_id`。 |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request DELETE \
+  --url "${MOLII_API_BASE_URL%/}/v1/files/file_a1b2c3d4e5f6g7h8" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+### 成功响应
+
+```json
+{
+  "id": "file_a1b2c3d4e5f6g7h8",
+  "object": "file",
+  "deleted": true
+}
+```
+
+### 错误与重试
+
+删除采用幂等状态收敛。网络结果不确定时先执行 GET 确认，不要盲目高频重试；外部用户的文件始终返回 404。
+
+### 计费
+
+删除不退还已经发生的生成费用。
+
+## `GET /v1/files/{id}/content`
+
+代理读取当前用户的文件内容，支持 Range 下载。
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`，文件必须属于当前用户且未过期。
+
+### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `id` | path | string | 是 | 文件 ID。 |
+| `Range` | header | string | 否 | 例如 `bytes=1048576-`。 |
+| `If-Range` | header | string | 否 | 与 Range 配合使用。 |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/files/file_a1b2c3d4e5f6g7h8/content" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --output input.bin
+```
+
+### 成功响应
+
+完整内容返回 `200`，Range 内容返回 `206`；响应使用文件真实 `Content-Type` 和 `private, no-store` 缓存策略。
+
+### 错误与重试
+
+先验证状态和 `Content-Type`，不要把 JSON 错误保存成媒体文件。`410 file_expired` 不应重试；暂时性 GET 失败可在总截止时间内退避。
+
+### 计费
+
+下载不会再次产生模型生成费用。

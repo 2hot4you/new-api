@@ -895,6 +895,8 @@ export function ModelDetailsApi(props: {
 const GROK_OPERATION_LABELS: Record<GrokOperation, string> = {
   generate: 'Generate',
   edit: 'Edit',
+  extend: 'Extend video',
+  reference: 'Reference images',
   status: 'Task status',
   download: 'Download result',
 }
