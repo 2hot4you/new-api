@@ -262,6 +262,7 @@ func videoProxyWithStoredFetcher(c *gin.Context, fetchStored storedVideoFetcher)
 }
 
 func serveStoredGrokVideo(c *gin.Context, task *model.Task, fetchStored storedVideoFetcher) {
+	c.Writer.Header().Set("Cache-Control", "private, no-store")
 	stored := task.PrivateData.StoredResult
 	if stored == nil {
 		videoProxyError(c, http.StatusNotFound, "invalid_request_error", "Video result is unavailable")
@@ -310,7 +311,6 @@ func serveStoredGrokVideo(c *gin.Context, task *model.Task, fetchStored storedVi
 		}
 	}
 	applyMoliiGrokVideoResponseHeaders(c.Writer.Header())
-	c.Writer.Header().Set("Cache-Control", "private, no-store")
 	c.Writer.WriteHeader(response.StatusCode)
 	if response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 		c.Writer.WriteHeaderNow()

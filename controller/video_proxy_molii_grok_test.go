@@ -122,6 +122,7 @@ func TestVideoProxyReturnsGoneForExpiredGrokStoredResultWithoutFetchingCOS(t *te
 	assert.False(t, fetched)
 	assert.Equal(t, http.StatusGone, recorder.Code)
 	assert.True(t, strings.Contains(recorder.Body.String(), "result_expired"))
+	assert.Equal(t, "private, no-store", recorder.Header().Get("Cache-Control"))
 }
 
 func TestStoredGrokVideoRangeNotSatisfiableDoesNotExposeCOSBody(t *testing.T) {
@@ -174,6 +175,7 @@ func TestStoredGrokVideoRejectsCrossUserObjectKeyBeforeFetch(t *testing.T) {
 
 	assert.False(t, fetched)
 	assert.Equal(t, http.StatusBadGateway, recorder.Code)
+	assert.Equal(t, "private, no-store", recorder.Header().Get("Cache-Control"))
 	assert.NotContains(t, recorder.Body.String(), "999")
 	assert.Contains(t, recorder.Body.String(), "stored_result_invalid")
 }

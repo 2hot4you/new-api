@@ -36,8 +36,9 @@ type GrokResultStoreRequest struct {
 }
 
 type grokResultStore struct {
-	objectStorage  *objectStorageCOS
-	enqueueCleanup func(string, int64) error
+	objectStorage          *objectStorageCOS
+	enqueueCleanup         func(string, int64) error
+	registerPendingCleanup func(string, int64) error
 }
 
 func BuildGrokResultObjectKey(userID int, mediaType, idempotencyKey string, createdAt time.Time, mimeType string) (string, error) {
@@ -129,7 +130,11 @@ func PersistGrokResultWithStatus(ctx context.Context, request GrokResultStoreReq
 	if err != nil {
 		return nil, false, err
 	}
-	store := &grokResultStore{objectStorage: objectStorage, enqueueCleanup: EnqueueGrokObjectCleanup}
+	store := &grokResultStore{
+		objectStorage:          objectStorage,
+		enqueueCleanup:         EnqueueGrokObjectCleanup,
+		registerPendingCleanup: RegisterPendingGrokObjectCleanup,
+	}
 	return store.persistWithStatus(ctx, request)
 }
 
@@ -192,8 +197,14 @@ func (store *grokResultStore) persistWithStatus(ctx context.Context, request Gro
 	}
 	// Queue the deterministic key before the first COS write. A process crash,
 	// ambiguous PUT result, or another node's concurrent write can therefore
-	// never produce an object without a durable cleanup record.
-	if err := store.enqueueCleanup(objectKey, expiresAt); err != nil {
+	// never produce an object without a durable cleanup record. The caller holds
+	// the request-level persistence lease here, so a confirmed-absent retry may
+	// replace a stale pending deadline left by an earlier failed copy.
+	registerPendingCleanup := store.registerPendingCleanup
+	if registerPendingCleanup == nil {
+		registerPendingCleanup = store.enqueueCleanup
+	}
+	if err := registerPendingCleanup(objectKey, expiresAt); err != nil {
 		return nil, false, err
 	}
 	stored, created, err := store.objectStorage.copyRemoteObjectToCOSWithStatus(ctx, request.SourceURL, keySpec)
@@ -231,6 +242,24 @@ end
 return 0
 `
 	return common.RDB.Eval(context.Background(), enqueueWithoutExtension, []string{grokCOSCleanupIndexKey}, expiresAt, objectKey).Err()
+}
+
+// RegisterPendingGrokObjectCleanup records the candidate retention deadline
+// before a COS write. It intentionally replaces an older pending score after
+// the request-level persistence lease has confirmed that the object is absent.
+// Once an object exists, EnqueueGrokObjectCleanup preserves its persisted
+// deadline instead.
+func RegisterPendingGrokObjectCleanup(objectKey string, expiresAt int64) error {
+	if strings.TrimSpace(objectKey) == "" || expiresAt <= 0 {
+		return errors.New("Grok cleanup object key and expiry are required")
+	}
+	if !common.RedisEnabled || common.RDB == nil {
+		return ErrObjectStorageUnavailable
+	}
+	return common.RDB.ZAdd(context.Background(), grokCOSCleanupIndexKey, &redis.Z{
+		Score:  float64(expiresAt),
+		Member: objectKey,
+	}).Err()
 }
 
 func cleanupExpiredGrokObjects(ctx context.Context) {

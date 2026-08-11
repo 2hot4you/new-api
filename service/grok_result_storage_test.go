@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -70,6 +71,61 @@ func TestGrokResultStoragePersistsExactly24HoursAndReusesIdempotencyKey(t *testi
 	require.Equal(t, float64(first.ExpiresAt), score)
 	_, err = common.RDB.ZScore(ctx, starAICOSCleanupIndexKey, first.ObjectKey).Result()
 	require.ErrorIs(t, err, redis.Nil)
+}
+
+func TestGrokResultStorageRetryAfterFailedCopyStartsFresh24HourRetention(t *testing.T) {
+	useStarAIAssetRedis(t)
+	useStarAICOSTestConfig(t)
+	fakeCOS := newObjectStorageCOSTestServer(t)
+	remoteCalls := 0
+	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		remoteCalls++
+		if remoteCalls == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("video"))
+	}))
+	t.Cleanup(remote.Close)
+	store := &grokResultStore{
+		objectStorage:          newObjectStorageCOSTestStore(t, fakeCOS, remote.Client()),
+		enqueueCleanup:         EnqueueGrokObjectCleanup,
+		registerPendingCleanup: RegisterPendingGrokObjectCleanup,
+	}
+	t1 := time.Date(2026, time.August, 11, 9, 10, 11, 0, time.UTC)
+	request := GrokResultStoreRequest{
+		SourceURL:      remote.URL + "/result.mp4",
+		UserID:         42,
+		MediaType:      "video",
+		MIMEType:       "video/mp4",
+		IdempotencyKey: "task_retry_retention",
+		CreatedAt:      t1,
+		KeyAnchor:      t1,
+	}
+
+	_, err := store.persist(context.Background(), request)
+	require.Error(t, err)
+
+	t2 := t1.Add(30 * time.Minute)
+	request.CreatedAt = t2
+	created, err := store.persist(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, t2.Add(grokResultRetention).Unix(), created.ExpiresAt)
+	require.Equal(t, 1, fakeCOS.putCount)
+
+	score, err := common.RDB.ZScore(context.Background(), grokCOSCleanupIndexKey, created.ObjectKey).Result()
+	require.NoError(t, err)
+	require.Equal(t, float64(created.ExpiresAt), score, "a stale pending registration must not shorten the successful copy retention")
+	require.Equal(t, strconv.FormatInt(created.ExpiresAt, 10), fakeCOS.expiresAt[created.ObjectKey])
+
+	request.CreatedAt = t2.Add(time.Hour)
+	reused, err := store.persist(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, created, reused)
+	score, err = common.RDB.ZScore(context.Background(), grokCOSCleanupIndexKey, created.ObjectKey).Result()
+	require.NoError(t, err)
+	require.Equal(t, float64(created.ExpiresAt), score, "reusing a stored object must not extend its retention")
 }
 
 func TestGrokResultStorageCleanupKeepsTransientFailuresAndNeverTouchesStarAIQueue(t *testing.T) {
