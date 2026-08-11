@@ -43,6 +43,11 @@ func TestBuildGrokVideoBillingSnapshotOperations(t *testing.T) {
 				EstimatedVideoSeconds: tt.estimatedSecs, EstimatedVideoResolution: tt.estimatedRes,
 				PriceData: types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1.25}},
 			}
+			if tt.action == grokVideoEditOperation {
+				info.InputVideoDurationSeconds = 8.7
+				info.InputVideoResolutionTier = "720p"
+				info.InputVideoResolutionSource = relaycommon.GrokVideoResolutionSourceInputProbeV1
+			}
 			got := BuildGrokVideoBillingSnapshot(c, info, 12345)
 			require.NotNil(t, got)
 			assert.Equal(t, tt.wantOperation, got.Operation)
@@ -54,6 +59,31 @@ func TestBuildGrokVideoBillingSnapshotOperations(t *testing.T) {
 			assert.NotContains(t, string(mustJSON(t, got)), "fixture.invalid")
 		})
 	}
+}
+
+func TestBuildGrokVideoEditBillingSnapshotUsesImmutableInputProbeMetadata(t *testing.T) {
+	c, _ := gin.CreateTestContext(nil)
+	c.Set("task_request", relaycommon.TaskSubmitReq{Video: "data:video/mp4;base64,fixture"})
+	info := &relaycommon.RelayInfo{
+		TaskRelayInfo:              &relaycommon.TaskRelayInfo{Action: grokVideoEditOperation},
+		OriginModelName:            grokVideoModelLegacy,
+		EstimatedVideoSeconds:      6,
+		EstimatedVideoResolution:   "480p",
+		InputVideoDurationSeconds:  6.25,
+		InputVideoResolutionTier:   "480p",
+		InputVideoResolutionSource: relaycommon.GrokVideoResolutionSourceInputProbeV1,
+		PriceData:                  types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
+	}
+
+	snapshot := BuildGrokVideoBillingSnapshot(c, info, 0)
+
+	require.NotNil(t, snapshot)
+	assert.Equal(t, 6.25, snapshot.RequestedDurationSeconds)
+	assert.Equal(t, 6.25, snapshot.EstimatedDurationSeconds)
+	assert.Equal(t, "480p", snapshot.RequestedResolution)
+	assert.Equal(t, "480p", snapshot.EstimatedResolution)
+	assert.Equal(t, relaycommon.GrokVideoResolutionSourceInputProbeV1, snapshot.ResolutionSource)
+	assert.Equal(t, 6.25, snapshot.VideoInputBilledSeconds)
 }
 
 func TestBuildGrokVideoBillingSnapshotKeepsRequestedAndBilledModel(t *testing.T) {
@@ -186,7 +216,7 @@ func TestFinalizedGrokVideoEditRequiresExplicitVersionedResolutionSource(t *test
 	}
 
 	assert.False(t, validFinalizedGrokVideoBilling(&base), "legacy snapshots must not silently treat an estimated/inferred tier as final")
-	base.ResolutionSource = model.GrokVideoResolutionSourceProviderPollV1
+	base.ResolutionSource = relaycommon.GrokVideoResolutionSourceInputProbeV1
 	assert.True(t, validFinalizedGrokVideoBilling(&base))
 	base.ResolutionSource = "provider_cost_v1"
 	assert.False(t, validFinalizedGrokVideoBilling(&base))

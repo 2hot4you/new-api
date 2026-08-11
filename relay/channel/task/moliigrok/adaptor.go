@@ -40,6 +40,8 @@ var supportedVideoAspectRatios = map[string]struct{}{
 	"1:1": {}, "16:9": {}, "9:16": {}, "4:3": {}, "3:4": {}, "3:2": {}, "2:3": {},
 }
 
+var probeUserVideo = service.ProbeUserVideo
+
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	if info == nil {
 		return
@@ -93,10 +95,17 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		if req.Duration != 0 || strings.TrimSpace(req.AspectRatio) != "" || strings.TrimSpace(req.Resolution) != "" {
 			return service.TaskErrorWrapperLocal(errors.New("duration, aspect_ratio and resolution are not supported for video edits"), "invalid_request", http.StatusBadRequest)
 		}
+		probe, err := probeUserVideo(c.Request.Context(), service.MediaSource{URL: strings.TrimSpace(req.Video)})
+		if err != nil {
+			return service.TaskErrorWrapperLocal(errors.New("video must be a valid MP4"), "invalid_video", http.StatusBadRequest)
+		}
 		c.Set("task_request", req)
 		info.Action = videoEditAction
-		info.EstimatedVideoSeconds = 9
-		info.EstimatedVideoResolution = "720p"
+		info.InputVideoDurationSeconds = probe.DurationSeconds
+		info.InputVideoResolutionTier = probe.ResolutionTier
+		info.InputVideoResolutionSource = relaycommon.GrokVideoResolutionSourceInputProbeV1
+		info.EstimatedVideoSeconds = int(math.Ceil(probe.DurationSeconds))
+		info.EstimatedVideoResolution = probe.ResolutionTier
 		info.EstimatedVideoHasInput = true
 		return nil
 	}
@@ -286,8 +295,8 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
 	seconds := float64(req.Duration)
 	if info.Action == videoEditAction {
-		resolution = "720p"
-		seconds = 8.7
+		resolution = strings.ToLower(strings.TrimSpace(info.InputVideoResolutionTier))
+		seconds = info.InputVideoDurationSeconds
 	}
 	outputPrice, imageInputPrice, videoInputPrice, ok := ratio_setting.GetMoliiGrokVideoPrices(modelName, resolution)
 	if !ok {
@@ -334,25 +343,17 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 		}
 
 		if snapshot.Operation == videoEditAction {
+			duration = snapshot.RequestedDurationSeconds
+			if duration <= 0 {
+				return 0
+			}
+			resolution := strings.ToLower(strings.TrimSpace(snapshot.RequestedResolution))
+			if resolution != "480p" && resolution != "720p" || snapshot.ResolutionSource != relaycommon.GrokVideoResolutionSourceInputProbeV1 {
+				return 0
+			}
 			snapshot.ActualDurationSeconds = duration
 			snapshot.VideoInputBilledSeconds = duration
-			snapshot.ActualResolution = ""
-			snapshot.ResolutionSource = ""
-			resolution := normalizePollingResolution(taskResult.ActualResolution)
-			outputPrice, ok := bc.EstimatedOutputUnitPrices[resolution]
-			if !ok || outputPrice < 0 || math.IsNaN(outputPrice) || math.IsInf(outputPrice, 0) {
-				return 0
-			}
-			billedModel := strings.TrimSpace(snapshot.BilledModel)
-			if billedModel == "" {
-				billedModel = strings.TrimSpace(snapshot.Model)
-			}
-			if _, _, _, configured := ratio_setting.GetMoliiGrokVideoPrices(billedModel, resolution); !configured {
-				return 0
-			}
 			snapshot.ActualResolution = resolution
-			snapshot.ResolutionSource = model.GrokVideoResolutionSourceProviderPollV1
-			snapshot.OutputUnitPrice = outputPrice
 		} else {
 			resolution := snapshot.RequestedResolution
 			if resolution == "" {

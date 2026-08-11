@@ -1,6 +1,7 @@
 package moliigrok
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,10 +13,20 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func useFixtureVideoProbe(t *testing.T) {
+	t.Helper()
+	original := probeUserVideo
+	probeUserVideo = func(_ context.Context, _ service.MediaSource) (*service.MediaProbeResult, error) {
+		return &service.MediaProbeResult{DurationSeconds: 6, Width: 640, Height: 480, ResolutionTier: "480p", MIMEType: "video/mp4"}, nil
+	}
+	t.Cleanup(func() { probeUserVideo = original })
+}
 
 func taskContext(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
@@ -164,6 +175,7 @@ func TestGrokImagineVideoRejectsFileIDBeforeBillingAndSubmit(t *testing.T) {
 }
 
 func TestGrokImagineVideoURLObjectsNeverForwardFileID(t *testing.T) {
+	useFixtureVideoProbe(t)
 	tests := []struct {
 		model string
 		path  string
@@ -211,6 +223,7 @@ func TestGrokImagineVideoBuildRequestBodyDefensivelyRejectsDecodedFileID(t *test
 }
 
 func TestGrokImagineVideoEditUsesOfficialEndpointAndPayload(t *testing.T) {
+	useFixtureVideoProbe(t)
 	c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"add rain","video":{"url":"https://videos.example/source.mp4"}}`)
 	c.Request.URL.Path = "/v1/videos/edits"
 	info := taskInfo()
@@ -229,7 +242,7 @@ func TestGrokImagineVideoEditUsesOfficialEndpointAndPayload(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"model":"grok-imagine-video","prompt":"add rain","video":{"url":"https://videos.example/source.mp4"}}`, string(encoded))
 	assert.True(t, info.EstimatedVideoHasInput)
-	assert.InDelta(t, 0.696, info.EstimatedVideoPrice, 0.000001)
+	assert.InDelta(t, 0.36, info.EstimatedVideoPrice, 0.000001)
 }
 
 func TestGrokImagineVideo15RequiresImageAndRejectsOldModel1080p(t *testing.T) {
@@ -288,38 +301,26 @@ func TestGrokImagineVideoValidatesOfficialAspectRatios(t *testing.T) {
 	assert.Equal(t, "invalid_aspect_ratio", taskErr.Code)
 }
 
-func TestGrokVideoEditCompletionUsesOnlyExplicitPollingResolution(t *testing.T) {
-	for _, tt := range []struct {
-		resolution   string
-		providerCost float64
-		wantQuota    int
-		wantPrice    float64
-	}{
-		{resolution: "480p", providerCost: 999999, wantQuota: 180000, wantPrice: 0.05},
-		{resolution: "720p", providerCost: 0.000001, wantQuota: 240000, wantPrice: 0.07},
-	} {
-		t.Run(tt.resolution, func(t *testing.T) {
-			task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
-				GroupRatio: 1, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
-				EstimatedOutputUnitPrices: map[string]float64{"480p": 0.05, "720p": 0.07},
-				GrokVideoBilling: &model.GrokVideoBillingSnapshot{
-					Version: 1, Model: LegacyVideoModel, Operation: videoEditAction, InputType: "video",
-					EstimatedDurationSeconds: 8.7, EstimatedResolution: "720p",
-					OutputUnitPrice: 0.07, VideoInputUnitPrice: 0.01,
-				},
-			}}}
-			result := &relaycommon.TaskInfo{ActualDurationSeconds: 6, ActualResolution: tt.resolution, ProviderCost: tt.providerCost}
+func TestGrokVideoEditCompletionUsesImmutableInputProbeRatherThanProviderValues(t *testing.T) {
+	task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+		GroupRatio: 1, OriginModelName: LegacyVideoModel, EstimatedHasVideo: true,
+		GrokVideoBilling: &model.GrokVideoBillingSnapshot{
+			Version: 1, Model: LegacyVideoModel, Operation: videoEditAction, InputType: "video",
+			RequestedDurationSeconds: 6, EstimatedDurationSeconds: 6,
+			RequestedResolution: "480p", EstimatedResolution: "480p", ResolutionSource: relaycommon.GrokVideoResolutionSourceInputProbeV1,
+			OutputUnitPrice: 0.05, VideoInputUnitPrice: 0.01,
+		},
+	}}}
 
-			quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, result)
-			assert.Equal(t, tt.wantQuota, quota)
-			billing := task.PrivateData.BillingContext.GrokVideoBilling
-			assert.Equal(t, tt.resolution, billing.ActualResolution)
-			assert.Equal(t, "provider_poll_v1", billing.ResolutionSource)
-			assert.Equal(t, 6.0, billing.ActualDurationSeconds)
-			assert.Equal(t, 6.0, billing.VideoInputBilledSeconds)
-			assert.Equal(t, tt.wantPrice, billing.OutputUnitPrice)
-		})
-	}
+	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, &relaycommon.TaskInfo{ActualDurationSeconds: 12, ActualResolution: "720p", ProviderCost: 999999})
+
+	assert.Equal(t, 180000, quota)
+	billing := task.PrivateData.BillingContext.GrokVideoBilling
+	assert.Equal(t, "480p", billing.ActualResolution)
+	assert.Equal(t, relaycommon.GrokVideoResolutionSourceInputProbeV1, billing.ResolutionSource)
+	assert.Equal(t, 6.0, billing.ActualDurationSeconds)
+	assert.Equal(t, 6.0, billing.VideoInputBilledSeconds)
+	assert.Equal(t, 0.05, billing.OutputUnitPrice)
 }
 
 func TestGrokVideoEditCompletionWithoutTrustworthyResolutionIsIndeterminate(t *testing.T) {

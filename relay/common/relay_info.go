@@ -78,6 +78,10 @@ type GrokImageBillingSnapshot struct {
 	FinalCost            float64 `json:"final_cost"`
 }
 
+// GrokVideoResolutionSourceInputProbeV1 identifies immutable input media
+// metadata gathered before a Grok video edit is submitted for billing.
+const GrokVideoResolutionSourceInputProbeV1 = "input_probe_v1"
+
 type ChannelMeta struct {
 	ChannelType          int
 	ChannelId            int
@@ -182,6 +186,12 @@ type RelayInfo struct {
 	PriceData hosttypes.PriceData
 
 	GrokImageBilling *GrokImageBillingSnapshot
+
+	// Input video probe data is populated before a Grok video edit is charged.
+	// It is copied into the task billing snapshot after upstream acceptance.
+	InputVideoDurationSeconds  float64
+	InputVideoResolutionTier   string
+	InputVideoResolutionSource string
 
 	// StarAI Seedance estimation values are persisted into the async task's
 	// billing snapshot and surfaced in usage logs.

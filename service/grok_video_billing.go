@@ -80,7 +80,7 @@ func validFinalizedGrokVideoBilling(snapshot *model.GrokVideoBillingSnapshot) bo
 		return false
 	}
 	expectedSubtotal := snapshot.OutputCost + snapshot.ImageInputCost + snapshot.VideoInputCost
-	if snapshot.Operation == grokVideoEditOperation && snapshot.ResolutionSource != model.GrokVideoResolutionSourceProviderPollV1 {
+	if snapshot.Operation == grokVideoEditOperation && snapshot.ResolutionSource != relaycommon.GrokVideoResolutionSourceInputProbeV1 {
 		return false
 	}
 	return math.Abs(snapshot.Subtotal-expectedSubtotal) <= 1e-9
@@ -141,8 +141,10 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 
 	estimatedDuration := float64(info.EstimatedVideoSeconds)
 	if operation == grokVideoEditOperation {
-		// The edit precharge uses the provider's 8.7-second estimate.
-		estimatedDuration = 8.7
+		estimatedDuration = info.InputVideoDurationSeconds
+		if estimatedDuration <= 0 || strings.TrimSpace(info.InputVideoResolutionTier) == "" || info.InputVideoResolutionSource != relaycommon.GrokVideoResolutionSourceInputProbeV1 {
+			return nil
+		}
 	}
 	outputPrice, imageInputPrice, videoInputPrice, ok := ratio_setting.GetMoliiGrokVideoPrices(
 		billedModel, info.EstimatedVideoResolution,
@@ -171,6 +173,10 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 		FinalCost:                float64(preConsumedQuota) / common.QuotaPerUnit,
 	}
 	if operation == grokVideoEditOperation {
+		snapshot.RequestedDurationSeconds = estimatedDuration
+		snapshot.RequestedResolution = strings.ToLower(strings.TrimSpace(info.InputVideoResolutionTier))
+		snapshot.EstimatedResolution = snapshot.RequestedResolution
+		snapshot.ResolutionSource = info.InputVideoResolutionSource
 		snapshot.VideoInputBilledSeconds = estimatedDuration
 	}
 	calculateGrokVideoBillingCosts(snapshot, estimatedDuration)
