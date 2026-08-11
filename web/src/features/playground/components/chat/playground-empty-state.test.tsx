@@ -20,7 +20,7 @@ import { after, describe, test } from 'node:test'
 import { Window } from 'happy-dom'
 
 const domWindow = new Window()
-for (const key of [
+const globalKeys = [
   'window',
   'document',
   'navigator',
@@ -34,7 +34,19 @@ for (const key of [
   'requestAnimationFrame',
   'cancelAnimationFrame',
   'getComputedStyle',
-] as const) {
+] as const
+const originalGlobalDescriptors = new Map(
+  globalKeys.map((key) => [
+    key,
+    Object.getOwnPropertyDescriptor(globalThis, key),
+  ])
+)
+const originalReactActEnvironmentDescriptor = Object.getOwnPropertyDescriptor(
+  globalThis,
+  'IS_REACT_ACT_ENVIRONMENT'
+)
+
+for (const key of globalKeys) {
   Object.defineProperty(globalThis, key, {
     configurable: true,
     value: domWindow[key],
@@ -56,7 +68,26 @@ const reactTestGlobals = globalThis as typeof globalThis & {
 reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 describe('PlaygroundEmptyState', () => {
-  after(() => domWindow.close())
+  after(() => {
+    domWindow.close()
+    for (const key of globalKeys) {
+      const descriptor = originalGlobalDescriptors.get(key)
+      if (descriptor) {
+        Object.defineProperty(globalThis, key, descriptor)
+      } else {
+        Reflect.deleteProperty(globalThis, key)
+      }
+    }
+    if (originalReactActEnvironmentDescriptor) {
+      Object.defineProperty(
+        globalThis,
+        'IS_REACT_ACT_ENVIRONMENT',
+        originalReactActEnvironmentDescriptor
+      )
+    } else {
+      Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT')
+    }
+  })
 
   test('sends the selected Base-style suggestion to the conversation', async () => {
     const selectedPrompts: string[] = []

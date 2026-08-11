@@ -49,12 +49,10 @@ interface PlaygroundInputProps {
   groups: GroupOption[]
   groupValue: string
   onGroupChange: (value: string) => void
-  hasMessages?: boolean
   onConfigChange: <K extends keyof PlaygroundConfig>(
     key: K,
     value: PlaygroundConfig[K]
   ) => void
-  onClearMessages?: () => void
   onParameterEnabledChange: (
     key: keyof ParameterEnabled,
     value: boolean
@@ -75,9 +73,7 @@ export function PlaygroundInput({
   groups,
   groupValue,
   onGroupChange,
-  hasMessages = false,
   onConfigChange,
-  onClearMessages,
   onParameterEnabledChange,
   parameterEnabled,
 }: PlaygroundInputProps) {
@@ -128,9 +124,7 @@ export function PlaygroundInput({
               <PlaygroundInputTools
                 config={config}
                 disabled={disabled}
-                hasMessages={hasMessages}
                 onConfigChange={onConfigChange}
-                onClearMessages={onClearMessages}
                 onParameterEnabledChange={onParameterEnabledChange}
                 parameterEnabled={parameterEnabled}
               />

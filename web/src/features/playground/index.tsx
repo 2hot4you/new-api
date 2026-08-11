@@ -100,6 +100,7 @@ export function Playground() {
           <h1 className='text-sm font-semibold'>{t('Playground')}</h1>
           <Button
             aria-label={t('New conversation')}
+            disabled={isLoadingMessages}
             onClick={handleNewConversation}
             size='sm'
             variant='outline'
@@ -146,13 +147,11 @@ export function Playground() {
           models={models}
           onGroupChange={(value) => updateConfig('group', value)}
           onConfigChange={updateConfig}
-          onClearMessages={handleClearMessages}
           onModelChange={(value) => updateConfig('model', value)}
           onParameterEnabledChange={updateParameterEnabled}
           onStop={stopGeneration}
           onSubmit={handleSendMessage}
           parameterEnabled={parameterEnabled}
-          hasMessages={messages.length > 0}
         />
       </div>
 
