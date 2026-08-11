@@ -32,6 +32,7 @@ type imageResponsePayload struct {
 }
 
 type imageResponseData struct {
-	URL      string `json:"url"`
-	MimeType string `json:"mime_type"`
+	URL           string `json:"url"`
+	MimeType      string `json:"mime_type"`
+	RevisedPrompt string `json:"revised_prompt"`
 }

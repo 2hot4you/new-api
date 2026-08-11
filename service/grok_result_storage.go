@@ -99,21 +99,34 @@ func grokResultExtension(mediaType, rawMIMEType string) (string, error) {
 }
 
 func PersistGrokResult(ctx context.Context, request GrokResultStoreRequest) (*StoredObject, error) {
+	stored, _, err := PersistGrokResultWithStatus(ctx, request)
+	return stored, err
+}
+
+// PersistGrokResultWithStatus reports whether this call created the COS
+// object. Callers may use that bit to roll back only objects owned by their
+// failed operation; reused objects must never be deleted.
+func PersistGrokResultWithStatus(ctx context.Context, request GrokResultStoreRequest) (*StoredObject, bool, error) {
 	objectStorage, err := newObjectStorageCOSForPersistence(operation_setting.GetCOSConfig())
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	store := &grokResultStore{objectStorage: objectStorage, enqueueCleanup: EnqueueGrokObjectCleanup}
-	return store.persist(ctx, request)
+	return store.persistWithStatus(ctx, request)
 }
 
 func (store *grokResultStore) persist(ctx context.Context, request GrokResultStoreRequest) (*StoredObject, error) {
+	stored, _, err := store.persistWithStatus(ctx, request)
+	return stored, err
+}
+
+func (store *grokResultStore) persistWithStatus(ctx context.Context, request GrokResultStoreRequest) (*StoredObject, bool, error) {
 	if store == nil || store.objectStorage == nil || store.enqueueCleanup == nil {
-		return nil, ErrObjectStorageUnavailable
+		return nil, false, ErrObjectStorageUnavailable
 	}
 	objectKey, err := BuildGrokResultObjectKey(request.UserID, request.MediaType, request.IdempotencyKey, request.CreatedAt, request.MIMEType)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	expiresAt := request.CreatedAt.Add(grokResultRetention).Unix()
 	keySpec := ObjectKeySpec{
@@ -123,24 +136,37 @@ func (store *grokResultStore) persist(ctx context.Context, request GrokResultSto
 		ExpiresAt: expiresAt,
 	}
 	if existing, found, err := headStoredCOSObject(ctx, store.objectStorage.client, keySpec); err != nil {
-		return nil, err
+		return nil, false, err
 	} else if found {
 		if err := store.enqueueCleanup(existing.ObjectKey, existing.ExpiresAt); err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		return existing, nil
+		return existing, false, nil
 	}
 	// Queue the deterministic key before the first COS write. A process crash,
 	// ambiguous PUT result, or another node's concurrent write can therefore
 	// never produce an object without a durable cleanup record.
 	if err := store.enqueueCleanup(objectKey, expiresAt); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	stored, _, err := store.objectStorage.copyRemoteObjectToCOSWithStatus(ctx, request.SourceURL, keySpec)
+	stored, created, err := store.objectStorage.copyRemoteObjectToCOSWithStatus(ctx, request.SourceURL, keySpec)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return stored, nil
+	return stored, created, nil
+}
+
+// DeleteGrokResultObject deletes a Grok result first and only then removes its
+// cleanup entry. A transient delete failure therefore remains recoverable by
+// the regular 24-hour cleanup worker.
+func DeleteGrokResultObject(ctx context.Context, objectKey string) error {
+	if err := DeleteCOSObject(ctx, objectKey); err != nil {
+		return err
+	}
+	if !common.RedisEnabled || common.RDB == nil {
+		return ErrObjectStorageUnavailable
+	}
+	return common.RDB.ZRem(ctx, grokCOSCleanupIndexKey, objectKey).Err()
 }
 
 func EnqueueGrokObjectCleanup(objectKey string, expiresAt int64) error {

@@ -1,6 +1,7 @@
 package moliigrok
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +50,14 @@ var allowedImageModels = map[string]struct{}{
 // not use; provider-specific image conversion is implemented in this package.
 type Adaptor struct {
 	openai.Adaptor
+	persistImageResults func(context.Context, service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error)
+}
+
+func (a *Adaptor) imageResultPersister() func(context.Context, service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error) {
+	if a != nil && a.persistImageResults != nil {
+		return a.persistImageResults
+	}
+	return service.PersistGrokImageResults
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
@@ -345,12 +354,40 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API returned an invalid image result"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}
 
-	data := make([]dto.ImageData, 0, actualCount)
+	sources := make([]service.GrokImageSource, 0, actualCount)
 	for _, item := range upstream.Data {
 		if strings.TrimSpace(item.URL) == "" {
 			return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API returned an invalid image result"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 		}
-		data = append(data, dto.ImageData{Url: item.URL})
+		sources = append(sources, service.GrokImageSource{
+			URL:           item.URL,
+			MIMEType:      item.MimeType,
+			RevisedPrompt: item.RevisedPrompt,
+		})
+	}
+	if info == nil {
+		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeBadResponse, http.StatusBadGateway)
+	}
+	requestContext := context.Background()
+	if c != nil && c.Request != nil {
+		requestContext = c.Request.Context()
+	}
+	persisted, err := a.imageResultPersister()(requestContext, service.GrokImagePersistenceRequest{
+		UserID:    info.UserId,
+		RequestID: info.RequestId,
+		CreatedAt: info.StartTime,
+		Images:    sources,
+	})
+	if err != nil || len(persisted) != actualCount {
+		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeBadResponse, http.StatusBadGateway)
+	}
+	data := make([]dto.ImageData, 0, actualCount)
+	for _, item := range persisted {
+		data = append(data, dto.ImageData{
+			Url:           item.URL,
+			MimeType:      item.MIMEType,
+			RevisedPrompt: item.RevisedPrompt,
+		})
 	}
 	if info != nil && info.PriceData.UsePrice {
 		outputPrice := c.GetFloat64(imageBillingOutputPriceContextKey)

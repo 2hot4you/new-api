@@ -1,17 +1,21 @@
 package moliigrok
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	kittypes "github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +35,9 @@ func imageContext(t *testing.T, body string) *gin.Context {
 
 func imageInfo() *relaycommon.RelayInfo {
 	return &relaycommon.RelayInfo{
+		UserId:          42,
+		RequestId:       "req_public_image",
+		StartTime:       time.Date(2026, time.August, 11, 8, 0, 0, 0, time.UTC),
 		RelayMode:       relayconstant.RelayModeImagesGenerations,
 		OriginModelName: "grok-imagine-image",
 		ChannelMeta: &relaycommon.ChannelMeta{
@@ -267,17 +274,32 @@ func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
 		Body: io.NopCloser(strings.NewReader(`{
-			"data":[{"url":"https://images.example/a.jpg","mime_type":"image/jpeg"},{"url":"https://images.example/b.jpg","mime_type":"image/jpeg"}],
+			"data":[{"url":"https://images.example/a.jpg","mime_type":"image/jpeg","revised_prompt":"first revision"},{"url":"https://images.example/b.jpg","mime_type":"image/jpeg","revised_prompt":"second revision"}],
 			"usage":{"cost_in_usd_ticks":200000000}
 		}`)),
 	}
+	var persistenceRequest service.GrokImagePersistenceRequest
+	adaptor := &Adaptor{persistImageResults: func(_ context.Context, request service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error) {
+		persistenceRequest = request
+		return []service.GrokImagePersistedResult{
+			{URL: "https://cos.example/signed-a", MIMEType: "image/jpeg", RevisedPrompt: "first revision"},
+			{URL: "https://cos.example/signed-b", MIMEType: "image/jpeg", RevisedPrompt: "second revision"},
+		}, nil
+	}}
 
-	usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+	usage, apiErr := adaptor.DoResponse(c, resp, info)
 	require.Nil(t, apiErr)
 	require.NotNil(t, usage)
+	require.Equal(t, info.UserId, persistenceRequest.UserID)
+	require.Equal(t, info.RequestId, persistenceRequest.RequestID)
+	require.Equal(t, info.StartTime, persistenceRequest.CreatedAt)
+	require.Equal(t, []service.GrokImageSource{
+		{URL: "https://images.example/a.jpg", MIMEType: "image/jpeg", RevisedPrompt: "first revision"},
+		{URL: "https://images.example/b.jpg", MIMEType: "image/jpeg", RevisedPrompt: "second revision"},
+	}, persistenceRequest.Images)
 	assert.NotContains(t, recorder.Body.String(), "cost_in_usd_ticks")
-	assert.NotContains(t, recorder.Body.String(), "mime_type")
-	assert.JSONEq(t, `{"created":0,"data":[{"url":"https://images.example/a.jpg","b64_json":"","revised_prompt":""},{"url":"https://images.example/b.jpg","b64_json":"","revised_prompt":""}]}`, recorder.Body.String())
+	assert.NotContains(t, recorder.Body.String(), "images.example")
+	assert.JSONEq(t, `{"created":0,"data":[{"url":"https://cos.example/signed-a","b64_json":"","mime_type":"image/jpeg","revised_prompt":"first revision"},{"url":"https://cos.example/signed-b","b64_json":"","mime_type":"image/jpeg","revised_prompt":"second revision"}]}`, recorder.Body.String())
 	assert.Equal(t, 0.04, info.PriceData.OtherRatios()["molii_grok_direct_cost"])
 	assert.Equal(t, 2, info.GrokImageBilling.OutputCount)
 	assert.InDelta(t, 0.04, info.GrokImageBilling.OutputCost, 0.000001)
@@ -310,10 +332,13 @@ func TestImageResponsePreservesZeroPricedBillingSnapshot(t *testing.T) {
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(`{"data":[{"url":"https://images.example/free.jpg"}]}`)),
+		Body:       io.NopCloser(strings.NewReader(`{"data":[{"url":"https://images.example/free.jpg","mime_type":"image/jpeg"}]}`)),
 	}
+	adaptor := &Adaptor{persistImageResults: func(_ context.Context, _ service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error) {
+		return []service.GrokImagePersistedResult{{URL: "https://cos.example/free", MIMEType: "image/jpeg"}}, nil
+	}}
 
-	_, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+	_, apiErr := adaptor.DoResponse(c, resp, info)
 	require.Nil(t, apiErr)
 	assert.Equal(t, 1, info.GrokImageBilling.OutputCount)
 	assert.Zero(t, info.GrokImageBilling.OutputUnitPrice)
@@ -325,6 +350,50 @@ func TestImageResponsePreservesZeroPricedBillingSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(encoded), `"output_unit_price":0`)
 	assert.Contains(t, string(encoded), `"subtotal":0`)
+}
+
+func TestImageResponsePersistenceFailureReturnsSanitizedErrorBeforeBillingMutation(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set(validatedImageCountContextKey, 2)
+	c.Set(imageBillingOutputPriceContextKey, 0.02)
+	c.Set(imageBillingInputPriceContextKey, 0.0)
+	c.Set(imageBillingInputCountContextKey, 0)
+	c.Set(imageBillingBasePriceContextKey, 1.0)
+	info := imageInfo()
+	info.PriceData = hosttypes.PriceData{UsePrice: true}
+	info.PriceData.AddOtherRatio("molii_grok_direct_cost", 0.04)
+	info.GrokImageBilling = &relaycommon.GrokImageBillingSnapshot{
+		Version:              1,
+		RequestedOutputCount: 2,
+		OutputCount:          2,
+		OutputUnitPrice:      0.02,
+		OutputCost:           0.04,
+		Subtotal:             0.04,
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body: io.NopCloser(strings.NewReader(`{"data":[
+			{"url":"https://images.example/secret-a.jpg","mime_type":"image/jpeg"},
+			{"url":"https://images.example/secret-b.jpg","mime_type":"image/jpeg"}
+		]}`)),
+	}
+	adaptor := &Adaptor{persistImageResults: func(context.Context, service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error) {
+		return nil, errors.New("copy https://images.example/secret-a.jpg failed")
+	}}
+
+	usage, apiErr := adaptor.DoResponse(c, resp, info)
+
+	require.Nil(t, usage)
+	require.NotNil(t, apiErr)
+	require.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+	require.Equal(t, "Molii Grok Imagine API request failed", apiErr.Error())
+	require.Empty(t, recorder.Body.String())
+	require.Equal(t, 0.04, info.PriceData.OtherRatios()["molii_grok_direct_cost"])
+	require.Equal(t, 2, info.GrokImageBilling.OutputCount)
+	require.Equal(t, 0.04, info.GrokImageBilling.Subtotal)
+	require.NotContains(t, apiErr.Error(), "images.example")
 }
 
 func TestSanitizeImageErrorNeverReturnsRawProviderDetails(t *testing.T) {

@@ -188,5 +188,6 @@ type ImageResponse struct {
 type ImageData struct {
 	Url           string `json:"url"`
 	B64Json       string `json:"b64_json"`
+	MimeType      string `json:"mime_type,omitempty"`
 	RevisedPrompt string `json:"revised_prompt"`
 }
