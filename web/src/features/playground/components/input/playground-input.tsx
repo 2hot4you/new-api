@@ -124,6 +124,7 @@ export function PlaygroundInput({
               <PlaygroundInputTools
                 config={config}
                 disabled={disabled}
+                isGenerating={isGenerating}
                 onConfigChange={onConfigChange}
                 onParameterEnabledChange={onParameterEnabledChange}
                 parameterEnabled={parameterEnabled}

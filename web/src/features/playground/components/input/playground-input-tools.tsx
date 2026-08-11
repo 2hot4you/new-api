@@ -24,6 +24,7 @@ import { PlaygroundParameterPanel } from './playground-parameter-panel'
 type PlaygroundInputToolsProps = {
   config: PlaygroundConfig
   disabled?: boolean
+  isGenerating?: boolean
   onConfigChange: <K extends keyof PlaygroundConfig>(
     key: K,
     value: PlaygroundConfig[K]
@@ -38,6 +39,7 @@ type PlaygroundInputToolsProps = {
 export function PlaygroundInputTools({
   config,
   disabled,
+  isGenerating,
   onConfigChange,
   onParameterEnabledChange,
   parameterEnabled,
@@ -46,7 +48,7 @@ export function PlaygroundInputTools({
     <PromptInputTools className='bg-background/70 border-border/60 rounded-lg border p-1 shadow-xs'>
       <PlaygroundParameterPanel
         config={config}
-        disabled={disabled}
+        disabled={disabled || isGenerating}
         onConfigChange={onConfigChange}
         onParameterEnabledChange={onParameterEnabledChange}
         parameterEnabled={parameterEnabled}
