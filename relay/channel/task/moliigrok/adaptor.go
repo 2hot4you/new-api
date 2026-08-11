@@ -35,9 +35,10 @@ type TaskAdaptor struct {
 	baseURL            string
 	videoProber        service.UserVideoProber
 	persistVideoResult func(context.Context, service.GrokResultStoreRequest) (*service.StoredObject, bool, error)
+	resolveUserFile    func(context.Context, int, string, model.MoliiFileMediaType) (*model.MoliiFile, string, error)
 }
 
-const fileIDNotSupportedMessage = "Molii media file_id is not supported; use a URL instead"
+const unresolvedFileIDMessage = "Molii file_id could not be resolved"
 
 var supportedVideoAspectRatios = map[string]struct{}{
 	"1:1": {}, "16:9": {}, "9:16": {}, "4:3": {}, "3:4": {}, "3:2": {}, "2:3": {},
@@ -54,6 +55,13 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 func (a *TaskAdaptor) AllowAutomaticTaskSubmitRetry() bool { return false }
 
 func (a *TaskAdaptor) AllowPerCallCompletionAdjustment() bool { return true }
+
+func (a *TaskAdaptor) userFileResolver() func(context.Context, int, string, model.MoliiFileMediaType) (*model.MoliiFile, string, error) {
+	if a != nil && a.resolveUserFile != nil {
+		return a.resolveUserFile
+	}
+	return service.ResolveUserFile
+}
 
 func (a *TaskAdaptor) PersistTaskResult(ctx context.Context, task *model.Task, result *relaycommon.TaskInfo, completedAt time.Time) (*model.TaskStoredResult, error) {
 	if task == nil || result == nil || task.UserId <= 0 || strings.TrimSpace(task.TaskID) == "" || completedAt.IsZero() || strings.TrimSpace(result.Url) == "" {
@@ -94,9 +102,6 @@ func (a *TaskAdaptor) PersistTaskResult(ctx context.Context, task *model.Task, r
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError {
-	if requestContainsFileID(c) {
-		return service.TaskErrorWrapperLocal(errors.New(fileIDNotSupportedMessage), "file_id_not_supported", http.StatusBadRequest)
-	}
 	if taskErr := relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate); taskErr != nil {
 		return taskErr
 	}
@@ -104,8 +109,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
-	if taskRequestContainsFileID(req) {
-		return service.TaskErrorWrapperLocal(errors.New(fileIDNotSupportedMessage), "file_id_not_supported", http.StatusBadRequest)
+	if taskErr := a.resolveTaskFileIDs(c, info, &req); taskErr != nil {
+		return taskErr
 	}
 	modelName := strings.TrimSpace(req.Model)
 	if modelName == "" {
@@ -314,7 +319,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, err
 	}
 	if taskRequestContainsFileID(req) {
-		return nil, errors.New(fileIDNotSupportedMessage)
+		return nil, errors.New(unresolvedFileIDMessage)
 	}
 	modelName := strings.TrimSpace(req.Model)
 	if modelName == "" {
@@ -376,6 +381,82 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	return bytes.NewReader(body), nil
 }
 
+func (a *TaskAdaptor) resolveTaskFileIDs(c *gin.Context, info *relaycommon.RelayInfo, req *relaycommon.TaskSubmitReq) *taskdto.TaskError {
+	if c == nil || c.Request == nil || info == nil || req == nil {
+		return service.TaskErrorWrapperLocal(errors.New("request context is missing"), "invalid_request", http.StatusBadRequest)
+	}
+	resolve := a.userFileResolver()
+	resolveOne := func(fileID string, expected model.MoliiFileMediaType) (string, *taskdto.TaskError) {
+		fileID = strings.TrimSpace(fileID)
+		if fileID == "" {
+			return "", nil
+		}
+		_, signedURL, err := resolve(c.Request.Context(), info.UserId, fileID, expected)
+		if err == nil && strings.TrimSpace(signedURL) != "" {
+			return strings.TrimSpace(signedURL), nil
+		}
+		switch {
+		case errors.Is(err, model.ErrMoliiFileNotFound):
+			return "", service.TaskErrorWrapperLocal(errors.New("file not found"), "file_not_found", http.StatusNotFound)
+		case errors.Is(err, model.ErrMoliiFileExpired):
+			return "", service.TaskErrorWrapperLocal(errors.New("file has expired"), "file_expired", http.StatusGone)
+		case errors.Is(err, service.ErrMoliiFileTypeMismatch):
+			return "", service.TaskErrorWrapperLocal(errors.New("file media type does not match the requested input"), "file_type_mismatch", http.StatusBadRequest)
+		default:
+			return "", service.TaskErrorWrapperLocal(errors.New("file service is temporarily unavailable"), "file_service_unavailable", http.StatusServiceUnavailable)
+		}
+	}
+
+	if req.ImageFileID != "" {
+		fileID := req.ImageFileID
+		resolved, taskErr := resolveOne(fileID, model.MoliiFileMediaTypeImage)
+		if taskErr != nil {
+			return taskErr
+		}
+		req.Image, req.ImageFileID = resolved, ""
+		for index, value := range req.Images {
+			if strings.TrimSpace(value) == strings.TrimSpace(fileID) {
+				req.Images[index] = resolved
+			}
+		}
+	}
+	for index, fileID := range req.ImageFileIDs {
+		if strings.TrimSpace(fileID) == "" {
+			continue
+		}
+		resolved, taskErr := resolveOne(fileID, model.MoliiFileMediaTypeImage)
+		if taskErr != nil {
+			return taskErr
+		}
+		if index < len(req.Images) {
+			req.Images[index] = resolved
+		}
+		req.ImageFileIDs[index] = ""
+	}
+	if req.VideoFileID != "" {
+		resolved, taskErr := resolveOne(req.VideoFileID, model.MoliiFileMediaTypeVideo)
+		if taskErr != nil {
+			return taskErr
+		}
+		req.Video, req.VideoFileID = resolved, ""
+	}
+	for index, fileID := range req.ReferenceImageFileIDs {
+		if strings.TrimSpace(fileID) == "" {
+			continue
+		}
+		resolved, taskErr := resolveOne(fileID, model.MoliiFileMediaTypeImage)
+		if taskErr != nil {
+			return taskErr
+		}
+		if index < len(req.ReferenceImages) {
+			req.ReferenceImages[index] = resolved
+		}
+		req.ReferenceImageFileIDs[index] = ""
+	}
+	c.Set("task_request", *req)
+	return nil
+}
+
 func buildMediaInput(value string) mediaInput {
 	return mediaInput{URL: strings.TrimSpace(value)}
 }
@@ -432,6 +513,11 @@ func mediaContainsFileID(raw json.RawMessage) bool {
 func taskRequestContainsFileID(req relaycommon.TaskSubmitReq) bool {
 	if strings.TrimSpace(req.ImageFileID) != "" || strings.TrimSpace(req.VideoFileID) != "" {
 		return true
+	}
+	for _, fileID := range req.ImageFileIDs {
+		if strings.TrimSpace(fileID) != "" {
+			return true
+		}
 	}
 	for _, fileID := range req.ReferenceImageFileIDs {
 		if strings.TrimSpace(fileID) != "" {

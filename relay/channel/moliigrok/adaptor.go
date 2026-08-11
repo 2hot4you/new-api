@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -23,10 +24,6 @@ import (
 )
 
 const validatedImageCountContextKey = "molii_grok_validated_image_count"
-
-const fileIDNotSupportedMessage = "Molii media file_id is not supported; use a URL instead"
-
-var errFileIDNotSupported = errors.New(fileIDNotSupportedMessage)
 
 const (
 	imageBillingOutputPriceContextKey = "molii_grok_image_output_price"
@@ -51,6 +48,7 @@ var allowedImageModels = map[string]struct{}{
 type Adaptor struct {
 	openai.Adaptor
 	persistImageResults func(context.Context, service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error)
+	resolveUserFile     func(context.Context, int, string, model.MoliiFileMediaType) (*model.MoliiFile, string, error)
 }
 
 func (a *Adaptor) imageResultPersister() func(context.Context, service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error) {
@@ -58,6 +56,13 @@ func (a *Adaptor) imageResultPersister() func(context.Context, service.GrokImage
 		return a.persistImageResults
 	}
 	return service.PersistGrokImageResults
+}
+
+func (a *Adaptor) userFileResolver() func(context.Context, int, string, model.MoliiFileMediaType) (*model.MoliiFile, string, error) {
+	if a != nil && a.resolveUserFile != nil {
+		return a.resolveUserFile
+	}
+	return service.ResolveUserFile
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
@@ -88,10 +93,6 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	if err := common.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("invalid image request: %w", err)
 	}
-	if rawImageRequestContainsFileID(raw) {
-		return nil, errFileIDNotSupported
-	}
-
 	modelName := strings.TrimSpace(raw.Model)
 	if modelName == "" {
 		modelName = strings.TrimSpace(request.Model)
@@ -148,8 +149,11 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		Resolution:  resolution,
 		N:           n,
 	}
+	if info.RelayMode != relayconstant.RelayModeImagesEdits && (len(raw.Image) > 0 || len(raw.Images) > 0) {
+		return nil, errors.New("image inputs require /v1/images/edits")
+	}
 	if info.RelayMode == relayconstant.RelayModeImagesEdits {
-		media, err := normalizeImageMedia(raw.Image, raw.Images)
+		media, err := a.normalizeImageMedia(c.Request.Context(), info.UserId, raw.Image, raw.Images)
 		if err != nil {
 			return nil, err
 		}
@@ -177,9 +181,6 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	var raw rawImageRequest
 	if err := common.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("invalid image request: %w", err)
-	}
-	if rawImageRequestContainsFileID(raw) {
-		return nil, errFileIDNotSupported
 	}
 	modelName := strings.TrimSpace(raw.Model)
 	if modelName == "" {
@@ -210,9 +211,12 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	}
 	inputCount := 0
 	operation := "generation"
+	if info.RelayMode != relayconstant.RelayModeImagesEdits && (len(raw.Image) > 0 || len(raw.Images) > 0) {
+		return nil, errors.New("image inputs require /v1/images/edits")
+	}
 	if info.RelayMode == relayconstant.RelayModeImagesEdits {
 		operation = "edit"
-		media, err := normalizeImageMedia(raw.Image, raw.Images)
+		media, err := a.normalizeImageMedia(c.Request.Context(), info.UserId, raw.Image, raw.Images)
 		if err != nil {
 			return nil, err
 		}
@@ -250,7 +254,7 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	return map[string]float64{"molii_grok_direct_cost": cost / basePrice}, nil
 }
 
-func normalizeImageMedia(imageRaw, imagesRaw []byte) ([]imageMediaInput, error) {
+func (a *Adaptor) normalizeImageMedia(ctx context.Context, userID int, imageRaw, imagesRaw []byte) ([]imageMediaInput, error) {
 	rawItems := make([][]byte, 0, 3)
 	if len(imageRaw) > 0 && string(imageRaw) != "null" {
 		rawItems = append(rawItems, imageRaw)
@@ -272,7 +276,12 @@ func normalizeImageMedia(imageRaw, imagesRaw []byte) ([]imageMediaInput, error) 
 		var direct string
 		if err := common.Unmarshal(raw, &direct); err == nil && strings.TrimSpace(direct) != "" {
 			if isFileIDReference(direct) {
-				return nil, errFileIDNotSupported
+				_, signedURL, err := a.userFileResolver()(ctx, userID, strings.TrimSpace(direct), model.MoliiFileMediaTypeImage)
+				if err != nil {
+					return nil, err
+				}
+				media = append(media, imageMediaInput{URL: signedURL, Type: "image_url"})
+				continue
 			}
 			media = append(media, imageMediaInput{URL: strings.TrimSpace(direct), Type: "image_url"})
 			continue
@@ -284,8 +293,16 @@ func normalizeImageMedia(imageRaw, imagesRaw []byte) ([]imageMediaInput, error) 
 		if err := common.Unmarshal(raw, &item); err != nil {
 			return nil, errors.New("each input image must contain url")
 		}
-		if strings.TrimSpace(item.FileID) != "" {
-			return nil, errFileIDNotSupported
+		if strings.TrimSpace(item.URL) != "" && strings.TrimSpace(item.FileID) != "" {
+			return nil, errors.New("each input image must contain either url or file_id, not both")
+		}
+		if fileID := strings.TrimSpace(item.FileID); fileID != "" {
+			_, signedURL, err := a.userFileResolver()(ctx, userID, fileID, model.MoliiFileMediaTypeImage)
+			if err != nil {
+				return nil, err
+			}
+			media = append(media, imageMediaInput{URL: signedURL, Type: "image_url"})
+			continue
 		}
 		url := strings.TrimSpace(item.URL)
 		if url == "" {
@@ -411,8 +428,15 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 }
 
 func (a *Adaptor) SanitizeImageRequestError(err error) *types.NewAPIError {
-	if errors.Is(err, errFileIDNotSupported) {
-		return types.NewOpenAIError(err, types.ErrorCode("file_id_not_supported"), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	switch {
+	case errors.Is(err, model.ErrMoliiFileNotFound):
+		return types.NewOpenAIError(errors.New("file not found"), types.ErrorCode("file_not_found"), http.StatusNotFound, types.ErrOptionWithSkipRetry())
+	case errors.Is(err, model.ErrMoliiFileExpired):
+		return types.NewOpenAIError(errors.New("file has expired"), types.ErrorCode("file_expired"), http.StatusGone, types.ErrOptionWithSkipRetry())
+	case errors.Is(err, service.ErrMoliiFileTypeMismatch):
+		return types.NewOpenAIError(errors.New("file is not an image"), types.ErrorCode("file_type_mismatch"), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	case errors.Is(err, service.ErrMoliiFileServiceUnavailable):
+		return types.NewOpenAIError(errors.New("file service is temporarily unavailable"), types.ErrorCode("file_service_unavailable"), http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
 	}
 	return types.NewOpenAIError(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 }

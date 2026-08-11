@@ -101,7 +101,8 @@ func TestPrepareImageRequestBillingAllowsGrokImageIdentity(t *testing.T) {
 	}
 }
 
-func TestPrepareGrokImageFileIDFailsBeforeSnapshotOrPreconsume(t *testing.T) {
+func TestPrepareGrokImageUnknownFileIDFailsBeforeSnapshotOrPreconsume(t *testing.T) {
+	setupFilesControllerDB(t)
 	body := `{"model":"grok-imagine-image","prompt":"edit","images":[{"url":"https://images.example/a.png"},{"file_id":"file_abc"}]}`
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(body))
@@ -114,6 +115,7 @@ func TestPrepareGrokImageFileIDFailsBeforeSnapshotOrPreconsume(t *testing.T) {
 	billing := &recordingImageBilling{}
 	request := &dto.ImageRequest{Model: "grok-imagine-image", Prompt: "edit"}
 	info := &relaycommon.RelayInfo{
+		UserId:          42,
 		OriginModelName: "grok-imagine-image",
 		RelayMode:       relayconstant.RelayModeImagesEdits,
 		Request:         request,
@@ -124,9 +126,9 @@ func TestPrepareGrokImageFileIDFailsBeforeSnapshotOrPreconsume(t *testing.T) {
 	apiErr := prepareSelectedImageBilling(c, info, request, request.GetTokenCountMeta(), 1)
 
 	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
-	assert.Equal(t, types.ErrorCode("file_id_not_supported"), apiErr.GetErrorCode())
-	assert.Contains(t, apiErr.Error(), "Molii media file_id is not supported")
+	assert.Equal(t, http.StatusNotFound, apiErr.StatusCode)
+	assert.Equal(t, types.ErrorCode("file_not_found"), apiErr.GetErrorCode())
+	assert.Contains(t, apiErr.Error(), "file not found")
 	assert.Nil(t, info.GrokImageBilling)
 	assert.Empty(t, billing.reserved)
 }

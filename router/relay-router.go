@@ -72,6 +72,16 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.TokenAuth())
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
+		// Files are user-owned Molii resources and do not select an upstream
+		// model/channel. Keep them outside the distributor middleware.
+		filesRouter := relayV1Router.Group("/files")
+		filesRouter.GET("", controller.ListFiles)
+		filesRouter.POST("", controller.CreateFile)
+		filesRouter.GET("/:id", controller.RetrieveFile)
+		filesRouter.DELETE("/:id", controller.DeleteFile)
+		filesRouter.GET("/:id/content", controller.DownloadFile)
+	}
+	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")
 		wsRouter.Use(middleware.Distribute())
@@ -157,11 +167,6 @@ func SetRelayRouter(router *gin.Engine) {
 
 		// not implemented
 		httpRouter.POST("/images/variations", controller.RelayNotImplemented)
-		httpRouter.GET("/files", controller.RelayNotImplemented)
-		httpRouter.POST("/files", controller.RelayNotImplemented)
-		httpRouter.DELETE("/files/:id", controller.RelayNotImplemented)
-		httpRouter.GET("/files/:id", controller.RelayNotImplemented)
-		httpRouter.GET("/files/:id/content", controller.RelayNotImplemented)
 		httpRouter.POST("/fine-tunes", controller.RelayNotImplemented)
 		httpRouter.GET("/fine-tunes", controller.RelayNotImplemented)
 		httpRouter.GET("/fine-tunes/:id", controller.RelayNotImplemented)

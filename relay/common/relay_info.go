@@ -935,6 +935,7 @@ type TaskSubmitReq struct {
 	Image                 string                 `json:"image,omitempty"`
 	ImageFileID           string                 `json:"-"`
 	Images                []string               `json:"images,omitempty"`
+	ImageFileIDs          []string               `json:"-"`
 	ReferenceImages       []string               `json:"-"`
 	ReferenceImageFileIDs []string               `json:"-"`
 	Video                 string                 `json:"video,omitempty"`
@@ -962,6 +963,7 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		Metadata        json.RawMessage `json:"metadata,omitempty"`
 		Duration        json.RawMessage `json:"duration,omitempty"`
 		Image           json.RawMessage `json:"image,omitempty"`
+		Images          json.RawMessage `json:"images,omitempty"`
 		Video           json.RawMessage `json:"video,omitempty"`
 		ReferenceImages json.RawMessage `json:"reference_images,omitempty"`
 		*Alias
@@ -992,6 +994,22 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		t.Image, t.ImageFileID, err = parseTaskMediaReference(aux.Image)
 		if err != nil {
 			return fmt.Errorf("invalid image: %w", err)
+		}
+	}
+	if len(aux.Images) > 0 && string(aux.Images) != "null" {
+		var images []json.RawMessage
+		if err := common.Unmarshal(aux.Images, &images); err != nil {
+			return errors.New("invalid images: must be an array")
+		}
+		t.Images = make([]string, 0, len(images))
+		t.ImageFileIDs = make([]string, 0, len(images))
+		for _, image := range images {
+			value, fileID, parseErr := parseTaskMediaReference(image)
+			if parseErr != nil {
+				return fmt.Errorf("invalid images: %w", parseErr)
+			}
+			t.Images = append(t.Images, value)
+			t.ImageFileIDs = append(t.ImageFileIDs, fileID)
 		}
 	}
 	if len(aux.Video) > 0 {
@@ -1042,7 +1060,11 @@ func parseTaskMediaReference(raw json.RawMessage) (value string, fileID string, 
 	}
 	var direct string
 	if err := common.Unmarshal(raw, &direct); err == nil {
-		return strings.TrimSpace(direct), "", nil
+		value := strings.TrimSpace(direct)
+		if strings.HasPrefix(strings.ToLower(value), "file_") {
+			return value, value, nil
+		}
+		return value, "", nil
 	}
 	var object struct {
 		URL    string `json:"url"`
@@ -1050,6 +1072,9 @@ func parseTaskMediaReference(raw json.RawMessage) (value string, fileID string, 
 	}
 	if err := common.Unmarshal(raw, &object); err != nil {
 		return "", "", errors.New("must be a string or an object containing url or file_id")
+	}
+	if strings.TrimSpace(object.URL) != "" && strings.TrimSpace(object.FileID) != "" {
+		return "", "", errors.New("url and file_id cannot be combined")
 	}
 	if value := strings.TrimSpace(object.URL); value != "" {
 		return value, "", nil

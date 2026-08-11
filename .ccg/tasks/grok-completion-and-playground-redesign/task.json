@@ -5,8 +5,8 @@
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "按后端 P0-P2 计划与 Playground 计划测试驱动实施",
+  "currentPhase": "implementation",
+  "nextAction": "复审用户级 Files API，并同步用户侧 API 契约与模型目录",
   "createdAt": "2026-08-11T00:00:00+08:00",
   "branch": "feat/molii-auth"
 }

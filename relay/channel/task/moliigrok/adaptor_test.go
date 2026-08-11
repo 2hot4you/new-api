@@ -182,19 +182,17 @@ func TestGrokImagineVideoGenerationSupportsImageObject(t *testing.T) {
 	assert.InDelta(t, 0.422, info.EstimatedVideoPrice, 0.000001)
 }
 
-func TestGrokImagineVideoRejectsFileIDBeforeBillingAndSubmit(t *testing.T) {
+func TestGrokImagineVideoResolvesFileIDBeforeBillingAndSubmit(t *testing.T) {
 	tests := []struct {
 		name  string
 		model string
 		path  string
 		body  string
+		media model.MoliiFileMediaType
 	}{
-		{name: "generation image object", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"file_id":"file_abc"}}`},
-		{name: "generation direct file reference", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","image":"file_abc"}`},
-		{name: "generation images object", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","images":[{"file_id":"file_abc"}]}`},
-		{name: "generation images direct reference", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","images":["file_abc"]}`},
-		{name: "edit video object", model: LegacyVideoModel, path: "/v1/videos/edits", body: `{"model":"grok-imagine-video","prompt":"edit","video":{"file_id":"file_abc"}}`},
-		{name: "edit direct file reference", model: LegacyVideoModel, path: "/v1/videos/edits", body: `{"model":"grok-imagine-video","prompt":"edit","video":"file_abc"}`},
+		{name: "generation image object", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"file_id":"file_abc"}}`, media: model.MoliiFileMediaTypeImage},
+		{name: "generation images object", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"animate","images":[{"file_id":"file_abc"}]}`, media: model.MoliiFileMediaTypeImage},
+		{name: "edit video object", model: LegacyVideoModel, path: "/v1/videos/edits", body: `{"model":"grok-imagine-video","prompt":"edit","video":{"file_id":"file_abc"}}`, media: model.MoliiFileMediaTypeVideo},
 	}
 
 	for _, tt := range tests {
@@ -202,20 +200,66 @@ func TestGrokImagineVideoRejectsFileIDBeforeBillingAndSubmit(t *testing.T) {
 			c, _ := taskContext(t, tt.body)
 			c.Request.URL.Path = tt.path
 			info := taskInfo()
+			info.UserId = 42
 			info.OriginModelName = tt.model
 			info.ChannelMeta.UpstreamModelName = tt.model
-			adaptor := &TaskAdaptor{}
+			adaptor := fixtureVideoAdaptor(6)
+			adaptor.resolveUserFile = func(_ context.Context, userID int, fileID string, expected model.MoliiFileMediaType) (*model.MoliiFile, string, error) {
+				assert.Equal(t, 42, userID)
+				assert.Equal(t, "file_abc", fileID)
+				assert.Equal(t, tt.media, expected)
+				return &model.MoliiFile{FileID: fileID, MediaType: expected}, "https://cos.example/resolved" + map[model.MoliiFileMediaType]string{model.MoliiFileMediaTypeImage: ".png", model.MoliiFileMediaTypeVideo: ".mp4"}[expected], nil
+			}
 			adaptor.Init(info)
 
 			taskErr := adaptor.ValidateRequestAndSetAction(c, info)
-			require.NotNil(t, taskErr)
-			assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
-			assert.Equal(t, "file_id_not_supported", taskErr.Code)
-			assert.Equal(t, "Molii media file_id is not supported; use a URL instead", taskErr.Message)
-			assert.Nil(t, info.Billing, "unsupported media must fail before task precharge")
-			assert.Empty(t, adaptor.EstimateBilling(c, info), "unsupported media must fail before estimation")
+			require.Nil(t, taskErr)
+			assert.NotEmpty(t, adaptor.EstimateBilling(c, info))
+			requestBody, err := adaptor.BuildRequestBody(c, info)
+			require.NoError(t, err)
+			encoded, err := io.ReadAll(requestBody)
+			require.NoError(t, err)
+			assert.Contains(t, string(encoded), "https://cos.example/resolved")
+			assert.NotContains(t, string(encoded), "file_id")
 		})
 	}
+}
+
+func TestGrokImagineVideoUnknownFileIDFailsBeforeBilling(t *testing.T) {
+	c, _ := taskContext(t, `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"file_id":"file_missing"}}`)
+	info := taskInfo()
+	info.UserId = 42
+	adaptor := &TaskAdaptor{resolveUserFile: func(context.Context, int, string, model.MoliiFileMediaType) (*model.MoliiFile, string, error) {
+		return nil, "", model.ErrMoliiFileNotFound
+	}}
+	adaptor.Init(info)
+	taskErr := adaptor.ValidateRequestAndSetAction(c, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, http.StatusNotFound, taskErr.StatusCode)
+	assert.Equal(t, "file_not_found", taskErr.Code)
+	assert.Empty(t, adaptor.EstimateBilling(c, info))
+}
+
+func TestGrokImagineVideoResolvesReferenceImageFileIDs(t *testing.T) {
+	body := `{"model":"grok-imagine-video-1.5","prompt":"scene","reference_images":[{"file_id":"file_ref_a"},{"url":"https://images.example/b.png"}],"duration":5,"resolution":"720p"}`
+	c, _ := taskContext(t, body)
+	info := taskInfo()
+	info.UserId = 42
+	adaptor := &TaskAdaptor{resolveUserFile: func(_ context.Context, userID int, fileID string, expected model.MoliiFileMediaType) (*model.MoliiFile, string, error) {
+		assert.Equal(t, 42, userID)
+		assert.Equal(t, "file_ref_a", fileID)
+		assert.Equal(t, model.MoliiFileMediaTypeImage, expected)
+		return &model.MoliiFile{FileID: fileID, MediaType: expected}, "https://cos.example/reference.png", nil
+	}}
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+	requestBody, err := adaptor.BuildRequestBody(c, info)
+	require.NoError(t, err)
+	encoded, err := io.ReadAll(requestBody)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), "https://cos.example/reference.png")
+	assert.NotContains(t, string(encoded), "file_id")
+	assert.Equal(t, referenceToVideoAction, info.Action)
 }
 
 func TestGrokImagineVideoURLObjectsNeverForwardFileID(t *testing.T) {
@@ -262,7 +306,7 @@ func TestGrokImagineVideoBuildRequestBodyDefensivelyRejectsDecodedFileID(t *test
 
 	_, err := adaptor.BuildRequestBody(c, info)
 	require.Error(t, err)
-	assert.Equal(t, fileIDNotSupportedMessage, err.Error())
+	assert.Equal(t, unresolvedFileIDMessage, err.Error())
 }
 
 func TestGrokImagineVideoEditUsesOfficialEndpointAndPayload(t *testing.T) {
@@ -363,7 +407,6 @@ func TestGrokImagineVideoExtensionAndReferencesRejectUnsupportedCombinations(t *
 		{name: "references with image", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"scene","image":{"url":"https://images.example/start.png"},"reference_images":[{"url":"https://images.example/ref.png"}]}`},
 		{name: "references over limit", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"scene","reference_images":["https://images.example/1.png","https://images.example/2.png","https://images.example/3.png","https://images.example/4.png","https://images.example/5.png","https://images.example/6.png","https://images.example/7.png","https://images.example/8.png"]}`},
 		{name: "references 1080p", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"scene","reference_images":[{"url":"https://images.example/ref.png"}],"resolution":"1080p"}`},
-		{name: "references file id", model: VideoModel, path: "/v1/videos", body: `{"model":"grok-imagine-video-1.5","prompt":"scene","reference_images":[{"file_id":"file_future"}]}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
