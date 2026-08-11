@@ -101,10 +101,10 @@ func persistGrokImageResults(ctx context.Context, request GrokImagePersistenceRe
 	}
 	created := make([]createdObject, 0, len(request.Images))
 	rollback := func() {
-		if deps.canRollback != nil && !deps.canRollback() {
-			return
-		}
 		for index := len(created) - 1; index >= 0; index-- {
+			if deps.canRollback != nil && !deps.canRollback() {
+				return
+			}
 			rollbackContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			_ = deps.rollback(rollbackContext, created[index].key)
 			cancel()

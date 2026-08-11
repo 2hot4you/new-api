@@ -155,6 +155,47 @@ func TestPersistGrokImageResultsSkipsDestructiveRollbackAfterLockOwnershipLost(t
 	require.False(t, rollbackCalled, "a process that lost ownership must leave deletion to the 24-hour queue")
 }
 
+func TestPersistGrokImageResultsRefreshesOwnershipBeforeEveryRollbackDelete(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 11, 8, 0, 0, 0, time.UTC)
+	persisted := 0
+	ownershipChecks := 0
+	var rolledBack []string
+	deps := grokImageResultPersistenceDeps{
+		persist: func(_ context.Context, request GrokResultStoreRequest) (*StoredObject, bool, error) {
+			persisted++
+			if persisted == 3 {
+				return nil, false, errors.New("copy failed")
+			}
+			return &StoredObject{ObjectKey: request.IdempotencyKey, MIMEType: request.MIMEType, ExpiresAt: createdAt.Add(24 * time.Hour).Unix()}, true, nil
+		},
+		sign: func(_ context.Context, key string, _ time.Duration) (string, error) {
+			return "https://cos.example/" + key, nil
+		},
+		rollback: func(_ context.Context, key string) error {
+			rolledBack = append(rolledBack, key)
+			return nil
+		},
+		canRollback: func() bool {
+			ownershipChecks++
+			return ownershipChecks == 1
+		},
+		now: func() time.Time { return createdAt },
+	}
+
+	_, err := persistGrokImageResults(context.Background(), GrokImagePersistenceRequest{
+		UserID: 42, RequestID: "req_multi_lease", CreatedAt: createdAt,
+		Images: []GrokImageSource{
+			{URL: "https://upstream.invalid/one.png", MIMEType: "image/png"},
+			{URL: "https://upstream.invalid/two.png", MIMEType: "image/png"},
+			{URL: "https://upstream.invalid/three.png", MIMEType: "image/png"},
+		},
+	}, deps)
+
+	require.ErrorContains(t, err, "copy failed")
+	require.Equal(t, 2, ownershipChecks)
+	require.Equal(t, []string{"req_multi_lease:image:1"}, rolledBack, "rollback must stop before deleting after ownership is lost")
+}
+
 func TestGrokImagePersistenceLockPreventsPeerReuseUntilOwnerFinishes(t *testing.T) {
 	useStarAIAssetRedis(t)
 	request := GrokImagePersistenceRequest{UserID: 42, RequestID: "req_shared_lock"}
