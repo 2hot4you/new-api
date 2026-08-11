@@ -71,6 +71,8 @@ export const channelSchema = z.object({
     multi_key_mode: 'random',
   }),
   settings: z.string().default('{}'), // other_settings JSON
+  molii_grok_management_user_id: z.number().default(0),
+  molii_grok_management_access_token_configured: z.boolean().default(false),
 })
 
 export type Channel = z.infer<typeof channelSchema>
@@ -361,6 +363,9 @@ export interface ChannelFormData {
   header_override?: string
   settings?: string
   other?: string
+  molii_grok_management_access_token?: string
+  molii_grok_management_user_id?: number
+  clear_molii_grok_management_access_token?: boolean
   // Multi-key specific
   multi_key_mode?: 'single' | 'batch' | 'multi_to_single'
   multi_key_type?: 'random' | 'polling'
@@ -375,5 +380,13 @@ export interface AddChannelRequest {
   mode: 'single' | 'batch' | 'multi_to_single'
   multi_key_mode?: 'random' | 'polling'
   batch_add_set_key_prefix_2_name?: boolean
+  molii_grok_management_access_token?: string
+  molii_grok_management_user_id?: number
   channel: Partial<Channel>
+}
+
+export type ChannelUpdatePayload = Partial<Channel> & {
+  molii_grok_management_access_token?: string
+  molii_grok_management_user_id?: number
+  clear_molii_grok_management_access_token?: boolean
 }

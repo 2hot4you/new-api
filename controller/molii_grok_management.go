@@ -58,8 +58,21 @@ func moliiGrokManagementBaseURL() (string, error) {
 	return baseURL, nil
 }
 
-func moliiGrokManagementConfig() (string, string, int, error) {
+func moliiGrokManagementConfig(channel *model.Channel) (string, string, int, error) {
 	baseURL, baseURLErr := moliiGrokManagementBaseURL()
+	if channel != nil {
+		channelAccessToken := strings.TrimSpace(channel.MoliiGrokManagementAccessToken)
+		channelUserID := channel.MoliiGrokManagementUserID
+		if channelAccessToken != "" || channelUserID != 0 {
+			if baseURLErr != nil {
+				return "", "", 0, errors.New("Molii Grok 管理接口配置无效，请管理员检查: MOLII_GROK_NEW_API_BASE_URL")
+			}
+			if channelAccessToken == "" || channelUserID <= 0 {
+				return "", "", 0, errors.New("Molii Grok 渠道管理凭据缺失或无效，请在渠道表单同时配置系统访问令牌和管理用户 ID")
+			}
+			return baseURL, channelAccessToken, channelUserID, nil
+		}
+	}
 	accessToken := strings.TrimSpace(constant.MoliiGrokNewAPIAccessToken)
 	userID := constant.MoliiGrokNewAPIUserID
 	missing := make([]string, 0, 3)
@@ -73,7 +86,7 @@ func moliiGrokManagementConfig() (string, string, int, error) {
 		missing = append(missing, "MOLII_GROK_NEW_API_USER_ID")
 	}
 	if len(missing) > 0 {
-		return "", "", 0, fmt.Errorf("Molii Grok 管理接口配置缺失或无效，请管理员检查: %s", strings.Join(missing, ", "))
+		return "", "", 0, fmt.Errorf("Molii Grok 管理接口配置缺失或无效，请在渠道表单配置系统访问令牌和管理用户 ID，或检查兼容环境变量: %s", strings.Join(missing, ", "))
 	}
 	return baseURL, accessToken, userID, nil
 }
@@ -123,7 +136,7 @@ func updateChannelMoliiGrokBalance(channel *model.Channel) (float64, error) {
 	if channel == nil {
 		return 0, errors.New("Molii Grok 渠道配置缺失")
 	}
-	baseURL, accessToken, userID, err := moliiGrokManagementConfig()
+	baseURL, accessToken, userID, err := moliiGrokManagementConfig(channel)
 	if err != nil {
 		return 0, err
 	}

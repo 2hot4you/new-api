@@ -34,7 +34,7 @@ import {
   transformFormDataToUpdatePayload,
   type ChannelFormValues,
 } from '../lib'
-import type { Channel } from '../types'
+import type { Channel, ChannelUpdatePayload } from '../types'
 
 type UseChannelMutateFormParams = {
   currentRow?: Channel | null
@@ -53,7 +53,10 @@ const SENSITIVE_UPDATE_FIELDS = [
   'setting',
   'settings',
   'other',
-] satisfies (keyof Channel)[]
+  'molii_grok_management_access_token',
+  'molii_grok_management_user_id',
+  'clear_molii_grok_management_access_token',
+] satisfies (keyof ChannelUpdatePayload)[]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null

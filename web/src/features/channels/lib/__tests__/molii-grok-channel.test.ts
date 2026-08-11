@@ -27,7 +27,12 @@ import {
   CHANNEL_TYPE_OPTIONS,
   MOLII_GROK_AIGC_MODELS,
 } from '../../constants'
-import { channelFormSchema } from '../channel-form'
+import {
+  channelFormSchema,
+  transformChannelToFormDefaults,
+  transformFormDataToCreatePayload,
+  transformFormDataToUpdatePayload,
+} from '../channel-form'
 import {
   getChannelTypeConfig,
   shouldShowBaseUrlField,
@@ -94,6 +99,8 @@ describe('Molii Grok Imagine API channel', () => {
       models: MOLII_GROK_AIGC_MODELS.join(','),
       group: ['default'],
       status: 1,
+      molii_grok_management_access_token: 'management-token-placeholder',
+      molii_grok_management_user_id: 2205,
     }
     assert.equal(channelFormSchema.safeParse(valid).success, true)
     const invalid = channelFormSchema.safeParse({ ...valid, key: '   ' })
@@ -102,6 +109,145 @@ describe('Molii Grok Imagine API channel', () => {
       invalid.error?.issues.some((issue) => issue.path[0] === 'key'),
       true
     )
+  })
+
+  test('preserves the saved API key when editing with the key field left blank', () => {
+    const editValues = {
+      name: 'Grok',
+      type: CHANNEL_TYPE_MOLII_GROK_AIGC,
+      base_url: '',
+      key: '',
+      models: MOLII_GROK_AIGC_MODELS.join(','),
+      group: ['default'],
+      status: 1,
+      is_editing: true,
+      molii_grok_management_access_token: '',
+      molii_grok_management_user_id: 2205,
+      molii_grok_management_access_token_configured: true,
+    }
+
+    const parsed = channelFormSchema.safeParse(editValues)
+    assert.equal(
+      parsed.success,
+      true,
+      parsed.error?.issues.map((issue) => issue.message).join(', ') || ''
+    )
+    if (!parsed.success) return
+
+    const payload = transformFormDataToUpdatePayload(parsed.data, 62)
+    assert.equal('key' in payload, false)
+  })
+
+  test('requires a complete management credential pair when creating a channel', () => {
+    const base = {
+      name: 'Grok',
+      type: CHANNEL_TYPE_MOLII_GROK_AIGC,
+      base_url: '',
+      key: 'sk-placeholder',
+      models: MOLII_GROK_AIGC_MODELS.join(','),
+      group: ['default'],
+      status: 1,
+      is_editing: false,
+    }
+
+    const missing = channelFormSchema.safeParse(base)
+    assert.equal(missing.success, false)
+    assert.equal(
+      missing.error?.issues.some(
+        (issue) => issue.path[0] === 'molii_grok_management_access_token'
+      ),
+      true
+    )
+    assert.equal(
+      missing.error?.issues.some(
+        (issue) => issue.path[0] === 'molii_grok_management_user_id'
+      ),
+      true
+    )
+
+    assert.equal(
+      channelFormSchema.safeParse({
+        ...base,
+        molii_grok_management_access_token: 'management-token-placeholder',
+        molii_grok_management_user_id: 2205,
+      }).success,
+      true
+    )
+  })
+
+  test('writes management credentials outside the channel JSON on create', () => {
+    const payload = transformFormDataToCreatePayload({
+      name: 'Grok',
+      type: CHANNEL_TYPE_MOLII_GROK_AIGC,
+      base_url: '',
+      key: 'sk-placeholder',
+      models: MOLII_GROK_AIGC_MODELS.join(','),
+      group: ['default'],
+      status: 1,
+      molii_grok_management_access_token: 'management-token-placeholder',
+      molii_grok_management_user_id: 2205,
+      clear_molii_grok_management_access_token: false,
+      is_editing: false,
+    })
+
+    assert.equal(
+      payload.molii_grok_management_access_token,
+      'management-token-placeholder'
+    )
+    assert.equal(payload.molii_grok_management_user_id, 2205)
+    assert.equal('molii_grok_management_access_token' in payload.channel, false)
+  })
+
+  test('keeps the management token write-only when editing', () => {
+    const defaults = transformChannelToFormDefaults({
+      id: 62,
+      type: CHANNEL_TYPE_MOLII_GROK_AIGC,
+      key: '',
+      status: 1,
+      name: 'Grok',
+      created_time: 0,
+      test_time: 0,
+      response_time: 0,
+      base_url: '',
+      other: '',
+      balance: 0,
+      balance_updated_time: 0,
+      models: MOLII_GROK_AIGC_MODELS.join(','),
+      group: 'default',
+      used_quota: 0,
+      other_info: '',
+      remark: '',
+      max_input_tokens: 0,
+      channel_info: {
+        is_multi_key: false,
+        multi_key_size: 0,
+        multi_key_polling_index: 0,
+        multi_key_mode: 'random',
+      },
+      settings: '{}',
+      molii_grok_management_user_id: 2205,
+      molii_grok_management_access_token_configured: true,
+    })
+
+    assert.equal(defaults.is_editing, true)
+    assert.equal(defaults.molii_grok_management_access_token, '')
+    assert.equal(defaults.molii_grok_management_user_id, 2205)
+    assert.equal(defaults.molii_grok_management_access_token_configured, true)
+
+    const update = transformFormDataToUpdatePayload(defaults, 62)
+    assert.equal('molii_grok_management_access_token' in update, false)
+    assert.equal(update.molii_grok_management_user_id, 2205)
+
+    const clearUpdate = transformFormDataToUpdatePayload(
+      {
+        ...defaults,
+        clear_molii_grok_management_access_token: true,
+      },
+      62
+    )
+    assert.equal(clearUpdate.clear_molii_grok_management_access_token, true)
+    assert.equal('molii_grok_management_access_token' in clearUpdate, false)
+    assert.equal('molii_grok_management_user_id' in clearUpdate, false)
   })
 
   test('does not embed the private upstream brand or domain in frontend files', () => {

@@ -50,6 +50,12 @@ type Channel struct {
 	ParamOverride     *string `json:"param_override" gorm:"type:text"`
 	HeaderOverride    *string `json:"header_override" gorm:"type:text"`
 	Remark            *string `json:"remark" gorm:"type:varchar(255)" validate:"max=255"`
+	// MoliiGrokManagementAccessToken is a write-only management credential.
+	// It intentionally follows the existing channel-key storage model while
+	// never participating in JSON serialization.
+	MoliiGrokManagementAccessToken           string `json:"-" gorm:"type:text;not null;default:''"`
+	MoliiGrokManagementUserID                int    `json:"molii_grok_management_user_id" gorm:"type:integer;not null;default:0"`
+	MoliiGrokManagementAccessTokenConfigured bool   `json:"molii_grok_management_access_token_configured" gorm:"-"`
 	// add after v0.8.5
 	ChannelInfo ChannelInfo `json:"channel_info" gorm:"type:json"`
 
@@ -573,6 +579,12 @@ func (channel *Channel) Update() error {
 	}
 	var err error
 	err = DB.Model(channel).Updates(channel).Error
+	if err != nil {
+		return err
+	}
+	err = DB.Model(channel).
+		Select("molii_grok_management_access_token", "molii_grok_management_user_id").
+		Updates(channel).Error
 	if err != nil {
 		return err
 	}

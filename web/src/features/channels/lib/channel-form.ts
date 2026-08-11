@@ -25,7 +25,7 @@ import {
   ERROR_MESSAGES,
   MODEL_FETCHABLE_TYPES,
 } from '../constants'
-import type { Channel } from '../types'
+import type { AddChannelRequest, Channel, ChannelUpdatePayload } from '../types'
 import {
   CHANNEL_TYPE_ADVANCED_CUSTOM,
   advancedCustomConfigUsesRelativeUpstreamPath,
@@ -280,10 +280,60 @@ export const channelFormSchema = z
     upstream_model_update_check_enabled: z.boolean().optional(),
     upstream_model_update_auto_sync_enabled: z.boolean().optional(),
     upstream_model_update_ignored_models: z.string().optional(),
+    molii_grok_management_access_token: z.string().optional(),
+    molii_grok_management_user_id: z.number().int().min(0).optional(),
+    molii_grok_management_access_token_configured: z.boolean().optional(),
+    clear_molii_grok_management_access_token: z.boolean().optional(),
+    is_editing: z.boolean().optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.type === CHANNEL_TYPE_MOLII_GROK_AIGC && !data.key?.trim()) {
+    if (
+      data.type === CHANNEL_TYPE_MOLII_GROK_AIGC &&
+      data.is_editing !== true &&
+      !data.key?.trim()
+    ) {
       addRequiredIssue(ctx, 'key', ERROR_MESSAGES.REQUIRED_KEY)
+    }
+    if (data.type === CHANNEL_TYPE_MOLII_GROK_AIGC) {
+      const accessToken = data.molii_grok_management_access_token?.trim() || ''
+      const userID = data.molii_grok_management_user_id || 0
+      const isEditing = data.is_editing === true
+      const isConfigured =
+        data.molii_grok_management_access_token_configured === true
+      const clearRequested =
+        data.clear_molii_grok_management_access_token === true
+
+      if (!isEditing) {
+        if (!accessToken) {
+          addRequiredIssue(
+            ctx,
+            'molii_grok_management_access_token',
+            'Management access token is required'
+          )
+        }
+        if (userID <= 0) {
+          addRequiredIssue(
+            ctx,
+            'molii_grok_management_user_id',
+            'Management user ID must be a positive integer'
+          )
+        }
+      } else if (!clearRequested) {
+        if ((accessToken || isConfigured) && userID <= 0) {
+          addRequiredIssue(
+            ctx,
+            'molii_grok_management_user_id',
+            'Management user ID must be a positive integer'
+          )
+        }
+        if (!isConfigured && userID > 0 && !accessToken) {
+          addRequiredIssue(
+            ctx,
+            'molii_grok_management_access_token',
+            'Management access token is required when setting a management user ID'
+          )
+        }
+      }
     }
     if (
       [3, 8, 36, 45, CHANNEL_TYPE_NEW_API].includes(data.type) &&
@@ -455,6 +505,11 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
   advanced_custom: '',
+  molii_grok_management_access_token: '',
+  molii_grok_management_user_id: 0,
+  molii_grok_management_access_token_configured: false,
+  clear_molii_grok_management_access_token: false,
+  is_editing: false,
 }
 
 // ============================================================================
@@ -598,6 +653,12 @@ export function transformChannelToFormDefaults(
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     advanced_custom: advancedCustom,
+    molii_grok_management_access_token: '',
+    molii_grok_management_user_id: channel.molii_grok_management_user_id || 0,
+    molii_grok_management_access_token_configured:
+      channel.molii_grok_management_access_token_configured === true,
+    clear_molii_grok_management_access_token: false,
+    is_editing: true,
   }
 }
 
@@ -771,12 +832,9 @@ function normalizeBaseUrl(value: string | undefined): string {
 /**
  * Transform form data to API payload for creating channel
  */
-export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
-  mode: 'single' | 'batch' | 'multi_to_single'
-  multi_key_mode?: 'random' | 'polling'
-  batch_add_set_key_prefix_2_name?: boolean
-  channel: Partial<Channel>
-} {
+export function transformFormDataToCreatePayload(
+  formData: ChannelFormValues
+): AddChannelRequest {
   const mode = formData.multi_key_mode || 'single'
 
   const channel: Partial<Channel> = {
@@ -810,7 +868,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     }
   })
 
-  return {
+  const payload: AddChannelRequest = {
     mode,
     multi_key_mode:
       mode === 'multi_to_single' ? formData.multi_key_type : undefined,
@@ -818,6 +876,15 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
       mode === 'batch' ? formData.batch_add_set_key_prefix_2_name : undefined,
     channel,
   }
+
+  if (formData.type === CHANNEL_TYPE_MOLII_GROK_AIGC) {
+    payload.molii_grok_management_access_token =
+      formData.molii_grok_management_access_token?.trim() || ''
+    payload.molii_grok_management_user_id =
+      formData.molii_grok_management_user_id || 0
+  }
+
+  return payload
 }
 
 /**
@@ -826,8 +893,8 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
 export function transformFormDataToUpdatePayload(
   formData: ChannelFormValues,
   channelId: number
-): Partial<Channel> {
-  const payload: Partial<Channel> = {
+): ChannelUpdatePayload {
+  const payload: ChannelUpdatePayload = {
     id: channelId,
     name: formData.name,
     type: formData.type,
@@ -853,6 +920,22 @@ export function transformFormDataToUpdatePayload(
   // Only include key if it was changed (not empty)
   if (formData.key && formData.key.trim()) {
     payload.key = formData.key
+  }
+
+  if (formData.type === CHANNEL_TYPE_MOLII_GROK_AIGC) {
+    if (formData.clear_molii_grok_management_access_token === true) {
+      payload.clear_molii_grok_management_access_token = true
+    } else {
+      const managementAccessToken =
+        formData.molii_grok_management_access_token?.trim() || ''
+      if (managementAccessToken) {
+        payload.molii_grok_management_access_token = managementAccessToken
+      }
+      if ((formData.molii_grok_management_user_id || 0) > 0) {
+        payload.molii_grok_management_user_id =
+          formData.molii_grok_management_user_id
+      }
+    }
   }
 
   // Clean up empty strings to null for optional fields

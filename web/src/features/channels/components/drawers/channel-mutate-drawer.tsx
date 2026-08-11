@@ -140,6 +140,7 @@ import {
 import {
   ADD_MODE_OPTIONS,
   CHANNEL_STATUS_LABELS,
+  CHANNEL_TYPE_MOLII_GROK_AIGC,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
   ERROR_MESSAGES,
@@ -731,6 +732,12 @@ export function ChannelMutateDrawer({
   const currentStatus = form.watch('status')
   const currentBaseUrl = form.watch('base_url')
   const currentKey = form.watch('key')
+  const currentMoliiGrokManagementConfigured = form.watch(
+    'molii_grok_management_access_token_configured'
+  )
+  const clearMoliiGrokManagementAccessToken = form.watch(
+    'clear_molii_grok_management_access_token'
+  )
   const currentOther = form.watch('other')
   const currentModels = form.watch('models')
   const currentName = form.watch('name')
@@ -3081,6 +3088,137 @@ export function ChannelMutateDrawer({
                                   )
                                 }}
                               />
+
+                              {currentType === CHANNEL_TYPE_MOLII_GROK_AIGC && (
+                                <div className='border-border/60 flex flex-col gap-4 border-t pt-4'>
+                                  <div className='flex items-center justify-between gap-3'>
+                                    <div>
+                                      <p className='text-sm font-medium'>
+                                        {t('New API management credentials')}
+                                      </p>
+                                      <p className='text-muted-foreground text-xs'>
+                                        {t(
+                                          'Used only for balance queries. Model discovery continues to use the channel API key.'
+                                        )}
+                                      </p>
+                                    </div>
+                                    {isEditing &&
+                                      currentMoliiGrokManagementConfigured && (
+                                        <Badge variant='outline'>
+                                          {t('Configured')}
+                                        </Badge>
+                                      )}
+                                  </div>
+
+                                  <FormField
+                                    control={form.control}
+                                    name='molii_grok_management_access_token'
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel>
+                                          {t('System access token')}
+                                          {!isEditing && ' *'}
+                                        </FormLabel>
+                                        <FormControl>
+                                          <Input
+                                            type='password'
+                                            autoComplete='new-password'
+                                            placeholder={
+                                              isEditing
+                                                ? t(
+                                                    'Leave empty to keep the saved management token'
+                                                  )
+                                                : t(
+                                                    'Enter the New API system access token'
+                                                  )
+                                            }
+                                            disabled={
+                                              clearMoliiGrokManagementAccessToken
+                                            }
+                                            {...field}
+                                          />
+                                        </FormControl>
+                                        <FormDescription>
+                                          {t(
+                                            'The saved token is write-only and will never be displayed again.'
+                                          )}
+                                        </FormDescription>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  <FormField
+                                    control={form.control}
+                                    name='molii_grok_management_user_id'
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel>
+                                          {t('Management user ID')}
+                                          {!isEditing && ' *'}
+                                        </FormLabel>
+                                        <FormControl>
+                                          <Input
+                                            type='number'
+                                            inputMode='numeric'
+                                            min={1}
+                                            step={1}
+                                            value={field.value || ''}
+                                            disabled={
+                                              clearMoliiGrokManagementAccessToken
+                                            }
+                                            onBlur={field.onBlur}
+                                            name={field.name}
+                                            ref={field.ref}
+                                            onChange={(event) => {
+                                              const value = event.target.value
+                                              field.onChange(
+                                                value === '' ? 0 : Number(value)
+                                              )
+                                            }}
+                                          />
+                                        </FormControl>
+                                        <FormDescription>
+                                          {t(
+                                            'Positive numeric user ID associated with the system access token.'
+                                          )}
+                                        </FormDescription>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  {isEditing &&
+                                    currentMoliiGrokManagementConfigured && (
+                                      <FormField
+                                        control={form.control}
+                                        name='clear_molii_grok_management_access_token'
+                                        render={({ field }) => (
+                                          <FormItem className='border-border/60 flex items-center justify-between gap-4 rounded-md border p-3'>
+                                            <div className='space-y-1'>
+                                              <FormLabel>
+                                                {t(
+                                                  'Clear saved management credentials'
+                                                )}
+                                              </FormLabel>
+                                              <FormDescription>
+                                                {t(
+                                                  'After clearing, balance queries use the compatibility environment variables when configured.'
+                                                )}
+                                              </FormDescription>
+                                            </div>
+                                            <FormControl>
+                                              <Switch
+                                                checked={field.value === true}
+                                                onCheckedChange={field.onChange}
+                                              />
+                                            </FormControl>
+                                          </FormItem>
+                                        )}
+                                      />
+                                    )}
+                                </div>
+                              )}
 
                               {currentType === 57 && (
                                 <div className='border-border/60 flex flex-col gap-3 border-y py-4'>

@@ -5521,6 +5521,17 @@
     "Billing Formula": "計費公式",
     "Historical billing breakdown unavailable": "歷史記錄缺少分項計費資料",
     "Billing Duration": "計費時長",
-    "Billing Resolution": "計費解析度"
+    "Billing Resolution": "計費解析度",
+    "New API management credentials": "New API 管理憑證",
+    "Used only for balance queries. Model discovery continues to use the channel API key.": "僅用於查詢餘額；取得模型仍使用渠道 API Key。",
+    "Configured": "已設定",
+    "System access token": "系統存取權杖",
+    "Leave empty to keep the saved management token": "留空表示保留已儲存的管理權杖",
+    "Enter the New API system access token": "請輸入 New API 系統存取權杖",
+    "The saved token is write-only and will never be displayed again.": "權杖儲存後僅可更新，不會再次顯示。",
+    "Management user ID": "管理使用者 ID",
+    "Positive numeric user ID associated with the system access token.": "與系統存取權杖關聯的正整數使用者 ID。",
+    "Clear saved management credentials": "清除已儲存的管理憑證",
+    "After clearing, balance queries use the compatibility environment variables when configured.": "清除後，若已設定相容環境變數，餘額查詢將使用環境變數。"
   }
 }

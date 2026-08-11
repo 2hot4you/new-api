@@ -110,6 +110,8 @@ func parseStatusFilter(statusParam string) int {
 }
 
 func clearChannelInfo(channel *model.Channel) {
+	channel.MoliiGrokManagementAccessTokenConfigured = strings.TrimSpace(channel.MoliiGrokManagementAccessToken) != ""
+	channel.MoliiGrokManagementAccessToken = ""
 	if channel.ChannelInfo.IsMultiKey {
 		channel.ChannelInfo.MultiKeyDisabledReason = nil
 		channel.ChannelInfo.MultiKeyDisabledTime = nil
@@ -638,10 +640,33 @@ func RefreshCodexChannelCredential(c *gin.Context) {
 }
 
 type AddChannelRequest struct {
-	Mode                      string                `json:"mode"`
-	MultiKeyMode              constant.MultiKeyMode `json:"multi_key_mode"`
-	BatchAddSetKeyPrefix2Name bool                  `json:"batch_add_set_key_prefix_2_name"`
-	Channel                   *model.Channel        `json:"channel"`
+	Mode                           string                `json:"mode"`
+	MultiKeyMode                   constant.MultiKeyMode `json:"multi_key_mode"`
+	BatchAddSetKeyPrefix2Name      bool                  `json:"batch_add_set_key_prefix_2_name"`
+	Channel                        *model.Channel        `json:"channel"`
+	MoliiGrokManagementAccessToken string                `json:"molii_grok_management_access_token"`
+	MoliiGrokManagementUserID      int                   `json:"molii_grok_management_user_id"`
+}
+
+func validateMoliiGrokManagementCredentials(channel *model.Channel, allowEnvironmentFallback bool) error {
+	if channel == nil || channel.Type != constant.ChannelTypeMoliiGrokAIGC {
+		return nil
+	}
+	accessToken := strings.TrimSpace(channel.MoliiGrokManagementAccessToken)
+	userID := channel.MoliiGrokManagementUserID
+	if accessToken != "" || userID != 0 {
+		if accessToken == "" || userID <= 0 {
+			return errors.New("Molii Grok 渠道需要同时配置系统访问令牌和管理用户 ID")
+		}
+		channel.MoliiGrokManagementAccessToken = accessToken
+		return nil
+	}
+	if allowEnvironmentFallback &&
+		strings.TrimSpace(constant.MoliiGrokNewAPIAccessToken) != "" &&
+		constant.MoliiGrokNewAPIUserID > 0 {
+		return nil
+	}
+	return errors.New("Molii Grok 渠道需要配置系统访问令牌和管理用户 ID")
 }
 
 func getVertexArrayKeys(keys string) ([]string, error) {
@@ -685,6 +710,14 @@ func AddChannel(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if addChannelRequest.Channel != nil && addChannelRequest.Channel.Type == constant.ChannelTypeMoliiGrokAIGC {
+		addChannelRequest.Channel.MoliiGrokManagementAccessToken = strings.TrimSpace(addChannelRequest.MoliiGrokManagementAccessToken)
+		addChannelRequest.Channel.MoliiGrokManagementUserID = addChannelRequest.MoliiGrokManagementUserID
+		if err := validateMoliiGrokManagementCredentials(addChannelRequest.Channel, true); err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
 	}
 
 	// 使用统一的校验函数
@@ -1033,8 +1066,11 @@ func DeleteChannelBatch(c *gin.Context) {
 
 type PatchChannel struct {
 	model.Channel
-	MultiKeyMode *string `json:"multi_key_mode"`
-	KeyMode      *string `json:"key_mode"` // 多key模式下密钥覆盖或者追加
+	MultiKeyMode                        *string `json:"multi_key_mode"`
+	KeyMode                             *string `json:"key_mode"` // 多key模式下密钥覆盖或者追加
+	MoliiGrokManagementAccessTokenInput *string `json:"molii_grok_management_access_token"`
+	MoliiGrokManagementUserIDInput      *int    `json:"molii_grok_management_user_id"`
+	ClearMoliiGrokManagementAccessToken bool    `json:"clear_molii_grok_management_access_token"`
 }
 
 type ChannelStatusRequest struct {
@@ -1088,6 +1124,32 @@ func UpdateChannel(c *gin.Context) {
 		})
 		return
 	}
+	channel.MoliiGrokManagementAccessToken = originChannel.MoliiGrokManagementAccessToken
+	channel.MoliiGrokManagementUserID = originChannel.MoliiGrokManagementUserID
+	if channel.Type != constant.ChannelTypeMoliiGrokAIGC {
+		channel.MoliiGrokManagementAccessToken = ""
+		channel.MoliiGrokManagementUserID = 0
+	} else if channel.ClearMoliiGrokManagementAccessToken {
+		channel.MoliiGrokManagementAccessToken = ""
+		channel.MoliiGrokManagementUserID = 0
+	} else {
+		if channel.MoliiGrokManagementAccessTokenInput != nil && strings.TrimSpace(*channel.MoliiGrokManagementAccessTokenInput) != "" {
+			channel.MoliiGrokManagementAccessToken = strings.TrimSpace(*channel.MoliiGrokManagementAccessTokenInput)
+		}
+		if channel.MoliiGrokManagementUserIDInput != nil {
+			channel.MoliiGrokManagementUserID = *channel.MoliiGrokManagementUserIDInput
+		}
+		credentialsProvided := channel.MoliiGrokManagementAccessTokenInput != nil || channel.MoliiGrokManagementUserIDInput != nil
+		if originChannel.Type != constant.ChannelTypeMoliiGrokAIGC || credentialsProvided {
+			if err := validateMoliiGrokManagementCredentials(&channel.Channel, true); err != nil {
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+				return
+			}
+		}
+	}
+	managementCredentialsChanged :=
+		channel.MoliiGrokManagementAccessToken != originChannel.MoliiGrokManagementAccessToken ||
+			channel.MoliiGrokManagementUserID != originChannel.MoliiGrokManagementUserID
 	if channel.Type == constant.ChannelTypeStarAI && originChannel.Status == common.ChannelStatusEnabled &&
 		rejectEnabledStarAIChannelConflict(c, []int{originChannel.Id}) {
 		return
@@ -1219,6 +1281,9 @@ func UpdateChannel(c *gin.Context) {
 	}
 	if channel.Key != "" && channel.Key != originChannel.Key {
 		changedFields = append(changedFields, "key")
+	}
+	if managementCredentialsChanged {
+		changedFields = append(changedFields, "molii_grok_management_credentials")
 	}
 	recordManageAudit(c, "channel.update", map[string]interface{}{
 		"id":             channel.Id,

@@ -1,6 +1,10 @@
 package controller
 
-import "github.com/QuantumNous/new-api/model"
+import (
+	"strings"
+
+	"github.com/QuantumNous/new-api/model"
+)
 
 func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, requestData map[string]any) bool {
 	if _, ok := requestData["type"]; ok && channel.Type != origin.Type {
@@ -33,6 +37,21 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 	if _, ok := requestData["key_mode"]; ok && channel.KeyMode != nil {
 		return true
 	}
+	if _, ok := requestData["molii_grok_management_access_token"]; ok &&
+		channel.MoliiGrokManagementAccessTokenInput != nil &&
+		strings.TrimSpace(*channel.MoliiGrokManagementAccessTokenInput) != "" &&
+		strings.TrimSpace(*channel.MoliiGrokManagementAccessTokenInput) != origin.MoliiGrokManagementAccessToken {
+		return true
+	}
+	if _, ok := requestData["molii_grok_management_user_id"]; ok &&
+		channel.MoliiGrokManagementUserIDInput != nil &&
+		*channel.MoliiGrokManagementUserIDInput != origin.MoliiGrokManagementUserID {
+		return true
+	}
+	if _, ok := requestData["clear_molii_grok_management_access_token"]; ok &&
+		channel.ClearMoliiGrokManagementAccessToken {
+		return true
+	}
 	// Fail closed: any field present in the request that is neither a known
 	// sensitive field (gated above) nor an explicitly classified non-sensitive
 	// field must be treated as sensitive. This keeps a newly added channel field
@@ -61,16 +80,19 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 // channelHasSensitiveChanges with a precise old-vs-new comparison; this set is
 // used to exclude them from the fail-closed scan for unknown fields.
 var channelSensitiveFields = map[string]struct{}{
-	"type":                {},
-	"key":                 {},
-	"base_url":            {},
-	"openai_organization": {},
-	"header_override":     {},
-	"param_override":      {},
-	"setting":             {},
-	"other":               {},
-	"settings":            {},
-	"key_mode":            {},
+	"type":                               {},
+	"key":                                {},
+	"base_url":                           {},
+	"openai_organization":                {},
+	"header_override":                    {},
+	"param_override":                     {},
+	"setting":                            {},
+	"other":                              {},
+	"settings":                           {},
+	"key_mode":                           {},
+	"molii_grok_management_access_token": {},
+	"molii_grok_management_user_id":      {},
+	"clear_molii_grok_management_access_token": {},
 }
 
 // channelOperationalFields lists fields managed by operation endpoints instead
@@ -88,6 +110,7 @@ var channelReadOnlyFields = map[string]struct{}{
 	"balance":              {},
 	"balance_updated_time": {},
 	"used_quota":           {},
+	"molii_grok_management_access_token_configured": {},
 }
 
 func clearChannelReadOnlyFields(channel *PatchChannel, requestData map[string]any) {
@@ -108,6 +131,9 @@ func clearChannelReadOnlyFields(channel *PatchChannel, requestData map[string]an
 	}
 	if _, ok := requestData["used_quota"]; ok {
 		channel.UsedQuota = 0
+	}
+	if _, ok := requestData["molii_grok_management_access_token_configured"]; ok {
+		channel.MoliiGrokManagementAccessTokenConfigured = false
 	}
 }
 

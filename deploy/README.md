@@ -32,8 +32,10 @@ docker compose --env-file .env ps
    `tokens.auto_groups`。
 2. `migrations/20260810_async_task_billing_jobs.sql`：创建异步任务计费作业表及其唯一、
    就绪队列和过期租约索引。
+3. `migrations/20260811_molii_grok_management_credentials.sql`：为渠道表补充 Molii Grok
+   管理访问令牌和管理用户 ID 字段；令牌不会通过渠道 API 回显。
 
-两项迁移都可重复执行；随后 New API 启动时仍会由 GORM AutoMigrate 校验并补充完整
+三项迁移都可重复执行；随后 New API 启动时仍会由 GORM AutoMigrate 校验并补充完整
 Schema。
 
 手动重跑迁移：
@@ -46,6 +48,7 @@ docker compose --env-file .env run --rm migrate
 
 ```sh
 ./migrations/20260810_async_task_billing_jobs_test.sh
+./migrations/20260811_molii_grok_management_credentials_test.sh
 ```
 
 升级已有环境前，建议先备份：

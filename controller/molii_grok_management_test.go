@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -63,6 +64,73 @@ func TestUpdateMoliiGrokBalanceUsesManagementStatusAndSelf(t *testing.T) {
 	assert.InDelta(t, 12.5, saved.Balance, 1e-12)
 }
 
+func TestUpdateMoliiGrokBalancePrefersCompleteChannelManagementCredentials(t *testing.T) {
+	db := setupChannelBillingTestDB(t)
+	const (
+		channelAccessToken = "channel-management-token-placeholder"
+		environmentToken   = "environment-management-token-placeholder"
+		channelUserID      = 2205
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/status":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"quota_per_unit":500000}}`))
+		case "/api/user/self":
+			assert.Equal(t, "Bearer "+channelAccessToken, r.Header.Get("Authorization"))
+			assert.Equal(t, "2205", r.Header.Get("User-id"))
+			assert.NotContains(t, r.Header.Get("Authorization"), environmentToken)
+			_, _ = w.Write([]byte(`{"success":true,"data":{"quota":1000000}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	setMoliiGrokManagementConfigForTest(t, server.URL, environmentToken, 9999)
+
+	channel := &model.Channel{
+		Type:                           constant.ChannelTypeMoliiGrokAIGC,
+		Name:                           "Molii Grok",
+		Key:                            "channel-key-placeholder",
+		MoliiGrokManagementAccessToken: channelAccessToken,
+		MoliiGrokManagementUserID:      channelUserID,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	balance, err := updateChannelMoliiGrokBalance(channel)
+	require.NoError(t, err)
+	assert.InDelta(t, 2, balance, 1e-12)
+}
+
+func TestMoliiGrokManagementConfigRejectsPartialChannelCredentialsWithoutMixingEnvironment(t *testing.T) {
+	setMoliiGrokManagementConfigForTest(t, "https://management.example.invalid", "environment-token-placeholder", 9999)
+
+	_, _, _, err := moliiGrokManagementConfig(&model.Channel{
+		Type:                           constant.ChannelTypeMoliiGrokAIGC,
+		MoliiGrokManagementAccessToken: "channel-token-placeholder",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "渠道表单")
+	assert.NotContains(t, err.Error(), "channel-token-placeholder")
+	assert.NotContains(t, err.Error(), "environment-token-placeholder")
+}
+
+func TestMoliiGrokManagementAccessTokenNeverSerializes(t *testing.T) {
+	const token = "channel-management-token-must-not-leak"
+	channel := &model.Channel{
+		Type:                           constant.ChannelTypeMoliiGrokAIGC,
+		MoliiGrokManagementAccessToken: token,
+		MoliiGrokManagementUserID:      2205,
+	}
+	clearChannelInfo(channel)
+
+	payload, err := json.Marshal(channel)
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), token)
+	assert.Contains(t, string(payload), `"molii_grok_management_access_token_configured":true`)
+	assert.Contains(t, string(payload), `"molii_grok_management_user_id":2205`)
+}
+
 func TestUpdateMoliiGrokBalanceRequiresManagementCredentials(t *testing.T) {
 	setupChannelBillingTestDB(t)
 	setMoliiGrokManagementConfigForTest(t, "https://management.example.invalid", "", 0)
@@ -92,7 +160,7 @@ func TestMoliiGrokManagementConfigRejectsUnsafeBaseURLWithoutLeakingURLSecrets(t
 		t.Run(tt.name, func(t *testing.T) {
 			setMoliiGrokManagementConfigForTest(t, tt.baseURL, "system-access-token-placeholder", 2205)
 
-			_, _, _, err := moliiGrokManagementConfig()
+			_, _, _, err := moliiGrokManagementConfig(nil)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "MOLII_GROK_NEW_API_BASE_URL")

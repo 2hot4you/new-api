@@ -22,6 +22,7 @@ import { api, type ApiRequestConfig } from '@/lib/api'
 import { CHANNEL_TYPE_STARAI, STARAI_MODELS } from './constants'
 import type {
   AddChannelRequest,
+  ChannelUpdatePayload,
   BatchDeleteParams,
   BatchSetTagParams,
   Channel,
@@ -130,7 +131,7 @@ export async function createChannel(
  */
 export async function updateChannel(
   id: number,
-  data: Partial<Channel>
+  data: ChannelUpdatePayload
 ): Promise<{ success: boolean; message?: string; data?: Channel }> {
   const res = await api.put(
     '/api/channel/',

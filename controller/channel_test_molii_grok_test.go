@@ -87,6 +87,8 @@ func TestAddChannelRejectsIncompatibleImagineModelMapping(t *testing.T) {
 
 	recorder := performChannelJSONRequest(t, http.MethodPost, "/api/channel/", fmt.Sprintf(`{
 		"mode":"single",
+		"molii_grok_management_access_token":"management-token-placeholder",
+		"molii_grok_management_user_id":2205,
 		"channel":{"type":%d,"status":%d,"name":"invalid-grok-map","key":"grok-key","models":"grok-imagine-image","group":"default","model_mapping":"{\"grok-imagine-image\":\"grok-imagine-video\"}"}
 	}`, constant.ChannelTypeMoliiGrokAIGC, common.ChannelStatusEnabled), AddChannel)
 
@@ -103,6 +105,8 @@ func TestAddChannelAllowsCompatibleImagineModelMapping(t *testing.T) {
 
 	recorder := performChannelJSONRequest(t, http.MethodPost, "/api/channel/", fmt.Sprintf(`{
 		"mode":"single",
+		"molii_grok_management_access_token":"management-token-placeholder",
+		"molii_grok_management_user_id":2205,
 		"channel":{"type":%d,"status":%d,"name":"valid-grok-map","key":"grok-key","models":"grok-imagine-video-1.5","group":"default","model_mapping":"{\"grok-imagine-video-1.5\":\"grok-imagine-video-1.5\"}"}
 	}`, constant.ChannelTypeMoliiGrokAIGC, common.ChannelStatusEnabled), AddChannel)
 
@@ -112,4 +116,73 @@ func TestAddChannelAllowsCompatibleImagineModelMapping(t *testing.T) {
 	require.NoError(t, db.Where("name = ?", "valid-grok-map").First(&saved).Error)
 	require.NotNil(t, saved.ModelMapping)
 	assert.Equal(t, `{"grok-imagine-video-1.5":"grok-imagine-video-1.5"}`, *saved.ModelMapping)
+	assert.Equal(t, "management-token-placeholder", saved.MoliiGrokManagementAccessToken)
+	assert.Equal(t, 2205, saved.MoliiGrokManagementUserID)
+}
+
+func TestAddMoliiGrokChannelRequiresCompleteManagementCredentials(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	setMoliiGrokManagementConfigForTest(t, "https://management.example.invalid", "", 0)
+
+	recorder := performChannelJSONRequest(t, http.MethodPost, "/api/channel/", fmt.Sprintf(`{
+		"mode":"single",
+		"channel":{"type":%d,"status":%d,"name":"missing-management","key":"grok-key","models":"grok-imagine-image","group":"default"}
+	}`, constant.ChannelTypeMoliiGrokAIGC, common.ChannelStatusEnabled), AddChannel)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	assert.Contains(t, recorder.Body.String(), "系统访问令牌")
+	assert.Contains(t, recorder.Body.String(), "管理用户 ID")
+	var count int64
+	require.NoError(t, db.Model(&model.Channel{}).Count(&count).Error)
+	assert.Zero(t, count)
+}
+
+func TestUpdateMoliiGrokChannelKeepsBlankManagementTokenAndSupportsExplicitClear(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	previousRedisEnabled := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = previousRedisEnabled })
+	channel := &model.Channel{
+		Type:                           constant.ChannelTypeMoliiGrokAIGC,
+		Status:                         common.ChannelStatusEnabled,
+		Name:                           "grok",
+		Key:                            "grok-key",
+		Models:                         "grok-imagine-image",
+		Group:                          "default",
+		MoliiGrokManagementAccessToken: "saved-management-token",
+		MoliiGrokManagementUserID:      2205,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	recorder := performChannelJSONRequest(t, http.MethodPut, "/api/channel/", fmt.Sprintf(`{
+		"id":%d,"type":%d,"name":"grok","models":"grok-imagine-image","group":"default",
+		"molii_grok_management_access_token":"","molii_grok_management_user_id":2205
+	}`, channel.Id, constant.ChannelTypeMoliiGrokAIGC), UpdateChannel)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	assert.NotContains(t, recorder.Body.String(), "saved-management-token")
+
+	var saved model.Channel
+	require.NoError(t, db.First(&saved, channel.Id).Error)
+	assert.Equal(t, "saved-management-token", saved.MoliiGrokManagementAccessToken)
+	assert.Equal(t, 2205, saved.MoliiGrokManagementUserID)
+	var updateAudit model.Log
+	require.NoError(t, db.Order("id desc").First(&updateAudit).Error)
+	assert.NotContains(t, updateAudit.Other, "molii_grok_management_credentials")
+	assert.NotContains(t, updateAudit.Other, "saved-management-token")
+
+	recorder = performChannelJSONRequest(t, http.MethodPut, "/api/channel/", fmt.Sprintf(`{
+		"id":%d,"type":%d,"name":"grok","models":"grok-imagine-image","group":"default",
+		"clear_molii_grok_management_access_token":true
+	}`, channel.Id, constant.ChannelTypeMoliiGrokAIGC), UpdateChannel)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&saved, channel.Id).Error)
+	assert.Empty(t, saved.MoliiGrokManagementAccessToken)
+	assert.Zero(t, saved.MoliiGrokManagementUserID)
+	var clearAudit model.Log
+	require.NoError(t, db.Order("id desc").First(&clearAudit).Error)
+	assert.Contains(t, clearAudit.Other, "molii_grok_management_credentials")
+	assert.NotContains(t, clearAudit.Other, "saved-management-token")
 }
