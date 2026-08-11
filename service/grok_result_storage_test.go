@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -101,7 +102,7 @@ func TestGrokResultStorageCleanupKeepsTransientFailuresAndNeverTouchesStarAIQueu
 	require.NoError(t, err)
 }
 
-func TestGrokResultStorageDeletesNewObjectWhenCleanupEnqueueFails(t *testing.T) {
+func TestGrokResultStoragePreEnqueueFailureNeverWritesOrDeletesSharedObject(t *testing.T) {
 	useStarAICOSTestConfig(t)
 	fakeCOS := newObjectStorageCOSTestServer(t)
 	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -110,14 +111,19 @@ func TestGrokResultStorageDeletesNewObjectWhenCleanupEnqueueFails(t *testing.T) 
 	}))
 	t.Cleanup(remote.Close)
 	objectStorage := newObjectStorageCOSTestStore(t, fakeCOS, remote.Client())
+	objectKey, err := BuildGrokResultObjectKey(42, "video", "task_enqueue_failure", time.Date(2026, time.August, 11, 9, 10, 11, 0, time.UTC), "video/mp4")
+	require.NoError(t, err)
+	fakeCOS.deleteStatus[objectKey] = http.StatusServiceUnavailable
+	enqueueObservedPutCount := -1
 	store := &grokResultStore{
 		objectStorage: objectStorage,
 		enqueueCleanup: func(string, int64) error {
+			enqueueObservedPutCount = fakeCOS.putCount
 			return context.DeadlineExceeded
 		},
 	}
 
-	_, err := store.persist(context.Background(), GrokResultStoreRequest{
+	_, err = store.persist(context.Background(), GrokResultStoreRequest{
 		SourceURL:      remote.URL + "/result.mp4",
 		UserID:         42,
 		MediaType:      "video",
@@ -126,7 +132,93 @@ func TestGrokResultStorageDeletesNewObjectWhenCleanupEnqueueFails(t *testing.T) 
 		CreatedAt:      time.Date(2026, time.August, 11, 9, 10, 11, 0, time.UTC),
 	})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Zero(t, enqueueObservedPutCount, "cleanup must be durably queued before any COS write")
 	require.Empty(t, fakeCOS.objects)
+	require.Zero(t, fakeCOS.deleteCount, "a failed pre-enqueue must not delete a key another node may own")
+}
+
+func TestEnqueueGrokObjectCleanupNeverExtendsExistingExpiry(t *testing.T) {
+	useStarAIAssetRedis(t)
+	ctx := context.Background()
+	key := "users/grok-results/42/video/2026/08/stable.mp4"
+	firstExpiry := int64(1_786_472_000)
+	require.NoError(t, EnqueueGrokObjectCleanup(key, firstExpiry))
+	require.NoError(t, EnqueueGrokObjectCleanup(key, firstExpiry+3600))
+
+	score, err := common.RDB.ZScore(ctx, grokCOSCleanupIndexKey, key).Result()
+	require.NoError(t, err)
+	require.Equal(t, float64(firstExpiry), score)
+}
+
+func TestGrokResultStorageConcurrentFailedPreEnqueueCannotDeleteSuccessfulPeerObject(t *testing.T) {
+	useStarAICOSTestConfig(t)
+	fakeCOS := newObjectStorageCOSTestServer(t)
+	var remoteCalls atomic.Int32
+	releaseRemote := make(chan struct{})
+	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		remoteCalls.Add(1)
+		<-releaseRemote
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("video"))
+	}))
+	t.Cleanup(remote.Close)
+	objectStorage := newObjectStorageCOSTestStore(t, fakeCOS, remote.Client())
+	failureEnqueued := make(chan struct{})
+	failingStore := &grokResultStore{
+		objectStorage: objectStorage,
+		enqueueCleanup: func(string, int64) error {
+			close(failureEnqueued)
+			return context.DeadlineExceeded
+		},
+	}
+	successStore := &grokResultStore{
+		objectStorage: objectStorage,
+		enqueueCleanup: func(string, int64) error {
+			<-failureEnqueued
+			return nil
+		},
+	}
+	request := GrokResultStoreRequest{
+		SourceURL:      remote.URL + "/result.mp4",
+		UserID:         42,
+		MediaType:      "video",
+		MIMEType:       "video/mp4",
+		IdempotencyKey: "shared-task",
+		CreatedAt:      time.Date(2026, time.August, 11, 9, 10, 11, 0, time.UTC),
+	}
+	type result struct {
+		stored *StoredObject
+		err    error
+	}
+	results := make(chan result, 2)
+	go func() {
+		stored, err := failingStore.persist(context.Background(), request)
+		results <- result{stored: stored, err: err}
+	}()
+	go func() {
+		stored, err := successStore.persist(context.Background(), request)
+		results <- result{stored: stored, err: err}
+	}()
+	require.Eventually(t, func() bool { return remoteCalls.Load() >= 1 }, time.Second, 5*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	close(releaseRemote)
+	first := <-results
+	second := <-results
+
+	errorsSeen := []error{first.err, second.err}
+	require.Contains(t, errorsSeen, context.DeadlineExceeded)
+	var successful *StoredObject
+	if first.err == nil {
+		successful = first.stored
+	}
+	if second.err == nil {
+		successful = second.stored
+	}
+	require.NotNil(t, successful)
+	require.Equal(t, int32(1), remoteCalls.Load())
+	require.Equal(t, 1, fakeCOS.putCount)
+	require.Contains(t, fakeCOS.objects, successful.ObjectKey)
+	require.Zero(t, fakeCOS.deleteCount)
 }
 
 func TestGrokStoredResultMetadataIsOptionalAndLegacyJSONCompatible(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/require"
 	cos "github.com/tencentyun/cos-go-sdk-v5"
@@ -26,6 +27,7 @@ type objectStorageCOSTestServer struct {
 	contentTypes map[string]string
 	expiresAt    map[string]string
 	putCount     int
+	deleteCount  int
 	deleteStatus map[string]int
 }
 
@@ -70,6 +72,7 @@ func newObjectStorageCOSTestServer(t *testing.T) *objectStorageCOSTestServer {
 			fake.putCount++
 			w.WriteHeader(http.StatusOK)
 		case http.MethodDelete:
+			fake.deleteCount++
 			if status := fake.deleteStatus[key]; status != 0 {
 				w.Header().Set("Content-Type", "application/xml")
 				w.WriteHeader(status)
@@ -144,6 +147,7 @@ func TestObjectStorageCOSReusesExistingObjectWithoutFetchingRemoteURL(t *testing
 	key := "users/grok-results/42/video/2026/08/stable.mp4"
 	fakeCOS.objects[key] = []byte("existing")
 	fakeCOS.contentTypes[key] = "video/mp4"
+	fakeCOS.expiresAt[key] = "1786472000"
 	remoteCalls := 0
 	remoteClient := &http.Client{Transport: objectStorageRoundTripFunc(func(*http.Request) (*http.Response, error) {
 		remoteCalls++
@@ -163,6 +167,68 @@ func TestObjectStorageCOSReusesExistingObjectWithoutFetchingRemoteURL(t *testing
 	require.Equal(t, int64(8), stored.Size)
 	require.Zero(t, remoteCalls)
 	require.Zero(t, fakeCOS.putCount)
+}
+
+func TestObjectStorageCOSExistingObjectExpiryMetadataFailsClosed(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		expiresAt string
+	}{
+		{name: "missing"},
+		{name: "invalid", expiresAt: "not-a-unix-time"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fakeCOS := newObjectStorageCOSTestServer(t)
+			key := "users/grok-results/42/video/2026/08/stable.mp4"
+			fakeCOS.objects[key] = []byte("existing")
+			fakeCOS.contentTypes[key] = "video/mp4"
+			fakeCOS.expiresAt[key] = testCase.expiresAt
+			remoteClient := &http.Client{Transport: objectStorageRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				t.Fatal("remote fetch must not run after an existing-object HEAD")
+				return nil, nil
+			})}
+			store := newObjectStorageCOSTestStore(t, fakeCOS, remoteClient)
+
+			_, err := store.copyRemoteObjectToCOS(context.Background(), "https://upstream.invalid/signed", ObjectKeySpec{
+				ObjectKey: key,
+				MediaType: "video",
+				MIMEType:  "video/mp4",
+				MaxBytes:  32,
+				ExpiresAt: 1_786_475_600,
+			})
+			require.ErrorContains(t, err, "expiry metadata")
+			require.Zero(t, fakeCOS.putCount)
+		})
+	}
+}
+
+func TestObjectStorageCOSPersistenceRequiresEnabledConfigWhileStarAIReadStillSigns(t *testing.T) {
+	useStarAICOSTestConfig(t)
+	common.OptionMapRWMutex.Lock()
+	common.OptionMap["COSEnabled"] = "false"
+	common.OptionMapRWMutex.Unlock()
+
+	_, err := CopyRemoteObjectToCOS(context.Background(), "https://upstream.invalid/result.png", ObjectKeySpec{
+		ObjectKey: "users/grok-results/42/image/2026/08/disabled.png",
+		MediaType: "image",
+		MIMEType:  "image/png",
+		MaxBytes:  32,
+		ExpiresAt: 1_786_472_000,
+	})
+	require.ErrorIs(t, err, ErrObjectStorageUnavailable)
+	_, err = PersistGrokResult(context.Background(), GrokResultStoreRequest{
+		SourceURL:      "https://upstream.invalid/result.png",
+		UserID:         42,
+		MediaType:      "image",
+		MIMEType:       "image/png",
+		IdempotencyKey: "disabled-request",
+		CreatedAt:      time.Date(2026, time.August, 11, 9, 10, 11, 0, time.UTC),
+	})
+	require.ErrorIs(t, err, ErrObjectStorageUnavailable)
+
+	signed, err := GetStarAICOSPreviewURL(context.Background(), "users/42/starai-assets/image/existing.png")
+	require.NoError(t, err)
+	require.NotEmpty(t, signed)
 }
 
 func TestObjectStorageCOSHonorsCancellationWhileCopying(t *testing.T) {

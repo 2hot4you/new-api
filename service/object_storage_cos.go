@@ -97,11 +97,18 @@ func newObjectStorageCOS(config operation_setting.COSConfig) (*objectStorageCOS,
 	return &objectStorageCOS{client: client, fetchClient: newObjectStorageFetchClient(), config: config}, nil
 }
 
+func newObjectStorageCOSForPersistence(config operation_setting.COSConfig) (*objectStorageCOS, error) {
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrObjectStorageUnavailable, err)
+	}
+	return newObjectStorageCOS(config)
+}
+
 // CopyRemoteObjectToCOS fetches one HTTPS object through the protected direct
 // fetch path, validates and bounds it on disk, then uploads it to COS. A HEAD
 // hit reuses an object previously written under the deterministic key.
 func CopyRemoteObjectToCOS(ctx context.Context, sourceURL string, key ObjectKeySpec) (*StoredObject, error) {
-	store, err := newObjectStorageCOS(operation_setting.GetCOSConfig())
+	store, err := newObjectStorageCOSForPersistence(operation_setting.GetCOSConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -278,13 +285,13 @@ func headStoredCOSObject(ctx context.Context, client *cos.Client, key ObjectKeyS
 	if err != nil {
 		return nil, false, fmt.Errorf("existing COS object metadata is invalid: %w", err)
 	}
-	expiresAt := key.ExpiresAt
-	if persistedExpiry := strings.TrimSpace(response.Header.Get("x-cos-meta-expires-at")); persistedExpiry != "" {
-		parsedExpiry, parseErr := strconv.ParseInt(persistedExpiry, 10, 64)
-		if parseErr != nil || parsedExpiry <= 0 {
-			return nil, false, errors.New("existing COS object expiry metadata is invalid")
-		}
-		expiresAt = parsedExpiry
+	persistedExpiry := strings.TrimSpace(response.Header.Get("x-cos-meta-expires-at"))
+	if persistedExpiry == "" {
+		return nil, false, errors.New("existing COS object expiry metadata is missing")
+	}
+	expiresAt, parseErr := strconv.ParseInt(persistedExpiry, 10, 64)
+	if parseErr != nil || expiresAt <= 0 {
+		return nil, false, errors.New("existing COS object expiry metadata is invalid")
 	}
 	return &StoredObject{
 		ObjectKey: key.ObjectKey,

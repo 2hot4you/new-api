@@ -99,7 +99,7 @@ func grokResultExtension(mediaType, rawMIMEType string) (string, error) {
 }
 
 func PersistGrokResult(ctx context.Context, request GrokResultStoreRequest) (*StoredObject, error) {
-	objectStorage, err := newObjectStorageCOS(operation_setting.GetCOSConfig())
+	objectStorage, err := newObjectStorageCOSForPersistence(operation_setting.GetCOSConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -116,21 +116,28 @@ func (store *grokResultStore) persist(ctx context.Context, request GrokResultSto
 		return nil, err
 	}
 	expiresAt := request.CreatedAt.Add(grokResultRetention).Unix()
-	stored, created, err := store.objectStorage.copyRemoteObjectToCOSWithStatus(ctx, request.SourceURL, ObjectKeySpec{
+	keySpec := ObjectKeySpec{
 		ObjectKey: objectKey,
 		MediaType: strings.ToLower(strings.TrimSpace(request.MediaType)),
 		MIMEType:  request.MIMEType,
 		ExpiresAt: expiresAt,
-	})
-	if err != nil {
+	}
+	if existing, found, err := headStoredCOSObject(ctx, store.objectStorage.client, keySpec); err != nil {
+		return nil, err
+	} else if found {
+		if err := store.enqueueCleanup(existing.ObjectKey, existing.ExpiresAt); err != nil {
+			return nil, err
+		}
+		return existing, nil
+	}
+	// Queue the deterministic key before the first COS write. A process crash,
+	// ambiguous PUT result, or another node's concurrent write can therefore
+	// never produce an object without a durable cleanup record.
+	if err := store.enqueueCleanup(objectKey, expiresAt); err != nil {
 		return nil, err
 	}
-	if err := store.enqueueCleanup(stored.ObjectKey, stored.ExpiresAt); err != nil {
-		if created {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_ = store.objectStorage.deleteObject(cleanupCtx, stored.ObjectKey)
-			cancel()
-		}
+	stored, _, err := store.objectStorage.copyRemoteObjectToCOSWithStatus(ctx, request.SourceURL, keySpec)
+	if err != nil {
 		return nil, err
 	}
 	return stored, nil
@@ -143,10 +150,14 @@ func EnqueueGrokObjectCleanup(objectKey string, expiresAt int64) error {
 	if !common.RedisEnabled || common.RDB == nil {
 		return ErrObjectStorageUnavailable
 	}
-	return common.RDB.ZAdd(context.Background(), grokCOSCleanupIndexKey, &redis.Z{
-		Score:  float64(expiresAt),
-		Member: objectKey,
-	}).Err()
+	const enqueueWithoutExtension = `
+local current = redis.call('ZSCORE', KEYS[1], ARGV[2])
+if (not current) or (tonumber(ARGV[1]) < tonumber(current)) then
+  return redis.call('ZADD', KEYS[1], ARGV[1], ARGV[2])
+end
+return 0
+`
+	return common.RDB.Eval(context.Background(), enqueueWithoutExtension, []string{grokCOSCleanupIndexKey}, expiresAt, objectKey).Err()
 }
 
 func cleanupExpiredGrokObjects(ctx context.Context) {
