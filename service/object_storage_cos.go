@@ -333,6 +333,50 @@ func SignCOSObjectURL(ctx context.Context, objectKey string, ttl time.Duration) 
 	return store.signObjectURL(ctx, objectKey, ttl)
 }
 
+// FetchCOSObject opens a private COS object with Molii's server-side
+// credentials. Callers may relay byte ranges without exposing COS credentials
+// or a provider-signed URL to the client.
+func FetchCOSObject(ctx context.Context, objectKey, rangeHeader, ifRangeHeader string) (*http.Response, error) {
+	objectKey = strings.TrimSpace(objectKey)
+	if objectKey == "" || strings.HasPrefix(objectKey, "/") || path.Clean(objectKey) != objectKey || strings.HasPrefix(objectKey, "..") {
+		return nil, errors.New("COS object key is invalid")
+	}
+	store, err := newObjectStorageCOS(operation_setting.GetCOSConfig())
+	if err != nil {
+		return nil, err
+	}
+	return fetchCOSObjectWithClient(ctx, store.client, objectKey, rangeHeader, ifRangeHeader)
+}
+
+func fetchCOSObjectWithClient(ctx context.Context, client *cos.Client, objectKey, rangeHeader, ifRangeHeader string) (*http.Response, error) {
+	if client == nil {
+		return nil, ErrObjectStorageUnavailable
+	}
+	options := &cos.ObjectGetOptions{Range: strings.TrimSpace(rangeHeader)}
+	if ifRange := strings.TrimSpace(ifRangeHeader); ifRange != "" {
+		headers := make(http.Header)
+		headers.Set("If-Range", ifRange)
+		options.XOptionHeader = &headers
+	}
+	response, err := client.Object.Get(ctx, objectKey, options)
+	if err != nil {
+		if response != nil && response.Response != nil && response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+			if response.Body == nil {
+				response.Body = http.NoBody
+			}
+			return response.Response, nil
+		}
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
+		return nil, fmt.Errorf("fetch COS object: %w", err)
+	}
+	if response == nil || response.Response == nil || response.Body == nil {
+		return nil, errors.New("fetch COS object returned no response")
+	}
+	return response.Response, nil
+}
+
 func (store *objectStorageCOS) signObjectURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error) {
 	if store == nil || store.client == nil {
 		return "", ErrObjectStorageUnavailable

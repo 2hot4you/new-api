@@ -30,6 +30,9 @@ type GrokResultStoreRequest struct {
 	MIMEType       string
 	IdempotencyKey string
 	CreatedAt      time.Time
+	// KeyAnchor keeps a deterministic directory across retries while CreatedAt
+	// remains the immutable start of the exact 24-hour retention window.
+	KeyAnchor time.Time
 }
 
 type grokResultStore struct {
@@ -68,6 +71,21 @@ func BuildGrokResultObjectKey(userID int, mediaType, idempotencyKey string, crea
 		createdAt.Format("01"),
 		fileName,
 	), nil
+}
+
+func IsOwnedGrokResultObject(userID int, mediaType, objectKey string) bool {
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	objectKey = strings.TrimSpace(objectKey)
+	if userID <= 0 || (mediaType != "image" && mediaType != "video") || objectKey == "" || path.Clean(objectKey) != objectKey {
+		return false
+	}
+	prefix := path.Join(
+		operation_setting.GetCOSConfig().PathPrefix,
+		"grok-results",
+		strconv.Itoa(userID),
+		mediaType,
+	) + "/"
+	return strings.HasPrefix(objectKey, prefix)
 }
 
 func grokResultExtension(mediaType, rawMIMEType string) (string, error) {
@@ -115,6 +133,31 @@ func PersistGrokResultWithStatus(ctx context.Context, request GrokResultStoreReq
 	return store.persistWithStatus(ctx, request)
 }
 
+func PersistGrokVideoResultWithStatus(ctx context.Context, request GrokResultStoreRequest) (*StoredObject, bool, error) {
+	return persistGrokVideoResultWithStatus(ctx, request, PersistGrokResultWithStatus)
+}
+
+func persistGrokVideoResultWithStatus(
+	ctx context.Context,
+	request GrokResultStoreRequest,
+	persist func(context.Context, GrokResultStoreRequest) (*StoredObject, bool, error),
+) (*StoredObject, bool, error) {
+	if strings.ToLower(strings.TrimSpace(request.MediaType)) != "video" || persist == nil {
+		return nil, false, errors.New("Grok video result persistence metadata is invalid")
+	}
+	var stored *StoredObject
+	var created bool
+	err := withGrokImagePersistenceLock(ctx, GrokImagePersistenceRequest{
+		UserID:    request.UserID,
+		RequestID: "video:" + strings.TrimSpace(request.IdempotencyKey),
+	}, func(lockedContext context.Context) error {
+		var err error
+		stored, created, err = persist(lockedContext, request)
+		return err
+	})
+	return stored, created, err
+}
+
 func (store *grokResultStore) persist(ctx context.Context, request GrokResultStoreRequest) (*StoredObject, error) {
 	stored, _, err := store.persistWithStatus(ctx, request)
 	return stored, err
@@ -124,7 +167,11 @@ func (store *grokResultStore) persistWithStatus(ctx context.Context, request Gro
 	if store == nil || store.objectStorage == nil || store.enqueueCleanup == nil {
 		return nil, false, ErrObjectStorageUnavailable
 	}
-	objectKey, err := BuildGrokResultObjectKey(request.UserID, request.MediaType, request.IdempotencyKey, request.CreatedAt, request.MIMEType)
+	keyAnchor := request.KeyAnchor
+	if keyAnchor.IsZero() {
+		keyAnchor = request.CreatedAt
+	}
+	objectKey, err := BuildGrokResultObjectKey(request.UserID, request.MediaType, request.IdempotencyKey, keyAnchor, request.MIMEType)
 	if err != nil {
 		return nil, false, err
 	}

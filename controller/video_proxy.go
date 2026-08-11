@@ -40,7 +40,13 @@ func videoProxyCodedError(c *gin.Context, status int, code, message string) {
 	})
 }
 
+type storedVideoFetcher func(context.Context, string, string, string) (*http.Response, error)
+
 func VideoProxy(c *gin.Context) {
+	videoProxyWithStoredFetcher(c, service.FetchCOSObject)
+}
+
+func videoProxyWithStoredFetcher(c *gin.Context, fetchStored storedVideoFetcher) {
 	taskID := c.Param("task_id")
 	if taskID == "" {
 		videoProxyError(c, http.StatusBadRequest, "invalid_request_error", "task_id is required")
@@ -62,6 +68,10 @@ func VideoProxy(c *gin.Context) {
 	if task.Status != model.TaskStatusSuccess {
 		videoProxyError(c, http.StatusBadRequest, "invalid_request_error",
 			fmt.Sprintf("Task is not completed yet, current status: %s", task.Status))
+		return
+	}
+	if task.PrivateData.StoredResult != nil {
+		serveStoredGrokVideo(c, task, fetchStored)
 		return
 	}
 
@@ -248,6 +258,66 @@ func VideoProxy(c *gin.Context) {
 	c.Writer.WriteHeader(resp.StatusCode)
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
+	}
+}
+
+func serveStoredGrokVideo(c *gin.Context, task *model.Task, fetchStored storedVideoFetcher) {
+	stored := task.PrivateData.StoredResult
+	if stored == nil {
+		videoProxyError(c, http.StatusNotFound, "invalid_request_error", "Video result is unavailable")
+		return
+	}
+	if stored.ExpiresAt <= time.Now().Unix() {
+		videoProxyCodedError(c, http.StatusGone, "result_expired", "Video result has expired")
+		return
+	}
+	if stored.MIMEType != "video/mp4" || !service.IsOwnedGrokResultObject(task.UserId, "video", stored.ObjectKey) {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Stored video metadata is invalid for public task %s", task.TaskID))
+		videoProxyCodedError(c, http.StatusBadGateway, "stored_result_invalid", "Stored video result metadata is invalid")
+		return
+	}
+	if fetchStored == nil {
+		videoProxyCodedError(c, http.StatusBadGateway, "stored_result_unavailable", "Stored video result is unavailable")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+	response, err := fetchStored(ctx, stored.ObjectKey, c.GetHeader("Range"), c.GetHeader("If-Range"))
+	if err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch stored video for public task %s", task.TaskID))
+		videoProxyCodedError(c, http.StatusBadGateway, "stored_result_unavailable", "Stored video result is unavailable")
+		return
+	}
+	if response == nil || response.Body == nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Stored video fetch returned no response for public task %s", task.TaskID))
+		videoProxyCodedError(c, http.StatusBadGateway, "stored_result_unavailable", "Stored video result is unavailable")
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent && response.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Stored video fetch returned status %d for public task %s", response.StatusCode, task.TaskID))
+		videoProxyCodedError(c, http.StatusBadGateway, "stored_result_unavailable", "Stored video result is unavailable")
+		return
+	}
+
+	for key, values := range response.Header {
+		if !isMoliiGrokVideoResponseHeaderAllowed(key) {
+			continue
+		}
+		for _, value := range values {
+			c.Writer.Header().Add(key, value)
+		}
+	}
+	applyMoliiGrokVideoResponseHeaders(c.Writer.Header())
+	c.Writer.Header().Set("Cache-Control", "private, no-store")
+	c.Writer.WriteHeader(response.StatusCode)
+	if response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+		c.Writer.WriteHeaderNow()
+		return
+	}
+	if _, err := io.Copy(c.Writer, response.Body); err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream stored video for public task %s", task.TaskID))
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -594,7 +595,15 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	isStarAI := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
 	isMoliiGrok := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
 	if (isStarAI || isMoliiGrok) && task.Status == model.TaskStatusSuccess {
-		resultURL = service.BuildSignedVideoProxyURL(task.TaskID, task.UserId)
+		if !isMoliiGrok || task.PrivateData.StoredResult == nil || task.HasUnexpiredStoredResult(time.Now()) {
+			if isMoliiGrok && task.PrivateData.StoredResult != nil {
+				resultURL = service.BuildSignedVideoProxyURLUntil(task.TaskID, task.UserId, time.Unix(task.PrivateData.StoredResult.ExpiresAt, 0))
+			} else {
+				resultURL = service.BuildSignedVideoProxyURL(task.TaskID, task.UserId)
+			}
+		} else {
+			resultURL = ""
+		}
 		if isStarAI {
 			taskData = service.RewriteStarAIVideoResponseURLs(task.Data, resultURL)
 		}

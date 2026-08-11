@@ -24,6 +24,9 @@ type privateGrokPollingAdaptor struct {
 	result          *relaycommon.TaskInfo
 	adjustQuota     int
 	finalizeBilling bool
+	persistErr      error
+	persistCalls    int
+	onPersist       func(*model.Task, *relaycommon.TaskInfo, time.Time)
 }
 
 func (a *privateGrokPollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -69,6 +72,104 @@ func (a *privateGrokPollingAdaptor) SafePollingData(result *relaycommon.TaskInfo
 
 func (a *privateGrokPollingAdaptor) SafePollingError(statusCode int) error {
 	return errors.New("Molii Grok Imagine API polling failed")
+}
+
+func (a *privateGrokPollingAdaptor) PersistTaskResult(_ context.Context, task *model.Task, result *relaycommon.TaskInfo, completedAt time.Time) (*model.TaskStoredResult, error) {
+	a.persistCalls++
+	if a.onPersist != nil {
+		a.onPersist(task, result, completedAt)
+	}
+	if a.persistErr != nil {
+		return nil, a.persistErr
+	}
+	return &model.TaskStoredResult{
+		ObjectKey:       "users/grok-results/1/video/2026/08/result.mp4",
+		MIMEType:        "video/mp4",
+		Size:            1024,
+		ExpiresAt:       completedAt.Add(24 * time.Hour).Unix(),
+		DurationSeconds: result.ActualDurationSeconds,
+	}, nil
+}
+
+func TestMoliiGrokSuccessPersistsVideoBeforeTerminalCAS(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	const userID, channelID = 611, 612
+	const upstreamID = "grok-private-persistence-id"
+	seedUser(t, userID, 10000)
+	seedChannel(t, channelID)
+	task := makeTask(userID, channelID, 2500, 0, BillingSourceWallet, 0)
+	task.TaskID = "task_public_grok_persist"
+	task.Platform = constant.TaskPlatform("62")
+	task.PrivateData.UpstreamTaskID = upstreamID
+	task.PrivateData.BillingContext.PerCallBilling = true
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &privateGrokPollingAdaptor{
+		statusCode: http.StatusOK,
+		body:       []byte(`{"status":"done","video":{"url":"https://video.example/private-signed.mp4"}}`),
+		result: &relaycommon.TaskInfo{
+			Status:                model.TaskStatusSuccess,
+			Progress:              "100%",
+			Url:                   "https://video.example/private-signed.mp4",
+			ActualDurationSeconds: 6,
+		},
+		onPersist: func(_ *model.Task, result *relaycommon.TaskInfo, _ time.Time) {
+			require.Equal(t, "https://video.example/private-signed.mp4", result.Url)
+			var before model.Task
+			require.NoError(t, model.DB.First(&before, task.ID).Error)
+			require.EqualValues(t, model.TaskStatusInProgress, before.Status)
+			var jobCount int64
+			require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("task_id = ?", task.ID).Count(&jobCount).Error)
+			require.Zero(t, jobCount, "billing job must not exist before COS persistence")
+		},
+	}
+	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
+
+	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
+	require.Equal(t, 1, adaptor.persistCalls)
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	require.EqualValues(t, model.TaskStatusSuccess, reloaded.Status)
+	require.NotNil(t, reloaded.PrivateData.StoredResult)
+	require.Equal(t, "video/mp4", reloaded.PrivateData.StoredResult.MIMEType)
+	require.Equal(t, 6.0, reloaded.PrivateData.StoredResult.DurationSeconds)
+	require.NotContains(t, reloaded.PrivateData.ResultURL, "video.example")
+	require.NotContains(t, string(reloaded.Data), "video.example")
+	_ = loadTaskBillingJobByTaskID(t, task.ID)
+}
+
+func TestMoliiGrokPersistenceFailureLeavesTaskRetryableWithoutBillingJob(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	const userID, channelID = 613, 614
+	const upstreamID = "grok-private-copy-failure-id"
+	seedUser(t, userID, 10000)
+	seedChannel(t, channelID)
+	task := makeTask(userID, channelID, 2500, 0, BillingSourceWallet, 0)
+	task.TaskID = "task_public_grok_copy_failure"
+	task.Platform = constant.TaskPlatform("62")
+	task.PrivateData.UpstreamTaskID = upstreamID
+	task.PrivateData.BillingContext.PerCallBilling = true
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &privateGrokPollingAdaptor{
+		statusCode: http.StatusOK,
+		body:       []byte(`{"status":"done"}`),
+		result:     &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://video.example/private-signed.mp4"},
+		persistErr: errors.New("COS copy failed"),
+	}
+	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
+
+	err := updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task})
+	require.ErrorContains(t, err, "result persistence failed")
+	require.Equal(t, 1, adaptor.persistCalls)
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	require.EqualValues(t, model.TaskStatusInProgress, reloaded.Status)
+	require.Nil(t, reloaded.PrivateData.StoredResult)
+	require.NotContains(t, reloaded.PrivateData.ResultURL, "video.example")
+	var jobCount int64
+	require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("task_id = ?", task.ID).Count(&jobCount).Error)
+	require.Zero(t, jobCount)
 }
 
 func TestPrivateGrokPollingAccepts202AndPersistsOnlySafeData(t *testing.T) {
@@ -210,7 +311,9 @@ func TestMoliiGrokSuccessDoesNotDoubleSettleAcrossStalePolls(t *testing.T) {
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.EqualValues(t, model.TaskStatusSuccess, reloaded.Status)
-	assert.Equal(t, "https://video.example/result.mp4", reloaded.PrivateData.ResultURL)
+	assert.Contains(t, reloaded.PrivateData.ResultURL, "/v1/videos/task_public_grok_success/content")
+	assert.NotContains(t, reloaded.PrivateData.ResultURL, "video.example")
+	assert.NotNil(t, reloaded.PrivateData.StoredResult)
 }
 
 func markFinalUsageGrokTask(task *model.Task) {
@@ -315,7 +418,9 @@ func TestMoliiGrokFinalUsageMissingCompletionFinalizationSuppressesSuccessLog(t 
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.EqualValues(t, model.TaskStatusSuccess, reloaded.Status)
-	assert.Equal(t, "https://video.example/edit-result.mp4", reloaded.PrivateData.ResultURL)
+	assert.Contains(t, reloaded.PrivateData.ResultURL, "/v1/videos/task_public_grok_unfinalized/content")
+	assert.NotContains(t, reloaded.PrivateData.ResultURL, "video.example")
+	assert.NotNil(t, reloaded.PrivateData.StoredResult)
 	assert.Empty(t, reloaded.PrivateData.BillingContext.GrokVideoBilling.ActualResolution)
 }
 

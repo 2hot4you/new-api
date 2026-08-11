@@ -50,3 +50,22 @@ func TestTaskModel2DtoPreservesNonStarAIResultURL(t *testing.T) {
 	}
 	assert.Equal(t, task.PrivateData.ResultURL, TaskModel2Dto(task).ResultURL)
 }
+
+func TestTaskModel2DtoOmitsExpiredMoliiGrokStoredResultURL(t *testing.T) {
+	task := &model.Task{
+		TaskID:   "task_grok_expired",
+		UserId:   42,
+		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC)),
+		Status:   model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			ResultURL: "/v1/videos/task_grok_expired/content",
+			StoredResult: &model.TaskStoredResult{
+				ObjectKey: "users/grok-results/42/video/result.mp4",
+				MIMEType:  "video/mp4",
+				ExpiresAt: time.Now().Add(-time.Second).Unix(),
+			},
+		},
+	}
+
+	assert.Empty(t, TaskModel2Dto(task).ResultURL)
+}

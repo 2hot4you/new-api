@@ -26,11 +26,20 @@ func videoPlaybackSignature(taskID string, userID int, expiresAt int64) string {
 // pages. Keeping the path relative prevents a dashboard opened on a local or
 // alternate domain from sending its task preview to ServerAddress instead.
 func BuildSignedVideoProxyPath(taskID string, userID int) string {
+	return BuildSignedVideoProxyPathUntil(taskID, userID, time.Now().Add(VideoPlaybackURLTTL))
+}
+
+func BuildSignedVideoProxyPathUntil(taskID string, userID int, validUntil time.Time) string {
 	taskID = strings.TrimSpace(taskID)
-	if taskID == "" || userID <= 0 {
+	now := time.Now()
+	if taskID == "" || userID <= 0 || !validUntil.After(now) {
 		return ""
 	}
-	expiresAt := time.Now().Add(VideoPlaybackURLTTL).Unix()
+	maximum := now.Add(VideoPlaybackURLTTL)
+	if validUntil.After(maximum) {
+		validUntil = maximum
+	}
+	expiresAt := validUntil.Unix()
 	query := url.Values{}
 	query.Set("expires", strconv.FormatInt(expiresAt, 10))
 	query.Set("user_id", strconv.Itoa(userID))
@@ -45,6 +54,14 @@ func BuildSignedVideoProxyPath(taskID string, userID int) string {
 // be returned to API clients without forwarding the user's API key.
 func BuildSignedVideoProxyURL(taskID string, userID int) string {
 	path := BuildSignedVideoProxyPath(taskID, userID)
+	if path == "" {
+		return ""
+	}
+	return strings.TrimRight(system_setting.ServerAddress, "/") + path
+}
+
+func BuildSignedVideoProxyURLUntil(taskID string, userID int, validUntil time.Time) string {
+	path := BuildSignedVideoProxyPathUntil(taskID, userID, validUntil)
 	if path == "" {
 		return ""
 	}

@@ -236,3 +236,72 @@ func TestGrokStoredResultMetadataIsOptionalAndLegacyJSONCompatible(t *testing.T)
 	require.NoError(t, err)
 	require.NotContains(t, string(body), "upstream")
 }
+
+func TestGrokResultStorageUsesExplicitExpiryWithoutChangingKeyAnchor(t *testing.T) {
+	useStarAICOSTestConfig(t)
+	fakeCOS := newObjectStorageCOSTestServer(t)
+	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("video"))
+	}))
+	t.Cleanup(remote.Close)
+	store := &grokResultStore{
+		objectStorage:  newObjectStorageCOSTestStore(t, fakeCOS, remote.Client()),
+		enqueueCleanup: func(string, int64) error { return nil },
+	}
+	keyAnchor := time.Date(2026, time.July, 31, 23, 59, 0, 0, time.UTC)
+	completedAt := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+
+	stored, _, err := store.persistWithStatus(context.Background(), GrokResultStoreRequest{
+		SourceURL:      remote.URL + "/result.mp4",
+		UserID:         42,
+		MediaType:      "video",
+		MIMEType:       "video/mp4",
+		IdempotencyKey: "task_public_video",
+		CreatedAt:      completedAt,
+		KeyAnchor:      keyAnchor,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, completedAt.Add(24*time.Hour).Unix(), stored.ExpiresAt)
+	require.Contains(t, stored.ObjectKey, "/2026/07/")
+}
+
+func TestIsOwnedGrokResultObjectRequiresUserAndMediaPrefix(t *testing.T) {
+	useStarAICOSTestConfig(t)
+	require.True(t, IsOwnedGrokResultObject(42, "video", "users/grok-results/42/video/2026/08/result.mp4"))
+	require.False(t, IsOwnedGrokResultObject(7, "video", "users/grok-results/42/video/2026/08/result.mp4"))
+	require.False(t, IsOwnedGrokResultObject(42, "image", "users/grok-results/42/video/2026/08/result.mp4"))
+	require.False(t, IsOwnedGrokResultObject(42, "video", "users/grok-results/42/video/../image/result.mp4"))
+}
+
+func TestPersistGrokVideoResultSerializesSameTaskAcrossNodes(t *testing.T) {
+	useStarAIAssetRedis(t)
+	request := GrokResultStoreRequest{
+		UserID: 42, MediaType: "video", MIMEType: "video/mp4",
+		IdempotencyKey: "task_public_video", CreatedAt: time.Now(),
+	}
+	ownerEntered := make(chan struct{})
+	releaseOwner := make(chan struct{})
+	ownerDone := make(chan error, 1)
+	persist := func(context.Context, GrokResultStoreRequest) (*StoredObject, bool, error) {
+		close(ownerEntered)
+		<-releaseOwner
+		return &StoredObject{ObjectKey: "users/grok-results/42/video/result.mp4", MIMEType: "video/mp4", ExpiresAt: time.Now().Add(24 * time.Hour).Unix()}, true, nil
+	}
+	go func() {
+		_, _, err := persistGrokVideoResultWithStatus(context.Background(), request, persist)
+		ownerDone <- err
+	}()
+	<-ownerEntered
+
+	peerEntered := false
+	_, _, peerErr := persistGrokVideoResultWithStatus(context.Background(), request, func(context.Context, GrokResultStoreRequest) (*StoredObject, bool, error) {
+		peerEntered = true
+		return nil, false, nil
+	})
+	require.Error(t, peerErr)
+	require.False(t, peerEntered)
+	close(releaseOwner)
+	require.NoError(t, <-ownerDone)
+}

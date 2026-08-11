@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -57,6 +58,43 @@ func taskInfo() *relaycommon.RelayInfo {
 			UpstreamModelName: VideoModel,
 		},
 	}
+}
+
+func TestPersistTaskResultUsesStableTaskAnchorAndCompletionRetention(t *testing.T) {
+	createdAt := time.Date(2026, time.July, 31, 23, 59, 0, 0, time.UTC)
+	completedAt := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	var captured service.GrokResultStoreRequest
+	adaptor := &TaskAdaptor{persistVideoResult: func(_ context.Context, request service.GrokResultStoreRequest) (*service.StoredObject, bool, error) {
+		captured = request
+		return &service.StoredObject{
+			ObjectKey: "users/grok-results/42/video/2026/07/result.mp4",
+			MIMEType:  "video/mp4",
+			Size:      2048,
+			ExpiresAt: completedAt.Add(24 * time.Hour).Unix(),
+		}, true, nil
+	}}
+	task := &model.Task{TaskID: "task_public_video", UserId: 42, CreatedAt: createdAt.Unix()}
+	result := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Url: "https://provider.invalid/private.mp4", ActualDurationSeconds: 6}
+
+	stored, err := adaptor.PersistTaskResult(context.Background(), task, result, completedAt)
+
+	require.NoError(t, err)
+	require.Equal(t, service.GrokResultStoreRequest{
+		SourceURL:      "https://provider.invalid/private.mp4",
+		UserID:         42,
+		MediaType:      "video",
+		MIMEType:       "video/mp4",
+		IdempotencyKey: "task_public_video",
+		CreatedAt:      completedAt,
+		KeyAnchor:      createdAt,
+	}, captured)
+	require.Equal(t, &model.TaskStoredResult{
+		ObjectKey:       "users/grok-results/42/video/2026/07/result.mp4",
+		MIMEType:        "video/mp4",
+		Size:            2048,
+		ExpiresAt:       completedAt.Add(24 * time.Hour).Unix(),
+		DurationSeconds: 6,
+	}, stored)
 }
 
 func TestVideoRequestUsesDirectFieldsAndDefaults(t *testing.T) {
@@ -527,6 +565,22 @@ func TestConvertToOpenAIVideoUsesPublicContentURL(t *testing.T) {
 	assert.Contains(t, text, "/v1/videos/task_public_123/content")
 	assert.NotContains(t, text, "upstream-secret-id")
 	assert.NotContains(t, text, "videos.example")
+}
+
+func TestConvertToOpenAIVideoOmitsExpiredStoredResultURL(t *testing.T) {
+	task := &model.Task{
+		TaskID: "task_public_expired", UserId: 9, Status: model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			ResultURL: "/v1/videos/task_public_expired/content",
+			StoredResult: &model.TaskStoredResult{
+				ObjectKey: "users/grok-results/9/video/result.mp4",
+				MIMEType:  "video/mp4", ExpiresAt: time.Now().Add(-time.Second).Unix(),
+			},
+		},
+	}
+	body, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "/v1/videos/task_public_expired/content")
 }
 
 func TestTaskSubmitErrorSanitizerHandlesPricingWithoutRequestID(t *testing.T) {

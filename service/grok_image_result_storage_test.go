@@ -123,10 +123,7 @@ func TestGrokImagePersistenceLockPreventsPeerReuseUntilOwnerFinishes(t *testing.
 	releaseOwner := make(chan struct{})
 	ownerDone := make(chan error, 1)
 	go func() {
-		ownerDone <- withGrokImagePersistenceLock(context.Background(), request, func(_ context.Context, owns func() bool) error {
-			if !owns() {
-				return errors.New("owner unexpectedly lost the persistence lock")
-			}
+		ownerDone <- withGrokImagePersistenceLock(context.Background(), request, func(_ context.Context) error {
 			close(ownerStarted)
 			<-releaseOwner
 			return nil
@@ -135,7 +132,7 @@ func TestGrokImagePersistenceLockPreventsPeerReuseUntilOwnerFinishes(t *testing.
 	<-ownerStarted
 
 	var peerEntered atomic.Bool
-	peerErr := withGrokImagePersistenceLock(context.Background(), request, func(context.Context, func() bool) error {
+	peerErr := withGrokImagePersistenceLock(context.Background(), request, func(context.Context) error {
 		peerEntered.Store(true)
 		return nil
 	})
@@ -144,8 +141,7 @@ func TestGrokImagePersistenceLockPreventsPeerReuseUntilOwnerFinishes(t *testing.
 	close(releaseOwner)
 	require.NoError(t, <-ownerDone)
 
-	require.NoError(t, withGrokImagePersistenceLock(context.Background(), request, func(_ context.Context, owns func() bool) error {
-		require.True(t, owns())
+	require.NoError(t, withGrokImagePersistenceLock(context.Background(), request, func(_ context.Context) error {
 		peerEntered.Store(true)
 		return nil
 	}))

@@ -91,6 +91,23 @@ func newObjectStorageCOSTestServer(t *testing.T) *objectStorageCOSTestServer {
 			delete(fake.contentTypes, key)
 			delete(fake.expiresAt, key)
 			w.WriteHeader(http.StatusNoContent)
+		case http.MethodGet:
+			body, ok := fake.objects[key]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", fake.contentTypes[key])
+			w.Header().Set("Accept-Ranges", "bytes")
+			if r.Header.Get("Range") == "bytes=0-3" {
+				w.Header().Set("Content-Range", "bytes 0-3/"+strconv.Itoa(len(body)))
+				w.Header().Set("ETag", r.Header.Get("If-Range"))
+				w.WriteHeader(http.StatusPartialContent)
+				_, _ = w.Write(body[:4])
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(body)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -101,6 +118,23 @@ func newObjectStorageCOSTestServer(t *testing.T) *objectStorageCOSTestServer {
 	fake.client = cos.NewClient(&cos.BaseURL{BucketURL: bucketURL}, fake.server.Client())
 	fake.client.Conf.EnableCRC = false
 	return fake
+}
+
+func TestFetchCOSObjectForwardsRangeAndIfRange(t *testing.T) {
+	fakeCOS := newObjectStorageCOSTestServer(t)
+	key := "users/grok-results/42/video/2026/08/result.mp4"
+	fakeCOS.objects[key] = []byte("video-result")
+	fakeCOS.contentTypes[key] = "video/mp4"
+
+	response, err := fetchCOSObjectWithClient(context.Background(), fakeCOS.client, key, "bytes=0-3", `"etag-value"`)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusPartialContent, response.StatusCode)
+	require.Equal(t, "bytes 0-3/12", response.Header.Get("Content-Range"))
+	require.Equal(t, `"etag-value"`, response.Header.Get("ETag"))
+	require.Equal(t, []byte("vide"), body)
 }
 
 func newObjectStorageCOSTestStore(t *testing.T, fake *objectStorageCOSTestServer, remoteClient *http.Client) *objectStorageCOS {

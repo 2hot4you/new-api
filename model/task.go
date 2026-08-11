@@ -127,6 +127,10 @@ type TaskStoredResult struct {
 	DurationSeconds float64 `json:"duration_seconds,omitempty"`
 }
 
+func (t *Task) HasUnexpiredStoredResult(now time.Time) bool {
+	return t != nil && t.PrivateData.StoredResult != nil && t.PrivateData.StoredResult.ExpiresAt > now.Unix()
+}
+
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 type TaskBillingContext struct {
 	ModelPrice                float64                   `json:"model_price,omitempty"`       // 模型单价

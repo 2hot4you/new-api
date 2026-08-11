@@ -61,7 +61,7 @@ type grokImageResultPersistenceDeps struct {
 
 func PersistGrokImageResults(ctx context.Context, request GrokImagePersistenceRequest) ([]GrokImagePersistedResult, error) {
 	var results []GrokImagePersistedResult
-	err := withGrokImagePersistenceLock(ctx, request, func(lockedContext context.Context, _ func() bool) error {
+	err := withGrokImagePersistenceLock(ctx, request, func(lockedContext context.Context) error {
 		var err error
 		results, err = persistGrokImageResults(lockedContext, request, grokImageResultPersistenceDeps{
 			persist: PersistGrokResultWithStatus,
@@ -134,7 +134,7 @@ func persistGrokImageResults(ctx context.Context, request GrokImagePersistenceRe
 func withGrokImagePersistenceLock(
 	ctx context.Context,
 	request GrokImagePersistenceRequest,
-	callback func(context.Context, func() bool) error,
+	callback func(context.Context) error,
 ) error {
 	if request.UserID <= 0 || strings.TrimSpace(request.RequestID) == "" || callback == nil {
 		return errors.New("Grok image result ownership metadata is invalid")
@@ -200,13 +200,7 @@ func withGrokImagePersistenceLock(
 		}
 	}()
 
-	callbackErr := callback(lockedContext, func() bool {
-		// Refreshing here is a fencing step for destructive rollback: a peer
-		// cannot acquire the request lock while the bounded COS delete runs.
-		ownershipContext, ownershipCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer ownershipCancel()
-		return refreshLease(ownershipContext)
-	})
+	callbackErr := callback(lockedContext)
 	close(renewDone)
 	owned.Store(false)
 	releaseContext, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)

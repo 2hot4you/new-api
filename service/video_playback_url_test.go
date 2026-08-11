@@ -56,6 +56,23 @@ func TestSignedVideoProxyPathRoundTrip(t *testing.T) {
 	assert.Equal(t, 42, userID)
 }
 
+func TestSignedVideoProxyPathUntilIsBoundedByStoredResultExpiry(t *testing.T) {
+	validUntil := time.Now().Add(5 * time.Minute).Truncate(time.Second)
+	raw := BuildSignedVideoProxyPathUntil("task_stored_video", 42, validUntil)
+	parsed, err := url.Parse(raw)
+	require.NoError(t, err)
+	require.Equal(t, strconv.FormatInt(validUntil.Unix(), 10), parsed.Query().Get("expires"))
+
+	_, err = VerifyVideoPlaybackSignature(
+		"task_stored_video",
+		parsed.Query().Get("user_id"),
+		parsed.Query().Get("expires"),
+		parsed.Query().Get("signature"),
+		validUntil.Add(time.Second),
+	)
+	require.ErrorIs(t, err, ErrVideoPlaybackSignatureInvalid)
+}
+
 func TestVideoPlaybackSignatureRejectsTamperingAndExpiry(t *testing.T) {
 	previousSecret := common.SessionSecret
 	common.SessionSecret = "video-playback-test-secret"
