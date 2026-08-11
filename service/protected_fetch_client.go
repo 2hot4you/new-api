@@ -63,6 +63,16 @@ func newProtectedFetchHTTPClientWithDialer(resolver ssrfResolver, dialContext fu
 	return newProtectedFetchHTTPClientWithProxy(resolver, dialContext, getProtection, http.ProxyFromEnvironment)
 }
 
+// newProtectedFetchHTTPClientWithoutProxy creates a protected client whose
+// target hostname is always resolved and pinned by protectedFetchDialer. This
+// is required for user-controlled media because an HTTP proxy would perform a
+// second, unpinned DNS lookup and reopen DNS-rebinding risk.
+func newProtectedFetchHTTPClientWithoutProxy(resolver ssrfResolver, dialContext func(ctx context.Context, network, address string) (net.Conn, error), getProtection func() (*common.SSRFProtection, bool, error)) *http.Client {
+	return newProtectedFetchHTTPClientWithProxy(resolver, dialContext, getProtection, func(*http.Request) (*url.URL, error) {
+		return nil, nil
+	})
+}
+
 func newProtectedFetchHTTPClientWithProxy(resolver ssrfResolver, dialContext func(ctx context.Context, network, address string) (net.Conn, error), getProtection func() (*common.SSRFProtection, bool, error), proxy func(*http.Request) (*url.URL, error)) *http.Client {
 	if resolver == nil {
 		resolver = net.DefaultResolver
@@ -81,15 +91,27 @@ func newProtectedFetchHTTPClientWithProxy(resolver ssrfResolver, dialContext fun
 		proxy = http.ProxyFromEnvironment
 	}
 
+	roundTripper := &ssrfProtectedRoundTripper{
+		resolver:      resolver,
+		dialContext:   dialContext,
+		getProtection: getProtection,
+		proxy:         proxy,
+		transports:    make(map[string]*http.Transport),
+	}
 	client := &http.Client{
-		Transport: &ssrfProtectedRoundTripper{
-			resolver:      resolver,
-			dialContext:   dialContext,
-			getProtection: getProtection,
-			proxy:         proxy,
-			transports:    make(map[string]*http.Transport),
+		Transport: roundTripper,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if req == nil || req.URL == nil {
+				return fmt.Errorf("invalid redirect request")
+			}
+			if err := validateProtectedFetchURLWithoutDNS(req.URL, getProtection); err != nil {
+				return fmt.Errorf("redirect to %s blocked: %v", req.URL.String(), err)
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return nil
 		},
-		CheckRedirect: checkProtectedFetchRedirect,
 	}
 	if common.RelayTimeout != 0 {
 		client.Timeout = time.Duration(common.RelayTimeout) * time.Second
@@ -101,15 +123,46 @@ func (t *ssrfProtectedRoundTripper) RoundTrip(req *http.Request) (*http.Response
 	if req == nil || req.URL == nil {
 		return nil, fmt.Errorf("invalid request")
 	}
-	if err := ValidateSSRFProtectedFetchURL(req.URL.String()); err != nil {
-		return nil, err
-	}
-
 	proxyURL, err := t.proxy(req)
 	if err != nil {
 		return nil, err
 	}
+	if proxyURL != nil {
+		if err := ValidateSSRFProtectedFetchURL(req.URL.String()); err != nil {
+			return nil, err
+		}
+	} else if err := validateProtectedFetchURLWithoutDNS(req.URL, t.getProtection); err != nil {
+		return nil, err
+	}
 	return t.transportFor(proxyURL).RoundTrip(req)
+}
+
+func validateProtectedFetchURLWithoutDNS(target *url.URL, getProtection func() (*common.SSRFProtection, bool, error)) error {
+	if target == nil || (target.Scheme != "http" && target.Scheme != "https") || target.Hostname() == "" {
+		return fmt.Errorf("invalid URL")
+	}
+	if target.User != nil {
+		return fmt.Errorf("URL credentials are not allowed")
+	}
+	port := 80
+	if target.Scheme == "https" {
+		port = 443
+	}
+	if target.Port() != "" {
+		parsedPort, err := strconv.Atoi(target.Port())
+		if err != nil {
+			return fmt.Errorf("invalid port: %s", target.Port())
+		}
+		port = parsedPort
+	}
+	protection, enabled, err := getProtection()
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+	return protection.ValidateNetworkTarget(target.Hostname(), port)
 }
 
 func (t *ssrfProtectedRoundTripper) CloseIdleConnections() {

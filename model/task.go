@@ -140,38 +140,9 @@ type TaskBillingContext struct {
 	GrokVideoBilling          *GrokVideoBillingSnapshot `json:"grok_video_billing,omitempty"`
 }
 
-// GrokVideoBillingSnapshot is the versioned, public-safe pricing contract for
-// Molii Grok asynchronous video tasks. Price fields intentionally do not use
-// omitempty: an explicitly configured zero price is valid billing data.
-const GrokVideoResolutionSourceProviderPollV1 = "provider_poll_v1"
+const GrokVideoResolutionSourceProviderPollV1 = commonRelay.GrokVideoResolutionSourceProviderPollV1
 
-type GrokVideoBillingSnapshot struct {
-	Version                  int     `json:"version"`
-	Model                    string  `json:"model"`
-	RequestedModel           string  `json:"requested_model,omitempty"`
-	BilledModel              string  `json:"billed_model,omitempty"`
-	Operation                string  `json:"operation"`
-	InputType                string  `json:"input_type"`
-	RequestedDurationSeconds float64 `json:"requested_duration_seconds"`
-	EstimatedDurationSeconds float64 `json:"estimated_duration_seconds"`
-	ActualDurationSeconds    float64 `json:"actual_duration_seconds"`
-	RequestedResolution      string  `json:"requested_resolution"`
-	EstimatedResolution      string  `json:"estimated_resolution"`
-	ActualResolution         string  `json:"actual_resolution"`
-	ResolutionSource         string  `json:"resolution_source,omitempty"`
-	AspectRatio              string  `json:"aspect_ratio"`
-	InputImageCount          int     `json:"input_image_count"`
-	VideoInputBilledSeconds  float64 `json:"video_input_billed_seconds"`
-	OutputUnitPrice          float64 `json:"output_unit_price"`
-	ImageInputUnitPrice      float64 `json:"image_input_unit_price"`
-	VideoInputUnitPrice      float64 `json:"video_input_unit_price"`
-	OutputCost               float64 `json:"output_cost"`
-	ImageInputCost           float64 `json:"image_input_cost"`
-	VideoInputCost           float64 `json:"video_input_cost"`
-	Subtotal                 float64 `json:"subtotal"`
-	GroupRatio               float64 `json:"group_ratio"`
-	FinalCost                float64 `json:"final_cost"`
-}
+type GrokVideoBillingSnapshot = commonRelay.GrokVideoBillingSnapshot
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
 // 旧数据没有 UpstreamTaskID 时，TaskID 本身就是上游 ID

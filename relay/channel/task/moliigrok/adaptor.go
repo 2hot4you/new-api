@@ -30,8 +30,9 @@ import (
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	apiKey  string
-	baseURL string
+	apiKey      string
+	baseURL     string
+	videoProber service.UserVideoProber
 }
 
 const fileIDNotSupportedMessage = "Molii media file_id is not supported; use a URL instead"
@@ -39,8 +40,6 @@ const fileIDNotSupportedMessage = "Molii media file_id is not supported; use a U
 var supportedVideoAspectRatios = map[string]struct{}{
 	"1:1": {}, "16:9": {}, "9:16": {}, "4:3": {}, "3:4": {}, "3:2": {}, "2:3": {},
 }
-
-var probeUserVideo = service.ProbeUserVideo
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	if info == nil {
@@ -95,9 +94,16 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		if req.Duration != 0 || strings.TrimSpace(req.AspectRatio) != "" || strings.TrimSpace(req.Resolution) != "" {
 			return service.TaskErrorWrapperLocal(errors.New("duration, aspect_ratio and resolution are not supported for video edits"), "invalid_request", http.StatusBadRequest)
 		}
-		probe, err := probeUserVideo(c.Request.Context(), service.MediaSource{URL: strings.TrimSpace(req.Video)})
+		videoProber := a.videoProber
+		if videoProber == nil {
+			videoProber = service.UserVideoProbeFunc(service.ProbeUserVideo)
+		}
+		probe, err := videoProber.ProbeUserVideo(c.Request.Context(), service.MediaSource{URL: strings.TrimSpace(req.Video)})
 		if err != nil {
 			return service.TaskErrorWrapperLocal(errors.New("video must be a valid MP4"), "invalid_video", http.StatusBadRequest)
+		}
+		if probe.DurationSeconds <= 0 || probe.DurationSeconds > 8.7 {
+			return service.TaskErrorWrapperLocal(errors.New("video duration must be greater than 0 and at most 8.7 seconds"), "invalid_video_duration", http.StatusBadRequest)
 		}
 		c.Set("task_request", req)
 		info.Action = videoEditAction

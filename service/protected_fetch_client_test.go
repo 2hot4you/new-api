@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -314,4 +315,72 @@ func TestProtectedFetchRoundTripperReusesTransportPerProxy(t *testing.T) {
 	require.NotSame(t, direct, proxied)
 	require.True(t, direct.ForceAttemptHTTP2)
 	require.False(t, direct.DisableKeepAlives)
+}
+
+func TestProtectedFetchNoProxyClientIgnoresEnvironmentProxyAndPinsResolvedIP(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:3128")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:3128")
+	var dialed []string
+	client := newProtectedFetchHTTPClientWithoutProxy(
+		staticSSRFResolver{"media.example": {{IP: net.ParseIP("8.8.8.8")}}},
+		func(_ context.Context, _, address string) (net.Conn, error) {
+			dialed = append(dialed, address)
+			return nil, errors.New("stop after pinned dial")
+		},
+		staticProtection(&common.SSRFProtection{DomainFilterMode: false, IpFilterMode: false, ApplyIPFilterForDomain: true}),
+	)
+	req, err := http.NewRequest(http.MethodGet, "http://media.example/video.mp4", nil)
+	require.NoError(t, err)
+
+	_, err = client.Do(req)
+
+	require.Error(t, err)
+	require.Equal(t, []string{"8.8.8.8:80"}, dialed)
+}
+
+func TestProtectedFetchNoProxyClientRejectsReboundPrivateIPBeforeDial(t *testing.T) {
+	var dialed []string
+	client := newProtectedFetchHTTPClientWithoutProxy(
+		staticSSRFResolver{"media.example": {{IP: net.ParseIP("127.0.0.1")}}},
+		func(_ context.Context, _, address string) (net.Conn, error) {
+			dialed = append(dialed, address)
+			return nil, errors.New("must not dial")
+		},
+		staticProtection(&common.SSRFProtection{DomainFilterMode: false, IpFilterMode: false, ApplyIPFilterForDomain: true}),
+	)
+	req, err := http.NewRequest(http.MethodGet, "http://media.example/video.mp4", nil)
+	require.NoError(t, err)
+
+	_, err = client.Do(req)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "private IP address not allowed")
+	require.Empty(t, dialed)
+}
+
+func TestProtectedFetchNoProxyClientRejectsUnsafeRedirectBeforeSecondDial(t *testing.T) {
+	var dialCount int
+	client := newProtectedFetchHTTPClientWithoutProxy(
+		staticSSRFResolver{"media.example": {{IP: net.ParseIP("8.8.8.8")}}},
+		func(_ context.Context, _, address string) (net.Conn, error) {
+			dialCount++
+			clientConn, serverConn := net.Pipe()
+			go func() {
+				defer serverConn.Close()
+				buf := make([]byte, 4096)
+				_, _ = serverConn.Read(buf)
+				_, _ = io.WriteString(serverConn, "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1/private.mp4\r\nContent-Length: 0\r\n\r\n")
+			}()
+			return clientConn, nil
+		},
+		staticProtection(&common.SSRFProtection{DomainFilterMode: false, IpFilterMode: false, ApplyIPFilterForDomain: true}),
+	)
+	req, err := http.NewRequest(http.MethodGet, "http://media.example/video.mp4", nil)
+	require.NoError(t, err)
+
+	_, err = client.Do(req)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "private IP address not allowed")
+	require.Equal(t, 1, dialCount)
 }

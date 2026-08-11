@@ -86,6 +86,29 @@ func TestBuildGrokVideoEditBillingSnapshotUsesImmutableInputProbeMetadata(t *tes
 	assert.Equal(t, 6.25, snapshot.VideoInputBilledSeconds)
 }
 
+func TestPrepareGrokVideoBillingSnapshotFreezesValuesBeforePrecharge(t *testing.T) {
+	c, _ := gin.CreateTestContext(nil)
+	c.Set("task_request", relaycommon.TaskSubmitReq{Video: "https://fixture.invalid/input.mp4"})
+	info := &relaycommon.RelayInfo{
+		TaskRelayInfo:              &relaycommon.TaskRelayInfo{Action: grokVideoEditOperation},
+		OriginModelName:            grokVideoModelLegacy,
+		EstimatedVideoResolution:   "480p",
+		InputVideoDurationSeconds:  6.25,
+		InputVideoResolutionTier:   "480p",
+		InputVideoResolutionSource: relaycommon.GrokVideoResolutionSourceInputProbeV1,
+		PriceData:                  types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
+	}
+
+	require.True(t, PrepareGrokVideoBillingSnapshot(c, info, 180000))
+	require.NotNil(t, info.GrokVideoBilling)
+	info.InputVideoDurationSeconds = 8.7
+	info.InputVideoResolutionTier = "720p"
+
+	assert.Equal(t, 6.25, info.GrokVideoBilling.RequestedDurationSeconds)
+	assert.Equal(t, "480p", info.GrokVideoBilling.RequestedResolution)
+	assert.Equal(t, relaycommon.GrokVideoResolutionSourceInputProbeV1, info.GrokVideoBilling.ResolutionSource)
+}
+
 func TestBuildGrokVideoBillingSnapshotKeepsRequestedAndBilledModel(t *testing.T) {
 	c, _ := gin.CreateTestContext(nil)
 	c.Set("task_request", relaycommon.TaskSubmitReq{
@@ -182,7 +205,9 @@ func TestConfigureGrokVideoFinalUsageRequiresValidSnapshot(t *testing.T) {
 	assert.True(t, ConfigureGrokVideoFinalUsage(bc, valid, "/v1/videos/generations"))
 	assert.True(t, bc.FinalUsageLogOnly)
 	assert.Equal(t, "/v1/videos/generations", bc.RequestPath)
-	assert.Same(t, valid, bc.GrokVideoBilling)
+	assert.NotSame(t, valid, bc.GrokVideoBilling)
+	valid.EstimatedResolution = "720p"
+	assert.Equal(t, "480p", bc.GrokVideoBilling.EstimatedResolution)
 }
 
 func TestFinalizeGrokVideoBillingUsesSettledQuotaAsLedgerAuthority(t *testing.T) {

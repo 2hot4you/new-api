@@ -213,6 +213,11 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		info.PriceData.Quota = quota
 		noteTaskQuotaClamp(info, clamp)
 	}
+	if info.ChannelType == constant.ChannelTypeMoliiGrokAIGC {
+		if !service.PrepareGrokVideoBillingSnapshot(c, info, info.PriceData.Quota) {
+			return nil, service.TaskErrorWrapperLocal(errors.New("Grok video billing snapshot is incomplete"), "invalid_billing_snapshot", http.StatusBadRequest)
+		}
+	}
 
 	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
 	if info.Billing == nil && !info.PriceData.FreeModel {

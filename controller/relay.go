@@ -677,7 +677,7 @@ func RelayTask(c *gin.Context) {
 		task.Quota = result.Quota
 		finalUsageLogOnly := false
 		if result.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeMoliiGrokAIGC)) {
-			snapshot := service.BuildGrokVideoBillingSnapshot(c, relayInfo, result.Quota)
+			snapshot := relayInfo.GrokVideoBilling.Clone()
 			finalUsageLogOnly = service.ConfigureGrokVideoFinalUsage(task.PrivateData.BillingContext, snapshot, c.Request.URL.Path)
 		}
 		task.Data = result.TaskData

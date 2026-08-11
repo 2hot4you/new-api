@@ -78,9 +78,51 @@ type GrokImageBillingSnapshot struct {
 	FinalCost            float64 `json:"final_cost"`
 }
 
-// GrokVideoResolutionSourceInputProbeV1 identifies immutable input media
-// metadata gathered before a Grok video edit is submitted for billing.
-const GrokVideoResolutionSourceInputProbeV1 = "input_probe_v1"
+const (
+	// GrokVideoResolutionSourceInputProbeV1 identifies immutable input media
+	// metadata gathered before a Grok video edit is submitted for billing.
+	GrokVideoResolutionSourceInputProbeV1   = "input_probe_v1"
+	GrokVideoResolutionSourceProviderPollV1 = "provider_poll_v1"
+)
+
+// GrokVideoBillingSnapshot is shared by the request-time relay context and the
+// persisted task model so the exact precharge snapshot can be cloned without a
+// post-submit reconstruction window.
+type GrokVideoBillingSnapshot struct {
+	Version                  int     `json:"version"`
+	Model                    string  `json:"model"`
+	RequestedModel           string  `json:"requested_model,omitempty"`
+	BilledModel              string  `json:"billed_model,omitempty"`
+	Operation                string  `json:"operation"`
+	InputType                string  `json:"input_type"`
+	RequestedDurationSeconds float64 `json:"requested_duration_seconds"`
+	EstimatedDurationSeconds float64 `json:"estimated_duration_seconds"`
+	ActualDurationSeconds    float64 `json:"actual_duration_seconds"`
+	RequestedResolution      string  `json:"requested_resolution"`
+	EstimatedResolution      string  `json:"estimated_resolution"`
+	ActualResolution         string  `json:"actual_resolution"`
+	ResolutionSource         string  `json:"resolution_source,omitempty"`
+	AspectRatio              string  `json:"aspect_ratio"`
+	InputImageCount          int     `json:"input_image_count"`
+	VideoInputBilledSeconds  float64 `json:"video_input_billed_seconds"`
+	OutputUnitPrice          float64 `json:"output_unit_price"`
+	ImageInputUnitPrice      float64 `json:"image_input_unit_price"`
+	VideoInputUnitPrice      float64 `json:"video_input_unit_price"`
+	OutputCost               float64 `json:"output_cost"`
+	ImageInputCost           float64 `json:"image_input_cost"`
+	VideoInputCost           float64 `json:"video_input_cost"`
+	Subtotal                 float64 `json:"subtotal"`
+	GroupRatio               float64 `json:"group_ratio"`
+	FinalCost                float64 `json:"final_cost"`
+}
+
+func (snapshot *GrokVideoBillingSnapshot) Clone() *GrokVideoBillingSnapshot {
+	if snapshot == nil {
+		return nil
+	}
+	clone := *snapshot
+	return &clone
+}
 
 type ChannelMeta struct {
 	ChannelType          int
@@ -186,6 +228,7 @@ type RelayInfo struct {
 	PriceData hosttypes.PriceData
 
 	GrokImageBilling *GrokImageBillingSnapshot
+	GrokVideoBilling *GrokVideoBillingSnapshot
 
 	// Input video probe data is populated before a Grok video edit is charged.
 	// It is copied into the task billing snapshot after upstream acceptance.

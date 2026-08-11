@@ -95,7 +95,21 @@ func ConfigureGrokVideoFinalUsage(bc *model.TaskBillingContext, snapshot *model.
 	}
 	bc.FinalUsageLogOnly = true
 	bc.RequestPath = requestPath
-	bc.GrokVideoBilling = snapshot
+	bc.GrokVideoBilling = snapshot.Clone()
+	return true
+}
+
+// PrepareGrokVideoBillingSnapshot freezes the complete request and price
+// contract before wallet/subscription precharge begins.
+func PrepareGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, preConsumedQuota int) bool {
+	if info == nil {
+		return false
+	}
+	snapshot := BuildGrokVideoBillingSnapshot(c, info, preConsumedQuota)
+	if snapshot == nil {
+		return false
+	}
+	info.GrokVideoBilling = snapshot.Clone()
 	return true
 }
 

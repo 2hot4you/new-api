@@ -19,13 +19,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func useFixtureVideoProbe(t *testing.T) {
-	t.Helper()
-	original := probeUserVideo
-	probeUserVideo = func(_ context.Context, _ service.MediaSource) (*service.MediaProbeResult, error) {
-		return &service.MediaProbeResult{DurationSeconds: 6, Width: 640, Height: 480, ResolutionTier: "480p", MIMEType: "video/mp4"}, nil
-	}
-	t.Cleanup(func() { probeUserVideo = original })
+type stubVideoProber struct {
+	result *service.MediaProbeResult
+	err    error
+}
+
+func (p stubVideoProber) ProbeUserVideo(_ context.Context, _ service.MediaSource) (*service.MediaProbeResult, error) {
+	return p.result, p.err
+}
+
+func fixtureVideoAdaptor(duration float64) *TaskAdaptor {
+	return &TaskAdaptor{videoProber: stubVideoProber{result: &service.MediaProbeResult{
+		DurationSeconds: duration, Width: 640, Height: 480, ResolutionTier: "480p", MIMEType: "video/mp4",
+	}}}
 }
 
 func taskContext(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder) {
@@ -175,7 +181,6 @@ func TestGrokImagineVideoRejectsFileIDBeforeBillingAndSubmit(t *testing.T) {
 }
 
 func TestGrokImagineVideoURLObjectsNeverForwardFileID(t *testing.T) {
-	useFixtureVideoProbe(t)
 	tests := []struct {
 		model string
 		path  string
@@ -191,7 +196,7 @@ func TestGrokImagineVideoURLObjectsNeverForwardFileID(t *testing.T) {
 		info := taskInfo()
 		info.OriginModelName = tt.model
 		info.ChannelMeta.UpstreamModelName = tt.model
-		adaptor := &TaskAdaptor{}
+		adaptor := fixtureVideoAdaptor(6)
 		adaptor.Init(info)
 		require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
 		body, err := adaptor.BuildRequestBody(c, info)
@@ -223,13 +228,12 @@ func TestGrokImagineVideoBuildRequestBodyDefensivelyRejectsDecodedFileID(t *test
 }
 
 func TestGrokImagineVideoEditUsesOfficialEndpointAndPayload(t *testing.T) {
-	useFixtureVideoProbe(t)
 	c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"add rain","video":{"url":"https://videos.example/source.mp4"}}`)
 	c.Request.URL.Path = "/v1/videos/edits"
 	info := taskInfo()
 	info.OriginModelName = LegacyVideoModel
 	info.ChannelMeta.UpstreamModelName = LegacyVideoModel
-	adaptor := &TaskAdaptor{}
+	adaptor := fixtureVideoAdaptor(6)
 	adaptor.Init(info)
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
 	adaptor.EstimateBilling(c, info)
@@ -243,6 +247,27 @@ func TestGrokImagineVideoEditUsesOfficialEndpointAndPayload(t *testing.T) {
 	assert.JSONEq(t, `{"model":"grok-imagine-video","prompt":"add rain","video":{"url":"https://videos.example/source.mp4"}}`, string(encoded))
 	assert.True(t, info.EstimatedVideoHasInput)
 	assert.InDelta(t, 0.36, info.EstimatedVideoPrice, 0.000001)
+}
+
+func TestGrokImagineVideoEditRejectsNonPositiveOrOver87SecondInputBeforeBilling(t *testing.T) {
+	for _, duration := range []float64{0, -1, 8.700001} {
+		t.Run(strconv.FormatFloat(duration, 'f', -1, 64), func(t *testing.T) {
+			c, _ := taskContext(t, `{"model":"grok-imagine-video","prompt":"edit","video":{"url":"https://videos.example/source.mp4"}}`)
+			c.Request.URL.Path = "/v1/videos/edits"
+			info := taskInfo()
+			info.OriginModelName = LegacyVideoModel
+			info.ChannelMeta.UpstreamModelName = LegacyVideoModel
+			adaptor := fixtureVideoAdaptor(duration)
+			adaptor.Init(info)
+
+			taskErr := adaptor.ValidateRequestAndSetAction(c, info)
+
+			require.NotNil(t, taskErr)
+			assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+			assert.Nil(t, info.Billing)
+			assert.Nil(t, info.GrokVideoBilling)
+		})
+	}
 }
 
 func TestGrokImagineVideo15RequiresImageAndRejectsOldModel1080p(t *testing.T) {
