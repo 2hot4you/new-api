@@ -71,7 +71,7 @@ type PlaygroundParameterContentProps = PlaygroundParameterPanelProps & {
   compact?: boolean
 }
 
-export function PlaygroundParameterContent({
+function PlaygroundParameterContent({
   compact = false,
   config,
   disabled,
@@ -101,27 +101,6 @@ export function PlaygroundParameterContent({
         compact ? 'px-4 pb-4' : 'p-1'
       )}
     >
-      <div
-        className={cn(
-          'border-border/70 bg-background/60 flex items-center justify-between gap-3 rounded-lg border p-3',
-          disabled && 'opacity-55'
-        )}
-      >
-        <div className='min-w-0 space-y-1'>
-          <div className='text-sm leading-5 font-medium'>{t('Stream')}</div>
-          <p className='text-muted-foreground text-xs leading-4'>
-            {t('Stream tokens incrementally as they are generated')}
-          </p>
-        </div>
-        <Switch
-          aria-label={t('Stream')}
-          checked={config.stream}
-          disabled={disabled}
-          onCheckedChange={(checked) => onConfigChange('stream', checked)}
-          size='sm'
-        />
-      </div>
-
       {PLAYGROUND_PARAMETER_CONTROLS.map((control) => {
         const enabled = parameterEnabled[control.key]
         const value = config[control.key]

@@ -1,0 +1,12 @@
+{
+  "id": "restore-original-playground",
+  "title": "恢复 New API 原始 Playground 页面",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交恢复改动",
+  "createdAt": "2026-08-12T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

@@ -16,13 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { PlusIcon } from 'lucide-react'
-import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
-
-import { ConfirmDialog } from '@/components/confirm-dialog'
-import { Button } from '@/components/ui/button'
-
 import { PlaygroundChat } from './components/chat/playground-chat'
 import { PlaygroundInput } from './components/input/playground-input'
 import {
@@ -33,8 +26,6 @@ import {
 } from './hooks'
 
 export function Playground() {
-  const { t } = useTranslation()
-  const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const {
     config,
     parameterEnabled,
@@ -73,16 +64,6 @@ export function Playground() {
   const handleClearMessages = () => {
     handleEditOpenChange(false)
     clearMessages()
-    setClearConfirmOpen(false)
-  }
-
-  const handleNewConversation = () => {
-    if (messages.length > 0) {
-      setClearConfirmOpen(true)
-      return
-    }
-
-    handleClearMessages()
   }
 
   const { isLoadingModels } = usePlaygroundOptions({
@@ -94,48 +75,26 @@ export function Playground() {
   })
 
   return (
-    <div className='relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden'>
-      <header className='shrink-0 border-b'>
-        <div className='mx-auto flex w-full max-w-[44rem] min-w-0 items-center justify-between gap-3 px-4 py-3'>
-          <h1 className='text-sm font-semibold'>{t('Playground')}</h1>
-          <Button
-            aria-label={t('New conversation')}
-            disabled={isLoadingMessages}
-            onClick={handleNewConversation}
-            size='sm'
-            variant='outline'
-          >
-            <PlusIcon aria-hidden='true' className='size-3.5' />
-            {t('New conversation')}
-          </Button>
-        </div>
-      </header>
-
+    <div className='relative flex size-full min-h-0 flex-col overflow-hidden'>
+      {/* Full-width scroll container: scrolling works even over side whitespace */}
       <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
-        <div
-          className='mx-auto flex min-h-0 w-full max-w-[44rem] min-w-0 flex-1'
-          data-slot='playground-thread'
-        >
-          <PlaygroundChat
-            messages={messages}
-            isLoadingMessages={isLoadingMessages}
-            onRegenerateMessage={handleRegenerateMessage}
-            onEditMessage={handleEditMessage}
-            onDeleteMessage={handleDeleteMessage}
-            onSelectPrompt={handleSendMessage}
-            isGenerating={isGenerating}
-            editingKey={editingMessageKey}
-            onCancelEdit={handleEditOpenChange}
-            onSaveEdit={(newContent) => applyEdit(newContent, false)}
-            onSaveEditAndSubmit={(newContent) => applyEdit(newContent, true)}
-          />
-        </div>
+        <PlaygroundChat
+          messages={messages}
+          isLoadingMessages={isLoadingMessages}
+          onRegenerateMessage={handleRegenerateMessage}
+          onEditMessage={handleEditMessage}
+          onDeleteMessage={handleDeleteMessage}
+          onSelectPrompt={handleSendMessage}
+          isGenerating={isGenerating}
+          editingKey={editingMessageKey}
+          onCancelEdit={handleEditOpenChange}
+          onSaveEdit={(newContent) => applyEdit(newContent, false)}
+          onSaveEditAndSubmit={(newContent) => applyEdit(newContent, true)}
+        />
       </div>
 
-      <div
-        className='mx-auto w-full max-w-[44rem] min-w-0 px-4 pb-4'
-        data-slot='playground-composer'
-      >
+      {/* Input area: center content and constrain to the same container width */}
+      <div className='mx-auto w-full max-w-4xl'>
         <PlaygroundInput
           config={config}
           disabled={isGenerating}
@@ -147,25 +106,15 @@ export function Playground() {
           models={models}
           onGroupChange={(value) => updateConfig('group', value)}
           onConfigChange={updateConfig}
+          onClearMessages={handleClearMessages}
           onModelChange={(value) => updateConfig('model', value)}
           onParameterEnabledChange={updateParameterEnabled}
           onStop={stopGeneration}
           onSubmit={handleSendMessage}
           parameterEnabled={parameterEnabled}
+          hasMessages={messages.length > 0}
         />
       </div>
-
-      <ConfirmDialog
-        destructive
-        desc={t(
-          'All playground messages saved in this browser will be removed. This cannot be undone.'
-        )}
-        confirmText={t('Clear')}
-        handleConfirm={handleClearMessages}
-        open={clearConfirmOpen}
-        onOpenChange={setClearConfirmOpen}
-        title={t('Clear chat history?')}
-      />
     </div>
   )
 }

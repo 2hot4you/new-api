@@ -25,7 +25,6 @@ import { ModelGroupSelector } from '@/components/model-group-selector'
 
 import { getInputControlState } from '../../lib'
 import type { GroupOption, ModelOption } from '../../types'
-import { applyPlaygroundSelection } from './playground-selection'
 
 type PlaygroundInputControlsProps = {
   disabled?: boolean
@@ -67,21 +66,16 @@ export function PlaygroundInputControls({
       models,
       text,
     })
-  const isSelectionLocked = isSelectorDisabled || Boolean(isGenerating)
 
   const renderSelector = () => (
     <ModelGroupSelector
       selectedModel={modelValue}
       models={models}
-      onModelChange={(value) =>
-        applyPlaygroundSelection(isSelectionLocked, onModelChange, value)
-      }
+      onModelChange={onModelChange}
       selectedGroup={groupValue}
       groups={groups}
-      onGroupChange={(value) =>
-        applyPlaygroundSelection(isSelectionLocked, onGroupChange, value)
-      }
-      disabled={isSelectionLocked}
+      onGroupChange={onGroupChange}
+      disabled={isSelectorDisabled}
     />
   )
 
