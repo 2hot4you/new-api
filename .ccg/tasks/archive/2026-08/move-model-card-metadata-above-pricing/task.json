@@ -1,0 +1,12 @@
+{
+  "id": "move-model-card-metadata-above-pricing",
+  "title": "将模型卡片元数据移动到价格表上方",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并保留本地开发服务",
+  "createdAt": "2026-08-12T10:53:00Z",
+  "branch": "feat/molii-auth"
+}
