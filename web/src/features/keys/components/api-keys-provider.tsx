@@ -24,7 +24,7 @@ import useDialogState from '@/hooks/use-dialog'
 
 import { fetchTokenKey, fetchTokenKeysBatch } from '../api'
 import { ERROR_MESSAGES } from '../constants'
-import { type ApiKey, type ApiKeysDialogType } from '../types'
+import { toDisplayApiKey, type ApiKey, type ApiKeysDialogType } from '../types'
 
 type ApiKeysContextType = {
   open: ApiKeysDialogType | null
@@ -41,6 +41,7 @@ type ApiKeysContextType = {
   loadingKeys: Record<number, boolean>
   copiedKeyId: number | null
   markKeyCopied: (id: number) => void
+  replaceResolvedKey: (id: number, key: string) => void
 }
 
 const ApiKeysContext = React.createContext<ApiKeysContextType | null>(null)
@@ -69,6 +70,10 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
     copiedTimerRef.current = setTimeout(() => setCopiedKeyId(null), 2000)
   }, [])
 
+  const replaceResolvedKey = useCallback((id: number, key: string) => {
+    setResolvedKeys((prev) => ({ ...prev, [id]: key }))
+  }, [])
+
   const triggerRefresh = useCallback(() => {
     setRefreshTrigger((prev) => prev + 1)
   }, [])
@@ -83,7 +88,7 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
         try {
           const res = await fetchTokenKey(id)
           if (res.success && res.data?.key) {
-            const fullKey = `sk-${res.data.key}`
+            const fullKey = toDisplayApiKey(res.data.key)
             setResolvedKeys((prev) => ({ ...prev, [id]: fullKey }))
             return fullKey
           }
@@ -126,7 +131,7 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
         if (res.success && res.data?.keys) {
           const newKeys: Record<number, string> = {}
           for (const [idStr, key] of Object.entries(res.data.keys)) {
-            newKeys[Number(idStr)] = `sk-${key}`
+            newKeys[Number(idStr)] = toDisplayApiKey(key)
           }
           setResolvedKeys((prev) => ({ ...prev, ...newKeys }))
 
@@ -171,6 +176,7 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
         loadingKeys,
         copiedKeyId,
         markKeyCopied,
+        replaceResolvedKey,
       }}
     >
       {children}

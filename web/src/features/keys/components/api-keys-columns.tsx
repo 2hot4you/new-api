@@ -36,7 +36,7 @@ import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { API_KEY_STATUSES } from '../constants'
-import type { ApiKey } from '../types'
+import { canSelectApiKey, type ApiKey } from '../types'
 import { ApiKeyGroupCell } from './api-key-group-cell'
 import { ApiKeyTimestampCell } from './api-key-timestamp-cell'
 import {
@@ -87,19 +87,24 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         <Checkbox
           checked={table.getIsAllPageRowsSelected()}
           indeterminate={table.getIsSomePageRowsSelected()}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          onCheckedChange={(value) => {
+            for (const row of table.getRowModel().rows) {
+              if (canSelectApiKey(row.original)) row.toggleSelected(!!value)
+            }
+          }}
           aria-label='Select all'
           className='translate-y-[2px]'
         />
       ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label='Select row'
-          className='translate-y-[2px]'
-        />
-      ),
+      cell: ({ row }) =>
+        canSelectApiKey(row.original) ? (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label='Select row'
+            className='translate-y-[2px]'
+          />
+        ) : null,
       enableSorting: false,
       enableHiding: false,
       size: 40,
@@ -108,7 +113,16 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
       accessorKey: 'name',
       header: t('Name'),
       cell: ({ row }) => (
-        <span className='font-medium'>{row.getValue('name')}</span>
+        <span className='flex items-center gap-2 font-medium'>
+          {row.getValue('name')}
+          {row.original.is_default && (
+            <StatusBadge
+              label={t('Default')}
+              variant='neutral'
+              copyable={false}
+            />
+          )}
+        </span>
       ),
       size: 180,
       meta: { mobileTitle: true },

@@ -1,0 +1,12 @@
+{
+  "id": "configure-model-pricing-and-default-key",
+  "title": "配置三模型阶梯计费与模型广场并新增受保护默认 Key",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "已完成并待归档",
+  "createdAt": "2026-08-12T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

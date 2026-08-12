@@ -34,6 +34,8 @@ docker compose --env-file .env ps
    就绪队列和过期租约索引。
 3. `migrations/20260811_molii_grok_management_credentials.sql`：为渠道表补充 Molii Grok
    管理访问令牌和管理用户 ID 字段；令牌不会通过渠道 API 回显。
+4. `migrations/20260812_default_token.sql`：为 API Key 增加受保护的默认 Key 标记，并保证
+   每个用户最多有一条未软删除的默认 Key。
 
 三项迁移都可重复执行；随后 New API 启动时仍会由 GORM AutoMigrate 校验并补充完整
 Schema。
@@ -49,6 +51,7 @@ docker compose --env-file .env run --rm migrate
 ```sh
 ./migrations/20260810_async_task_billing_jobs_test.sh
 ./migrations/20260811_molii_grok_management_credentials_test.sh
+./migrations/20260812_default_token_test.sh
 ```
 
 升级已有环境前，建议先备份：

@@ -90,7 +90,7 @@ type SampleContext = {
   endpointPath: string
 }
 
-function buildChatSample(lang: Lang, ctx: SampleContext): string {
+export function buildChatSample(lang: Lang, ctx: SampleContext): string {
   const url = `${ctx.baseUrl}${ctx.endpointPath}`
   const isResponses = ctx.endpointType === 'openai-response'
   const isReasoning = /^o[1-4]|reasoning|thinking|deepseek-r/i.test(

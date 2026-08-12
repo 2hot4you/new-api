@@ -46,9 +46,26 @@ export const apiKeySchema = z.object({
   model_limits_enabled: z.boolean(),
   model_limits: z.string().nullish().default(''),
   allow_ips: z.string().nullish().default(''),
+  is_default: z.boolean().nullish().default(false).optional(),
 })
 
 export type ApiKey = z.infer<typeof apiKeySchema>
+
+export function canDeleteApiKey(apiKey: ApiKey): boolean {
+  return apiKey.is_default !== true
+}
+
+export function canSelectApiKey(apiKey: ApiKey): boolean {
+  return apiKey.is_default !== true
+}
+
+export function getApiKeyRowActionPolicy(apiKey: ApiKey) {
+  return { showRotate: true, showDelete: canDeleteApiKey(apiKey) }
+}
+
+export function toDisplayApiKey(key: string): string {
+  return key.startsWith('sk-') ? key : `sk-${key}`
+}
 
 // ============================================================================
 // API Request/Response Types
@@ -109,5 +126,6 @@ export type ApiKeysDialogType =
   | 'create'
   | 'update'
   | 'delete'
+  | 'rotate'
   | 'batch-delete'
   | 'cc-switch'

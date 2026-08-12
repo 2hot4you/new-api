@@ -39,6 +39,12 @@ type Pricing struct {
 	PricingVersion         string                                 `json:"pricing_version,omitempty"`
 	VideoPricing           *ratio_setting.StarAIVideoPricing      `json:"video_pricing,omitempty"`
 	MoliiGrokPricing       *ratio_setting.MoliiGrokCatalogPricing `json:"molii_grok_pricing,omitempty"`
+	ContextLength          int                                    `json:"context_length,omitempty"`
+	MaxOutputTokens        int                                    `json:"max_output_tokens,omitempty"`
+	InputModalities        []string                               `json:"input_modalities,omitempty"`
+	OutputModalities       []string                               `json:"output_modalities,omitempty"`
+	Capabilities           []string                               `json:"capabilities,omitempty"`
+	BillingCurrency        string                                 `json:"billing_currency,omitempty"`
 }
 
 type PricingVendor struct {
@@ -46,6 +52,48 @@ type PricingVendor struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Icon        string `json:"icon,omitempty"`
+}
+
+// marketplaceCatalogMetadata is deliberately limited to metadata that the
+// gateway can present without promising provider features it has not verified.
+// Provider-side multimodal, tool, and reasoning claims stay out of this map;
+// these models are advertised here only through the relay's OpenAI-compatible
+// text chat endpoint.
+type marketplaceCatalogMetadata struct {
+	ContextLength    int
+	MaxOutputTokens  int
+	InputModalities  []string
+	OutputModalities []string
+	Capabilities     []string
+	BillingCurrency  string
+}
+
+var exactMarketplaceCatalogMetadata = map[string]marketplaceCatalogMetadata{
+	"minimax-m3": {
+		ContextLength:    1_000_000,
+		InputModalities:  []string{"text"},
+		OutputModalities: []string{"text"},
+		BillingCurrency:  "CNY",
+	},
+	"qwen3.5-flash": {
+		ContextLength:    1_000_000,
+		MaxOutputTokens:  65_536,
+		InputModalities:  []string{"text"},
+		OutputModalities: []string{"text"},
+		BillingCurrency:  "CNY",
+	},
+	"qwen3.5-plus": {
+		ContextLength:    1_000_000,
+		MaxOutputTokens:  65_536,
+		InputModalities:  []string{"text"},
+		OutputModalities: []string{"text"},
+		BillingCurrency:  "CNY",
+	},
+}
+
+func getMarketplaceCatalogMetadata(modelName string) (marketplaceCatalogMetadata, bool) {
+	metadata, ok := exactMarketplaceCatalogMetadata[modelName]
+	return metadata, ok
 }
 
 var (
@@ -411,6 +459,14 @@ func updatePricing() {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr
 			}
+		}
+		if metadata, ok := getMarketplaceCatalogMetadata(model); ok {
+			pricing.ContextLength = metadata.ContextLength
+			pricing.MaxOutputTokens = metadata.MaxOutputTokens
+			pricing.InputModalities = metadata.InputModalities
+			pricing.OutputModalities = metadata.OutputModalities
+			pricing.Capabilities = metadata.Capabilities
+			pricing.BillingCurrency = metadata.BillingCurrency
 		}
 		if videoPricing, ok := ratio_setting.GetStarAIVideoPricing(model); ok {
 			pricing.VideoPricing = videoPricing

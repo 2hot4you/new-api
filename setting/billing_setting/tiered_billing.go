@@ -23,8 +23,18 @@ type BillingSetting struct {
 }
 
 var billingSetting = BillingSetting{
-	BillingMode: make(map[string]string),
-	BillingExpr: make(map[string]string),
+	BillingMode: map[string]string{
+		"minimax-m3":    BillingModeTieredExpr,
+		"qwen3.5-flash": BillingModeTieredExpr,
+		"qwen3.5-plus":  BillingModeTieredExpr,
+	},
+	BillingExpr: map[string]string{
+		// len is the full input context; use it for provider-priced context
+		// windows so cache-hit tokens never select a cheaper tier.
+		"minimax-m3":    `len <= 512000 ? tier("up_to_512k", p * 2.1 + c * 8.4 + cr * 0.42) : tier("over_512k", p * 4.2 + c * 16.8 + cr * 0.84)`,
+		"qwen3.5-flash": `len <= 128000 ? tier("up_to_128k", p * 0.2 + c * 2 + cr * 0.02) : len <= 256000 ? tier("128k_to_256k", p * 0.8 + c * 8 + cr * 0.08) : tier("256k_to_1m", p * 1.2 + c * 12 + cr * 0.12)`,
+		"qwen3.5-plus":  `len <= 128000 ? tier("up_to_128k", p * 0.8 + c * 4.8 + cr * 0.08) : len <= 256000 ? tier("128k_to_256k", p * 2 + c * 12 + cr * 0.2) : tier("256k_to_1m", p * 4 + c * 24 + cr * 0.4)`,
+	},
 }
 
 func init() {

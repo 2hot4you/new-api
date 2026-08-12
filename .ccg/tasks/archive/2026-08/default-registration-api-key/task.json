@@ -1,0 +1,12 @@
+{
+  "id": "default-registration-api-key",
+  "title": "注册时自动生成不可删除的默认 API Key",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "并入 configure-model-pricing-and-default-key 统一实施",
+  "createdAt": "2026-08-12T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

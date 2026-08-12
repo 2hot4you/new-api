@@ -27,6 +27,7 @@ import {
   Copy,
   Link,
   Loader2,
+  RotateCw,
 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -55,7 +56,7 @@ import { copyToClipboard } from '@/lib/copy-to-clipboard'
 
 import { updateApiKeyStatus } from '../api'
 import { API_KEY_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
-import { apiKeySchema } from '../types'
+import { apiKeySchema, getApiKeyRowActionPolicy } from '../types'
 import { useApiKeys } from './api-keys-provider'
 
 function getServerAddress(): string {
@@ -90,6 +91,7 @@ export function DataTableRowActions<TData>({
     loadingKeys,
   } = useApiKeys()
   const isEnabled = apiKey.status === API_KEY_STATUS.ENABLED
+  const actionPolicy = getApiKeyRowActionPolicy(apiKey)
   const { chatPresets, serverAddress } = useChatPresets()
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
   const resolvedRealKey = resolvedKeys[apiKey.id]
@@ -303,19 +305,38 @@ export function DataTableRowActions<TData>({
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => {
-            setCurrentRow(apiKey)
-            setOpen('delete')
-          }}
-          className='text-destructive focus:text-destructive'
-        >
-          {t('Delete')}
-          <DropdownMenuShortcut>
-            <Trash2 size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
+        {actionPolicy.showRotate && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                setCurrentRow(apiKey)
+                setOpen('rotate')
+              }}
+            >
+              {t('Rotate Key')}
+              <DropdownMenuShortcut>
+                <RotateCw size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </>
+        )}
+        {actionPolicy.showDelete && (
+          <>
+            <DropdownMenuItem
+              onClick={() => {
+                setCurrentRow(apiKey)
+                setOpen('delete')
+              }}
+              className='text-destructive focus:text-destructive'
+            >
+              {t('Delete')}
+              <DropdownMenuShortcut>
+                <Trash2 size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </>
+        )}
       </DataTableRowActionMenu>
     </div>
   )

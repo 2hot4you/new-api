@@ -91,6 +91,15 @@ export async function deleteApiKey(id: number): Promise<ApiResponse> {
   return res.data
 }
 
+export async function rotateApiKey(id: number): Promise<{
+  success: boolean
+  message?: string
+  data?: { key: string }
+}> {
+  const res = await api.post(`/api/token/${id}/rotate`, { confirm: true })
+  return res.data
+}
+
 // Batch delete multiple API keys
 export async function batchDeleteApiKeys(
   ids: number[]

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
@@ -29,8 +30,13 @@ type Token struct {
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	AutoGroups         string         `json:"-" gorm:"type:text"`
+	IsDefault          bool           `json:"is_default" gorm:"not null;default:false"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
+
+var ErrDefaultTokenDeleteForbidden = errors.New("default_token_delete_forbidden")
+
+var generateTokenKey = common.GenerateKey
 
 func (token *Token) GetAutoGroups() ([]string, error) {
 	if token.AutoGroups == "" {
@@ -314,6 +320,46 @@ func (token *Token) Insert() error {
 	return err
 }
 
+// CreateDefaultTokenWithTx creates the single default key for a newly-created
+// self-service user. It is intentionally idempotent so callers can compose it
+// with other registration work in the same transaction without duplicating it.
+func CreateDefaultTokenWithTx(tx *gorm.DB, user *User) error {
+	if tx == nil || user == nil || user.Id == 0 {
+		return errors.New("default token requires a persisted user and transaction")
+	}
+
+	var existing Token
+	err := tx.Where("user_id = ? AND is_default = ?", user.Id, true).First(&existing).Error
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	key, err := generateTokenKey()
+	if err != nil {
+		return err
+	}
+	now := common.GetTimestamp()
+	token := Token{
+		UserId:             user.Id,
+		Name:               user.Username + "的初始令牌",
+		Key:                key,
+		CreatedTime:        now,
+		AccessedTime:       now,
+		ExpiredTime:        -1,
+		RemainQuota:        500000,
+		UnlimitedQuota:     true,
+		ModelLimitsEnabled: false,
+		IsDefault:          true,
+	}
+	if setting.DefaultUseAutoGroup {
+		token.Group = "auto"
+	}
+	return tx.Create(&token).Error
+}
+
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (token *Token) Update() (err error) {
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
@@ -399,7 +445,44 @@ func DeleteTokenById(id int, userId int) (err error) {
 	if err != nil {
 		return err
 	}
+	if token.IsDefault {
+		return ErrDefaultTokenDeleteForbidden
+	}
 	return token.Delete()
+}
+
+// RotateTokenKeyByID replaces a user's token secret atomically. Default keys
+// are intentionally eligible: protection applies only to deletion.
+func RotateTokenKeyByID(id int, userId int) (*Token, error) {
+	if id == 0 || userId == 0 {
+		return nil, errors.New("id 或 userId 为空！")
+	}
+	newKey, err := generateTokenKey()
+	if err != nil {
+		return nil, err
+	}
+
+	var oldKey string
+	rotated := &Token{}
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND user_id = ?", id, userId).First(rotated).Error; err != nil {
+			return err
+		}
+		oldKey = rotated.Key
+		if err := tx.Model(&Token{}).Where("id = ? AND user_id = ?", id, userId).Update("key", newKey).Error; err != nil {
+			return err
+		}
+		rotated.Key = newKey
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if common.RedisEnabled {
+		if err := cacheDeleteToken(oldKey); err != nil {
+			common.SysError("failed to invalidate rotated token cache: " + err.Error())
+		}
+	}
+	return rotated, nil
 }
 
 func IncreaseTokenQuota(tokenId int, key string, quota int) (err error) {
@@ -481,6 +564,12 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Find(&tokens).Error; err != nil {
 		tx.Rollback()
 		return 0, err
+	}
+	for _, token := range tokens {
+		if token.IsDefault {
+			tx.Rollback()
+			return 0, ErrDefaultTokenDeleteForbidden
+		}
 	}
 
 	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Delete(&Token{}).Error; err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -23,6 +24,7 @@ import (
 
 type tokenAPIResponse struct {
 	Success bool            `json:"success"`
+	Code    string          `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data"`
 }
@@ -32,10 +34,11 @@ type tokenPageResponse struct {
 }
 
 type tokenResponseItem struct {
-	ID     int    `json:"id"`
-	Name   string `json:"name"`
-	Key    string `json:"key"`
-	Status int    `json:"status"`
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Key       string `json:"key"`
+	Status    int    `json:"status"`
+	IsDefault bool   `json:"is_default"`
 }
 
 type tokenKeyResponse struct {
@@ -577,4 +580,42 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 	if strings.Contains(unauthorizedRecorder.Body.String(), token.Key) {
 		t.Fatalf("unauthorized key response leaked raw token key: %s", unauthorizedRecorder.Body.String())
 	}
+}
+
+func TestDefaultTokenResponsesExposeFlagAndRejectSingleAndBatchDelete(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	defaultToken := seedToken(t, db, 1, "default-token", "default-token-key")
+	defaultToken.IsDefault = true
+	require.NoError(t, db.Save(defaultToken).Error)
+	normalToken := seedToken(t, db, 1, "normal-token", "normal-token-key")
+
+	getCtx, getRecorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/"+strconv.Itoa(defaultToken.Id), nil, 1)
+	getCtx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(defaultToken.Id)}}
+	GetToken(getCtx)
+	getResponse := decodeAPIResponse(t, getRecorder)
+	require.True(t, getResponse.Success)
+	var detail tokenResponseItem
+	require.NoError(t, common.Unmarshal(getResponse.Data, &detail))
+	require.True(t, detail.IsDefault)
+
+	deleteCtx, deleteRecorder := newAuthenticatedContext(t, http.MethodDelete, "/api/token/"+strconv.Itoa(defaultToken.Id), nil, 1)
+	deleteCtx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(defaultToken.Id)}}
+	DeleteToken(deleteCtx)
+	deleteResponse := decodeAPIResponse(t, deleteRecorder)
+	require.False(t, deleteResponse.Success)
+	require.Equal(t, "default_token_delete_forbidden", deleteResponse.Code)
+
+	batchCtx, batchRecorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/batch", map[string]any{"ids": []int{defaultToken.Id, normalToken.Id}}, 1)
+	DeleteTokenBatch(batchCtx)
+	batchResponse := decodeAPIResponse(t, batchRecorder)
+	require.False(t, batchResponse.Success)
+	require.Equal(t, "default_token_delete_forbidden", batchResponse.Code)
+	var remaining int64
+	require.NoError(t, db.Model(&model.Token{}).Where("user_id = ?", 1).Count(&remaining).Error)
+	require.Equal(t, int64(2), remaining)
+
+	normalDeleteCtx, normalDeleteRecorder := newAuthenticatedContext(t, http.MethodDelete, "/api/token/"+strconv.Itoa(normalToken.Id), nil, 1)
+	normalDeleteCtx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(normalToken.Id)}}
+	DeleteToken(normalDeleteCtx)
+	require.True(t, decodeAPIResponse(t, normalDeleteRecorder).Success)
 }

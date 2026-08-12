@@ -24,3 +24,15 @@ func TestDefaultGrokDescriptionKeys(t *testing.T) {
 	}
 	assert.Empty(t, getDefaultModelDescriptionI18nKey("grok-imagine-video-1.5-preview"))
 }
+
+func TestDefaultThreeModelDescriptionKeys(t *testing.T) {
+	want := map[string]string{
+		"minimax-m3":    "MiniMax M3 model description",
+		"qwen3.5-flash": "Qwen3.5 Flash model description",
+		"qwen3.5-plus":  "Qwen3.5 Plus model description",
+	}
+	for modelName, descriptionKey := range want {
+		assert.Equal(t, descriptionKey, getDefaultModelDescriptionI18nKey(modelName))
+	}
+	assert.Empty(t, getDefaultModelDescriptionI18nKey("qwen3.5-plus-preview"))
+}

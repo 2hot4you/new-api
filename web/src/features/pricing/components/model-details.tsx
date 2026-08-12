@@ -971,6 +971,7 @@ function GroupPricingSection(props: {
       priceRate: props.priceRate,
       usdExchangeRate: props.usdExchangeRate,
       groupRatioMultiplier: 1,
+      billingCurrency: props.model.billing_currency,
     })
     const formattedPricesByGroup = new Map(
       availableGroups.map((group) => {
@@ -983,6 +984,7 @@ function GroupPricingSection(props: {
             priceRate: props.priceRate,
             usdExchangeRate: props.usdExchangeRate,
             groupRatioMultiplier: ratio,
+            billingCurrency: props.model.billing_currency,
           }),
         ] as const
       })

@@ -18,10 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-
-	"github.com/QuantumNous/new-api/constant"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -269,47 +266,13 @@ func Register(c *gin.Context) {
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
 	}
-	if err := cleanUser.Insert(inviterId); err != nil {
+	if err := model.CreateSelfRegisteredUser(&cleanUser, inviterId); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			writeAuthErrorI18n(c, "AUTH_EMAIL_ALREADY_TAKEN", i18n.MsgUserEmailAlreadyTaken)
 			return
 		}
 		writeAuthInternalErrorI18n(c, "registration failed to create user", err, i18n.MsgUserRegisterFailed)
 		return
-	}
-
-	// 获取插入后的用户ID
-	var insertedUser model.User
-	if err := model.DB.Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
-		writeAuthInternalErrorI18n(c, "registration failed to load created user", err, i18n.MsgUserRegisterFailed)
-		return
-	}
-	// 生成默认令牌
-	if constant.GenerateDefaultToken {
-		key, err := common.GenerateKey()
-		if err != nil {
-			writeAuthInternalErrorI18n(c, "registration failed to generate default token key", err, i18n.MsgUserDefaultTokenFailed)
-			return
-		}
-		// 生成默认令牌
-		token := model.Token{
-			UserId:             insertedUser.Id, // 使用插入后的用户ID
-			Name:               cleanUser.Username + "的初始令牌",
-			Key:                key,
-			CreatedTime:        common.GetTimestamp(),
-			AccessedTime:       common.GetTimestamp(),
-			ExpiredTime:        -1,     // 永不过期
-			RemainQuota:        500000, // 示例额度
-			UnlimitedQuota:     true,
-			ModelLimitsEnabled: false,
-		}
-		if setting.DefaultUseAutoGroup {
-			token.Group = "auto"
-		}
-		if err := token.Insert(); err != nil {
-			writeAuthInternalErrorI18n(c, "registration failed to create default token", err, i18n.MsgCreateDefaultTokenErr)
-			return
-		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

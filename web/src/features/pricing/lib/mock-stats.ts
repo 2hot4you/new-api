@@ -609,6 +609,34 @@ const COMMON_CHAT_PARAMS: SupportedParameter[] = [
   },
 ]
 
+const EXACT_CHAT_COMPLETIONS_MODELS = new Set([
+  'minimax-m3',
+  'qwen3.5-flash',
+  'qwen3.5-plus',
+])
+
+function exactChatCompletionsParameters(
+  modelName: string
+): SupportedParameter[] {
+  return [
+    {
+      name: 'model',
+      type: 'enum',
+      enumValues: [modelName],
+      descriptionKey: 'Model ID selected for this request',
+      required: true,
+    },
+    {
+      name: 'messages',
+      type: 'array',
+      range: 'At least 1 message',
+      descriptionKey: 'Conversation messages for the Chat Completions request',
+      required: true,
+    },
+    ...COMMON_CHAT_PARAMS,
+  ]
+}
+
 const REASONING_PARAMS: SupportedParameter[] = [
   {
     name: 'reasoning_effort',
@@ -817,6 +845,9 @@ function apiCategoryOf(model: PricingModel): ApiCategory {
 export function buildSupportedParameters(
   model: PricingModel
 ): SupportedParameter[] {
+  if (EXACT_CHAT_COMPLETIONS_MODELS.has(model.model_name)) {
+    return exactChatCompletionsParameters(model.model_name)
+  }
   const cat = apiCategoryOf(model)
   if (cat === 'reasoning') return REASONING_PARAMS
   if (cat === 'embedding') return EMBEDDING_PARAMS

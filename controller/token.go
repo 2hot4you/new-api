@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -191,6 +192,31 @@ func GetTokenKey(c *gin.Context) {
 	})
 }
 
+type tokenKeyRotateRequest struct {
+	Confirm bool `json:"confirm"`
+}
+
+func RotateTokenKey(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var request tokenKeyRotateRequest
+	if err := c.ShouldBindJSON(&request); err != nil || !request.Confirm {
+		c.JSON(http.StatusOK, gin.H{"success": false, "code": "token_key_rotation_confirmation_required", "message": "token key rotation confirmation is required"})
+		return
+	}
+	token, err := model.RotateTokenKeyByID(id, c.GetInt("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	// A rotation must reveal only the newly generated credential; all other
+	// token data remains available through the normal masked endpoints.
+	common.ApiSuccess(c, gin.H{"key": token.GetFullKey()})
+}
+
 func GetTokenStatus(c *gin.Context) {
 	tokenId := c.GetInt("token_id")
 	userId := c.GetInt("id")
@@ -345,6 +371,10 @@ func DeleteToken(c *gin.Context) {
 	userId := c.GetInt("id")
 	err := model.DeleteTokenById(id, userId)
 	if err != nil {
+		if errors.Is(err, model.ErrDefaultTokenDeleteForbidden) {
+			writeDefaultTokenDeleteForbidden(c)
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -441,6 +471,10 @@ func DeleteTokenBatch(c *gin.Context) {
 	userId := c.GetInt("id")
 	count, err := model.BatchDeleteTokens(tokenBatch.Ids, userId)
 	if err != nil {
+		if errors.Is(err, model.ErrDefaultTokenDeleteForbidden) {
+			writeDefaultTokenDeleteForbidden(c)
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -448,6 +482,14 @@ func DeleteTokenBatch(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data":    count,
+	})
+}
+
+func writeDefaultTokenDeleteForbidden(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": false,
+		"code":    "default_token_delete_forbidden",
+		"message": "default token cannot be deleted",
 	})
 }
 

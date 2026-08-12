@@ -75,6 +75,9 @@ var defaultModelDescriptionI18nKeys = map[string]string{
 	"grok-imagine-image-quality":      "Grok Imagine Image Quality model description",
 	"grok-imagine-video":              "Grok Imagine Video model description",
 	"grok-imagine-video-1.5":          "Grok Imagine Video 1.5 model description",
+	"minimax-m3":                      "MiniMax M3 model description",
+	"qwen3.5-flash":                   "Qwen3.5 Flash model description",
+	"qwen3.5-plus":                    "Qwen3.5 Plus model description",
 }
 
 func getDefaultModelDescriptionI18nKey(modelName string) string {

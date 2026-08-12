@@ -36,6 +36,7 @@ type DynamicPriceOptions = {
   priceRate?: number
   usdExchangeRate?: number
   groupRatioMultiplier?: number
+  billingCurrency?: PricingModel['billing_currency']
 }
 
 export type DynamicPriceEntry = {
@@ -93,6 +94,9 @@ export function formatDynamicUnitPrice(
   const priceUSD =
     (valuePerMillionTokens * groupRatio) /
     TOKEN_UNIT_DIVISORS[options.tokenUnit]
+  if (options.billingCurrency === 'CNY') {
+    return `¥${formatCNYPrice(priceUSD)}`
+  }
   const displayPrice = applyRechargeRate(
     priceUSD,
     options.showRechargePrice ?? false,
@@ -105,6 +109,11 @@ export function formatDynamicUnitPrice(
     digitsSmall: 6,
     abbreviate: false,
   })
+}
+
+function formatCNYPrice(value: number): string {
+  const digits = Math.abs(value) >= 1 ? 4 : 6
+  return String(Number(value.toFixed(digits)))
 }
 
 export function getDynamicPricingTiers(model: PricingModel): ParsedTier[] {
@@ -161,7 +170,10 @@ export function getDynamicPricingSummary(
 
   const tiers = getDynamicPricingTiers(model)
   const tier = tiers[0] || null
-  const entries = getDynamicPriceEntries(tier, options)
+  const entries = getDynamicPriceEntries(tier, {
+    ...options,
+    billingCurrency: model.billing_currency,
+  })
   const rawExpression = model.billing_expr || ''
 
   return {

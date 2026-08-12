@@ -671,6 +671,28 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 	})
 }
 
+// InsertWithDefaultTokenTx keeps self-service registration and its protected
+// default key in the caller's transaction. Administrators and bootstrap flows
+// must continue to call Insert or InsertWithTx directly.
+func (user *User) InsertWithDefaultTokenTx(tx *gorm.DB, inviterId int) error {
+	if err := user.InsertWithTx(tx, inviterId); err != nil {
+		return err
+	}
+	return CreateDefaultTokenWithTx(tx, user)
+}
+
+// CreateSelfRegisteredUser creates a normal self-service user and its default
+// key atomically, then runs existing post-commit registration side effects.
+func CreateSelfRegisteredUser(user *User, inviterId int) error {
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		return user.InsertWithDefaultTokenTx(tx, inviterId)
+	}); err != nil {
+		return err
+	}
+	user.FinishInsert(inviterId)
+	return nil
+}
+
 // FinalizeOAuthUserCreation performs post-transaction tasks for OAuth user creation.
 // This should be called after the transaction commits successfully.
 func (user *User) FinalizeOAuthUserCreation(inviterId int) {
