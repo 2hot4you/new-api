@@ -314,9 +314,24 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         {description || t('No description available.')}
       </p>
 
-      {/* Metadata stays with the model summary; pricing tables follow it. */}
+      {displayedTextModelPricing && (
+        <TextModelPricingSummary pricing={displayedTextModelPricing} />
+      )}
+
+      {grokPricing && <GrokPricingMatrix pricing={grokPricing} />}
+
+      {props.model.video_pricing && (
+        <VideoPricingMatrix
+          pricing={props.model.video_pricing}
+          compact
+          tokenUnit={tokenUnit}
+          className='mt-3'
+        />
+      )}
+
+      {/* Keep metadata at the bottom; flexible space stays after pricing. */}
       <div
-        className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-3'
+        className='mt-auto grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 pt-3 sm:pt-4'
         data-model-card-metadata='true'
       >
         <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
@@ -347,21 +362,6 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           )}
         </div>
       </div>
-
-      {displayedTextModelPricing && (
-        <TextModelPricingSummary pricing={displayedTextModelPricing} />
-      )}
-
-      {grokPricing && <GrokPricingMatrix pricing={grokPricing} />}
-
-      {props.model.video_pricing && (
-        <VideoPricingMatrix
-          pricing={props.model.video_pricing}
-          compact
-          tokenUnit={tokenUnit}
-          className='mt-3'
-        />
-      )}
     </div>
   )
 })

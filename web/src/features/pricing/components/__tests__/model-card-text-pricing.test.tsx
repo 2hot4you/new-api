@@ -99,10 +99,15 @@ describe('selected text-model marketplace card pricing', () => {
     const metadata = container.querySelector('[data-model-card-metadata]')
     assert.ok(metadata)
     assert.equal(
-      metadata.compareDocumentPosition(matrix) &
+      matrix.compareDocumentPosition(metadata) &
         Node.DOCUMENT_POSITION_FOLLOWING,
       Node.DOCUMENT_POSITION_FOLLOWING,
-      'pricing table must follow model metadata so any remaining whitespace stays below the table'
+      'metadata must follow the pricing table'
+    )
+    assert.match(
+      metadata.className,
+      /(?:^|\s)mt-auto(?:\s|$)/,
+      'remaining card height must become a spacer between pricing and metadata'
     )
     assert.match(matrix.textContent ?? '', /Input/)
     assert.match(matrix.textContent ?? '', /Output/)

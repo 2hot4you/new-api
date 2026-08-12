@@ -1,0 +1,13 @@
+{
+  "id": "restore-model-card-footer-with-spacer",
+  "title": "恢复模型卡片底部元数据并将留白置于价格表之后",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交已验证变更",
+  "createdAt": "2026-08-12T11:04:00Z",
+  "branch": "feat/molii-auth",
+  "completedAt": "2026-08-12T12:23:50Z"
+}
