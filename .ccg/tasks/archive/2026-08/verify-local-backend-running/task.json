@@ -1,0 +1,12 @@
+{
+  "id": "verify-local-backend-running",
+  "title": "确认本地 New API 后端已重新运行",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已确认后端常驻运行且健康接口正常",
+  "createdAt": "2026-08-12T09:53:20Z",
+  "branch": "feat/molii-auth"
+}
