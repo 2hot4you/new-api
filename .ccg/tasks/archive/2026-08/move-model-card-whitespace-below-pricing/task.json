@@ -1,0 +1,12 @@
+{
+  "id": "move-model-card-whitespace-below-pricing",
+  "title": "将模型卡片价格表上方留白移动到底部",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并保留本地开发服务",
+  "createdAt": "2026-08-12T10:42:00Z",
+  "branch": "feat/molii-auth"
+}

@@ -80,6 +80,13 @@ describe('selected text-model marketplace card pricing', () => {
   test('renders the fixed Token billing explanation', async () => {
     const { container, root } = await renderCard(baseModel('glm-5.2'))
 
+    const description = container.querySelector('p')
+    assert.ok(description)
+    assert.doesNotMatch(
+      description.className,
+      /(?:^|\s)flex-1(?:\s|$)/,
+      'description must not push the pricing table downward'
+    )
     const explanation = container.querySelector('[data-text-model-billing]')
     assert.ok(explanation)
     assert.match(
