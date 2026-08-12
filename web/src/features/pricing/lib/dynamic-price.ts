@@ -61,7 +61,44 @@ export type DynamicPricingSummary = {
   secondaryEntries: DynamicPriceEntry[]
 }
 
+export type TextModelCardPricingRow = {
+  label: string
+  input: string
+  output: string
+  cache: string
+}
+
+export type TextModelCardPricing = {
+  kind: 'fixed' | 'tiered'
+  explanationKey:
+    | 'Billed by input, output, and cached Token usage'
+    | 'Tiered by full input length'
+  unitLabel: string
+  rows: TextModelCardPricingRow[]
+}
+
 const PRIMARY_DYNAMIC_FIELDS = new Set(['inputPrice', 'outputPrice'])
+
+const FIXED_TEXT_MODEL_CARD_IDS = new Set([
+  'deepseek-v4-flash-202605',
+  'deepseek-v4-pro-202606',
+  'glm-5.2',
+  'kimi-k3',
+])
+
+const TIERED_TEXT_MODEL_CARD_IDS = new Set([
+  'minimax-m3',
+  'qwen3.5-flash',
+  'qwen3.5-plus',
+])
+
+const TIER_CARD_LABELS: Record<string, string> = {
+  up_to_128k: '≤ 128K',
+  '128k_to_256k': '128K–256K',
+  '256k_to_1m': '256K–1M',
+  up_to_512k: '≤ 512K',
+  over_512k: '> 512K',
+}
 
 export function isDynamicPricingModel(model: PricingModel): boolean {
   return model.billing_mode === 'tiered_expr' && Boolean(model.billing_expr)
@@ -190,5 +227,51 @@ export function getDynamicPricingSummary(
     secondaryEntries: entries.filter(
       (entry) => !PRIMARY_DYNAMIC_FIELDS.has(entry.field)
     ),
+  }
+}
+
+export function getTextModelCardPricing(
+  model: PricingModel,
+  options: DynamicPriceOptions
+): TextModelCardPricing | null {
+  const unitLabel = options.tokenUnit === 'K' ? '1K' : '1M'
+
+  if (FIXED_TEXT_MODEL_CARD_IDS.has(model.model_name)) {
+    return {
+      kind: 'fixed',
+      explanationKey: 'Billed by input, output, and cached Token usage',
+      unitLabel,
+      rows: [],
+    }
+  }
+
+  if (
+    !TIERED_TEXT_MODEL_CARD_IDS.has(model.model_name) ||
+    !isDynamicPricingModel(model)
+  ) {
+    return null
+  }
+
+  const rows = getDynamicPricingTiers(model).map((tier) => {
+    const entries = getDynamicPriceEntries(tier, {
+      ...options,
+      billingCurrency: model.billing_currency,
+    })
+    const priceFor = (field: string) =>
+      entries.find((entry) => entry.field === field)?.formatted ?? '—'
+
+    return {
+      label: TIER_CARD_LABELS[tier.label] ?? tier.label,
+      input: priceFor('inputPrice'),
+      output: priceFor('outputPrice'),
+      cache: priceFor('cacheReadPrice'),
+    }
+  })
+
+  return {
+    kind: 'tiered',
+    explanationKey: 'Tiered by full input length',
+    unitLabel,
+    rows,
   }
 }

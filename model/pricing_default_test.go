@@ -36,3 +36,16 @@ func TestDefaultThreeModelDescriptionKeys(t *testing.T) {
 	}
 	assert.Empty(t, getDefaultModelDescriptionI18nKey("qwen3.5-plus-preview"))
 }
+
+func TestDefaultTextModelDescriptionKeys(t *testing.T) {
+	want := map[string]string{
+		"deepseek-v4-flash-202605": "DeepSeek V4 Flash model description",
+		"deepseek-v4-pro-202606":   "DeepSeek V4 Pro model description",
+		"glm-5.2":                  "GLM 5.2 model description",
+		"kimi-k3":                  "Kimi K3 model description",
+	}
+	for modelName, descriptionKey := range want {
+		assert.Equal(t, descriptionKey, getDefaultModelDescriptionI18nKey(modelName))
+	}
+	assert.Empty(t, getDefaultModelDescriptionI18nKey("deepseek-v4-preview"))
+}

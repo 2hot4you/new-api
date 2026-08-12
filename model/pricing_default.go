@@ -78,6 +78,10 @@ var defaultModelDescriptionI18nKeys = map[string]string{
 	"minimax-m3":                      "MiniMax M3 model description",
 	"qwen3.5-flash":                   "Qwen3.5 Flash model description",
 	"qwen3.5-plus":                    "Qwen3.5 Plus model description",
+	"deepseek-v4-flash-202605":        "DeepSeek V4 Flash model description",
+	"deepseek-v4-pro-202606":          "DeepSeek V4 Pro model description",
+	"glm-5.2":                         "GLM 5.2 model description",
+	"kimi-k3":                         "Kimi K3 model description",
 }
 
 func getDefaultModelDescriptionI18nKey(modelName string) string {

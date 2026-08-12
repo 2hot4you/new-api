@@ -28,6 +28,7 @@ import { DEFAULT_TOKEN_UNIT } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
   getDynamicPricingSummary,
+  getTextModelCardPricing,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import { getPricingModelDescription } from '../lib/model-description'
@@ -37,6 +38,7 @@ import type { PricingModel, TokenUnit } from '../types'
 import { GrokPricingMatrix } from './grok-pricing-matrix'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
+import { TextModelPricingSummary } from './text-model-pricing-summary'
 import { VideoPricingMatrix } from './video-pricing-matrix'
 
 export interface ModelCardProps {
@@ -82,6 +84,16 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         ),
       })
     : null
+  const textModelPricing = getTextModelCardPricing(props.model, {
+    tokenUnit,
+    showRechargePrice,
+    priceRate,
+    usdExchangeRate,
+    groupRatioMultiplier: getDynamicDisplayGroupRatio(
+      props.model,
+      props.selectedGroup
+    ),
+  })
 
   const primaryGroup = groups[0]
   const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
@@ -261,6 +273,10 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       <p className='text-muted-foreground mt-2 line-clamp-1 flex-1 text-[13px] leading-relaxed sm:mt-4 sm:line-clamp-2 sm:min-h-[2.5rem]'>
         {description || t('No description available.')}
       </p>
+
+      {textModelPricing && (
+        <TextModelPricingSummary pricing={textModelPricing} />
+      )}
 
       {grokPricing && <GrokPricingMatrix pricing={grokPricing} />}
 

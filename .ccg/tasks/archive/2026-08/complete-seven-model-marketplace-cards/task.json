@@ -1,0 +1,12 @@
+{
+  "id": "complete-seven-model-marketplace-cards",
+  "title": "补齐七个文本模型的卡片简介和计费说明",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并保留本地开发服务",
+  "createdAt": "2026-08-12T09:57:00Z",
+  "branch": "feat/molii-auth"
+}
