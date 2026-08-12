@@ -1,0 +1,12 @@
+{
+  "id": "complete-fixed-text-model-price-tables",
+  "title": "补齐固定价格文本模型的卡片和详情价格表",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并保留本地开发服务",
+  "createdAt": "2026-08-12T10:24:00Z",
+  "branch": "feat/molii-auth"
+}

@@ -87,6 +87,14 @@ describe('selected text-model marketplace card pricing', () => {
       /Billed by input, output, and cached Token usage/
     )
     assert.match(explanation.textContent ?? '', /1M/)
+    const matrix = container.querySelector('[data-text-model-pricing-matrix]')
+    assert.ok(matrix)
+    assert.match(matrix.textContent ?? '', /Input/)
+    assert.match(matrix.textContent ?? '', /Output/)
+    assert.match(matrix.textContent ?? '', /Cached/)
+    assert.match(matrix.textContent ?? '', /\$2/)
+    assert.match(matrix.textContent ?? '', /\$4/)
+    assert.match(matrix.textContent ?? '', /\$0\.4/)
 
     await act(async () => root.unmount())
     container.remove()

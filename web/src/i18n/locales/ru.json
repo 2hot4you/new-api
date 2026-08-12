@@ -5441,6 +5441,8 @@
     "Tiered by full input length": "Уровни цены по полной длине входа",
     "Prices shown per {{unit}} Tokens": "Цены указаны за {{unit}} Token",
     "Tiered Token pricing": "Уровневая цена Token",
+    "Token pricing": "Цена Token",
+    "Input length": "Длина входа",
     "Seedance generates one extra frame for playback; final billing uses the actual token count.": "Seedance создаёт один дополнительный кадр для начала воспроизведения; итоговый расчёт выполняется по фактическому числу токенов.",
     "Completed tasks": "Completed tasks",
     "{{count}} submitted in the last 24 hours": "{{count}} submitted in the last 24 hours",

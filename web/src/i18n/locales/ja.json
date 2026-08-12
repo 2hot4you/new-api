@@ -5441,6 +5441,8 @@
     "Tiered by full input length": "入力全体の長さによる段階課金",
     "Prices shown per {{unit}} Tokens": "価格単位：{{unit}} Token",
     "Tiered Token pricing": "Token 段階価格",
+    "Token pricing": "Token 価格",
+    "Input length": "入力長",
     "Seedance generates one extra frame for playback; final billing uses the actual token count.": "Seedance は再生開始用に 1 フレーム追加生成します。最終請求には実際の Token 数を使用します。",
     "Completed tasks": "Completed tasks",
     "{{count}} submitted in the last 24 hours": "{{count}} submitted in the last 24 hours",

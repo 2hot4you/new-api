@@ -94,6 +94,46 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       props.selectedGroup
     ),
   })
+  const displayedTextModelPricing =
+    textModelPricing?.kind === 'fixed'
+      ? {
+          ...textModelPricing,
+          rows: [
+            {
+              label: 'Standard',
+              input: formatPrice(
+                props.model,
+                'input',
+                tokenUnit,
+                showRechargePrice,
+                priceRate,
+                usdExchangeRate,
+                props.selectedGroup
+              ),
+              output: formatPrice(
+                props.model,
+                'output',
+                tokenUnit,
+                showRechargePrice,
+                priceRate,
+                usdExchangeRate,
+                props.selectedGroup
+              ),
+              cache: hasCachedPrice
+                ? formatPrice(
+                    props.model,
+                    'cache',
+                    tokenUnit,
+                    showRechargePrice,
+                    priceRate,
+                    usdExchangeRate,
+                    props.selectedGroup
+                  )
+                : '—',
+            },
+          ],
+        }
+      : textModelPricing
 
   const primaryGroup = groups[0]
   const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
@@ -274,8 +314,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         {description || t('No description available.')}
       </p>
 
-      {textModelPricing && (
-        <TextModelPricingSummary pricing={textModelPricing} />
+      {displayedTextModelPricing && (
+        <TextModelPricingSummary pricing={displayedTextModelPricing} />
       )}
 
       {grokPricing && <GrokPricingMatrix pricing={grokPricing} />}

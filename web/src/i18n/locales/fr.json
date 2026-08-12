@@ -5441,6 +5441,8 @@
     "Tiered by full input length": "Tarification par paliers selon la longueur totale d’entrée",
     "Prices shown per {{unit}} Tokens": "Prix affichés par {{unit}} Token",
     "Tiered Token pricing": "Tarification Token par paliers",
+    "Token pricing": "Tarification des Token",
+    "Input length": "Longueur d’entrée",
     "Seedance generates one extra frame for playback; final billing uses the actual token count.": "Seedance génère une image supplémentaire pour le démarrage de la lecture ; la facturation finale utilise le nombre réel de jetons.",
     "Completed tasks": "Completed tasks",
     "{{count}} submitted in the last 24 hours": "{{count}} submitted in the last 24 hours",

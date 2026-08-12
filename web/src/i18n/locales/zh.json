@@ -5445,6 +5445,8 @@
     "Tiered by full input length": "按完整输入长度分档计费",
     "Prices shown per {{unit}} Tokens": "价格单位：¥ / {{unit}} Token",
     "Tiered Token pricing": "Token 分档定价",
+    "Token pricing": "Token 定价",
+    "Input length": "输入长度",
     "Seedance generates one extra frame for playback; final billing uses the actual token count.": "Seedance 会额外生成 1 帧用于起播；页面公式用于预估，最终按上游返回的实际 Token 计费。",
     "Completed tasks": "已完成任务",
     "{{count}} submitted in the last 24 hours": "最近 24 小时提交 {{count}} 个任务",

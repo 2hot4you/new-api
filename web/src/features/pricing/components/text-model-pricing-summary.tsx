@@ -36,6 +36,46 @@ export function TextModelPricingSummary(props: {
         </span>
       </p>
 
+      {pricing.kind === 'fixed' && pricing.rows[0] && (
+        <div
+          className='mt-2 overflow-hidden rounded-lg border'
+          data-text-model-pricing-matrix='true'
+        >
+          <table className='w-full table-fixed border-collapse'>
+            <caption className='sr-only'>{t('Token pricing')}</caption>
+            <thead className='bg-muted/60'>
+              <tr>
+                {['Input', 'Output', 'Cached'].map((label) => (
+                  <th
+                    key={label}
+                    scope='col'
+                    className='text-muted-foreground w-1/3 px-2 py-1.5 text-right text-[10px] font-medium first:text-left'
+                  >
+                    {t(label)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr className='border-t'>
+                {[
+                  { field: 'input', price: pricing.rows[0].input },
+                  { field: 'output', price: pricing.rows[0].output },
+                  { field: 'cache', price: pricing.rows[0].cache },
+                ].map(({ field, price }) => (
+                  <td
+                    key={field}
+                    className='px-2 py-1.5 text-right font-mono text-xs font-semibold whitespace-nowrap tabular-nums first:text-left'
+                  >
+                    {price}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {pricing.kind === 'tiered' && pricing.rows.length > 0 && (
         <div
           className='mt-2 overflow-hidden rounded-lg border'

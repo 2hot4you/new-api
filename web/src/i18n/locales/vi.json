@@ -5441,6 +5441,8 @@
     "Tiered by full input length": "Tính phí theo bậc dựa trên toàn bộ độ dài đầu vào",
     "Prices shown per {{unit}} Tokens": "Giá hiển thị trên mỗi {{unit}} Token",
     "Tiered Token pricing": "Bảng giá Token theo bậc",
+    "Token pricing": "Bảng giá Token",
+    "Input length": "Độ dài đầu vào",
     "Seedance generates one extra frame for playback; final billing uses the actual token count.": "Seedance tạo thêm một khung hình để bắt đầu phát; chi phí cuối cùng dùng số Token thực tế.",
     "Completed tasks": "Completed tasks",
     "{{count}} submitted in the last 24 hours": "{{count}} submitted in the last 24 hours",

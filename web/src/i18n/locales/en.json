@@ -5445,6 +5445,8 @@
     "Tiered by full input length": "Tiered by full input length",
     "Prices shown per {{unit}} Tokens": "Prices shown per {{unit}} Tokens",
     "Tiered Token pricing": "Tiered Token pricing",
+    "Token pricing": "Token pricing",
+    "Input length": "Input length",
     "Seedance generates one extra frame for playback; final billing uses the actual token count.": "Seedance generates one extra frame for playback; final billing uses the actual token count.",
     "Completed tasks": "Completed tasks",
     "{{count}} submitted in the last 24 hours": "{{count}} submitted in the last 24 hours",
