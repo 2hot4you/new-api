@@ -5,8 +5,8 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "implementation",
-  "nextAction": "写入颜色契约测试并验证红绿循环",
+  "currentPhase": "review",
+  "nextAction": "完成本地审查、提交实现并归档任务",
   "createdAt": "2026-08-13T19:05:00+08:00",
   "branch": "feat/molii-auth"
 }
