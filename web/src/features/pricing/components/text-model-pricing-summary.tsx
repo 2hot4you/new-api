@@ -28,17 +28,9 @@ export function TextModelPricingSummary(props: {
 
   return (
     <div className='mt-3' data-text-model-billing='true'>
-      <p className='text-muted-foreground text-xs font-medium'>
-        {t(pricing.explanationKey)}
-        <span className='text-muted-foreground/70'>
-          {' · '}
-          {t('Prices shown per {{unit}} Tokens', { unit: pricing.unitLabel })}
-        </span>
-      </p>
-
       {pricing.kind === 'fixed' && pricing.rows[0] && (
         <div
-          className='mt-2 overflow-hidden rounded-lg border'
+          className='overflow-hidden rounded-lg border'
           data-text-model-pricing-matrix='true'
         >
           <table className='w-full table-fixed border-collapse'>
@@ -78,7 +70,7 @@ export function TextModelPricingSummary(props: {
 
       {pricing.kind === 'tiered' && pricing.rows.length > 0 && (
         <div
-          className='mt-2 overflow-hidden rounded-lg border'
+          className='overflow-hidden rounded-lg border'
           data-text-model-pricing-matrix='true'
         >
           <table className='w-full table-fixed border-collapse'>

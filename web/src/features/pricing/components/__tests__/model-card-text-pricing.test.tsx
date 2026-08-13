@@ -77,7 +77,7 @@ async function renderCard(model: PricingModel) {
 describe('selected text-model marketplace card pricing', () => {
   after(() => domWindow.close())
 
-  test('renders the fixed Token billing explanation', async () => {
+  test('renders the fixed Token pricing table without a billing explanation', async () => {
     const { container, root } = await renderCard(baseModel('glm-5.2'))
 
     const description = container.querySelector('p')
@@ -87,13 +87,13 @@ describe('selected text-model marketplace card pricing', () => {
       /(?:^|\s)flex-1(?:\s|$)/,
       'description must not push the pricing table downward'
     )
-    const explanation = container.querySelector('[data-text-model-billing]')
-    assert.ok(explanation)
-    assert.match(
-      explanation.textContent ?? '',
+    const pricingSummary = container.querySelector('[data-text-model-billing]')
+    assert.ok(pricingSummary)
+    assert.doesNotMatch(
+      pricingSummary.textContent ?? '',
       /Billed by input, output, and cached Token usage/
     )
-    assert.match(explanation.textContent ?? '', /1M/)
+    assert.doesNotMatch(pricingSummary.textContent ?? '', /Prices shown per/)
     const matrix = container.querySelector('[data-text-model-pricing-matrix]')
     assert.ok(matrix)
     const metadata = container.querySelector('[data-model-card-metadata]')

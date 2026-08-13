@@ -1,0 +1,13 @@
+{
+  "id": "unify-token-pricing-card-layout",
+  "title": "统一 Token 模型与 Seedance 的价格表布局",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交已验证变更",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "feat/molii-auth",
+  "completedAt": "2026-08-13T02:14:16Z"
+}
