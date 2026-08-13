@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "fullstack",
   "currentPhase": "planning",
-  "nextAction": "等待用户审核模型元数据统一设计文档",
+  "nextAction": "审核实施计划并选择执行方式",
   "createdAt": "2026-08-13T15:20:00+08:00",
   "branch": "feat/molii-auth"
 }
