@@ -24,6 +24,13 @@ import {
   ENDPOINT_TYPES,
 } from '../constants'
 import type { PricingModel } from '../types'
+import type { Modality, ModelCapability } from '../types'
+import {
+  filterModelsByDirectory,
+  sortModelsByReleaseDate,
+  type ContextBucketId,
+  type ModelCategoryId,
+} from './model-directory'
 
 // ----------------------------------------------------------------------------
 // Filter Utilities
@@ -78,11 +85,18 @@ export function filterByQuotaType(
   quotaType: string
 ): PricingModel[] {
   if (quotaType === QUOTA_TYPES.ALL) return models
+  if (quotaType === QUOTA_TYPES.DYNAMIC) {
+    return models.filter((model) => model.billing_mode === 'tiered_expr')
+  }
   const targetType =
     quotaType === QUOTA_TYPES.TOKEN
       ? QUOTA_TYPE_VALUES.TOKEN
       : QUOTA_TYPE_VALUES.REQUEST
-  return models.filter((m) => m.quota_type === targetType)
+  return models.filter(
+    (m) =>
+      m.quota_type === targetType &&
+      (quotaType !== QUOTA_TYPES.TOKEN || m.billing_mode !== 'tiered_expr')
+  )
 }
 
 /**
@@ -115,6 +129,8 @@ export function sortModels(
   const sorted = [...models]
 
   switch (sortBy) {
+    case SORT_OPTIONS.RELEASE_DATE:
+      return sortModelsByReleaseDate(sorted)
     case SORT_OPTIONS.NAME:
       sorted.sort((a, b) =>
         (a.model_name || '').localeCompare(b.model_name || '')
@@ -144,14 +160,34 @@ export function filterAndSortModels(
     endpointType: string
     tag: string
     sortBy: string
+    category?: ModelCategoryId
+    inputModality?: Modality
+    contextBucket?: ContextBucketId
+    capability?: ModelCapability
   }
 ): PricingModel[] {
   let result = filterBySearch(models, filters.search)
-  result = filterByVendor(result, filters.vendor)
-  result = filterByGroup(result, filters.group)
-  result = filterByQuotaType(result, filters.quotaType)
-  result = filterByEndpointType(result, filters.endpointType)
-  result = filterByTag(result, filters.tag)
+  result = filterModelsByDirectory(result, {
+    vendor: filters.vendor === FILTER_ALL ? undefined : filters.vendor,
+    category: filters.category === FILTER_ALL ? undefined : filters.category,
+    inputModality: filters.inputModality,
+    contextBucket: filters.contextBucket,
+    capability: filters.capability,
+    endpointType:
+      filters.endpointType === ENDPOINT_TYPES.ALL
+        ? undefined
+        : filters.endpointType,
+    billingType:
+      filters.quotaType === QUOTA_TYPES.ALL
+        ? undefined
+        : filters.quotaType === QUOTA_TYPES.DYNAMIC
+          ? 'dynamic'
+          : filters.quotaType === QUOTA_TYPES.REQUEST
+            ? 'request'
+            : 'token',
+    group: filters.group === FILTER_ALL ? undefined : filters.group,
+    tag: filters.tag === FILTER_ALL ? undefined : filters.tag,
+  })
   result = sortModels(result, filters.sortBy)
 
   return result

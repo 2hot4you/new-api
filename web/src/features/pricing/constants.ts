@@ -26,6 +26,7 @@ import type { TokenUnit } from './types'
 
 /** Sort options for pricing models */
 export const SORT_OPTIONS = {
+  RELEASE_DATE: 'release-date',
   NAME: 'name',
   PRICE_LOW: 'price-low',
   PRICE_HIGH: 'price-high',
@@ -35,6 +36,7 @@ export type SortOption = (typeof SORT_OPTIONS)[keyof typeof SORT_OPTIONS]
 
 export function getSortLabels(t: TFunction): Record<SortOption, string> {
   return {
+    [SORT_OPTIONS.RELEASE_DATE]: t('Newest'),
     [SORT_OPTIONS.NAME]: t('Name'),
     [SORT_OPTIONS.PRICE_LOW]: t('Price: Low to High'),
     [SORT_OPTIONS.PRICE_HIGH]: t('Price: High to Low'),
@@ -49,6 +51,7 @@ export const QUOTA_TYPES = {
   ALL: 'all',
   TOKEN: 'token',
   REQUEST: 'request',
+  DYNAMIC: 'dynamic',
 } as const
 
 export type QuotaTypeOption = (typeof QUOTA_TYPES)[keyof typeof QUOTA_TYPES]
@@ -61,6 +64,7 @@ export function getQuotaTypeLabels(
     [QUOTA_TYPES.ALL]: t('All Models'),
     [QUOTA_TYPES.TOKEN]: t('Token-based'),
     [QUOTA_TYPES.REQUEST]: t('Per Request'),
+    [QUOTA_TYPES.DYNAMIC]: t('Dynamic Tiered'),
   }
 }
 

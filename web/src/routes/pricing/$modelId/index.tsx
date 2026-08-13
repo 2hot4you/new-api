@@ -34,6 +34,10 @@ const modelDetailsSearchSchema = z.object({
   tokenUnit: z.enum(['M', 'K']).optional(),
   view: z.enum(['card', 'table']).optional().catch(undefined),
   rechargePrice: z.boolean().optional(),
+  category: z.string().optional(),
+  input: z.string().optional(),
+  context: z.string().optional(),
+  capability: z.string().optional(),
 })
 
 export const Route = createFileRoute('/pricing/$modelId/')({

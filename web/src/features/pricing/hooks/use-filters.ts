@@ -29,7 +29,9 @@ import {
   type ViewMode,
 } from '../constants'
 import { filterAndSortModels, extractAllTags } from '../lib/filters'
+import type { ContextBucketId, ModelCategoryId } from '../lib/model-directory'
 import type { PricingModel, TokenUnit } from '../types'
+import type { Modality, ModelCapability } from '../types'
 
 type FilterState = {
   search?: string
@@ -42,6 +44,10 @@ type FilterState = {
   tokenUnit?: TokenUnit
   view?: ViewMode
   rechargePrice?: boolean
+  category?: ModelCategoryId
+  input?: Modality
+  context?: ContextBucketId
+  capability?: ModelCapability
 }
 
 function normalizeViewMode(value: unknown): ViewMode {
@@ -64,10 +70,14 @@ export function useFilters(models: PricingModel[]) {
     tokenUnit: search.tokenUnit,
     view: search.view,
     rechargePrice: search.rechargePrice,
+    category: search.category as ModelCategoryId | undefined,
+    input: search.input as Modality | undefined,
+    context: search.context as ContextBucketId | undefined,
+    capability: search.capability as ModelCapability | undefined,
   }))
 
   const searchInput = filterState.search || ''
-  const sortBy = filterState.sort || SORT_OPTIONS.NAME
+  const sortBy = filterState.sort || SORT_OPTIONS.RELEASE_DATE
   const vendorFilter = filterState.vendor || FILTER_ALL
   const groupFilter = filterState.group || FILTER_ALL
   const quotaTypeFilter = filterState.quotaType || QUOTA_TYPES.ALL
@@ -77,6 +87,10 @@ export function useFilters(models: PricingModel[]) {
     filterState.tokenUnit === 'K' ? 'K' : DEFAULT_TOKEN_UNIT
   const viewMode = normalizeViewMode(filterState.view)
   const showRechargePrice = filterState.rechargePrice === true
+  const categoryFilter = filterState.category || FILTER_ALL
+  const inputModalityFilter = filterState.input || FILTER_ALL
+  const contextFilter = filterState.context || FILTER_ALL
+  const capabilityFilter = filterState.capability || FILTER_ALL
 
   const updateFilters = useCallback((updates: Record<string, unknown>) => {
     setFilterState((prev) => {
@@ -96,7 +110,9 @@ export function useFilters(models: PricingModel[]) {
   )
   const setSortBy = useCallback(
     (v: string) =>
-      updateFilters({ sort: v === SORT_OPTIONS.NAME ? undefined : v }),
+      updateFilters({
+        sort: v === SORT_OPTIONS.RELEASE_DATE ? undefined : v,
+      }),
     [updateFilters]
   )
   const setVendorFilter = useCallback(
@@ -137,6 +153,34 @@ export function useFilters(models: PricingModel[]) {
     (v: boolean) => updateFilters({ rechargePrice: v || undefined }),
     [updateFilters]
   )
+  const setCategoryFilter = useCallback(
+    (v: string) =>
+      updateFilters({
+        category: v === FILTER_ALL ? undefined : (v as ModelCategoryId),
+      }),
+    [updateFilters]
+  )
+  const setInputModalityFilter = useCallback(
+    (v: string) =>
+      updateFilters({
+        input: v === FILTER_ALL ? undefined : (v as Modality),
+      }),
+    [updateFilters]
+  )
+  const setContextFilter = useCallback(
+    (v: string) =>
+      updateFilters({
+        context: v === FILTER_ALL ? undefined : (v as ContextBucketId),
+      }),
+    [updateFilters]
+  )
+  const setCapabilityFilter = useCallback(
+    (v: string) =>
+      updateFilters({
+        capability: v === FILTER_ALL ? undefined : (v as ModelCapability),
+      }),
+    [updateFilters]
+  )
 
   const availableTags = useMemo(() => {
     if (!models || models.length === 0) return []
@@ -154,6 +198,22 @@ export function useFilters(models: PricingModel[]) {
       endpointType: endpointTypeFilter,
       tag: tagFilter,
       sortBy,
+      category:
+        categoryFilter === FILTER_ALL
+          ? undefined
+          : (categoryFilter as ModelCategoryId),
+      inputModality:
+        inputModalityFilter === FILTER_ALL
+          ? undefined
+          : (inputModalityFilter as Modality),
+      contextBucket:
+        contextFilter === FILTER_ALL
+          ? undefined
+          : (contextFilter as ContextBucketId),
+      capability:
+        capabilityFilter === FILTER_ALL
+          ? undefined
+          : (capabilityFilter as ModelCapability),
     })
   }, [
     models,
@@ -164,6 +224,10 @@ export function useFilters(models: PricingModel[]) {
     endpointTypeFilter,
     tagFilter,
     sortBy,
+    categoryFilter,
+    inputModalityFilter,
+    contextFilter,
+    capabilityFilter,
   ])
 
   const hasActiveFilters = useMemo(
@@ -172,8 +236,22 @@ export function useFilters(models: PricingModel[]) {
       groupFilter !== FILTER_ALL ||
       quotaTypeFilter !== QUOTA_TYPES.ALL ||
       endpointTypeFilter !== ENDPOINT_TYPES.ALL ||
-      tagFilter !== FILTER_ALL,
-    [vendorFilter, groupFilter, quotaTypeFilter, endpointTypeFilter, tagFilter]
+      tagFilter !== FILTER_ALL ||
+      categoryFilter !== FILTER_ALL ||
+      inputModalityFilter !== FILTER_ALL ||
+      contextFilter !== FILTER_ALL ||
+      capabilityFilter !== FILTER_ALL,
+    [
+      vendorFilter,
+      groupFilter,
+      quotaTypeFilter,
+      endpointTypeFilter,
+      tagFilter,
+      categoryFilter,
+      inputModalityFilter,
+      contextFilter,
+      capabilityFilter,
+    ]
   )
 
   const activeFilterCount = useMemo(
@@ -182,8 +260,22 @@ export function useFilters(models: PricingModel[]) {
       (groupFilter !== FILTER_ALL ? 1 : 0) +
       (quotaTypeFilter !== QUOTA_TYPES.ALL ? 1 : 0) +
       (endpointTypeFilter !== ENDPOINT_TYPES.ALL ? 1 : 0) +
-      (tagFilter !== FILTER_ALL ? 1 : 0),
-    [vendorFilter, groupFilter, quotaTypeFilter, endpointTypeFilter, tagFilter]
+      (tagFilter !== FILTER_ALL ? 1 : 0) +
+      (categoryFilter !== FILTER_ALL ? 1 : 0) +
+      (inputModalityFilter !== FILTER_ALL ? 1 : 0) +
+      (contextFilter !== FILTER_ALL ? 1 : 0) +
+      (capabilityFilter !== FILTER_ALL ? 1 : 0),
+    [
+      vendorFilter,
+      groupFilter,
+      quotaTypeFilter,
+      endpointTypeFilter,
+      tagFilter,
+      categoryFilter,
+      inputModalityFilter,
+      contextFilter,
+      capabilityFilter,
+    ]
   )
 
   const clearFilters = useCallback(() => {
@@ -193,6 +285,10 @@ export function useFilters(models: PricingModel[]) {
       quotaType: undefined,
       endpointType: undefined,
       tag: undefined,
+      category: undefined,
+      input: undefined,
+      context: undefined,
+      capability: undefined,
     })
   }, [updateFilters])
 
@@ -208,6 +304,10 @@ export function useFilters(models: PricingModel[]) {
     quotaTypeFilter,
     endpointTypeFilter,
     tagFilter,
+    categoryFilter,
+    inputModalityFilter,
+    contextFilter,
+    capabilityFilter,
     tokenUnit,
     viewMode,
     showRechargePrice,
@@ -218,6 +318,10 @@ export function useFilters(models: PricingModel[]) {
     setQuotaTypeFilter,
     setEndpointTypeFilter,
     setTagFilter,
+    setCategoryFilter,
+    setInputModalityFilter,
+    setContextFilter,
+    setCapabilityFilter,
     setTokenUnit,
     setViewMode,
     setShowRechargePrice,
