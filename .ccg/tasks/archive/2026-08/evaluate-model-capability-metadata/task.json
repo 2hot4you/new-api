@@ -1,0 +1,12 @@
+{
+  "id": "evaluate-model-capability-metadata",
+  "title": "评估模型广场能力元数据展示",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并等待用户验收",
+  "createdAt": "2026-08-13T03:00:00Z",
+  "branch": "feat/molii-auth"
+}

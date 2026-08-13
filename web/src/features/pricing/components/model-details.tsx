@@ -508,6 +508,22 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
     )
   }
 
+  if (model.metadata_source) {
+    cells.push(
+      <CatalogInfoCell key='metadata-source' label={t('Source')}>
+        <CatalogTextValue>{model.metadata_source}</CatalogTextValue>
+      </CatalogInfoCell>
+    )
+  }
+
+  if (model.metadata_verified_at) {
+    cells.push(
+      <CatalogInfoCell key='metadata-verified' label={t('Last verified')}>
+        <CatalogTextValue>{model.metadata_verified_at}</CatalogTextValue>
+      </CatalogInfoCell>
+    )
+  }
+
   if (cells.length === 0) return null
 
   return (

@@ -34,7 +34,7 @@ import { parseTags } from '../lib/filters'
 import { getPricingModelDescription } from '../lib/model-description'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
-import type { PricingModel, TokenUnit } from '../types'
+import type { ModelCapability, PricingModel, TokenUnit } from '../types'
 import { GrokPricingMatrix } from './grok-pricing-matrix'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
@@ -50,6 +50,43 @@ export interface ModelCardProps {
   showRechargePrice?: boolean
   selectedGroup?: string
   perf?: ModelPerfBadgeData
+}
+
+const CARD_CAPABILITY_PRIORITY: ModelCapability[] = [
+  'reasoning',
+  'tools',
+  'structured_output',
+  'vision',
+  'function_calling',
+  'caching',
+  'streaming',
+  'system_prompt',
+]
+
+const CARD_CAPABILITY_LABELS: Record<ModelCapability, string> = {
+  function_calling: 'Function calling',
+  streaming: 'Streaming',
+  vision: 'Vision',
+  json_mode: 'JSON mode',
+  structured_output: 'Structured output',
+  reasoning: 'Reasoning',
+  tools: 'Tools',
+  system_prompt: 'System prompt',
+  web_search: 'Web search',
+  code_interpreter: 'Code interpreter',
+  caching: 'Prompt caching',
+  embeddings: 'Embeddings',
+}
+
+function formatCapabilityContext(tokens?: number): string {
+  if (!tokens || !Number.isFinite(tokens) || tokens <= 0) return ''
+  if (tokens >= 1_000_000) {
+    return `${Number((tokens / 1_000_000).toFixed(1))}M`
+  }
+  if (tokens >= 1_000) {
+    return `${Number((tokens / 1_000).toFixed(1))}K`
+  }
+  return String(tokens)
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
@@ -142,6 +179,16 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     Math.max(endpoints.length - 2, 0) +
     Math.max(tags.length - 2, 0)
   const description = getPricingModelDescription(props.model, t)
+  const modelCapabilities = new Set(props.model.capabilities ?? [])
+  const cardCapabilities: string[] = []
+  const contextLabel = formatCapabilityContext(props.model.context_length)
+  if (contextLabel) cardCapabilities.push(`${contextLabel} ${t('Context')}`)
+  for (const capability of CARD_CAPABILITY_PRIORITY) {
+    if (cardCapabilities.length >= 4) break
+    if (modelCapabilities.has(capability)) {
+      cardCapabilities.push(t(CARD_CAPABILITY_LABELS[capability]))
+    }
+  }
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -313,6 +360,22 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       <p className='text-muted-foreground mt-2 line-clamp-1 text-[13px] leading-relaxed sm:mt-4 sm:line-clamp-2 sm:min-h-[2.5rem]'>
         {description || t('No description available.')}
       </p>
+
+      {cardCapabilities.length > 0 && (
+        <div
+          className='mt-2 flex min-w-0 flex-wrap gap-1.5 sm:mt-3'
+          data-model-card-capabilities='true'
+        >
+          {cardCapabilities.map((capability) => (
+            <span
+              key={capability}
+              className='bg-muted/70 text-muted-foreground rounded-md px-2 py-1 text-[11px] font-medium'
+            >
+              {capability}
+            </span>
+          ))}
+        </div>
+      )}
 
       {displayedTextModelPricing && (
         <TextModelPricingSummary pricing={displayedTextModelPricing} />

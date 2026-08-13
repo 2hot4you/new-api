@@ -146,4 +146,32 @@ describe('selected text-model marketplace card pricing', () => {
     await act(async () => root.unmount())
     container.remove()
   })
+
+  test('shows a compact effective-capability summary without crowding the card', async () => {
+    const model = baseModel('glm-5.2')
+    model.context_length = 1_000_000
+    model.capabilities = [
+      'streaming',
+      'system_prompt',
+      'reasoning',
+      'tools',
+      'structured_output',
+    ]
+    const { container, root } = await renderCard(model)
+
+    const summary = container.querySelector('[data-model-card-capabilities]')
+    assert.ok(summary)
+    assert.match(summary.textContent ?? '', /1M Context/)
+    assert.match(summary.textContent ?? '', /Reasoning/)
+    assert.match(summary.textContent ?? '', /Tools/)
+    assert.match(summary.textContent ?? '', /Structured output/)
+    assert.doesNotMatch(
+      summary.textContent ?? '',
+      /Streaming|System prompt/,
+      'the card must keep lower-priority capabilities in the details view'
+    )
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
 })

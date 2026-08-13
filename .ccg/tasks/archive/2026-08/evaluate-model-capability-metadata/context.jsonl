@@ -1,0 +1,4 @@
+{"type":"external_source","url":"https://github.com/anomalyco/models.dev","purpose":"模型事实与 schema 参考，不作为运行时依赖或 Molii 价格来源"}
+{"type":"code","path":"model/pricing_catalog.go","purpose":"Molii 权威模型能力目录"}
+{"type":"code","path":"web/src/features/pricing/components/model-card.tsx","purpose":"卡片关键能力摘要"}
+{"type":"code","path":"web/src/features/pricing/components/model-details.tsx","purpose":"详情页完整能力、来源与验证时间"}

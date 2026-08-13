@@ -99,6 +99,8 @@ export type PricingModel = {
   input_modalities?: Modality[]
   output_modalities?: Modality[]
   capabilities?: ModelCapability[]
+  metadata_source?: string
+  metadata_verified_at?: string
 }
 
 /** Input/output modalities supported by a model. */
