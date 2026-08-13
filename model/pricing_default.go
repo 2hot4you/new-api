@@ -5,37 +5,40 @@ import (
 )
 
 // 简化的供应商映射规则
-var defaultVendorRules = map[string]string{
-	"gpt":      "OpenAI",
-	"dall-e":   "OpenAI",
-	"whisper":  "OpenAI",
-	"o1":       "OpenAI",
-	"o3":       "OpenAI",
-	"claude":   "Anthropic",
-	"gemini":   "Google",
-	"moonshot": "Moonshot",
-	"kimi":     "Moonshot",
-	"chatglm":  "智谱",
-	"glm-":     "智谱",
-	"qwen":     "阿里巴巴",
-	"deepseek": "DeepSeek",
-	"abab":     "MiniMax",
-	"minimax":  "MiniMax",
-	"ernie":    "百度",
-	"spark":    "讯飞",
-	"hunyuan":  "腾讯",
-	"command":  "Cohere",
-	"@cf/":     "Cloudflare",
-	"360":      "360",
-	"yi":       "零一万物",
-	"jina":     "Jina",
-	"mistral":  "Mistral",
-	"grok":     "xAI",
-	"llama":    "Meta",
-	"doubao":   "字节跳动",
-	"kling":    "快手",
-	"jimeng":   "即梦",
-	"vidu":     "Vidu",
+var defaultVendorRules = []struct {
+	Pattern string
+	Vendor  string
+}{
+	{"gpt", "OpenAI"},
+	{"dall-e", "OpenAI"},
+	{"whisper", "OpenAI"},
+	{"o1", "OpenAI"},
+	{"o3", "OpenAI"},
+	{"claude", "Anthropic"},
+	{"gemini", "Google"},
+	{"moonshot", "Moonshot"},
+	{"kimi", "Moonshot"},
+	{"chatglm", "智谱"},
+	{"glm-", "智谱"},
+	{"qwen", "阿里巴巴"},
+	{"deepseek", "DeepSeek"},
+	{"abab", "MiniMax"},
+	{"minimax", "MiniMax"},
+	{"ernie", "百度"},
+	{"spark", "讯飞"},
+	{"hunyuan", "腾讯"},
+	{"command", "Cohere"},
+	{"@cf/", "Cloudflare"},
+	{"360", "360"},
+	{"yi", "零一万物"},
+	{"jina", "Jina"},
+	{"mistral", "Mistral"},
+	{"grok", "xAI"},
+	{"llama", "Meta"},
+	{"doubao", "字节跳动"},
+	{"kling", "快手"},
+	{"jimeng", "即梦"},
+	{"vidu", "Vidu"},
 }
 
 // 供应商默认图标映射
@@ -98,12 +101,8 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 
 		// 匹配供应商
 		vendorID := 0
-		modelLower := strings.ToLower(modelName)
-		for pattern, vendorName := range defaultVendorRules {
-			if strings.Contains(modelLower, pattern) {
-				vendorID = getOrCreateVendor(vendorName, vendorMap)
-				break
-			}
+		if vendorName := InferCatalogVendorName(modelName); vendorName != "" {
+			vendorID = getOrCreateVendor(vendorName, vendorMap)
 		}
 
 		// 创建模型元数据
@@ -127,9 +126,10 @@ func getOrCreateVendor(vendorName string, vendorMap map[int]*Vendor) int {
 
 	// 创建新供应商
 	newVendor := &Vendor{
-		Name:   vendorName,
-		Status: 1,
-		Icon:   getDefaultVendorIcon(vendorName),
+		Name:        vendorName,
+		Status:      1,
+		Icon:        getDefaultVendorIcon(vendorName),
+		Description: getDefaultVendorDescription(vendorName),
 	}
 
 	if err := newVendor.Insert(); err != nil {
@@ -142,8 +142,28 @@ func getOrCreateVendor(vendorName string, vendorMap map[int]*Vendor) int {
 
 // 获取供应商默认图标
 func getDefaultVendorIcon(vendorName string) string {
+	if profile, ok := GetCatalogVendorProfile(vendorName); ok {
+		return profile.Icon
+	}
 	if icon, exists := defaultVendorIcons[vendorName]; exists {
 		return icon
+	}
+	return ""
+}
+
+func getDefaultVendorDescription(vendorName string) string {
+	if profile, ok := GetCatalogVendorProfile(vendorName); ok {
+		return profile.Description
+	}
+	return ""
+}
+
+func InferCatalogVendorName(modelName string) string {
+	modelLower := strings.ToLower(strings.TrimSpace(modelName))
+	for _, rule := range defaultVendorRules {
+		if strings.Contains(modelLower, rule.Pattern) {
+			return rule.Vendor
+		}
 	}
 	return ""
 }
