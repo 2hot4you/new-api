@@ -1,0 +1,12 @@
+{
+  "id": "pricing-vendor-separators",
+  "title": "模型广场厂商分组增加整组外框",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "planning",
+  "nextAction": "等待用户复核书面设计后编写实施计划",
+  "createdAt": "2026-08-13T16:30:00+08:00",
+  "branch": "feat/molii-auth"
+}
