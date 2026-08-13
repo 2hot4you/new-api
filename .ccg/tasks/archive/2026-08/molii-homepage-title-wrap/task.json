@@ -1,0 +1,12 @@
+{
+  "id": "molii-homepage-title-wrap",
+  "title": "修复 Molii 首页中文 Hero 标题单字换行",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-13T20:20:00+08:00",
+  "branch": "feat/molii-auth"
+}

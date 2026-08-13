@@ -1,12 +1,12 @@
 {
   "id": "molii-zenmux-homepage",
   "title": "将 New API 首页重构为 ZenMux 风格的 Molii 首页",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "implementation",
-  "nextAction": "按实施计划完成首页数据层、组件、动效与本地验证",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并交付本地开发环境",
   "createdAt": "2026-08-13T19:42:00+08:00",
   "branch": "feat/molii-auth"
 }

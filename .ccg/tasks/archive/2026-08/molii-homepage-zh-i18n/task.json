@@ -1,0 +1,12 @@
+{
+  "id": "molii-homepage-zh-i18n",
+  "title": "补齐 Molii 新首页简体与繁体中文国际化",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-13T20:15:00+08:00",
+  "branch": "feat/molii-auth"
+}

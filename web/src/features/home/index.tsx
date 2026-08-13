@@ -16,18 +16,57 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
 import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
+import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { CTA, Features, Hero, HowItWorks, Stats } from './components'
+import {
+  CTA,
+  Features,
+  Hero,
+  HowItWorks,
+  LatestModels,
+  ModelEcosystem,
+  Stats,
+} from './components'
 import { useHomePageContent } from './hooks'
+import { buildHomeModelCatalog } from './lib/home-model-catalog'
+
+function DefaultHome(props: { isAuthenticated: boolean }) {
+  const { models, vendors, isLoading, error } = usePricingData()
+  const catalog = useMemo(
+    () => buildHomeModelCatalog(models, vendors),
+    [models, vendors]
+  )
+
+  return (
+    <PublicLayout showMainContainer={false}>
+      <Hero
+        models={models}
+        isLoading={isLoading}
+        isAuthenticated={props.isAuthenticated}
+      />
+      <Stats
+        catalog={catalog}
+        isLoading={isLoading}
+        hasError={Boolean(error)}
+      />
+      <ModelEcosystem vendors={catalog.vendors} isLoading={isLoading} />
+      <Features />
+      <HowItWorks />
+      <LatestModels models={catalog.latestModels} />
+      <CTA isAuthenticated={props.isAuthenticated} />
+      <Footer />
+    </PublicLayout>
+  )
+}
 
 export function Home() {
   const { i18n, t } = useTranslation()
@@ -120,14 +159,5 @@ export function Home() {
     )
   }
 
-  return (
-    <PublicLayout showMainContainer={false}>
-      <Hero isAuthenticated={isAuthenticated} />
-      <Stats />
-      <Features />
-      <HowItWorks />
-      <CTA isAuthenticated={isAuthenticated} />
-      <Footer />
-    </PublicLayout>
-  )
+  return <DefaultHome isAuthenticated={isAuthenticated} />
 }

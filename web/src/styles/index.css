@@ -492,6 +492,81 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
+@keyframes home-marquee-forward {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes home-marquee-reverse {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes home-search-highlight {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+.home-dot-grid {
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--foreground) 22%, transparent) 0.8px,
+    transparent 0.8px
+  );
+  background-size: 18px 18px;
+}
+
+.home-search-shell {
+  isolation: isolate;
+}
+
+.home-search-shell::before {
+  position: absolute;
+  z-index: -1;
+  inset: -2px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 305deg,
+    color-mix(in oklab, var(--foreground) 32%, transparent) 340deg,
+    transparent 360deg
+  );
+  content: '';
+  opacity: 0.55;
+  animation: home-search-highlight 7s linear infinite;
+}
+
+.home-marquee-track {
+  will-change: transform;
+}
+
+.home-marquee-forward {
+  animation: home-marquee-forward 58s linear infinite;
+}
+
+.home-marquee-reverse {
+  animation: home-marquee-reverse 64s linear infinite;
+}
+
+.home-marquee:hover .home-marquee-track {
+  animation-play-state: paused;
+}
+
+@media (max-width: 767px) {
+  .home-marquee-forward,
+  .home-marquee-reverse {
+    animation-duration: 74s;
+  }
+}
+
 .landing-animate-fade-up {
   animation: landing-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -517,6 +592,26 @@ For commercial licensing, please contact support@quantumnous.com
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  .home-search-shell::before,
+  .home-marquee-track {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .home-marquee-row {
+    width: auto;
+  }
+
+  .home-marquee-track {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .home-marquee [aria-hidden='true'] {
+    display: none;
   }
 }
 

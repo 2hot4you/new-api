@@ -2,9 +2,9 @@
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,223 +17,140 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
-  Zap,
-  Shield,
-  Globe,
-  Code,
-  Gauge,
-  DollarSign,
-  Users,
-  HeartHandshake,
+  BrainCircuit,
+  Clapperboard,
+  KeyRound,
+  ListVideo,
+  ReceiptText,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { AnimateInView } from '@/components/animate-in-view'
 
-interface FeaturesProps {
-  className?: string
-}
-
-export function Features(_props: FeaturesProps) {
+export function Features() {
   const { t } = useTranslation()
-
-  const features = [
+  const capabilities = [
     {
-      id: 'fast',
-      num: '01',
-      title: t('Lightning Fast'),
-      desc: t(
-        'Optimized network architecture ensures millisecond response times'
+      id: 'llm',
+      icon: BrainCircuit,
+      eyebrow: t('Language models'),
+      title: t('One API for your LLM stack'),
+      description: t(
+        'Use DeepSeek, GLM, Qwen, Kimi, MiniMax, MiMo, and other enabled language models through familiar OpenAI-compatible endpoints.'
       ),
-      span: 'md:col-span-2',
-      icon: <Zap className='size-4 text-blue-400' />,
-      visual: (
-        <div className='mt-4 grid grid-cols-3 gap-2'>
-          {['OpenAI', 'Claude', 'Gemini', 'DeepSeek', 'Qwen', 'Llama'].map(
-            (name) => (
-              <div
-                key={name}
-                className='border-border/30 bg-muted/20 text-muted-foreground flex items-center justify-center rounded-lg border px-3 py-2 text-xs transition-colors duration-300 hover:border-blue-500/30 hover:bg-blue-500/5'
-              >
-                {name}
-              </div>
-            )
-          )}
-        </div>
+      meta: [t('Chat Completions'), t('Streaming'), t('Tools and reasoning')],
+      className: 'md:col-span-2',
+    },
+    {
+      id: 'creation',
+      icon: Clapperboard,
+      eyebrow: t('Image and video creation'),
+      title: t('Create beyond text'),
+      description: t(
+        'Generate and edit images with Grok Imagine, then create videos with Grok Imagine Video and Seedance.'
       ),
+      meta: [t('Image generation'), t('Video generation'), t('Media inputs')],
+      className: 'md:col-span-1',
     },
     {
-      id: 'secure',
-      num: '02',
-      title: t('Secure & Reliable'),
-      desc: t(
-        'Enterprise-grade security with comprehensive permission management'
+      id: 'key',
+      icon: KeyRound,
+      eyebrow: t('Unified access'),
+      title: t('One API Key, every enabled model'),
+      description: t(
+        'Create, restrict, rotate, and monitor a single Molii API Key without managing a separate credential for every model family.'
       ),
-      span: 'md:col-span-1',
-      icon: <Shield className='size-4 text-emerald-400' />,
-      visual: (
-        <div className='mt-4 flex items-center justify-center'>
-          <div className='relative'>
-            <div className='flex size-16 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/5'>
-              <Shield
-                className='size-7 text-emerald-500/70'
-                strokeWidth={1.5}
-              />
-            </div>
-            <div className='absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-emerald-500'>
-              <svg
-                className='size-2.5 text-white'
-                fill='none'
-                viewBox='0 0 24 24'
-                stroke='currentColor'
-                strokeWidth={3}
-              >
-                <path
-                  strokeLinecap='round'
-                  strokeLinejoin='round'
-                  d='m4.5 12.75 6 6 9-13.5'
-                />
-              </svg>
-            </div>
-          </div>
-        </div>
+      meta: [
+        t('Model restrictions'),
+        t('Quota controls'),
+        t('IP restrictions'),
+      ],
+      className: 'md:col-span-1',
+    },
+    {
+      id: 'tasks',
+      icon: ListVideo,
+      eyebrow: t('Asynchronous workflows'),
+      title: t('Tasks that remain observable'),
+      description: t(
+        'Track asynchronous image and video tasks from submission to completion, including progress, preview, download, and generation records.'
       ),
+      meta: [t('Polling'), t('Generation records'), t('Result download')],
+      className: 'md:col-span-1',
     },
     {
-      id: 'global',
-      num: '03',
-      title: t('Global Coverage'),
-      desc: t('Multi-region deployment for stable global access'),
-      span: 'md:col-span-1',
-      icon: <Globe className='size-4 text-violet-400' />,
-      visual: (
-        <div className='mt-4 space-y-2'>
-          {[t('Load Balancing'), t('Rate Limiting'), t('Cost Tracking')].map(
-            (step, i) => (
-              <div key={step} className='flex items-center gap-2'>
-                <div
-                  className={`flex size-6 items-center justify-center rounded-full text-[10px] font-bold ${
-                    i === 1
-                      ? 'border border-blue-500/30 bg-blue-500/20 text-blue-500'
-                      : 'border-border/40 bg-muted text-muted-foreground border'
-                  }`}
-                >
-                  {i + 1}
-                </div>
-                <div className='bg-border/40 h-px flex-1' />
-                <span className='text-muted-foreground text-xs'>{step}</span>
-              </div>
-            )
-          )}
-        </div>
+      id: 'billing',
+      icon: ReceiptText,
+      eyebrow: t('Transparent billing'),
+      title: t('Understand every charge'),
+      description: t(
+        'Inspect request parameters, pricing dimensions, calculation formulas, estimated cost, and final settled cost in detailed usage records.'
       ),
-    },
-    {
-      id: 'developer',
-      num: '04',
-      title: t('Developer Friendly'),
-      desc: t('Compatible API routes for common AI application workflows'),
-      span: 'md:col-span-2',
-      icon: <Code className='size-4 text-amber-400' />,
-      visual: (
-        <div className='mt-4 flex items-center gap-3'>
-          <div className='flex -space-x-2'>
-            {['API', 'SDK', 'CLI', 'Docs'].map((n) => (
-              <div
-                key={n}
-                className='border-background from-muted to-muted/60 text-muted-foreground flex size-8 items-center justify-center rounded-full border-2 bg-gradient-to-br text-[9px] font-bold'
-              >
-                {n}
-              </div>
-            ))}
-          </div>
-          <div className='text-muted-foreground flex items-center gap-1.5 text-xs'>
-            <Code className='size-3.5 text-blue-500' />
-            {t('Multi-protocol Compatible')}
-          </div>
-        </div>
-      ),
-    },
-  ]
-
-  const additionalFeatures = [
-    {
-      icon: <Gauge className='size-5' strokeWidth={1.5} />,
-      title: t('High Performance'),
-      desc: t('Support for high concurrency with automatic load balancing'),
-    },
-    {
-      icon: <DollarSign className='size-5' strokeWidth={1.5} />,
-      title: t('Transparent Billing'),
-      desc: t('Pay-as-you-go with real-time usage monitoring'),
-    },
-    {
-      icon: <Users className='size-5' strokeWidth={1.5} />,
-      title: t('Team Collaboration'),
-      desc: t('Multi-user management with flexible permission allocation'),
-    },
-    {
-      icon: <HeartHandshake className='size-5' strokeWidth={1.5} />,
-      title: t('Open Source'),
-      desc: t('Community driven, self-hosted, and extensible'),
+      meta: [t('Pricing formulas'), t('Usage logs'), t('Final settlement')],
+      className: 'md:col-span-1',
     },
   ]
 
   return (
-    <section className='relative z-10 px-6 py-24 md:py-32'>
-      <div className='mx-auto max-w-6xl'>
-        <AnimateInView className='mb-16 max-w-lg'>
-          <p className='text-muted-foreground mb-3 text-xs font-medium tracking-widest uppercase'>
-            {t('Core Features')}
+    <section className='border-border/50 border-t px-6 py-24 md:py-32'>
+      <div className='mx-auto max-w-7xl'>
+        <AnimateInView className='mb-12 max-w-3xl'>
+          <p className='text-muted-foreground mb-3 text-xs font-semibold tracking-[0.18em] uppercase'>
+            {t('Molii capabilities')}
           </p>
-          <h2 className='text-2xl leading-tight font-bold tracking-tight md:text-3xl'>
-            {t('Built for developers,')}
-            <br />
-            {t('designed for scale')}
+          <h2 className='text-3xl leading-tight font-semibold tracking-tight md:text-5xl'>
+            {t('From language models to creative generation, in one place.')}
           </h2>
         </AnimateInView>
 
-        {/* Bento grid */}
-        <div className='border-border/40 bg-border/40 grid gap-px overflow-hidden rounded-xl border md:grid-cols-3'>
-          {features.map((f, i) => (
-            <AnimateInView
-              key={f.id}
-              delay={i * 100}
-              animation='scale-in'
-              className={`bg-background group hover:bg-muted/20 p-7 transition-colors duration-300 md:p-8 ${f.span}`}
-            >
-              <div className='mb-3 flex items-center gap-3'>
-                <span className='border-border/40 bg-muted text-muted-foreground flex size-7 items-center justify-center rounded-md border text-[10px] font-semibold tabular-nums'>
-                  {f.num}
-                </span>
-                <h3 className='text-sm font-semibold'>{f.title}</h3>
-              </div>
-              <p className='text-muted-foreground text-sm leading-relaxed'>
-                {f.desc}
-              </p>
-              {f.visual}
-            </AnimateInView>
-          ))}
-        </div>
-
-        {/* Additional features row */}
-        <div className='mt-12 grid grid-cols-2 gap-8 md:grid-cols-4 md:gap-12'>
-          {additionalFeatures.map((f, i) => (
-            <AnimateInView
-              key={f.title}
-              delay={i * 100}
-              animation='fade-up'
-              className='flex flex-col items-center text-center'
-            >
-              <div className='text-muted-foreground border-border/50 bg-muted/30 group-hover:text-foreground mb-3 flex size-12 items-center justify-center rounded-xl border transition-colors'>
-                {f.icon}
-              </div>
-              <h3 className='mb-1.5 text-sm font-semibold'>{f.title}</h3>
-              <p className='text-muted-foreground max-w-[200px] text-xs leading-relaxed'>
-                {f.desc}
-              </p>
-            </AnimateInView>
-          ))}
+        <div className='grid gap-4 md:grid-cols-3'>
+          {capabilities.map((capability, index) => {
+            const Icon = capability.icon
+            return (
+              <AnimateInView
+                key={capability.id}
+                delay={index * 70}
+                animation='scale-in'
+                className={capability.className}
+              >
+                <article
+                  data-home-capability={capability.id}
+                  className='group border-border/70 bg-background hover:border-foreground/25 relative flex h-full min-h-80 flex-col overflow-hidden rounded-3xl border p-7 transition-[border-color,transform,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-[0_20px_60px_rgb(0_0_0/0.07)] md:p-9'
+                >
+                  <div className='home-dot-grid absolute inset-0 [mask-image:linear-gradient(to_bottom_right,black,transparent_70%)] opacity-20' />
+                  <div className='relative flex items-start justify-between'>
+                    <span className='border-border/60 bg-muted/35 flex size-12 items-center justify-center rounded-2xl border'>
+                      <Icon className='size-5 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3' />
+                    </span>
+                    <span className='text-muted-foreground text-xs font-medium tabular-nums'>
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                  </div>
+                  <div className='relative mt-auto pt-16'>
+                    <p className='text-muted-foreground text-xs font-semibold tracking-[0.14em] uppercase'>
+                      {capability.eyebrow}
+                    </p>
+                    <h3 className='mt-3 text-2xl font-semibold tracking-tight'>
+                      {capability.title}
+                    </h3>
+                    <p className='text-muted-foreground mt-4 max-w-2xl text-sm leading-6'>
+                      {capability.description}
+                    </p>
+                    <div className='mt-6 flex flex-wrap gap-2'>
+                      {capability.meta.map((item) => (
+                        <span
+                          key={item}
+                          className='border-border/60 bg-muted/25 rounded-full border px-2.5 py-1 text-[11px]'
+                        >
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </article>
+              </AnimateInView>
+            )
+          })}
         </div>
       </div>
     </section>
