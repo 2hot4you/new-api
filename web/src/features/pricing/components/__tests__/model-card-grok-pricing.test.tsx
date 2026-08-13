@@ -69,7 +69,7 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 describe('Grok marketplace model card pricing', () => {
   after(() => domWindow.close())
 
-  test('uses the catalog matrix instead of the fixed-price anchor and token unit', async () => {
+  test('uses a compact lowest-tier summary instead of the full matrix', async () => {
     const model: PricingModel = {
       id: 1,
       model_name: 'grok-imagine-video-1.5',
@@ -99,11 +99,13 @@ describe('Grok marketplace model card pricing', () => {
       )
     })
 
-    assert.ok(container.querySelector('[data-grok-pricing-matrix="true"]'))
-    assert.match(
-      container.textContent ?? '',
-      /Tiered by resolution and input type/
+    assert.equal(
+      container.querySelector('[data-grok-pricing-matrix="true"]'),
+      null
     )
+    assert.match(container.textContent ?? '', /Tiered pricing/)
+    assert.match(container.textContent ?? '', /¥0\.08/)
+    assert.match(container.textContent ?? '', /second/)
     assert.doesNotMatch(container.textContent ?? '', /¥1\s*\/\s*request/)
     assert.doesNotMatch(container.textContent ?? '', /\b1M\b/)
 

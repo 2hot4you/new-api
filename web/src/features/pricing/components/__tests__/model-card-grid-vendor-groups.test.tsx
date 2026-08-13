@@ -52,29 +52,34 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 function model(
   id: number,
   modelName: string,
-  vendorId: number,
   vendorName: string,
-  vendorDescription: string,
-  vendorIcon: string
+  releaseDate: string
 ): PricingModel {
   return {
     id,
     model_name: modelName,
     quota_type: 0,
     model_ratio: 1,
-    completion_ratio: 1,
+    completion_ratio: 2,
+    cache_ratio: 0.1,
     enable_groups: ['default'],
-    vendor_id: vendorId,
     vendor_name: vendorName,
-    vendor_description: vendorDescription,
-    vendor_icon: vendorIcon,
+    vendor_icon: vendorName,
+    description: `${modelName} description`,
+    release_date: releaseDate,
+    context_length: 1_000_000,
+    max_output_tokens: 64_000,
+    input_modalities: ['text'],
+    output_modalities: ['text'],
+    capabilities: ['reasoning', 'tools'],
+    supported_endpoint_types: ['openai'],
   }
 }
 
-describe('model marketplace vendor grid rows', () => {
+describe('high-density model directory grid', () => {
   after(() => domWindow.close())
 
-  test('renders each vendor in its own row with logo, title, and description', async () => {
+  test('renders one continuous responsive grid without vendor group sections', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -88,30 +93,8 @@ describe('model marketplace vendor grid rows', () => {
           <I18nextProvider i18n={i18n}>
             <ModelCardGrid
               models={[
-                model(
-                  1,
-                  'vendor-a-first',
-                  10,
-                  'Vendor A',
-                  'Vendor A description',
-                  'OpenAI'
-                ),
-                model(
-                  2,
-                  'vendor-b-first',
-                  20,
-                  'Vendor B',
-                  'Vendor B description',
-                  'Anthropic'
-                ),
-                model(
-                  3,
-                  'vendor-a-second',
-                  10,
-                  'Vendor A',
-                  'Vendor A description',
-                  'OpenAI'
-                ),
+                model(1, 'new-model', 'DeepSeek', '2026-08-13'),
+                model(2, 'older-model', 'Qwen', '2026-07-01'),
               ]}
               onModelClick={() => undefined}
             />
@@ -120,49 +103,22 @@ describe('model marketplace vendor grid rows', () => {
       )
     })
 
-    const groups = [...container.querySelectorAll('[data-model-vendor-group]')]
-    assert.equal(groups.length, 2)
-    assert.match(groups[0]?.textContent ?? '', /vendor-a-first/)
-    assert.match(groups[0]?.textContent ?? '', /vendor-a-second/)
-    assert.doesNotMatch(groups[0]?.textContent ?? '', /vendor-b-first/)
-    assert.match(groups[1]?.textContent ?? '', /vendor-b-first/)
-    for (const group of groups) {
-      assert.match(group.className, /grid-cols-1/)
-      assert.match(group.className, /md:grid-cols-2/)
-      assert.match(group.className, /2xl:grid-cols-3/)
-    }
-    const headings = [
-      ...container.querySelectorAll('[data-model-vendor-heading]'),
-    ]
-    assert.equal(headings.length, 2)
-    assert.match(headings[0]?.textContent ?? '', /Vendor A/)
-    assert.match(headings[0]?.textContent ?? '', /Vendor A description/)
-    assert.match(headings[1]?.textContent ?? '', /Vendor B/)
-    assert.match(headings[1]?.textContent ?? '', /Vendor B description/)
+    const grid = container.querySelector('[data-model-directory-grid]')
+    assert.ok(grid)
+    assert.match(grid.className, /grid-cols-1/)
+    assert.match(grid.className, /md:grid-cols-2/)
+    assert.match(grid.className, /xl:grid-cols-3/)
     assert.equal(
-      container.querySelectorAll('[data-model-vendor-icon]').length,
-      2
+      container.querySelectorAll('[data-model-vendor-section]').length,
+      0
     )
-    const sections = [
-      ...container.querySelectorAll('[data-model-vendor-section]'),
-    ]
-    assert.equal(sections.length, 2)
-    for (const section of sections) {
-      assert.match(section.className, /rounded-2xl/)
-      assert.match(section.className, /border/)
-      assert.match(section.className, /bg-muted\/20/)
-      assert.equal(
-        section.querySelectorAll('[data-model-vendor-heading]').length,
-        1
-      )
-      assert.equal(
-        section.querySelectorAll('[data-model-vendor-group]').length,
-        1
-      )
-    }
-    for (const icon of container.querySelectorAll('[data-model-vendor-icon]')) {
-      assert.doesNotMatch(icon.className, /shadow-sm/)
-    }
+    assert.equal(container.querySelectorAll('[data-model-card]').length, 2)
+    assert.match(container.textContent ?? '', /DeepSeek/)
+    assert.match(container.textContent ?? '', /new-model description/)
+    assert.match(container.textContent ?? '', /1M/)
+    assert.match(container.textContent ?? '', /64K/)
+    assert.match(container.textContent ?? '', /2026-08-13/)
+    assert.match(container.textContent ?? '', /OpenAI/)
 
     await act(async () => root.unmount())
     queryClient.clear()

@@ -16,7 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useMemo, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
@@ -25,31 +26,32 @@ import { PageTransition } from '@/components/page-transition'
 import {
   LoadingSkeleton,
   EmptyState,
-  PricingTable,
   PricingSidebar,
   PricingToolbar,
   ModelCardGrid,
-  ModelDetailsDrawer,
   ModelCategoryBar,
 } from './components'
-import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
+import {
+  DEFAULT_TOKEN_UNIT,
+  ENDPOINT_TYPES,
+  EXCLUDED_GROUPS,
+  FILTER_ALL,
+  QUOTA_TYPES,
+  SORT_OPTIONS,
+} from './constants'
 import { useFilters } from './hooks/use-filters'
 import { usePricingData } from './hooks/use-pricing-data'
 import { getModelCategories } from './lib/model-directory'
 
 export function Pricing() {
   const { t } = useTranslation()
-  const [selectedModelName, setSelectedModelName] = useState<string | null>(
-    null
-  )
+  const navigate = useNavigate({ from: '/pricing/' })
 
   const {
     models,
     vendors,
     groupRatio,
     usableGroup,
-    endpointMap,
-    autoGroups,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -68,7 +70,6 @@ export function Pricing() {
     contextFilter,
     capabilityFilter,
     tokenUnit,
-    viewMode,
     showRechargePrice,
     setSearchInput,
     setSortBy,
@@ -82,7 +83,6 @@ export function Pricing() {
     setContextFilter,
     setCapabilityFilter,
     setTokenUnit,
-    setViewMode,
     setShowRechargePrice,
     filteredModels,
     hasActiveFilters,
@@ -92,18 +92,54 @@ export function Pricing() {
     clearSearch,
   } = useFilters(models || [])
 
-  const handleModelClick = useCallback((modelName: string) => {
-    setSelectedModelName(modelName)
-  }, [])
+  const directorySearch = useMemo(
+    () => ({
+      search: searchInput || undefined,
+      sort: sortBy === SORT_OPTIONS.RELEASE_DATE ? undefined : sortBy,
+      vendor: vendorFilter === FILTER_ALL ? undefined : vendorFilter,
+      group: groupFilter === FILTER_ALL ? undefined : groupFilter,
+      quotaType:
+        quotaTypeFilter === QUOTA_TYPES.ALL ? undefined : quotaTypeFilter,
+      endpointType:
+        endpointTypeFilter === ENDPOINT_TYPES.ALL
+          ? undefined
+          : endpointTypeFilter,
+      tag: tagFilter === FILTER_ALL ? undefined : tagFilter,
+      category: categoryFilter === FILTER_ALL ? undefined : categoryFilter,
+      input:
+        inputModalityFilter === FILTER_ALL ? undefined : inputModalityFilter,
+      context: contextFilter === FILTER_ALL ? undefined : contextFilter,
+      capability:
+        capabilityFilter === FILTER_ALL ? undefined : capabilityFilter,
+      tokenUnit: tokenUnit === DEFAULT_TOKEN_UNIT ? undefined : tokenUnit,
+      rechargePrice: showRechargePrice || undefined,
+    }),
+    [
+      capabilityFilter,
+      categoryFilter,
+      contextFilter,
+      endpointTypeFilter,
+      groupFilter,
+      inputModalityFilter,
+      quotaTypeFilter,
+      searchInput,
+      showRechargePrice,
+      sortBy,
+      tagFilter,
+      tokenUnit,
+      vendorFilter,
+    ]
+  )
 
-  const selectedModel = useMemo(
-    () =>
-      selectedModelName
-        ? (models || []).find(
-            (model) => model.model_name === selectedModelName
-          ) || null
-        : null,
-    [models, selectedModelName]
+  const handleModelClick = useCallback(
+    (modelName: string) => {
+      navigate({
+        to: '/pricing/$modelId',
+        params: { modelId: modelName },
+        search: directorySearch,
+      })
+    },
+    [directorySearch, navigate]
   )
 
   const availableGroups = useMemo(
@@ -131,29 +167,15 @@ export function Pricing() {
       )
     }
 
-    if (viewMode === VIEW_MODES.CARD) {
-      return (
-        <ModelCardGrid
-          models={filteredModels}
-          onModelClick={handleModelClick}
-          priceRate={priceRate}
-          usdExchangeRate={usdExchangeRate}
-          tokenUnit={tokenUnit}
-          showRechargePrice={showRechargePrice}
-          selectedGroup={groupFilter}
-        />
-      )
-    }
-
     return (
-      <PricingTable
+      <ModelCardGrid
         models={filteredModels}
+        onModelClick={handleModelClick}
         priceRate={priceRate}
         usdExchangeRate={usdExchangeRate}
         tokenUnit={tokenUnit}
         showRechargePrice={showRechargePrice}
         selectedGroup={groupFilter}
-        onModelClick={handleModelClick}
       />
     )
   }
@@ -162,7 +184,7 @@ export function Pricing() {
     return (
       <PublicLayout showMainContainer={false}>
         <div className='mx-auto w-full max-w-[1920px] px-3 pt-20 pb-8 sm:px-5'>
-          <LoadingSkeleton viewMode={viewMode} />
+          <LoadingSkeleton viewMode='card' />
         </div>
       </PublicLayout>
     )
@@ -228,8 +250,6 @@ export function Pricing() {
               onTokenUnitChange={setTokenUnit}
               showRechargePrice={showRechargePrice}
               onRechargePriceChange={setShowRechargePrice}
-              viewMode={viewMode}
-              onViewModeChange={setViewMode}
               quotaTypeFilter={quotaTypeFilter}
               endpointTypeFilter={endpointTypeFilter}
               vendorFilter={vendorFilter}
@@ -262,29 +282,6 @@ export function Pricing() {
             <div className='min-w-0'>{renderPricingContent()}</div>
           </main>
         </div>
-
-        {selectedModel && (
-          <ModelDetailsDrawer
-            open={Boolean(selectedModel)}
-            onOpenChange={(open) => {
-              if (!open) setSelectedModelName(null)
-            }}
-            model={selectedModel}
-            groupRatio={groupRatio || {}}
-            usableGroup={usableGroup || {}}
-            endpointMap={
-              (endpointMap as Record<
-                string,
-                { path?: string; method?: string }
-              >) || {}
-            }
-            autoGroups={autoGroups || []}
-            priceRate={priceRate ?? 1}
-            usdExchangeRate={usdExchangeRate ?? 1}
-            tokenUnit={tokenUnit}
-            showRechargePrice={showRechargePrice}
-          />
-        )}
       </PageTransition>
     </PublicLayout>
   )

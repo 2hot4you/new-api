@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "frontend",
   "currentPhase": "implementation",
-  "nextAction": "任务 1-2 已完成；实施连续模型目录与紧凑模型单元",
+  "nextAction": "任务 1-3 已完成；将模型详情重构为连续独立页面",
   "createdAt": "2026-08-13T18:10:00+08:00",
   "branch": "feat/molii-auth"
 }

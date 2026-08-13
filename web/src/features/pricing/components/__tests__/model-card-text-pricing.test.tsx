@@ -77,7 +77,7 @@ async function renderCard(model: PricingModel) {
 describe('selected text-model marketplace card pricing', () => {
   after(() => domWindow.close())
 
-  test('renders the fixed Token pricing table without a billing explanation', async () => {
+  test('renders compact fixed Token prices without the former full table', async () => {
     const { container, root } = await renderCard(baseModel('glm-5.2'))
 
     const description = container.querySelector('p')
@@ -87,44 +87,29 @@ describe('selected text-model marketplace card pricing', () => {
       /(?:^|\s)flex-1(?:\s|$)/,
       'description must not push the pricing table downward'
     )
-    const pricingSummary = container.querySelector('[data-text-model-billing]')
+    const pricingSummary = container.querySelector('[data-model-card-pricing]')
     assert.ok(pricingSummary)
     assert.doesNotMatch(
       pricingSummary.textContent ?? '',
       /Billed by input, output, and cached Token usage/
     )
-    assert.doesNotMatch(pricingSummary.textContent ?? '', /Prices shown per/)
-    const matrix = container.querySelector('[data-text-model-pricing-matrix]')
-    assert.ok(matrix)
-    const metadata = container.querySelector('[data-model-card-metadata]')
-    assert.ok(metadata)
     assert.equal(
-      matrix.compareDocumentPosition(metadata) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      Node.DOCUMENT_POSITION_FOLLOWING,
-      'metadata must follow the pricing table'
+      container.querySelector('[data-text-model-pricing-matrix]'),
+      null
     )
-    assert.match(
-      metadata.className,
-      /(?:^|\s)mt-auto(?:\s|$)/,
-      'remaining card height must become a spacer between pricing and metadata'
-    )
-    assert.match(matrix.textContent ?? '', /Input/)
-    assert.match(matrix.textContent ?? '', /Output/)
-    assert.match(matrix.textContent ?? '', /Cached/)
-    assert.match(matrix.textContent ?? '', /\$2/)
-    assert.match(matrix.textContent ?? '', /\$4/)
-    assert.match(matrix.textContent ?? '', /\$0\.4/)
-    assert.match(
-      pricingSummary.textContent ?? '',
-      /Online inference · ¥ \/ 1,000,000 Token/
-    )
+    assert.match(pricingSummary.textContent ?? '', /Input/)
+    assert.match(pricingSummary.textContent ?? '', /Output/)
+    assert.match(pricingSummary.textContent ?? '', /Cached/)
+    assert.match(pricingSummary.textContent ?? '', /\$2/)
+    assert.match(pricingSummary.textContent ?? '', /\$4/)
+    assert.match(pricingSummary.textContent ?? '', /\$0\.4/)
+    assert.match(pricingSummary.textContent ?? '', /1,000,000 Token/)
 
     await act(async () => root.unmount())
     container.remove()
   })
 
-  test('renders every dynamic price tier with input, output, and cache prices', async () => {
+  test('renders only the starting dynamic tier and links pricing detail conceptually', async () => {
     const model = baseModel('qwen3.5-flash')
     model.billing_mode = 'tiered_expr'
     model.billing_currency = 'CNY'
@@ -132,16 +117,12 @@ describe('selected text-model marketplace card pricing', () => {
       'len <= 128000 ? tier("up_to_128k", p * 0.2 + c * 2 + cr * 0.02) : len <= 256000 ? tier("128k_to_256k", p * 0.8 + c * 8 + cr * 0.08) : tier("256k_to_1m", p * 1.2 + c * 12 + cr * 0.12)'
     const { container, root } = await renderCard(model)
 
-    const matrix = container.querySelector('[data-text-model-pricing-matrix]')
-    assert.ok(matrix)
-    assert.match(matrix.textContent ?? '', /≤ 128K/)
-    assert.match(matrix.textContent ?? '', /128K–256K/)
-    assert.match(matrix.textContent ?? '', /256K–1M/)
-    assert.match(matrix.textContent ?? '', /¥0\.02/)
-    assert.match(
-      container.querySelector('[data-text-model-billing]')?.textContent ?? '',
-      /Online inference · ¥ \/ 1,000,000 Token/
-    )
+    const summary = container.querySelector('[data-model-card-pricing]')
+    assert.ok(summary)
+    assert.match(summary.textContent ?? '', /Tiered pricing/)
+    assert.match(summary.textContent ?? '', /¥0\.2/)
+    assert.match(summary.textContent ?? '', /1,000,000 Token/)
+    assert.doesNotMatch(summary.textContent ?? '', /128K–256K|256K–1M/)
 
     await act(async () => root.unmount())
     container.remove()
@@ -159,17 +140,17 @@ describe('selected text-model marketplace card pricing', () => {
     ]
     const { container, root } = await renderCard(model)
 
-    const summary = container.querySelector('[data-model-card-capabilities]')
-    assert.ok(summary)
-    assert.match(summary.textContent ?? '', /1M Context/)
-    assert.match(summary.textContent ?? '', /Reasoning/)
-    assert.match(summary.textContent ?? '', /Tools/)
-    assert.match(summary.textContent ?? '', /Structured output/)
-    assert.doesNotMatch(
-      summary.textContent ?? '',
-      /Streaming|System prompt/,
-      'the card must keep lower-priority capabilities in the details view'
+    const specs = container.querySelector('[data-model-card-specs]')
+    const capabilities = container.querySelector(
+      '[data-model-card-capabilities]'
     )
+    assert.ok(specs)
+    assert.ok(capabilities)
+    assert.match(specs.textContent ?? '', /1M/)
+    assert.match(capabilities.textContent ?? '', /Reasoning/)
+    assert.match(capabilities.textContent ?? '', /Tools/)
+    assert.match(capabilities.textContent ?? '', /Structured output/)
+    assert.doesNotMatch(capabilities.textContent ?? '', /System prompt/)
 
     await act(async () => root.unmount())
     container.remove()

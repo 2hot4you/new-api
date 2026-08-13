@@ -23,10 +23,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
-import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
-import { groupModelsByVendor } from '../lib/vendor-model-groups'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 import type { ModelPerfBadgeData } from './model-perf-badge'
@@ -60,11 +58,6 @@ export function ModelCardGrid(props: ModelCardGridProps) {
     const start = (currentPage - 1) * pageSize
     return props.models.slice(start, start + pageSize)
   }, [currentPage, pageSize, props.models])
-  const pagedModelGroups = useMemo(
-    () => groupModelsByVendor(pagedModels),
-    [pagedModels]
-  )
-
   const perfMap = useMemo(() => {
     const map = new Map<string, ModelPerfBadgeData>()
     for (const model of perfQuery.data?.data?.models ?? []) {
@@ -78,80 +71,25 @@ export function ModelCardGrid(props: ModelCardGridProps) {
   }
 
   return (
-    <div className='space-y-4 sm:space-y-5'>
-      {pagedModelGroups.map((group, groupIndex) => {
-        const firstModel = group[0]
-        const vendorName = firstModel?.vendor_name?.trim() || ''
-        const vendorDescription = firstModel?.vendor_description?.trim() || ''
-        const vendorIconKey = firstModel?.vendor_icon?.trim() || ''
-        const showVendorHeading = Boolean(
-          vendorName || vendorDescription || vendorIconKey
-        )
-        let groupKey: string
-        if (firstModel?.vendor_id != null) {
-          groupKey = `vendor-id:${firstModel.vendor_id}`
-        } else if (firstModel?.vendor_name) {
-          groupKey = `vendor-name:${firstModel.vendor_name}`
-        } else {
-          groupKey = `unknown:${firstModel?.id ?? firstModel?.model_name ?? groupIndex}`
-        }
-
-        return (
-          <section
-            key={groupKey}
-            className='bg-muted/20 space-y-3 rounded-2xl border p-3 sm:space-y-4 sm:p-4'
-            data-model-vendor-section='true'
-          >
-            {showVendorHeading && (
-              <header
-                className='flex items-start gap-3 px-1 pt-1'
-                data-model-vendor-heading='true'
-              >
-                {vendorIconKey && (
-                  <span
-                    className='bg-card flex size-10 shrink-0 items-center justify-center rounded-xl border'
-                    data-model-vendor-icon='true'
-                    aria-hidden='true'
-                  >
-                    {getLobeIcon(vendorIconKey, 26)}
-                  </span>
-                )}
-                <div className='min-w-0 space-y-1'>
-                  {vendorName && (
-                    <h2 className='text-foreground text-base font-semibold tracking-tight sm:text-lg'>
-                      {vendorName}
-                    </h2>
-                  )}
-                  {vendorDescription && (
-                    <p className='text-muted-foreground max-w-3xl text-sm leading-6'>
-                      {vendorDescription}
-                    </p>
-                  )}
-                </div>
-              </header>
-            )}
-
-            <div
-              className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 2xl:grid-cols-3'
-              data-model-vendor-group='true'
-            >
-              {group.map((model) => (
-                <ModelCard
-                  key={model.id ?? model.model_name}
-                  model={model}
-                  tokenUnit={tokenUnit}
-                  priceRate={props.priceRate}
-                  usdExchangeRate={props.usdExchangeRate}
-                  showRechargePrice={props.showRechargePrice}
-                  selectedGroup={props.selectedGroup}
-                  perf={perfMap.get(model.model_name || '')}
-                  onClick={() => props.onModelClick(model.model_name || '')}
-                />
-              ))}
-            </div>
-          </section>
-        )
-      })}
+    <div>
+      <div
+        className='grid grid-cols-1 border-t border-l md:grid-cols-2 xl:grid-cols-3'
+        data-model-directory-grid='true'
+      >
+        {pagedModels.map((model) => (
+          <ModelCard
+            key={model.id ?? model.model_name}
+            model={model}
+            tokenUnit={tokenUnit}
+            priceRate={props.priceRate}
+            usdExchangeRate={props.usdExchangeRate}
+            showRechargePrice={props.showRechargePrice}
+            selectedGroup={props.selectedGroup}
+            perf={perfMap.get(model.model_name || '')}
+            onClick={() => props.onModelClick(model.model_name || '')}
+          />
+        ))}
+      </div>
 
       {totalPages > 1 && (
         <div className='text-muted-foreground flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-sm sm:flex-row'>
