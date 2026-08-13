@@ -22,33 +22,8 @@ import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { getPricingModelDescription } from '../lib/model-description'
-import { sortModelsByReleaseDate } from '../lib/model-directory'
+import { getRelatedModels } from '../lib/related-models'
 import type { PricingModel } from '../types'
-
-function isSameVendor(left: PricingModel, right: PricingModel): boolean {
-  if (left.vendor_id != null && right.vendor_id != null) {
-    return left.vendor_id === right.vendor_id
-  }
-  return Boolean(
-    left.vendor_name &&
-    right.vendor_name &&
-    left.vendor_name === right.vendor_name
-  )
-}
-
-export function getRelatedModels(
-  currentModel: PricingModel,
-  models: PricingModel[],
-  limit = 6
-): PricingModel[] {
-  return sortModelsByReleaseDate(
-    models.filter(
-      (model) =>
-        model.model_name !== currentModel.model_name &&
-        isSameVendor(currentModel, model)
-    )
-  ).slice(0, limit)
-}
 
 export function RelatedModels(props: {
   currentModel: PricingModel

@@ -30,8 +30,12 @@ import {
 } from '../constants'
 import { filterAndSortModels, extractAllTags } from '../lib/filters'
 import type { ContextBucketId, ModelCategoryId } from '../lib/model-directory'
-import type { PricingModel, TokenUnit } from '../types'
-import type { Modality, ModelCapability } from '../types'
+import type {
+  Modality,
+  ModelCapability,
+  PricingModel,
+  TokenUnit,
+} from '../types'
 
 type FilterState = {
   search?: string

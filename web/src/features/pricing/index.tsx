@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
@@ -141,6 +141,14 @@ export function Pricing() {
     },
     [directorySearch, navigate]
   )
+
+  useEffect(() => {
+    void navigate({
+      to: '/pricing',
+      search: directorySearch,
+      replace: true,
+    })
+  }, [directorySearch, navigate])
 
   const availableGroups = useMemo(
     () =>

@@ -33,7 +33,10 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
-import { getCompactPricingSummary } from '../lib/model-card-summary'
+import {
+  getCompactPricingSummary,
+  type CompactPricingSummary,
+} from '../lib/model-card-summary'
 import { getPricingModelDescription } from '../lib/model-description'
 import { getModelInputModalities } from '../lib/model-directory'
 import type {
@@ -142,6 +145,63 @@ function ModalityList(props: { label: string; modalities: Modality[] }) {
   )
 }
 
+function CompactPricing(props: { summary: CompactPricingSummary }) {
+  const { t } = useTranslation()
+  const { summary } = props
+
+  if (summary.kind === 'token') {
+    return (
+      <>
+        <div className='grid grid-cols-3 gap-2'>
+          {summary.items.map((item) => (
+            <div key={item.label} className='min-w-0'>
+              <div className='text-muted-foreground/60 text-[10px]'>
+                {t(item.label)}
+              </div>
+              <div className='text-foreground truncate font-mono text-xs font-semibold'>
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className='text-muted-foreground/50 mt-1.5 text-[10px]'>
+          {t('Price unit')}: ¥ / {summary.unit}
+        </div>
+      </>
+    )
+  }
+
+  if (summary.kind === 'request') {
+    return (
+      <div className='flex items-baseline justify-between gap-3'>
+        <span className='text-muted-foreground text-xs'>{t('Price')}</span>
+        <span className='font-mono text-sm font-semibold'>
+          {summary.value} / {t(summary.unit)}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className='flex items-end justify-between gap-3'>
+      <div>
+        <div className='text-muted-foreground text-xs'>{t(summary.label)}</div>
+        <div className='text-muted-foreground/50 mt-0.5 text-[10px]'>
+          {t('Full pricing is available on the details page')}
+        </div>
+      </div>
+      {summary.from && (
+        <div className='shrink-0 text-right'>
+          <div className='font-mono text-sm font-semibold'>{summary.from}</div>
+          <div className='text-muted-foreground/60 text-[10px]'>
+            {t('from')} / {t(summary.unit)}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const { t } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
@@ -225,53 +285,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       </div>
 
       <div className='mt-3' data-model-card-pricing='true'>
-        {summary.kind === 'token' ? (
-          <>
-            <div className='grid grid-cols-3 gap-2'>
-              {summary.items.map((item) => (
-                <div key={item.label} className='min-w-0'>
-                  <div className='text-muted-foreground/60 text-[10px]'>
-                    {t(item.label)}
-                  </div>
-                  <div className='text-foreground truncate font-mono text-xs font-semibold'>
-                    {item.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className='text-muted-foreground/50 mt-1.5 text-[10px]'>
-              {t('Price unit')}: ¥ / {summary.unit}
-            </div>
-          </>
-        ) : summary.kind === 'request' ? (
-          <div className='flex items-baseline justify-between gap-3'>
-            <span className='text-muted-foreground text-xs'>{t('Price')}</span>
-            <span className='font-mono text-sm font-semibold'>
-              {summary.value} / {t(summary.unit)}
-            </span>
-          </div>
-        ) : (
-          <div className='flex items-end justify-between gap-3'>
-            <div>
-              <div className='text-muted-foreground text-xs'>
-                {t(summary.label)}
-              </div>
-              <div className='text-muted-foreground/50 mt-0.5 text-[10px]'>
-                {t('Full pricing is available on the details page')}
-              </div>
-            </div>
-            {summary.from && (
-              <div className='shrink-0 text-right'>
-                <div className='font-mono text-sm font-semibold'>
-                  {summary.from}
-                </div>
-                <div className='text-muted-foreground/60 text-[10px]'>
-                  {t('from')} / {t(summary.unit)}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <CompactPricing summary={summary} />
       </div>
 
       <div className='mt-3 grid grid-cols-2 gap-2' data-model-card-specs='true'>

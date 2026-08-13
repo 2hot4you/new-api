@@ -357,7 +357,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
       label: t('All Capabilities'),
       count: props.models.length,
     },
-    ...Array.from(capabilities)
+    ...[...capabilities]
       .map((capability) => ({
         value: capability,
         label: capabilityLabels[capability] ?? capability,

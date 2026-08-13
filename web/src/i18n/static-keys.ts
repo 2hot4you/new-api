@@ -81,6 +81,12 @@ export const STATIC_I18N_KEYS = [
   'All Tags',
   'More...',
   'Less',
+  'Model Categories',
+  'Input Types',
+  'Context Length',
+  'Supported Capabilities',
+  'Supported Protocols',
+  'Dynamic Tiered',
 
   // Roles
   'Super Admin',

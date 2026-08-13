@@ -23,8 +23,7 @@ import {
   QUOTA_TYPE_VALUES,
   ENDPOINT_TYPES,
 } from '../constants'
-import type { PricingModel } from '../types'
-import type { Modality, ModelCapability } from '../types'
+import type { Modality, ModelCapability, PricingModel } from '../types'
 import {
   filterModelsByDirectory,
   sortModelsByReleaseDate,
@@ -167,6 +166,14 @@ export function filterAndSortModels(
   }
 ): PricingModel[] {
   let result = filterBySearch(models, filters.search)
+  let billingType: 'dynamic' | 'request' | 'token' | undefined
+  if (filters.quotaType === QUOTA_TYPES.DYNAMIC) {
+    billingType = 'dynamic'
+  } else if (filters.quotaType === QUOTA_TYPES.REQUEST) {
+    billingType = 'request'
+  } else if (filters.quotaType !== QUOTA_TYPES.ALL) {
+    billingType = 'token'
+  }
   result = filterModelsByDirectory(result, {
     vendor: filters.vendor === FILTER_ALL ? undefined : filters.vendor,
     category: filters.category === FILTER_ALL ? undefined : filters.category,
@@ -177,14 +184,7 @@ export function filterAndSortModels(
       filters.endpointType === ENDPOINT_TYPES.ALL
         ? undefined
         : filters.endpointType,
-    billingType:
-      filters.quotaType === QUOTA_TYPES.ALL
-        ? undefined
-        : filters.quotaType === QUOTA_TYPES.DYNAMIC
-          ? 'dynamic'
-          : filters.quotaType === QUOTA_TYPES.REQUEST
-            ? 'request'
-            : 'token',
+    billingType,
     group: filters.group === FILTER_ALL ? undefined : filters.group,
     tag: filters.tag === FILTER_ALL ? undefined : filters.tag,
   })
@@ -219,7 +219,7 @@ export function extractAllTags(models: PricingModel[]): string[] {
     }
   })
 
-  return Array.from(tagSet).sort((a, b) => a.localeCompare(b))
+  return [...tagSet].sort((a, b) => a.localeCompare(b))
 }
 
 /**

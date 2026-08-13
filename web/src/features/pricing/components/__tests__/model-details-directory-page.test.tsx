@@ -4,8 +4,8 @@ import { after, describe, test } from 'node:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Window } from 'happy-dom'
 
+import { getRelatedModels } from '../../lib/related-models'
 import type { PricingModel } from '../../types'
-import { getRelatedModels } from '../related-models'
 
 const domWindow = new Window()
 domWindow.document.write('<!doctype html><html><body></body></html>')
