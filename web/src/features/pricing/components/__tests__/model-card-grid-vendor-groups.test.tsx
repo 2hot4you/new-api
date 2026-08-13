@@ -143,6 +143,26 @@ describe('model marketplace vendor grid rows', () => {
       container.querySelectorAll('[data-model-vendor-icon]').length,
       2
     )
+    const sections = [
+      ...container.querySelectorAll('[data-model-vendor-section]'),
+    ]
+    assert.equal(sections.length, 2)
+    for (const section of sections) {
+      assert.match(section.className, /rounded-2xl/)
+      assert.match(section.className, /border/)
+      assert.match(section.className, /bg-muted\/20/)
+      assert.equal(
+        section.querySelectorAll('[data-model-vendor-heading]').length,
+        1
+      )
+      assert.equal(
+        section.querySelectorAll('[data-model-vendor-group]').length,
+        1
+      )
+    }
+    for (const icon of container.querySelectorAll('[data-model-vendor-icon]')) {
+      assert.doesNotMatch(icon.className, /shadow-sm/)
+    }
 
     await act(async () => root.unmount())
     queryClient.clear()

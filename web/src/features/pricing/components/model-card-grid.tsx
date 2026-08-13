@@ -97,7 +97,11 @@ export function ModelCardGrid(props: ModelCardGridProps) {
         }
 
         return (
-          <section key={groupKey} className='space-y-3 sm:space-y-4'>
+          <section
+            key={groupKey}
+            className='bg-muted/20 space-y-3 rounded-2xl border p-3 sm:space-y-4 sm:p-4'
+            data-model-vendor-section='true'
+          >
             {showVendorHeading && (
               <header
                 className='flex items-start gap-3 px-1 pt-1'
@@ -105,7 +109,7 @@ export function ModelCardGrid(props: ModelCardGridProps) {
               >
                 {vendorIconKey && (
                   <span
-                    className='bg-card flex size-10 shrink-0 items-center justify-center rounded-xl border shadow-sm'
+                    className='bg-card flex size-10 shrink-0 items-center justify-center rounded-xl border'
                     data-model-vendor-icon='true'
                     aria-hidden='true'
                   >
