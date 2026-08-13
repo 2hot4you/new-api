@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "frontend",
   "currentPhase": "planning",
-  "nextAction": "提交设计基线并编写实施计划",
+  "nextAction": "提交实施计划并按任务 1 开始 TDD 实施",
   "createdAt": "2026-08-13T18:10:00+08:00",
   "branch": "feat/molii-auth"
 }
