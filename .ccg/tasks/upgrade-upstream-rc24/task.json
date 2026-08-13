@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "implementation",
-  "nextAction": "实施 Batch 2 HTTP/2 请求重放与重定向安全",
+  "nextAction": "实施 Batch 3 兑换码精度、原生渠道测试和模型分类",
   "createdAt": "2026-08-13T04:30:00+08:00",
   "branch": "feat/molii-auth"
 }

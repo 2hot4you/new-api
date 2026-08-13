@@ -14,10 +14,10 @@
 
 ## Batch 2 — item 3
 
-- [ ] Add failing replayable body, HTTP/2 replay, redirect, and task-body tests.
-- [ ] Port upstream replayable-body implementation.
-- [ ] Resolve `relay/image_handler.go` manually and preserve all Molii Grok behavior.
-- [ ] Run focused relay/Grok/Seedance and full backend tests; commit.
+- [x] Add failing replayable body, HTTP/2 replay, redirect, and task-body tests.
+- [x] Port upstream replayable-body implementation.
+- [x] Resolve `relay/image_handler.go` manually and preserve all Molii Grok behavior.
+- [x] Run focused relay/Grok/Seedance and full backend tests; commit.
 
 ## Batch 3 — items 4 + 5 + 6
 
