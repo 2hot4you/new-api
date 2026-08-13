@@ -1,12 +1,12 @@
 {
   "id": "neutral-gray-system-theme",
   "title": "将系统主色调调整为灰色并保持主题切换关闭",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "review",
-  "nextAction": "完成本地审查、提交实现并归档任务",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
   "createdAt": "2026-08-13T19:05:00+08:00",
   "branch": "feat/molii-auth"
 }
