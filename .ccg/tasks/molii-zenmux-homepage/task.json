@@ -5,8 +5,8 @@
   "complexity": "L+",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "planning",
-  "nextAction": "编写详细实施计划并按计划实施",
+  "currentPhase": "implementation",
+  "nextAction": "按实施计划完成首页数据层、组件、动效与本地验证",
   "createdAt": "2026-08-13T19:42:00+08:00",
   "branch": "feat/molii-auth"
 }
