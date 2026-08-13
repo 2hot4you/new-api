@@ -1,12 +1,12 @@
 {
   "id": "model-metadata-vendor-sections",
   "title": "补全模型元数据与模型广场厂商标题区",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "implementation",
-  "nextAction": "按实施计划以 TDD 完成模型目录、只读定价聚合和厂商标题区",
+  "currentPhase": "completed",
+  "nextAction": "归档任务，保留当前功能分支等待用户决定是否推送",
   "createdAt": "2026-08-13T15:20:00+08:00",
   "branch": "feat/molii-auth"
 }
