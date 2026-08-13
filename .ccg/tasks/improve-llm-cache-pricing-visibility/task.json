@@ -6,7 +6,7 @@
   "risk": "low",
   "domain": "frontend",
   "currentPhase": "planning",
-  "nextAction": "记录方案 A 并等待书面设计确认",
+  "nextAction": "编写并执行缓存价格主卡片实施计划",
   "createdAt": "2026-08-13T02:45:00Z",
   "branch": "feat/molii-auth"
 }
