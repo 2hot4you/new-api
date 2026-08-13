@@ -183,7 +183,8 @@ function videoExtensionParameters(modelName: string): SupportedParameter[] {
     {
       name: 'video',
       type: 'object',
-      descriptionKey: 'Input video URL or file_id to extend; input must be 2–15 seconds',
+      descriptionKey:
+        'Input video URL or file_id to extend; input must be 2–15 seconds',
       required: true,
     },
     {
@@ -204,7 +205,8 @@ function referenceVideoParameters(modelName: string): SupportedParameter[] {
       name: 'reference_images',
       type: 'array',
       range: '1–7 images',
-      descriptionKey: 'Reference image URLs or file_id values; cannot combine with image or video',
+      descriptionKey:
+        'Reference image URLs or file_id values; cannot combine with image or video',
       required: true,
     },
     {

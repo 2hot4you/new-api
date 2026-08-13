@@ -5,8 +5,8 @@
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "implementation",
-  "nextAction": "实施 Batch 3 兑换码精度、原生渠道测试和模型分类",
+  "currentPhase": "review",
+  "nextAction": "运行完整验证、复核 rc.24 集成并归档任务",
   "createdAt": "2026-08-13T04:30:00+08:00",
   "branch": "feat/molii-auth"
 }

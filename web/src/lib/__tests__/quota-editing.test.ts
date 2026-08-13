@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import {
-  getEditableQuotaStep,
-  quotaUnitsToEditableAmount,
-} from '../format'
+import { getEditableQuotaStep, quotaUnitsToEditableAmount } from '../format'
 
 describe('editable quota formatting', () => {
   test('uses the configured small-value precision for currency inputs', () => {

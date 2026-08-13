@@ -35,9 +35,7 @@ function endpoint(ctx: Context): {
         prompt: editing
           ? 'Preserve the subject and change the scene to a neon city.'
           : 'An orange cat in a neon city, cinematic lighting.',
-        ...(editing
-          ? { image: { file_id: 'file_image_xxx' } }
-          : {}),
+        ...(editing ? { image: { file_id: 'file_image_xxx' } } : {}),
         aspect_ratio: '16:9',
         resolution: '1k',
         n: 1,

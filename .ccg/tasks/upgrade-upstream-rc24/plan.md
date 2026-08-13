@@ -21,12 +21,12 @@
 
 ## Batch 3 — items 4 + 5 + 6
 
-- [ ] Add/port failing redemption precision, native channel-test, and model-category tests.
-- [ ] Port the three upstream improvements without unrelated release workflow files.
-- [ ] Run focused Go/frontend tests plus type/lint/format checks; commit.
+- [x] Add/port failing redemption precision, native channel-test, and model-category tests.
+- [x] Port the three upstream improvements without unrelated release workflow files.
+- [x] Run focused Go/frontend tests plus type/lint/format checks; commit.
 
 ## Completion
 
-- [ ] Run final verification and inspect the full rc.24 diff.
+- [x] Run final verification and inspect the full rc.24 diff.
 - [ ] Archive the CCG task.
 - [ ] Push `feat/molii-auth` to `origin` without creating a PR.
