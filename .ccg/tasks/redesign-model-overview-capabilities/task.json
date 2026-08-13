@@ -1,0 +1,12 @@
+{
+  "id": "redesign-model-overview-capabilities",
+  "title": "重新设计模型广场概览能力区域",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "planning",
+  "nextAction": "写入方案 A 设计文档并等待用户确认",
+  "createdAt": "2026-08-13T03:20:00Z",
+  "branch": "feat/molii-auth"
+}
