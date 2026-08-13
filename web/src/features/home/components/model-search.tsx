@@ -24,6 +24,7 @@ import type { PricingModel } from '@/features/pricing/types'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
+import { useModelPlaceholderTypewriter } from '../hooks/use-model-placeholder-typewriter'
 import { searchHomeModels } from '../lib/home-model-catalog'
 
 interface ModelSearchProps {
@@ -38,6 +39,14 @@ export function ModelSearch(props: ModelSearchProps) {
   const [query, setQuery] = useState('')
   const [isFocused, setIsFocused] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+  const modelIds = useMemo(
+    () => props.models.map((model) => model.model_name),
+    [props.models]
+  )
+  const animatedPlaceholder = useModelPlaceholderTypewriter(
+    modelIds,
+    !isFocused && query.length === 0
+  )
   const results = useMemo(
     () => searchHomeModels(props.models, query, 6),
     [props.models, query]
@@ -159,7 +168,12 @@ export function ModelSearch(props: ModelSearchProps) {
             aria-activedescendant={
               activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined
             }
-            placeholder={t('Search models, providers, or capabilities')}
+            placeholder={
+              isFocused
+                ? t('Search models, providers, or capabilities')
+                : animatedPlaceholder ||
+                  t('Search models, providers, or capabilities')
+            }
             className='placeholder:text-muted-foreground/55 block w-full min-w-0 bg-transparent pr-1 text-base outline-none md:text-lg'
           />
         </div>

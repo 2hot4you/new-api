@@ -70,14 +70,14 @@ export function CTA(props: CTAProps) {
           <AnimateInView animation='fade-right'>
             <article
               data-home-api-example
-              className='border-border/70 relative flex min-h-[34rem] flex-col overflow-hidden rounded-3xl border bg-[#111] text-[#f4f4f4] shadow-[0_24px_80px_rgb(0_0_0/0.14)]'
+              className='relative flex min-h-[34rem] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-950 shadow-[0_24px_80px_rgb(15_23_42/0.10)]'
             >
-              <div className='flex items-center justify-between border-b border-white/10 px-5 py-4'>
+              <div className='flex items-center justify-between border-b border-slate-200 px-5 py-4'>
                 <div className='flex items-center gap-2 text-sm font-medium'>
                   <Braces className='size-4' />
                   {t('Use Molii through API')}
                 </div>
-                <div className='flex rounded-lg bg-white/8 p-1'>
+                <div className='flex rounded-lg bg-slate-100 p-1'>
                   {(['curl', 'python'] as const).map((item) => (
                     <button
                       key={item}
@@ -86,8 +86,8 @@ export function CTA(props: CTAProps) {
                       className={cn(
                         'rounded-md px-3 py-1.5 text-xs transition-colors',
                         language === item
-                          ? 'bg-white text-black'
-                          : 'text-white/55 hover:text-white'
+                          ? 'bg-slate-900 text-white'
+                          : 'text-slate-500 hover:text-slate-950'
                       )}
                     >
                       {item === 'curl' ? 'cURL' : 'Python'}
@@ -95,16 +95,16 @@ export function CTA(props: CTAProps) {
                   ))}
                 </div>
               </div>
-              <pre className='min-h-0 flex-1 overflow-auto p-6 font-mono text-[12px] leading-6 text-white/78 md:text-[13px]'>
+              <pre className='min-h-0 flex-1 overflow-auto p-6 font-mono text-[12px] leading-6 text-slate-700 md:text-[13px]'>
                 <code>{language === 'curl' ? CURL_SAMPLE : PYTHON_SAMPLE}</code>
               </pre>
-              <div className='flex flex-col gap-3 border-t border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between'>
-                <p className='text-xs text-white/45'>
+              <div className='flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between'>
+                <p className='text-xs text-slate-500'>
                   {t('This example is display-only and never sends a request.')}
                 </p>
                 <a
                   href={props.isAuthenticated ? '/keys' : '/sign-up'}
-                  className='inline-flex items-center gap-1 text-sm font-medium text-white'
+                  className='inline-flex items-center gap-1 text-sm font-medium text-slate-950'
                 >
                   <KeyRound className='size-4' />
                   {props.isAuthenticated

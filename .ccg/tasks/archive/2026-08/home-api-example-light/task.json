@@ -1,0 +1,12 @@
+{
+  "id": "home-api-example-light",
+  "title": "首页 API 示例卡片固定使用浅色样式",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-14T01:25:00+08:00",
+  "branch": "feat/molii-auth"
+}

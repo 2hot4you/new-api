@@ -38,7 +38,10 @@ export function Hero(props: HeroProps) {
     (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
 
   return (
-    <section className='relative isolate overflow-hidden px-6 pt-24 pb-20 md:pt-36 md:pb-28'>
+    <section
+      data-home-hero
+      className='relative isolate z-20 overflow-visible px-6 pt-24 pb-20 md:pt-36 md:pb-28'
+    >
       <div
         aria-hidden
         className='pointer-events-none absolute inset-0 -z-20 bg-[radial-gradient(circle_at_50%_-10%,color-mix(in_oklab,var(--foreground)_10%,transparent),transparent_58%)]'
@@ -79,13 +82,15 @@ export function Hero(props: HeroProps) {
         </p>
 
         <div
-          className='landing-animate-fade-up mt-10 w-full max-w-3xl opacity-0'
+          data-home-search-layer
+          className='landing-animate-fade-up relative z-20 mt-10 w-full max-w-3xl opacity-0'
           style={{ animationDelay: '210ms' }}
         >
           <ModelSearch models={props.models} isLoading={props.isLoading} />
         </div>
 
         <div
+          data-home-cta-layer
           className='landing-animate-fade-up mt-6 flex flex-wrap items-center justify-center gap-3 opacity-0'
           style={{ animationDelay: '280ms' }}
         >

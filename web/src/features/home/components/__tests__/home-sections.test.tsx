@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, describe, test } from 'node:test'
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Window } from 'happy-dom'
 
 import type { PricingModel } from '@/features/pricing/types'
@@ -40,6 +41,7 @@ const { LatestModels } = await import('../sections/latest-models')
 const { Features } = await import('../sections/features')
 const { HowItWorks } = await import('../sections/how-it-works')
 const { CTA } = await import('../sections/cta')
+const { Hero } = await import('../sections/hero')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en' })
@@ -61,8 +63,13 @@ function model(
 
 function render(node: React.ReactNode): HTMLDivElement {
   const container = document.createElement('div')
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   container.innerHTML = renderToStaticMarkup(
-    <I18nextProvider i18n={i18n}>{node}</I18nextProvider>
+    <QueryClientProvider client={queryClient}>
+      <I18nextProvider i18n={i18n}>{node}</I18nextProvider>
+    </QueryClientProvider>
   )
   return container
 }
@@ -100,6 +107,21 @@ describe('Molii home sections', () => {
       container.querySelectorAll('a[href="/pricing?vendor=DeepSeek"]').length,
       16
     )
+  })
+
+  test('keeps search suggestions in a higher layer than the hero actions', () => {
+    const container = render(<Hero models={[]} />)
+    const hero = container.querySelector('[data-home-hero]')
+    const searchLayer = container.querySelector('[data-home-search-layer]')
+    const actionLayer = container.querySelector('[data-home-cta-layer]')
+
+    assert.ok(hero)
+    assert.ok(searchLayer)
+    assert.ok(actionLayer)
+    assert.match(hero.className, /z-20/)
+    assert.match(hero.className, /overflow-visible/)
+    assert.match(searchLayer.className, /z-20/)
+    assert.doesNotMatch(actionLayer.className, /z-20/)
   })
 
   test('renders latest model metadata and model-square detail links', () => {
@@ -150,7 +172,12 @@ describe('Molii home sections', () => {
 
   test('shows display-only API examples beside the model marketplace entry', () => {
     const container = render(<CTA isAuthenticated={false} />)
-    assert.ok(container.querySelector('[data-home-api-example]'))
+    const apiExample = container.querySelector('[data-home-api-example]')
+    assert.ok(apiExample)
+    assert.match(apiExample.className, /bg-white/)
+    assert.match(apiExample.className, /text-slate-950/)
+    assert.doesNotMatch(apiExample.className, /bg-\[#111\]/)
+    assert.doesNotMatch(apiExample.className, /dark:/)
     assert.match(container.textContent ?? '', /Authorization: Bearer/)
     assert.ok(container.querySelector('a[href="/pricing"]'))
     assert.equal(container.querySelector('form'), null)

@@ -1,0 +1,12 @@
+{
+  "id": "fix-home-search-layering",
+  "title": "修复首页搜索建议被后续板块遮挡",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-14T00:52:00+08:00",
+  "branch": "feat/molii-auth"
+}

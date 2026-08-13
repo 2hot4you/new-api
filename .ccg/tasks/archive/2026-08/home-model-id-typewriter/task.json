@@ -1,0 +1,12 @@
+{
+  "id": "home-model-id-typewriter",
+  "title": "首页搜索框循环展示现有模型 ID 的打字机占位提示",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-14T01:20:00+08:00",
+  "branch": "feat/molii-auth"
+}

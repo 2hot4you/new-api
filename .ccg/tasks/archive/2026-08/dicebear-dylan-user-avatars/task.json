@@ -1,0 +1,12 @@
+{
+  "id": "dicebear-dylan-user-avatars",
+  "title": "替换当前用户头像并修复首页搜索建议层级",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-14T00:30:00+08:00",
+  "branch": "feat/molii-auth"
+}

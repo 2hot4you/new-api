@@ -43,3 +43,12 @@ export function getUserAvatarStyle(name: string): UserAvatarStyle {
 export function getUserAvatarFallback(name: string): string {
   return name.trim().charAt(0).toUpperCase() || '?'
 }
+
+export function getDiceBearDylanAvatarUrl(userId: number): string {
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    throw new RangeError('userId must be a positive safe integer')
+  }
+
+  const seed = encodeURIComponent(`molii-user-${userId}`)
+  return `https://api.dicebear.com/10.x/dylan/svg?seed=${seed}`
+}

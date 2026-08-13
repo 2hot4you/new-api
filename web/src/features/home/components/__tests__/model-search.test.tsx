@@ -72,6 +72,33 @@ function model(modelName: string, vendorName: string): PricingModel {
 describe('home model search', () => {
   after(() => domWindow.close())
 
+  test('uses catalog IDs while idle and restores the original copy on focus', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ModelSearch models={[model('deepseek-v4', 'DeepSeek')]} />
+        </I18nextProvider>
+      )
+    })
+
+    const input = container.querySelector<HTMLInputElement>('input')
+    assert.ok(input)
+    assert.notEqual(
+      input.placeholder,
+      'Search models, providers, or capabilities'
+    )
+
+    await act(async () => input.focus())
+    assert.equal(input.placeholder, 'Search models, providers, or capabilities')
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
   test('keeps the search text and submit action in separate layout regions', async () => {
     const container = document.createElement('div')
     document.body.append(container)
