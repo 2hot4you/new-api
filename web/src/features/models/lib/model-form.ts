@@ -25,31 +25,59 @@ import { parseModelTags as parseTagsFromUtils } from './model-utils'
 // Model Form Schema
 // ============================================================================
 
+export const MODEL_MODALITY_OPTIONS = [
+  'text',
+  'image',
+  'audio',
+  'video',
+  'file',
+] as const
+
+export const MODEL_CAPABILITY_OPTIONS = [
+  'function_calling',
+  'streaming',
+  'vision',
+  'json_mode',
+  'structured_output',
+  'reasoning',
+  'tools',
+  'system_prompt',
+  'web_search',
+  'code_interpreter',
+  'caching',
+  'embeddings',
+  'image_generation',
+  'image_editing',
+  'video_generation',
+  'video_editing',
+  'audio_generation',
+] as const
+
 /**
  * Model form validation schema
  */
 export const modelFormSchema = z.object({
   id: z.number().optional(),
   model_name: z.string().min(1, 'Model name is required'),
-  description: z.string().default(''),
-  icon: z.string().default(''),
-  tags: z.array(z.string()).default([]),
+  description: z.string(),
+  icon: z.string(),
+  tags: z.array(z.string()),
   vendor_id: z.number().optional(),
-  endpoints: z.string().default(''),
-  name_rule: z.number().min(0).max(3).default(0),
-  status: z.boolean().default(true),
-  sync_official: z.boolean().default(true),
-  context_length: z.number().int().nonnegative().default(0),
-  max_output_tokens: z.number().int().nonnegative().default(0),
-  knowledge_cutoff: z.string().default(''),
-  release_date: z.string().default(''),
-  input_modalities: z.array(z.string()).default([]),
-  output_modalities: z.array(z.string()).default([]),
-  capabilities: z.array(z.string()).default([]),
-  metadata_source: z.string().default(''),
-  metadata_verified_at: z.string().default(''),
-  enable_groups: z.array(z.string()).default([]),
-  quota_types: z.array(z.number()).default([]),
+  endpoints: z.string(),
+  name_rule: z.number().min(0).max(3),
+  status: z.boolean(),
+  sync_official: z.boolean(),
+  context_length: z.number().int().nonnegative(),
+  max_output_tokens: z.number().int().nonnegative(),
+  knowledge_cutoff: z.string(),
+  release_date: z.string(),
+  input_modalities: z.array(z.enum(MODEL_MODALITY_OPTIONS)),
+  output_modalities: z.array(z.enum(MODEL_MODALITY_OPTIONS)),
+  capabilities: z.array(z.enum(MODEL_CAPABILITY_OPTIONS)),
+  metadata_source: z.string(),
+  metadata_verified_at: z.string(),
+  enable_groups: z.array(z.string()),
+  quota_types: z.array(z.number()),
 })
 
 export type ModelFormValues = z.infer<typeof modelFormSchema>

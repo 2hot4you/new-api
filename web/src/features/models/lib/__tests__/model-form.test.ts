@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  MODEL_CAPABILITY_OPTIONS,
+  MODEL_MODALITY_OPTIONS,
+  modelFormSchema,
   transformFormDataToModelPayload,
   transformModelToFormDefaults,
 } from '../model-form'
@@ -38,5 +41,59 @@ describe('model catalog metadata form mapping', () => {
     assert.deepEqual(payload.capabilities, ['streaming', 'tools'])
     assert.equal(payload.metadata_source, 'models.dev')
     assert.equal(payload.metadata_verified_at, '2026-08-13')
+  })
+})
+
+describe('model catalog metadata validation', () => {
+  const validForm = {
+    model_name: 'catalog-model',
+    description: '',
+    icon: '',
+    tags: [],
+    endpoints: '',
+    name_rule: 0,
+    status: true,
+    sync_official: true,
+    context_length: 0,
+    max_output_tokens: 0,
+    knowledge_cutoff: '',
+    release_date: '',
+    input_modalities: [],
+    output_modalities: [],
+    capabilities: [],
+    metadata_source: '',
+    metadata_verified_at: '',
+    enable_groups: [],
+    quota_types: [],
+  }
+
+  test('accepts only supported modality and capability values', () => {
+    assert.deepEqual(MODEL_MODALITY_OPTIONS, [
+      'text',
+      'image',
+      'audio',
+      'video',
+      'file',
+    ])
+    assert.ok(MODEL_CAPABILITY_OPTIONS.includes('streaming'))
+    assert.ok(MODEL_CAPABILITY_OPTIONS.includes('video_generation'))
+
+    const invalid = modelFormSchema.safeParse({
+      ...validForm,
+      model_name: 'invalid-options',
+      input_modalities: ['imaginary'],
+      capabilities: ['unknown-capability'],
+    })
+    assert.equal(invalid.success, false)
+  })
+
+  test('rejects negative token limits', () => {
+    const invalid = modelFormSchema.safeParse({
+      ...validForm,
+      model_name: 'invalid-limits',
+      context_length: -1,
+      max_output_tokens: -1,
+    })
+    assert.equal(invalid.success, false)
   })
 })

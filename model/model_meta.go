@@ -18,6 +18,18 @@ const (
 	NameRuleSuffix
 )
 
+var allowedModelModalities = map[string]struct{}{
+	"text": {}, "image": {}, "audio": {}, "video": {}, "file": {},
+}
+
+var allowedModelCapabilities = map[string]struct{}{
+	"function_calling": {}, "streaming": {}, "vision": {}, "json_mode": {},
+	"structured_output": {}, "reasoning": {}, "tools": {}, "system_prompt": {},
+	"web_search": {}, "code_interpreter": {}, "caching": {}, "embeddings": {},
+	"image_generation": {}, "image_editing": {}, "video_generation": {},
+	"video_editing": {}, "audio_generation": {},
+}
+
 type BoundChannel struct {
 	Name string `json:"name"`
 	Type int    `json:"type"`
@@ -103,6 +115,15 @@ func validateOptionalCatalogDate(field string, value string) error {
 	return nil
 }
 
+func validateCatalogValues(field string, values []string, allowed map[string]struct{}) error {
+	for _, value := range values {
+		if _, ok := allowed[value]; !ok {
+			return fmt.Errorf("%s contains unsupported value %q", field, value)
+		}
+	}
+	return nil
+}
+
 // NormalizeCatalogMetadata normalizes optional catalog facts before they are
 // persisted. It intentionally does not invent missing metadata.
 func (mi *Model) NormalizeCatalogMetadata() error {
@@ -119,6 +140,15 @@ func (mi *Model) NormalizeCatalogMetadata() error {
 	mi.InputModalities = normalizeLookupValues(mi.InputModalities)
 	mi.OutputModalities = normalizeLookupValues(mi.OutputModalities)
 	mi.Capabilities = normalizeLookupValues(mi.Capabilities)
+	if err := validateCatalogValues("input_modalities", mi.InputModalities, allowedModelModalities); err != nil {
+		return err
+	}
+	if err := validateCatalogValues("output_modalities", mi.OutputModalities, allowedModelModalities); err != nil {
+		return err
+	}
+	if err := validateCatalogValues("capabilities", mi.Capabilities, allowedModelCapabilities); err != nil {
+		return err
+	}
 	if err := validateOptionalCatalogDate("release_date", mi.ReleaseDate); err != nil {
 		return err
 	}

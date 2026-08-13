@@ -18,6 +18,27 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+export type ModelModality = 'text' | 'image' | 'audio' | 'video' | 'file'
+
+export type ModelCapability =
+  | 'function_calling'
+  | 'streaming'
+  | 'vision'
+  | 'json_mode'
+  | 'structured_output'
+  | 'reasoning'
+  | 'tools'
+  | 'system_prompt'
+  | 'web_search'
+  | 'code_interpreter'
+  | 'caching'
+  | 'embeddings'
+  | 'image_generation'
+  | 'image_editing'
+  | 'video_generation'
+  | 'video_editing'
+  | 'audio_generation'
+
 // ============================================================================
 // Model Types
 // ============================================================================
@@ -50,9 +71,9 @@ export interface Model {
   max_output_tokens?: number
   knowledge_cutoff?: string
   release_date?: string
-  input_modalities?: string[]
-  output_modalities?: string[]
-  capabilities?: string[]
+  input_modalities?: ModelModality[]
+  output_modalities?: ModelModality[]
+  capabilities?: ModelCapability[]
   metadata_source?: string
   metadata_verified_at?: string
   // Runtime fields
@@ -232,24 +253,6 @@ export interface PrefillGroupsResponse {
 // ============================================================================
 // Form Data Types
 // ============================================================================
-
-/**
- * Model form schema
- */
-export const modelFormSchema = z.object({
-  id: z.number().optional(),
-  model_name: z.string().min(1, 'Model name is required'),
-  description: z.string().default(''),
-  icon: z.string().default(''),
-  tags: z.array(z.string()).default([]),
-  vendor_id: z.number().optional(),
-  endpoints: z.string().default(''),
-  name_rule: z.number().min(0).max(3).default(0),
-  status: z.boolean().default(true),
-  sync_official: z.boolean().default(true),
-})
-
-export type ModelFormValues = z.infer<typeof modelFormSchema>
 
 /**
  * Vendor form schema

@@ -114,6 +114,8 @@ func TestNormalizeCatalogMetadataRejectsInvalidValues(t *testing.T) {
 		{MaxOutputTokens: -1},
 		{ReleaseDate: "2026/02/16"},
 		{MetadataVerifiedAt: "13-08-2026"},
+		{InputModalities: []string{"imaginary"}},
+		{Capabilities: []string{"unknown-capability"}},
 	}
 	for index := range tests {
 		if err := tests[index].NormalizeCatalogMetadata(); err == nil {

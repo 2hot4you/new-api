@@ -120,6 +120,11 @@ export type ModelCapability =
   | 'code_interpreter'
   | 'caching'
   | 'embeddings'
+  | 'image_generation'
+  | 'image_editing'
+  | 'video_generation'
+  | 'video_editing'
+  | 'audio_generation'
 
 export type PricingData = {
   success: boolean

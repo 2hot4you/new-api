@@ -83,29 +83,28 @@ import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
 
 import { createModel, updateModel, getModel, getVendors } from '../../api'
 import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
-import { modelsQueryKeys, vendorsQueryKeys, parseModelTags } from '../../lib'
+import {
+  MODEL_CAPABILITY_OPTIONS,
+  MODEL_MODALITY_OPTIONS,
+  modelFormSchema,
+  modelsQueryKeys,
+  vendorsQueryKeys,
+  parseModelTags,
+} from '../../lib'
 import type { Model } from '../../types'
 
 // Extended schema for ratio configuration (internal form state only)
-const extendedModelFormSchema = z.object({
-  id: z.number().optional(),
-  model_name: z.string().min(1, 'Model name is required'),
-  description: z.string(),
-  icon: z.string(),
-  tags: z.array(z.string()),
-  vendor_id: z.number().optional(),
-  endpoints: z.string(),
-  name_rule: z.number(),
-  status: z.boolean(),
-  sync_official: z.boolean(),
-  price: z.string().optional(),
-  ratio: z.string().optional(),
-  cacheRatio: z.string().optional(),
-  completionRatio: z.string().optional(),
-  imageRatio: z.string().optional(),
-  audioRatio: z.string().optional(),
-  audioCompletionRatio: z.string().optional(),
-})
+const extendedModelFormSchema = modelFormSchema
+  .omit({ enable_groups: true, quota_types: true })
+  .extend({
+    price: z.string().optional(),
+    ratio: z.string().optional(),
+    cacheRatio: z.string().optional(),
+    completionRatio: z.string().optional(),
+    imageRatio: z.string().optional(),
+    audioRatio: z.string().optional(),
+    audioCompletionRatio: z.string().optional(),
+  })
 
 type ExtendedModelFormValues = z.infer<typeof extendedModelFormSchema>
 
@@ -148,6 +147,42 @@ const EMPTY_PRICING_CONFIG: PricingConfig = {
   promptPrice: '',
   completionPrice: '',
   advancedOpen: false,
+}
+
+function CatalogOptionPicker({
+  value,
+  options,
+  onChange,
+}: {
+  value: string[]
+  options: readonly string[]
+  onChange: (value: string[]) => void
+}) {
+  return (
+    <div className='flex flex-wrap gap-2'>
+      {options.map((option) => {
+        const selected = value.includes(option)
+        return (
+          <Button
+            key={option}
+            type='button'
+            size='sm'
+            variant={selected ? 'default' : 'outline'}
+            aria-pressed={selected}
+            onClick={() =>
+              onChange(
+                selected
+                  ? value.filter((item) => item !== option)
+                  : [...value, option]
+              )
+            }
+          >
+            {option}
+          </Button>
+        )
+      })}
+    </div>
+  )
 }
 
 function lookupModelRatio(
@@ -369,6 +404,15 @@ export function ModelMutateDrawer({
       name_rule: 0,
       status: true,
       sync_official: true,
+      context_length: 0,
+      max_output_tokens: 0,
+      knowledge_cutoff: '',
+      release_date: '',
+      input_modalities: [],
+      output_modalities: [],
+      capabilities: [],
+      metadata_source: '',
+      metadata_verified_at: '',
       price: '',
       ratio: '',
       cacheRatio: '',
@@ -437,6 +481,15 @@ export function ModelMutateDrawer({
         name_rule: model.name_rule || 0,
         status: model.status === 1,
         sync_official: model.sync_official === 1,
+        context_length: model.context_length || 0,
+        max_output_tokens: model.max_output_tokens || 0,
+        knowledge_cutoff: model.knowledge_cutoff || '',
+        release_date: model.release_date || '',
+        input_modalities: model.input_modalities || [],
+        output_modalities: model.output_modalities || [],
+        capabilities: model.capabilities || [],
+        metadata_source: model.metadata_source || '',
+        metadata_verified_at: model.metadata_verified_at || '',
         ...pricing.fields,
       })
     } else if (open && !isEditing) {
@@ -462,6 +515,15 @@ export function ModelMutateDrawer({
         name_rule: 0,
         status: true,
         sync_official: true,
+        context_length: 0,
+        max_output_tokens: 0,
+        knowledge_cutoff: '',
+        release_date: '',
+        input_modalities: [],
+        output_modalities: [],
+        capabilities: [],
+        metadata_source: '',
+        metadata_verified_at: '',
         ...pricing.fields,
       })
     }
@@ -874,6 +936,184 @@ export function ModelMutateDrawer({
                   </FormItem>
                 )}
               />
+            </SideDrawerSection>
+
+            <SideDrawerSection>
+              <h3 className='text-sm font-semibold'>
+                {t('Model capabilities and specifications')}
+              </h3>
+
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <FormField
+                  control={form.control}
+                  name='context_length'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Context length')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={0}
+                          step={1}
+                          value={field.value}
+                          onChange={(event) =>
+                            field.onChange(
+                              event.target.value === ''
+                                ? 0
+                                : Number.parseInt(event.target.value, 10)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t('Maximum input context window in tokens')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='max_output_tokens'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Maximum output tokens')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={0}
+                          step={1}
+                          value={field.value}
+                          onChange={(event) =>
+                            field.onChange(
+                              event.target.value === ''
+                                ? 0
+                                : Number.parseInt(event.target.value, 10)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t('Maximum tokens generated in one response')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='knowledge_cutoff'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Knowledge cutoff')}</FormLabel>
+                      <FormControl>
+                        <Input placeholder='2025-04' {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='release_date'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Release date')}</FormLabel>
+                      <FormControl>
+                        <Input type='date' {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name='input_modalities'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Input modalities')}</FormLabel>
+                    <FormControl>
+                      <CatalogOptionPicker
+                        value={field.value}
+                        options={MODEL_MODALITY_OPTIONS}
+                        onChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='output_modalities'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Output modalities')}</FormLabel>
+                    <FormControl>
+                      <CatalogOptionPicker
+                        value={field.value}
+                        options={MODEL_MODALITY_OPTIONS}
+                        onChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='capabilities'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Capabilities')}</FormLabel>
+                    <FormControl>
+                      <CatalogOptionPicker
+                        value={field.value}
+                        options={MODEL_CAPABILITY_OPTIONS}
+                        onChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <FormField
+                  control={form.control}
+                  name='metadata_source'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Metadata source')}</FormLabel>
+                      <FormControl>
+                        <Input placeholder='models.dev' {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='metadata_verified_at'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Metadata verified at')}</FormLabel>
+                      <FormControl>
+                        <Input type='date' {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </SideDrawerSection>
 
             {/* Matching Configuration */}
