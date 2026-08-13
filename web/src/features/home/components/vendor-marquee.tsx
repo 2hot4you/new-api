@@ -28,6 +28,8 @@ interface VendorMarqueeProps {
   isLoading?: boolean
 }
 
+const minimumSequenceItems = 8
+
 function VendorChip(props: { vendor: HomeVendor; duplicate?: boolean }) {
   const { t } = useTranslation()
   const href = `/pricing?vendor=${encodeURIComponent(props.vendor.name)}`
@@ -58,32 +60,47 @@ function MarqueeRow(props: {
   vendors: HomeVendor[]
   direction: 'forward' | 'reverse'
 }) {
-  const items = props.vendors.length > 0 ? props.vendors : []
+  const items = Array.from(
+    { length: Math.max(minimumSequenceItems, props.vendors.length) },
+    (_, index) => ({
+      duplicate: index >= props.vendors.length,
+      occurrence: Math.floor(index / props.vendors.length),
+      vendor: props.vendors[index % props.vendors.length],
+    })
+  )
+
+  const renderSequence = (duplicateSequence: boolean) => (
+    <div
+      data-vendor-marquee-sequence
+      aria-hidden={duplicateSequence || undefined}
+      className='home-marquee-sequence flex min-w-[100vw] shrink-0 justify-around gap-4 px-2'
+    >
+      {items.map((item) => (
+        <VendorChip
+          key={`${duplicateSequence ? 'duplicate' : 'primary'}-${item.vendor.id ?? item.vendor.name}-${item.vendor.name}-${item.occurrence}`}
+          vendor={item.vendor}
+          duplicate={duplicateSequence || item.duplicate}
+        />
+      ))}
+    </div>
+  )
 
   return (
     <div
       data-vendor-marquee-row
       data-direction={props.direction}
-      className='home-marquee-row flex w-max gap-4 py-2'
+      className='home-marquee-row flex w-full py-2'
     >
       <div
         className={cn(
-          'home-marquee-track flex gap-4 pr-4',
+          'home-marquee-track flex',
           props.direction === 'forward'
             ? 'home-marquee-forward'
             : 'home-marquee-reverse'
         )}
       >
-        {items.map((vendor) => (
-          <VendorChip key={`primary-${vendor.name}`} vendor={vendor} />
-        ))}
-        {items.map((vendor) => (
-          <VendorChip
-            key={`duplicate-${vendor.name}`}
-            vendor={vendor}
-            duplicate
-          />
-        ))}
+        {renderSequence(false)}
+        {renderSequence(true)}
       </div>
     </div>
   )
@@ -111,15 +128,10 @@ export function VendorMarquee(props: VendorMarqueeProps) {
 
   if (props.vendors.length === 0) return null
 
-  const midpoint = Math.ceil(props.vendors.length / 2)
-  const firstRow = props.vendors.slice(0, midpoint)
-  const secondRow = props.vendors.slice(midpoint)
-  const resolvedSecondRow = secondRow.length > 0 ? secondRow : firstRow
-
   return (
     <div className='home-marquee border-border/40 overflow-hidden border-y py-4'>
-      <MarqueeRow vendors={firstRow} direction='forward' />
-      <MarqueeRow vendors={resolvedSecondRow} direction='reverse' />
+      <MarqueeRow vendors={props.vendors} direction='forward' />
+      <MarqueeRow vendors={[...props.vendors].reverse()} direction='reverse' />
     </div>
   )
 }

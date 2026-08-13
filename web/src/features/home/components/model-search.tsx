@@ -139,30 +139,33 @@ export function ModelSearch(props: ModelSearchProps) {
         method='get'
         role='search'
         onSubmit={handleSubmit}
-        className='home-search-shell border-border/80 bg-background/90 focus-within:border-foreground/35 focus-within:ring-foreground/8 relative flex min-h-16 items-center gap-3 rounded-2xl border p-2 pl-5 shadow-[0_18px_60px_rgb(0_0_0/0.08)] backdrop-blur-xl transition-[border-color,box-shadow] focus-within:ring-4'
+        className='home-search-shell border-border/80 bg-background/90 focus-within:border-foreground/35 focus-within:ring-foreground/8 relative grid min-h-16 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border p-2 pl-5 shadow-[0_18px_60px_rgb(0_0_0/0.08)] backdrop-blur-xl transition-[border-color,box-shadow] focus-within:ring-4'
       >
         <Search className='text-muted-foreground size-5 shrink-0' />
-        <input
-          name='search'
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value)
-            setActiveIndex(-1)
-          }}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => window.setTimeout(() => setIsFocused(false), 120)}
-          onKeyDown={handleKeyDown}
-          autoComplete='off'
-          aria-controls={showResults ? listboxId : undefined}
-          aria-expanded={showResults}
-          aria-activedescendant={
-            activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined
-          }
-          placeholder={t('Search models, providers, or capabilities')}
-          className='placeholder:text-muted-foreground/55 min-w-0 flex-1 bg-transparent text-base outline-none md:text-lg'
-        />
+        <div data-home-search-text className='min-w-0 overflow-hidden'>
+          <input
+            name='search'
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setActiveIndex(-1)
+            }}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => window.setTimeout(() => setIsFocused(false), 120)}
+            onKeyDown={handleKeyDown}
+            autoComplete='off'
+            aria-controls={showResults ? listboxId : undefined}
+            aria-expanded={showResults}
+            aria-activedescendant={
+              activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined
+            }
+            placeholder={t('Search models, providers, or capabilities')}
+            className='placeholder:text-muted-foreground/55 block w-full min-w-0 bg-transparent pr-1 text-base outline-none md:text-lg'
+          />
+        </div>
         <button
           type='submit'
+          data-home-search-action
           className='bg-foreground text-background hover:bg-foreground/88 inline-flex size-12 shrink-0 items-center justify-center rounded-xl transition-[background-color,transform]'
           aria-label={t('Search model marketplace')}
         >

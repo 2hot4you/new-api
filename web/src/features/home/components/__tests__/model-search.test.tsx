@@ -72,6 +72,30 @@ function model(modelName: string, vendorName: string): PricingModel {
 describe('home model search', () => {
   after(() => domWindow.close())
 
+  test('keeps the search text and submit action in separate layout regions', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ModelSearch models={[model('deepseek-v4', 'DeepSeek')]} />
+        </I18nextProvider>
+      )
+    })
+
+    const form = container.querySelector('form[role="search"]')
+    const textRegion = form?.querySelector('[data-home-search-text]')
+    const actionRegion = form?.querySelector('[data-home-search-action]')
+    assert.ok(textRegion)
+    assert.ok(actionRegion)
+    assert.equal(actionRegion.closest('[data-home-search-text]'), null)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
   test('shows matched models and submits a normalized marketplace query', async () => {
     const queries: string[] = []
     const container = document.createElement('div')

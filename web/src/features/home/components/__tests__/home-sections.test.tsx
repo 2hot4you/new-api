@@ -86,9 +86,19 @@ describe('Molii home sections', () => {
     assert.equal(rows[1].getAttribute('data-direction'), 'reverse')
     assert.ok(rows[0].querySelector('.home-marquee-forward'))
     assert.ok(rows[1].querySelector('.home-marquee-reverse'))
+
+    for (const row of rows) {
+      const sequences = row.querySelectorAll('[data-vendor-marquee-sequence]')
+      assert.equal(sequences.length, 2)
+      assert.equal(sequences[0].querySelectorAll('a').length, 8)
+      assert.equal(sequences[1].querySelectorAll('a').length, 8)
+      assert.match(sequences[0].textContent ?? '', /DeepSeek/)
+      assert.match(sequences[0].textContent ?? '', /Qwen/)
+    }
+
     assert.equal(
       container.querySelectorAll('a[href="/pricing?vendor=DeepSeek"]').length,
-      2
+      16
     )
   })
 

@@ -610,6 +610,13 @@ For commercial licensing, please contact support@quantumnous.com
     justify-content: center;
   }
 
+  .home-marquee-sequence {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
   .home-marquee [aria-hidden='true'] {
     display: none;
   }

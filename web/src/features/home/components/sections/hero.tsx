@@ -74,7 +74,7 @@ export function Hero(props: HeroProps) {
           style={{ animationDelay: '140ms' }}
         >
           {t(
-            'Explore DeepSeek, GLM, Qwen, Kimi, MiniMax, MiMo, Seedance, and Grok Imagine through one model platform, one API key, and transparent billing.'
+            'Bring leading language and multimodal models together in one platform, with a unified API key and transparent billing for text, image, and video creation.'
           )}
         </p>
 

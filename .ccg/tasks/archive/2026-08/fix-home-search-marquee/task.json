@@ -1,0 +1,12 @@
+{
+  "id": "fix-home-search-marquee",
+  "title": "修复首页搜索框遮挡并让厂商跑马灯铺满视口",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交已验证变更",
+  "createdAt": "2026-08-14T00:15:18+08:00",
+  "branch": "feat/molii-auth"
+}
