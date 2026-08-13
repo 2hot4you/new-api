@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "frontend",
   "currentPhase": "implementation",
-  "nextAction": "任务 1-3 已完成；将模型详情重构为连续独立页面",
+  "nextAction": "任务 1-4 已完成；补齐多语言文案并完成全量本地验证",
   "createdAt": "2026-08-13T18:10:00+08:00",
   "branch": "feat/molii-auth"
 }
