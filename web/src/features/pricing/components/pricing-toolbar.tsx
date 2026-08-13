@@ -55,6 +55,7 @@ import {
 } from '../constants'
 import type { PricingModel, PricingVendor, TokenUnit } from '../types'
 import { PricingSidebar } from './pricing-sidebar'
+import { SearchBar } from './search-bar'
 
 type SegmentOption = {
   value: string
@@ -84,6 +85,15 @@ export interface PricingToolbarProps {
   onVendorChange: (value: string) => void
   onGroupChange: (value: string) => void
   onTagChange: (value: string) => void
+  inputModalityFilter: string
+  contextFilter: string
+  capabilityFilter: string
+  onInputModalityChange: (value: string) => void
+  onContextChange: (value: string) => void
+  onCapabilityChange: (value: string) => void
+  searchValue: string
+  onSearchChange: (value: string) => void
+  onClearSearch: () => void
   vendors: PricingVendor[]
   groups: string[]
   groupRatios?: Record<string, number>
@@ -166,7 +176,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
   )
 
   return (
-    <div className='rounded-xl border p-3'>
+    <div className='border-b px-3 py-3 sm:px-4'>
       <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
         <div className='flex items-center gap-2'>
           <Button
@@ -185,7 +195,15 @@ export function PricingToolbar(props: PricingToolbarProps) {
             )}
           </Button>
 
-          <div className='text-muted-foreground flex items-baseline gap-1 text-sm'>
+          <SearchBar
+            value={props.searchValue}
+            onChange={props.onSearchChange}
+            onClear={props.onClearSearch}
+            placeholder={t('Search models...')}
+            className='w-full min-w-0 sm:w-64 lg:w-72'
+          />
+
+          <div className='text-muted-foreground hidden items-baseline gap-1 text-sm sm:flex'>
             <span className='text-foreground font-semibold tabular-nums'>
               {props.filteredCount.toLocaleString()}
             </span>
@@ -291,11 +309,17 @@ export function PricingToolbar(props: PricingToolbarProps) {
               vendorFilter={props.vendorFilter}
               groupFilter={props.groupFilter}
               tagFilter={props.tagFilter}
+              inputModalityFilter={props.inputModalityFilter}
+              contextFilter={props.contextFilter}
+              capabilityFilter={props.capabilityFilter}
               onQuotaTypeChange={props.onQuotaTypeChange}
               onEndpointTypeChange={props.onEndpointTypeChange}
               onVendorChange={props.onVendorChange}
               onGroupChange={props.onGroupChange}
               onTagChange={props.onTagChange}
+              onInputModalityChange={props.onInputModalityChange}
+              onContextChange={props.onContextChange}
+              onCapabilityChange={props.onCapabilityChange}
               vendors={props.vendors}
               groups={props.groups}
               groupRatios={props.groupRatios}

@@ -38,7 +38,17 @@ import {
   getQuotaTypeLabels,
 } from '../constants'
 import { parseTags } from '../lib/filters'
-import type { PricingModel, PricingVendor } from '../types'
+import {
+  getContextBuckets,
+  getContextBucketId,
+  getModelInputModalities,
+} from '../lib/model-directory'
+import type {
+  Modality,
+  ModelCapability,
+  PricingModel,
+  PricingVendor,
+} from '../types'
 
 type FilterOption = {
   value: string
@@ -49,6 +59,7 @@ type FilterOption = {
 }
 
 type FilterSectionProps = {
+  id: string
   title: string
   value: string
   options: FilterOption[]
@@ -61,11 +72,17 @@ export interface PricingSidebarProps {
   vendorFilter: string
   groupFilter: string
   tagFilter: string
+  inputModalityFilter: string
+  contextFilter: string
+  capabilityFilter: string
   onQuotaTypeChange: (value: string) => void
   onEndpointTypeChange: (value: string) => void
   onVendorChange: (value: string) => void
   onGroupChange: (value: string) => void
   onTagChange: (value: string) => void
+  onInputModalityChange: (value: string) => void
+  onContextChange: (value: string) => void
+  onCapabilityChange: (value: string) => void
   vendors: PricingVendor[]
   groups: string[]
   groupRatios?: Record<string, number>
@@ -91,7 +108,7 @@ function formatGroupRatio(ratio: number | undefined): string | undefined {
   return `x${formatted}`
 }
 
-function FilterChip(props: {
+function FilterOptionButton(props: {
   option: FilterOption
   active: boolean
   onClick: () => void
@@ -101,21 +118,21 @@ function FilterChip(props: {
       type='button'
       onClick={props.onClick}
       className={cn(
-        'group inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-all',
+        'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors',
         props.active
-          ? 'border-foreground/30 bg-foreground/5 text-foreground shadow-sm'
-          : 'border-border/70 bg-background text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground'
+          ? 'bg-foreground/8 text-foreground'
+          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
       )}
       title={props.option.label}
     >
       {props.option.icon && (
         <span className='shrink-0'>{props.option.icon}</span>
       )}
-      <span className='truncate'>{props.option.label}</span>
+      <span className='min-w-0 flex-1 truncate'>{props.option.label}</span>
       {(props.option.suffix || props.option.count != null) && (
         <span
           className={cn(
-            'rounded-md px-1.5 py-0.5 text-[12px]',
+            'ml-auto shrink-0 rounded px-1.5 py-0.5 text-[11px] tabular-nums',
             props.active
               ? 'bg-background text-foreground'
               : 'bg-muted text-muted-foreground'
@@ -132,6 +149,7 @@ function FilterSection(props: FilterSectionProps) {
   return (
     <Collapsible
       defaultOpen
+      data-filter-section={props.id}
       className='border-border/70 border-b pb-3 last:border-b-0'
     >
       <CollapsibleTrigger className='group flex w-full items-center justify-between py-2.5 text-left'>
@@ -141,9 +159,9 @@ function FilterSection(props: FilterSectionProps) {
         <ChevronDown className='text-muted-foreground size-4 transition-transform group-data-[panel-open]:rotate-180' />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className='flex flex-wrap gap-1.5'>
+        <div className='space-y-0.5'>
           {props.options.map((option) => (
-            <FilterChip
+            <FilterOptionButton
               key={option.value}
               option={option}
               active={props.value === option.value}
@@ -201,14 +219,26 @@ export function PricingSidebar(props: PricingSidebarProps) {
     {
       value: QUOTA_TYPES.TOKEN,
       label: quotaTypeLabels[QUOTA_TYPES.TOKEN],
-      count: countBy(props.models, (model) => model.quota_type === 0),
+      count: countBy(
+        props.models,
+        (model) =>
+          model.quota_type === 0 && model.billing_mode !== 'tiered_expr'
+      ),
     },
     {
       value: QUOTA_TYPES.REQUEST,
       label: quotaTypeLabels[QUOTA_TYPES.REQUEST],
       count: countBy(props.models, (model) => model.quota_type === 1),
     },
-  ]
+    {
+      value: QUOTA_TYPES.DYNAMIC,
+      label: quotaTypeLabels[QUOTA_TYPES.DYNAMIC],
+      count: countBy(
+        props.models,
+        (model) => model.billing_mode === 'tiered_expr'
+      ),
+    },
+  ].filter((option) => option.value === QUOTA_TYPES.ALL || option.count > 0)
 
   const tagOptions: FilterOption[] = [
     {
@@ -243,10 +273,104 @@ export function PricingSidebar(props: PricingSidebarProps) {
           (model) => model.supported_endpoint_types?.includes(value) ?? false
         ),
       })),
+  ].filter((option) => option.value === ENDPOINT_TYPES.ALL || option.count > 0)
+
+  const inputModalities = new Set<Modality>()
+  const capabilities = new Set<ModelCapability>()
+  for (const model of props.models) {
+    for (const modality of getModelInputModalities(model)) {
+      inputModalities.add(modality)
+    }
+    for (const capability of model.capabilities ?? []) {
+      capabilities.add(capability)
+    }
+  }
+
+  const inputLabels: Record<Modality, string> = {
+    text: t('Text'),
+    image: t('Image'),
+    file: t('File'),
+    audio: t('Audio'),
+    video: t('Video'),
+  }
+  const inputOptions: FilterOption[] = [
+    {
+      value: FILTER_ALL,
+      label: t('All Input Types'),
+      count: props.models.length,
+    },
+    ...(['text', 'image', 'file', 'audio', 'video'] as Modality[])
+      .filter((modality) => inputModalities.has(modality))
+      .map((modality) => ({
+        value: modality,
+        label: inputLabels[modality],
+        count: countBy(props.models, (model) =>
+          getModelInputModalities(model).includes(modality)
+        ),
+      })),
+  ]
+
+  const contextLabels: Record<string, string> = {
+    'lte-128k': '≤ 128K',
+    'lte-256k': '128K–256K',
+    'lte-1m': '256K–1M',
+    'gt-1m': '> 1M',
+  }
+  const contextOptions: FilterOption[] = [
+    {
+      value: FILTER_ALL,
+      label: t('All Context Lengths'),
+      count: countBy(
+        props.models,
+        (model) => getContextBucketId(model.context_length) != null
+      ),
+    },
+    ...getContextBuckets(props.models).map((bucket) => ({
+      value: bucket.id,
+      label: contextLabels[bucket.id],
+      count: bucket.count,
+    })),
+  ]
+
+  const capabilityLabels: Partial<Record<ModelCapability, string>> = {
+    reasoning: t('Reasoning'),
+    tools: t('Tools'),
+    function_calling: t('Function calling'),
+    structured_output: t('Structured output'),
+    streaming: t('Streaming'),
+    vision: t('Vision'),
+    image_generation: t('Image generation'),
+    image_editing: t('Image editing'),
+    video_generation: t('Video generation'),
+    video_editing: t('Video editing'),
+    audio_generation: t('Audio generation'),
+    web_search: t('Web search'),
+    code_interpreter: t('Code interpreter'),
+    caching: t('Prompt caching'),
+    embeddings: t('Embeddings'),
+    system_prompt: t('System prompt'),
+    json_mode: t('JSON mode'),
+  }
+  const capabilityOptions: FilterOption[] = [
+    {
+      value: FILTER_ALL,
+      label: t('All Capabilities'),
+      count: props.models.length,
+    },
+    ...Array.from(capabilities)
+      .map((capability) => ({
+        value: capability,
+        label: capabilityLabels[capability] ?? capability,
+        count: countBy(
+          props.models,
+          (model) => model.capabilities?.includes(capability) ?? false
+        ),
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label)),
   ]
 
   return (
-    <aside className={cn('rounded-xl border p-3', props.className)}>
+    <aside className={cn('border-r px-3 py-4', props.className)}>
       <div className='mb-2.5 flex items-center justify-between gap-2'>
         <div>
           <h2 className='text-foreground text-sm font-bold'>{t('Filter')}</h2>
@@ -275,34 +399,60 @@ export function PricingSidebar(props: PricingSidebarProps) {
 
       <div className='space-y-1'>
         <FilterSection
-          title={t('Groups')}
-          value={props.groupFilter}
-          options={groupOptions}
-          onChange={props.onGroupChange}
+          id='input-types'
+          title={t('Input Types')}
+          value={props.inputModalityFilter}
+          options={inputOptions}
+          onChange={props.onInputModalityChange}
         />
         <FilterSection
-          title={t('All Vendors')}
+          id='context-length'
+          title={t('Context Length')}
+          value={props.contextFilter}
+          options={contextOptions}
+          onChange={props.onContextChange}
+        />
+        <FilterSection
+          id='vendors'
+          title={t('Vendors')}
           value={props.vendorFilter}
           options={vendorOptions}
           onChange={props.onVendorChange}
         />
         <FilterSection
-          title={t('Model Tags')}
-          value={props.tagFilter}
-          options={tagOptions}
-          onChange={props.onTagChange}
+          id='capabilities'
+          title={t('Supported Capabilities')}
+          value={props.capabilityFilter}
+          options={capabilityOptions}
+          onChange={props.onCapabilityChange}
         />
         <FilterSection
+          id='endpoint-types'
+          title={t('Supported Protocols')}
+          value={props.endpointTypeFilter}
+          options={endpointOptions}
+          onChange={props.onEndpointTypeChange}
+        />
+        <FilterSection
+          id='pricing-types'
           title={t('Pricing Type')}
           value={props.quotaTypeFilter}
           options={quotaOptions}
           onChange={props.onQuotaTypeChange}
         />
         <FilterSection
-          title={t('Endpoint Type')}
-          value={props.endpointTypeFilter}
-          options={endpointOptions}
-          onChange={props.onEndpointTypeChange}
+          id='groups'
+          title={t('Groups')}
+          value={props.groupFilter}
+          options={groupOptions}
+          onChange={props.onGroupChange}
+        />
+        <FilterSection
+          id='tags'
+          title={t('Model Tags')}
+          value={props.tagFilter}
+          options={tagOptions}
+          onChange={props.onTagChange}
         />
       </div>
     </aside>
