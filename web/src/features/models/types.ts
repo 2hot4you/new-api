@@ -46,6 +46,15 @@ export interface Model {
   created_time: number
   updated_time: number
   name_rule: number
+  context_length?: number
+  max_output_tokens?: number
+  knowledge_cutoff?: string
+  release_date?: string
+  input_modalities?: string[]
+  output_modalities?: string[]
+  capabilities?: string[]
+  metadata_source?: string
+  metadata_verified_at?: string
   // Runtime fields
   bound_channels?: BoundChannel[]
   enable_groups?: string[]

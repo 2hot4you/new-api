@@ -5,8 +5,8 @@
   "complexity": "L+",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "审核实施计划并选择执行方式",
+  "currentPhase": "implementation",
+  "nextAction": "按实施计划以 TDD 完成模型目录、只读定价聚合和厂商标题区",
   "createdAt": "2026-08-13T15:20:00+08:00",
   "branch": "feat/molii-auth"
 }
