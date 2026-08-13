@@ -33,6 +33,20 @@ func warnIfEnabledStarAIChannelIsNotUnique(count int64, err error) {
 	}
 }
 
+func reconcileCatalogAfterChannelRefresh() {
+	summary, err := ReconcileEnabledModelMetadata()
+	if err != nil {
+		common.SysLog(fmt.Sprintf("warning: model metadata reconciliation failed: %v; existing catalog will remain available", err))
+		return
+	}
+	if summary != (CatalogReconcileSummary{}) {
+		common.SysLog(fmt.Sprintf(
+			"model metadata reconciled: models_created=%d models_updated=%d vendors_created=%d vendors_updated=%d",
+			summary.CreatedModels, summary.UpdatedModels, summary.CreatedVendors, summary.UpdatedVendors,
+		))
+	}
+}
+
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
 		var enabledStarAIChannels int64
@@ -40,6 +54,7 @@ func InitChannelCache() {
 			Where("type = ? AND status = ?", constant.ChannelTypeStarAI, common.ChannelStatusEnabled).
 			Count(&enabledStarAIChannels).Error
 		warnIfEnabledStarAIChannelIsNotUnique(enabledStarAIChannels, err)
+		reconcileCatalogAfterChannelRefresh()
 		InvalidatePricingCache()
 		return
 	}
@@ -121,6 +136,7 @@ func InitChannelCache() {
 	// GetPricing (holding updatePricingLock) nests channelSyncLock.RLock via
 	// loadPricingAdvancedCustomConfigs. channelSyncLock MUST be released before
 	// invalidating the pricing cache, otherwise the reversed order deadlocks.
+	reconcileCatalogAfterChannelRefresh()
 	InvalidatePricingCache()
 	common.SysLog("channels synced from database")
 }
