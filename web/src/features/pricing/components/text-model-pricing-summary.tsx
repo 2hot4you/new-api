@@ -25,6 +25,8 @@ export function TextModelPricingSummary(props: {
 }) {
   const { t } = useTranslation()
   const { pricing } = props
+  const priceTokenCountLabel =
+    pricing.unitLabel === '1K' ? '1,000' : '1,000,000'
 
   return (
     <div className='mt-3' data-text-model-billing='true'>
@@ -65,6 +67,9 @@ export function TextModelPricingSummary(props: {
               </tr>
             </tbody>
           </table>
+          <div className='text-muted-foreground bg-muted/20 border-t px-2 py-1 text-right text-[10px]'>
+            {t('Online inference')} · ¥ / {priceTokenCountLabel} Token
+          </div>
         </div>
       )}
 
@@ -128,6 +133,9 @@ export function TextModelPricingSummary(props: {
               ))}
             </tbody>
           </table>
+          <div className='text-muted-foreground bg-muted/20 border-t px-2 py-1 text-right text-[10px]'>
+            {t('Online inference')} · ¥ / {priceTokenCountLabel} Token
+          </div>
         </div>
       )}
     </div>

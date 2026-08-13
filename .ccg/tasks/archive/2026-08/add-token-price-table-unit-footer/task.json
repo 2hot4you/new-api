@@ -1,0 +1,13 @@
+{
+  "id": "add-token-price-table-unit-footer",
+  "title": "在 Token 价格表底部统一显示百万 Token 价格单位",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交已验证变更",
+  "createdAt": "2026-08-13T02:20:00Z",
+  "branch": "feat/molii-auth",
+  "completedAt": "2026-08-13T02:23:57Z"
+}

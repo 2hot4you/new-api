@@ -115,6 +115,10 @@ describe('selected text-model marketplace card pricing', () => {
     assert.match(matrix.textContent ?? '', /\$2/)
     assert.match(matrix.textContent ?? '', /\$4/)
     assert.match(matrix.textContent ?? '', /\$0\.4/)
+    assert.match(
+      pricingSummary.textContent ?? '',
+      /Online inference · ¥ \/ 1,000,000 Token/
+    )
 
     await act(async () => root.unmount())
     container.remove()
@@ -134,6 +138,10 @@ describe('selected text-model marketplace card pricing', () => {
     assert.match(matrix.textContent ?? '', /128K–256K/)
     assert.match(matrix.textContent ?? '', /256K–1M/)
     assert.match(matrix.textContent ?? '', /¥0\.02/)
+    assert.match(
+      container.querySelector('[data-text-model-billing]')?.textContent ?? '',
+      /Online inference · ¥ \/ 1,000,000 Token/
+    )
 
     await act(async () => root.unmount())
     container.remove()
