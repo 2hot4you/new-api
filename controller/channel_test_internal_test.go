@@ -130,6 +130,26 @@ func TestMultiprotocolGatewayEndpointTypes(t *testing.T) {
 	assert.Equal(t, want, common.GetEndpointTypesByChannelType(constant.ChannelTypeSub2API, "gpt-5"))
 }
 
+func TestBuildTestRequestUsesNativeClaudeAndGeminiFormats(t *testing.T) {
+	channel := &model.Channel{}
+
+	claudeRequest := buildTestRequest(
+		"claude-sonnet-test",
+		string(constant.EndpointTypeAnthropic),
+		channel,
+		true,
+	)
+	assert.IsType(t, &dto.ClaudeRequest{}, claudeRequest)
+
+	geminiRequest := buildTestRequest(
+		"gemini-test",
+		string(constant.EndpointTypeGemini),
+		channel,
+		true,
+	)
+	assert.IsType(t, &dto.GeminiChatRequest{}, geminiRequest)
+}
+
 func TestCopyChannelRejectsInvalidLegacyProxySettings(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	settingBytes, err := common.Marshal(dto.ChannelSettings{
