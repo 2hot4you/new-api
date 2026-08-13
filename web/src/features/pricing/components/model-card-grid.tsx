@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
+import { groupModelsByVendor } from '../lib/vendor-model-groups'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 import type { ModelPerfBadgeData } from './model-perf-badge'
@@ -58,6 +59,10 @@ export function ModelCardGrid(props: ModelCardGridProps) {
     const start = (currentPage - 1) * pageSize
     return props.models.slice(start, start + pageSize)
   }, [currentPage, pageSize, props.models])
+  const pagedModelGroups = useMemo(
+    () => groupModelsByVendor(pagedModels),
+    [pagedModels]
+  )
 
   const perfMap = useMemo(() => {
     const map = new Map<string, ModelPerfBadgeData>()
@@ -73,21 +78,39 @@ export function ModelCardGrid(props: ModelCardGridProps) {
 
   return (
     <div className='space-y-4 sm:space-y-5'>
-      <div className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 2xl:grid-cols-3'>
-        {pagedModels.map((model) => (
-          <ModelCard
-            key={model.id ?? model.model_name}
-            model={model}
-            tokenUnit={tokenUnit}
-            priceRate={props.priceRate}
-            usdExchangeRate={props.usdExchangeRate}
-            showRechargePrice={props.showRechargePrice}
-            selectedGroup={props.selectedGroup}
-            perf={perfMap.get(model.model_name || '')}
-            onClick={() => props.onModelClick(model.model_name || '')}
-          />
-        ))}
-      </div>
+      {pagedModelGroups.map((group, groupIndex) => {
+        const firstModel = group[0]
+        let groupKey: string
+        if (firstModel?.vendor_id != null) {
+          groupKey = `vendor-id:${firstModel.vendor_id}`
+        } else if (firstModel?.vendor_name) {
+          groupKey = `vendor-name:${firstModel.vendor_name}`
+        } else {
+          groupKey = `unknown:${firstModel?.id ?? firstModel?.model_name ?? groupIndex}`
+        }
+
+        return (
+          <div
+            key={groupKey}
+            className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 2xl:grid-cols-3'
+            data-model-vendor-group='true'
+          >
+            {group.map((model) => (
+              <ModelCard
+                key={model.id ?? model.model_name}
+                model={model}
+                tokenUnit={tokenUnit}
+                priceRate={props.priceRate}
+                usdExchangeRate={props.usdExchangeRate}
+                showRechargePrice={props.showRechargePrice}
+                selectedGroup={props.selectedGroup}
+                perf={perfMap.get(model.model_name || '')}
+                onClick={() => props.onModelClick(model.model_name || '')}
+              />
+            ))}
+          </div>
+        )
+      })}
 
       {totalPages > 1 && (
         <div className='text-muted-foreground flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-sm sm:flex-row'>

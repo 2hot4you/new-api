@@ -1,12 +1,13 @@
 {
   "id": "group-marketplace-models-by-vendor",
   "title": "模型广场按厂商分组换行展示",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "low",
   "domain": "frontend",
-  "currentPhase": "planning",
-  "nextAction": "编写并执行厂商分组网格实施计划",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交已验证实现",
   "createdAt": "2026-08-13T02:30:00Z",
-  "branch": "feat/molii-auth"
+  "branch": "feat/molii-auth",
+  "completedAt": "2026-08-13T02:39:22Z"
 }

@@ -32,11 +32,11 @@
 - Produces: `groupModelsByVendor(models: PricingModel[]): PricingModel[][]`.
 - Produces: one DOM element with `data-model-vendor-group` per vendor group, each using `grid-cols-1 md:grid-cols-2 2xl:grid-cols-3`.
 
-- [ ] **Step 1: Write failing grouping tests**
+- [x] **Step 1: Write failing grouping tests**
 
 Add literal fixtures proving that repeated vendors are collected in first-appearance order, that model order within a vendor is stable, and that two models without vendor metadata become separate groups.
 
-- [ ] **Step 2: Verify grouping tests fail**
+- [x] **Step 2: Verify grouping tests fail**
 
 Run:
 
@@ -46,19 +46,19 @@ cd web && bun test src/features/pricing/lib/__tests__/vendor-model-groups.test.t
 
 Expected: failure because `groupModelsByVendor` does not exist.
 
-- [ ] **Step 3: Implement the pure grouping helper**
+- [x] **Step 3: Implement the pure grouping helper**
 
 Use a `Map<string, PricingModel[]>`. Build the key as `id:<vendor_id>`, otherwise `name:<vendor_name>`, otherwise `unknown:<model id or model name>:<input index>`. Append to the first-created group so group and model order remain stable.
 
-- [ ] **Step 4: Verify grouping tests pass**
+- [x] **Step 4: Verify grouping tests pass**
 
 Run the command from Step 2 and expect all tests to pass.
 
-- [ ] **Step 5: Write the failing grid integration test**
+- [x] **Step 5: Write the failing grid integration test**
 
 Render `ModelCardGrid` inside a `QueryClientProvider` whose queries are disabled. Assert that two models from one vendor share the first `[data-model-vendor-group]`, another vendor is in the second group, no vendor heading is rendered, and every group has the existing responsive grid classes.
 
-- [ ] **Step 6: Verify the grid integration test fails**
+- [x] **Step 6: Verify the grid integration test fails**
 
 Run:
 
@@ -68,7 +68,7 @@ cd web && bun test src/features/pricing/components/__tests__/model-card-grid-ven
 
 Expected: failure because the current component renders one shared grid and exposes no vendor groups.
 
-- [ ] **Step 7: Render each stable vendor group as an independent grid**
+- [x] **Step 7: Render each stable vendor group as an independent grid**
 
 In `model-card-grid.tsx`, group `pagedModels` with `groupModelsByVendor`, keep the existing outer spacing container and pagination, and render each group as:
 
@@ -84,7 +84,7 @@ In `model-card-grid.tsx`, group `pagedModels` with `groupModelsByVendor`, keep t
 
 Use a stable key derived from the first model's vendor identity; do not insert empty cards or visible headings.
 
-- [ ] **Step 8: Verify focused and full pricing tests**
+- [x] **Step 8: Verify focused and full pricing tests**
 
 Run:
 
@@ -100,7 +100,7 @@ bunx oxlint src/features/pricing/lib/vendor-model-groups.ts src/features/pricing
 
 Expected: all commands pass with no errors.
 
-- [ ] **Step 9: Verify local layout and commit**
+- [x] **Step 9: Verify local layout and commit**
 
 Open `http://127.0.0.1:3000/pricing`, confirm each vendor starts on a new row at the desktop breakpoint and that no vendor heading appears. Then stage only the four implementation files, update the task review, archive the task, and commit with:
 
