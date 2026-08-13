@@ -1,0 +1,12 @@
+{
+  "id": "pricing-directory-refactor",
+  "title": "将模型广场重构为高密度模型目录",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "planning",
+  "nextAction": "提交设计基线并编写实施计划",
+  "createdAt": "2026-08-13T18:10:00+08:00",
+  "branch": "feat/molii-auth"
+}

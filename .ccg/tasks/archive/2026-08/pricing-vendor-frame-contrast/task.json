@@ -1,12 +1,12 @@
 {
   "id": "pricing-vendor-frame-contrast",
   "title": "增强模型广场厂商外框识别度",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "S",
   "risk": "low",
   "domain": "frontend",
-  "currentPhase": "planning",
-  "nextAction": "等待用户复核增强线框书面设计",
+  "currentPhase": "completed",
+  "nextAction": "已被模型广场目录式重构取代，不再实施",
   "createdAt": "2026-08-13T17:50:00+08:00",
   "branch": "feat/molii-auth"
 }
