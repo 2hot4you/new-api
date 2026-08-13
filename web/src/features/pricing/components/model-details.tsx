@@ -578,7 +578,7 @@ function ModelHeader(props: { model: PricingModel }) {
 // Base price card (used in the Overview tab)
 // ----------------------------------------------------------------------------
 
-function PriceSection(props: {
+export function PriceSection(props: {
   model: PricingModel
   priceRate: number
   usdExchangeRate: number
@@ -597,6 +597,19 @@ function PriceSection(props: {
     usdExchangeRate: props.usdExchangeRate,
     groupRatioMultiplier: 1,
   })
+  const detailDynamicPrimaryEntries = dynamicSummary
+    ? [
+        ...dynamicSummary.primaryEntries,
+        ...dynamicSummary.secondaryEntries.filter(
+          (entry) => entry.field === 'cacheReadPrice'
+        ),
+      ]
+    : []
+  const detailDynamicSecondaryEntries = dynamicSummary
+    ? dynamicSummary.secondaryEntries.filter(
+        (entry) => entry.field !== 'cacheReadPrice'
+      )
+    : []
 
   if (props.model.video_pricing) {
     return (
@@ -615,16 +628,14 @@ function PriceSection(props: {
     { label: t('Input'), type: 'input' },
     { label: t('Output'), type: 'output' },
   ]
+  if (props.model.cache_ratio != null) {
+    primaryPriceTypes.push({ label: t('Cached input'), type: 'cache' })
+  }
   const secondaryPriceTypes: {
     label: string
     type: PriceType
     available: boolean
   }[] = [
-    {
-      label: t('Cached input'),
-      type: 'cache',
-      available: props.model.cache_ratio != null,
-    },
     {
       label: t('Cache write'),
       type: 'create_cache',
@@ -677,12 +688,21 @@ function PriceSection(props: {
     return (
       <section>
         <SectionTitle>{t('Base Price')}</SectionTitle>
-        {dynamicSummary.primaryEntries.length > 0 ? (
-          <div className='grid grid-cols-2 gap-2'>
-            {dynamicSummary.primaryEntries.map((entry) => (
+        {detailDynamicPrimaryEntries.length > 0 ? (
+          <div
+            className={cn(
+              'grid gap-2',
+              detailDynamicPrimaryEntries.length >= 3
+                ? 'grid-cols-1 sm:grid-cols-3'
+                : 'grid-cols-2'
+            )}
+            data-base-price-primary-grid='true'
+          >
+            {detailDynamicPrimaryEntries.map((entry) => (
               <div
                 key={entry.key}
                 className='bg-muted/20 rounded-lg border p-3'
+                data-base-price-card-field={entry.field}
               >
                 <div className='text-muted-foreground text-xs'>
                   {t(entry.shortLabel)}
@@ -701,10 +721,13 @@ function PriceSection(props: {
             {t('Dynamic Pricing')}
           </p>
         )}
-        {dynamicSummary.secondaryEntries.length > 0 && (
-          <div className='bg-muted/20 mt-3 rounded-lg border px-3 py-2.5'>
+        {detailDynamicSecondaryEntries.length > 0 && (
+          <div
+            className='bg-muted/20 mt-3 rounded-lg border px-3 py-2.5'
+            data-base-price-secondary='true'
+          >
             <div className='space-y-1.5'>
-              {dynamicSummary.secondaryEntries.map((entry) => (
+              {detailDynamicSecondaryEntries.map((entry) => (
                 <div
                   key={entry.key}
                   className='flex items-baseline justify-between gap-4'
@@ -772,9 +795,21 @@ function PriceSection(props: {
   return (
     <section>
       <SectionTitle>{t('Base Price')}</SectionTitle>
-      <div className='grid grid-cols-2 gap-2'>
+      <div
+        className={cn(
+          'grid gap-2',
+          primaryPriceTypes.length >= 3
+            ? 'grid-cols-1 sm:grid-cols-3'
+            : 'grid-cols-2'
+        )}
+        data-base-price-primary-grid='true'
+      >
         {primaryPriceTypes.map((item) => (
-          <div key={item.type} className='bg-muted/20 rounded-lg border p-3'>
+          <div
+            key={item.type}
+            className='bg-muted/20 rounded-lg border p-3'
+            data-base-price-card-type={item.type}
+          >
             <div className='text-muted-foreground text-xs'>{item.label}</div>
             <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
               {renderPrice(item.type)}
@@ -783,7 +818,10 @@ function PriceSection(props: {
         ))}
       </div>
       {secondaryItems.length > 0 && (
-        <div className='bg-muted/20 mt-3 rounded-lg border px-3 py-2.5'>
+        <div
+          className='bg-muted/20 mt-3 rounded-lg border px-3 py-2.5'
+          data-base-price-secondary='true'
+        >
           <div className='space-y-1.5'>
             {secondaryItems.map((item) => (
               <div

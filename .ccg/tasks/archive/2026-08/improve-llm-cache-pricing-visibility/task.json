@@ -1,12 +1,13 @@
 {
   "id": "improve-llm-cache-pricing-visibility",
   "title": "增强 LLM 概览页缓存输入价格的视觉层级",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "S",
   "risk": "low",
   "domain": "frontend",
-  "currentPhase": "planning",
-  "nextAction": "编写并执行缓存价格主卡片实施计划",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交已验证实现",
   "createdAt": "2026-08-13T02:45:00Z",
-  "branch": "feat/molii-auth"
+  "branch": "feat/molii-auth",
+  "completedAt": "2026-08-13T02:52:04Z"
 }
