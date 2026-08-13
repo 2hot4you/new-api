@@ -28,5 +28,5 @@
 ## Completion
 
 - [x] Run final verification and inspect the full rc.24 diff.
-- [ ] Archive the CCG task.
-- [ ] Push `feat/molii-auth` to `origin` without creating a PR.
+- [x] Archive the CCG task.
+- [x] Push `feat/molii-auth` to `origin` without creating a PR.

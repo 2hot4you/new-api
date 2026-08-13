@@ -1,12 +1,12 @@
 {
   "id": "upgrade-upstream-rc24",
   "title": "分批升级 New API v1.0.0-rc.24",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "review",
-  "nextAction": "运行完整验证、复核 rc.24 集成并归档任务",
+  "currentPhase": "completed",
+  "nextAction": "已完成，归档并推送 feat/molii-auth",
   "createdAt": "2026-08-13T04:30:00+08:00",
   "branch": "feat/molii-auth"
 }
