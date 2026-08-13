@@ -1,0 +1,12 @@
+{
+  "id": "prioritize-upstream-rc24",
+  "title": "整理 rc.24 可选升级优先级",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "等待用户选择升级编号",
+  "createdAt": "2026-08-13T04:20:00+08:00",
+  "branch": "feat/molii-auth"
+}
