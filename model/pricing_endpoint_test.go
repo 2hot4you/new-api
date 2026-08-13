@@ -247,7 +247,7 @@ func TestInitChannelCacheInvalidatesStartupPricingBuiltBeforeChannelCache(t *tes
 	insertPricingEndpointAbility(t, 302, "gemini-3.5-flash")
 
 	staleByModel := pricingEndpointTypesFromPricing(GetPricing())
-	require.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, staleByModel["gemini-3.5-flash"])
+	require.Nil(t, staleByModel["gemini-3.5-flash"])
 
 	InitChannelCache()
 

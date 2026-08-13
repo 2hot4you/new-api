@@ -194,7 +194,6 @@ func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
 		{Group: "default", Model: "zz-default-only-model", ChannelId: 1, Enabled: true},
 		{Group: "default", Model: "zz-disabled-model", ChannelId: 1, Enabled: false},
 	}).Error)
-
 	defaultRecorder := httptest.NewRecorder()
 	defaultContext, _ := gin.CreateTestContext(defaultRecorder)
 	defaultContext.Request = httptest.NewRequest(http.MethodGet, "/api/user/models?group=default", nil)
@@ -290,6 +289,13 @@ func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 		{Group: "default", Model: "zz-tiered-missing-expr-model", ChannelId: 1, Enabled: true},
 		{Group: "default", Model: "zz-unpriced-model", ChannelId: 1, Enabled: true},
 	}).Error)
+	require.NoError(t, db.Create(&[]model.Model{
+		{ModelName: "zz-tiered-visible-model", Status: 1},
+		{ModelName: "zz-tiered-empty-expr-model", Status: 1},
+		{ModelName: "zz-tiered-missing-expr-model", Status: 1},
+		{ModelName: "zz-unpriced-model", Status: 1},
+	}).Error)
+	model.InvalidatePricingCache()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)

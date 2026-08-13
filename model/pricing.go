@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"sync"
@@ -257,20 +258,6 @@ func updatePricing() {
 		vendorMap[vendors[i].Id] = &vendors[i]
 	}
 
-	// 初始化默认供应商映射
-	initDefaultVendorMapping(metaMap, vendorMap, enableAbilities)
-
-	// 构建对前端友好的供应商列表
-	vendorsList = make([]PricingVendor, 0, len(vendorMap))
-	for _, v := range vendorMap {
-		vendorsList = append(vendorsList, PricingVendor{
-			ID:          v.Id,
-			Name:        v.Name,
-			Description: v.Description,
-			Icon:        v.Icon,
-		})
-	}
-
 	modelGroupsMap := make(map[string]*types.Set[string])
 
 	for _, ability := range enableAbilities {
@@ -368,6 +355,7 @@ func updatePricing() {
 	}
 
 	pricingMap = make([]Pricing, 0)
+	referencedVendorIDs := make(map[int]struct{})
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
 			ModelName:              model,
@@ -375,20 +363,30 @@ func updatePricing() {
 			SupportedEndpointTypes: modelSupportEndpointTypes[model],
 		}
 
-		// 补充模型元数据（描述、标签、供应商、状态）
-		if meta, ok := metaMap[model]; ok {
-			// 若模型被禁用(status!=1)，则直接跳过，不返回给前端
-			if meta.Status != 1 {
+		meta, ok := metaMap[model]
+		if !ok || meta.Status != 1 {
+			continue
+		}
+		if meta.VendorID != 0 {
+			vendor, exists := vendorMap[meta.VendorID]
+			if !exists || vendor.Status != 1 {
 				continue
 			}
-			pricing.Description = meta.Description
-			pricing.Icon = meta.Icon
-			pricing.Tags = meta.Tags
-			pricing.VendorID = meta.VendorID
+			referencedVendorIDs[meta.VendorID] = struct{}{}
 		}
-		if strings.TrimSpace(pricing.Description) == "" {
-			pricing.DescriptionI18nKey = getDefaultModelDescriptionI18nKey(model)
-		}
+		pricing.Description = meta.Description
+		pricing.Icon = meta.Icon
+		pricing.Tags = meta.Tags
+		pricing.VendorID = meta.VendorID
+		pricing.ContextLength = meta.ContextLength
+		pricing.MaxOutputTokens = meta.MaxOutputTokens
+		pricing.KnowledgeCutoff = meta.KnowledgeCutoff
+		pricing.ReleaseDate = meta.ReleaseDate
+		pricing.InputModalities = append([]string(nil), meta.InputModalities...)
+		pricing.OutputModalities = append([]string(nil), meta.OutputModalities...)
+		pricing.Capabilities = append([]string(nil), meta.Capabilities...)
+		pricing.MetadataSource = meta.MetadataSource
+		pricing.MetadataVerifiedAt = meta.MetadataVerifiedAt
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		if findPrice {
 			pricing.ModelPrice = modelPrice
@@ -422,18 +420,7 @@ func updatePricing() {
 				pricing.BillingExpr = expr
 			}
 		}
-		if metadata, ok := getMarketplaceCatalogMetadata(model); ok {
-			pricing.ContextLength = metadata.ContextLength
-			pricing.MaxOutputTokens = metadata.MaxOutputTokens
-			pricing.KnowledgeCutoff = metadata.KnowledgeCutoff
-			pricing.ReleaseDate = metadata.ReleaseDate
-			pricing.InputModalities = metadata.InputModalities
-			pricing.OutputModalities = metadata.OutputModalities
-			pricing.Capabilities = metadata.Capabilities
-			pricing.MetadataSource = metadata.MetadataSource
-			pricing.MetadataVerifiedAt = metadata.MetadataVerifiedAt
-			pricing.BillingCurrency = metadata.BillingCurrency
-		}
+		pricing.BillingCurrency = getMarketplaceBillingCurrency(model)
 		if videoPricing, ok := ratio_setting.GetStarAIVideoPricing(model); ok {
 			pricing.VideoPricing = videoPricing
 		}
@@ -441,6 +428,19 @@ func updatePricing() {
 			pricing.MoliiGrokPricing = grokPricing
 		}
 		pricingMap = append(pricingMap, pricing)
+	}
+
+	vendorsList = make([]PricingVendor, 0, len(referencedVendorIDs))
+	vendorIDs := make([]int, 0, len(referencedVendorIDs))
+	for vendorID := range referencedVendorIDs {
+		vendorIDs = append(vendorIDs, vendorID)
+	}
+	sort.Ints(vendorIDs)
+	for _, vendorID := range vendorIDs {
+		vendor := vendorMap[vendorID]
+		vendorsList = append(vendorsList, PricingVendor{
+			ID: vendor.Id, Name: vendor.Name, Description: vendor.Description, Icon: vendor.Icon,
+		})
 	}
 
 	// 防止大更新后数据不通用

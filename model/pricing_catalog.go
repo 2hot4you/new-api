@@ -181,15 +181,18 @@ func getMarketplaceCatalogMetadata(modelName string) (marketplaceCatalogMetadata
 	if !ok || profile.ContextLength == 0 {
 		return marketplaceCatalogMetadata{}, false
 	}
-	currency := ""
-	if modelName == "minimax-m3" || modelName == "qwen3.5-flash" || modelName == "qwen3.5-plus" {
-		currency = "CNY"
-	}
 	return marketplaceCatalogMetadata{
 		ContextLength: profile.ContextLength, MaxOutputTokens: profile.MaxOutputTokens,
 		KnowledgeCutoff: profile.KnowledgeCutoff, ReleaseDate: profile.ReleaseDate,
 		InputModalities: profile.InputModalities, OutputModalities: profile.OutputModalities,
 		Capabilities: profile.Capabilities, MetadataSource: profile.MetadataSource,
-		MetadataVerifiedAt: profile.MetadataVerifiedAt, BillingCurrency: currency,
+		MetadataVerifiedAt: profile.MetadataVerifiedAt, BillingCurrency: getMarketplaceBillingCurrency(modelName),
 	}, true
+}
+
+func getMarketplaceBillingCurrency(modelName string) string {
+	if modelName == "minimax-m3" || modelName == "qwen3.5-flash" || modelName == "qwen3.5-plus" {
+		return "CNY"
+	}
+	return ""
 }
