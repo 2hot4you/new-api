@@ -1,0 +1,12 @@
+{
+  "id": "audit-upstream-rc24",
+  "title": "审计上游 New API v1.0.0-rc.24 更新影响",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档审计，等待用户决定是否实施 rc.24 同步",
+  "createdAt": "2026-08-13T04:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
