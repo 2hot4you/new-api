@@ -108,6 +108,36 @@ func TestRedisUserRateLimiterUsesSharedFixedWindow(t *testing.T) {
 	assert.Equal(t, 23*time.Second, redisServer.TTL(key))
 }
 
+func TestUserCriticalRateLimitUsesAuthenticatedUserScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	redisServer, _ := useRateLimitMiniRedis(t)
+
+	oldEnabled := common.CriticalRateLimitEnable
+	oldNumber := common.CriticalRateLimitNum
+	oldDuration := common.CriticalRateLimitDuration
+	common.CriticalRateLimitEnable = true
+	common.CriticalRateLimitNum = 1
+	common.CriticalRateLimitDuration = 19
+	t.Cleanup(func() {
+		common.CriticalRateLimitEnable = oldEnabled
+		common.CriticalRateLimitNum = oldNumber
+		common.CriticalRateLimitDuration = oldDuration
+	})
+
+	router := gin.New()
+	router.GET(
+		"/limited",
+		func(c *gin.Context) { c.Set("id", 42) },
+		UserCriticalRateLimit("access-token"),
+		func(c *gin.Context) { c.Status(http.StatusNoContent) },
+	)
+
+	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/limited", "192.0.2.20:12345").Code)
+	limitedResponse := performRateLimitRequest(router, "/limited", "198.51.100.20:12345")
+	assert.Equal(t, http.StatusTooManyRequests, limitedResponse.Code)
+	assert.True(t, redisServer.Exists(redisUserRateLimitKey("UC:access-token", 42)))
+}
+
 func TestRedisEmailVerificationRateLimiterPreservesResponseAndTTL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	redisServer, _ := useRateLimitMiniRedis(t)

@@ -2,15 +2,15 @@
 
 ## Preparation
 
-- [ ] Confirm branch, status, remotes, and current commits.
-- [ ] Push the existing `feat/molii-auth` history to `origin`.
+- [x] Confirm branch, status, remotes, and current commits.
+- [x] Push the existing `feat/molii-auth` history to `origin`.
 
 ## Batch 1 — items 1 + 2
 
-- [ ] Add failing concurrency and route-limiter tests.
-- [ ] Port access-token and affiliate accounting atomic updates.
-- [ ] Wire user-keyed critical rate limits to token rotation and affiliate transfer.
-- [ ] Run focused and full backend tests; commit.
+- [x] Add failing concurrency and route-limiter tests.
+- [x] Port access-token and affiliate accounting atomic updates.
+- [x] Wire user-keyed critical rate limits to token rotation and affiliate transfer.
+- [x] Run focused and full backend tests; commit.
 
 ## Batch 2 — item 3
 
