@@ -53,7 +53,9 @@ function model(
   id: number,
   modelName: string,
   vendorId: number,
-  vendorName: string
+  vendorName: string,
+  vendorDescription: string,
+  vendorIcon: string
 ): PricingModel {
   return {
     id,
@@ -64,13 +66,15 @@ function model(
     enable_groups: ['default'],
     vendor_id: vendorId,
     vendor_name: vendorName,
+    vendor_description: vendorDescription,
+    vendor_icon: vendorIcon,
   }
 }
 
 describe('model marketplace vendor grid rows', () => {
   after(() => domWindow.close())
 
-  test('renders each vendor in its own responsive grid without a heading', async () => {
+  test('renders each vendor in its own row with logo, title, and description', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -84,9 +88,30 @@ describe('model marketplace vendor grid rows', () => {
           <I18nextProvider i18n={i18n}>
             <ModelCardGrid
               models={[
-                model(1, 'vendor-a-first', 10, 'Vendor A'),
-                model(2, 'vendor-b-first', 20, 'Vendor B'),
-                model(3, 'vendor-a-second', 10, 'Vendor A'),
+                model(
+                  1,
+                  'vendor-a-first',
+                  10,
+                  'Vendor A',
+                  'Vendor A description',
+                  'OpenAI'
+                ),
+                model(
+                  2,
+                  'vendor-b-first',
+                  20,
+                  'Vendor B',
+                  'Vendor B description',
+                  'Anthropic'
+                ),
+                model(
+                  3,
+                  'vendor-a-second',
+                  10,
+                  'Vendor A',
+                  'Vendor A description',
+                  'OpenAI'
+                ),
               ]}
               onModelClick={() => undefined}
             />
@@ -106,7 +131,18 @@ describe('model marketplace vendor grid rows', () => {
       assert.match(group.className, /md:grid-cols-2/)
       assert.match(group.className, /2xl:grid-cols-3/)
     }
-    assert.equal(container.querySelector('[data-model-vendor-heading]'), null)
+    const headings = [
+      ...container.querySelectorAll('[data-model-vendor-heading]'),
+    ]
+    assert.equal(headings.length, 2)
+    assert.match(headings[0]?.textContent ?? '', /Vendor A/)
+    assert.match(headings[0]?.textContent ?? '', /Vendor A description/)
+    assert.match(headings[1]?.textContent ?? '', /Vendor B/)
+    assert.match(headings[1]?.textContent ?? '', /Vendor B description/)
+    assert.equal(
+      container.querySelectorAll('[data-model-vendor-icon]').length,
+      2
+    )
 
     await act(async () => root.unmount())
     queryClient.clear()
