@@ -1,0 +1,12 @@
+{
+  "id": "verify-local-backend",
+  "title": "确认本地后端已重新运行",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已确认本地后端正常运行",
+  "createdAt": "2026-08-13T15:10:00+08:00",
+  "branch": "feat/molii-auth"
+}
