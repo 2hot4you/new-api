@@ -1,12 +1,12 @@
 {
   "id": "redesign-model-overview-capabilities",
   "title": "重新设计模型广场概览能力区域",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "low",
   "domain": "frontend",
-  "currentPhase": "planning",
-  "nextAction": "编写实施计划并按 TDD 内联执行",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地改动",
   "createdAt": "2026-08-13T03:20:00Z",
   "branch": "feat/molii-auth"
 }

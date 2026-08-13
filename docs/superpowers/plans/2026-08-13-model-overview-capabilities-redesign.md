@@ -29,7 +29,7 @@
 - Consumes: `PricingModel` from `../types`.
 - Produces: `ModelDetailsCapabilities({ model }: { model: PricingModel }): JSX.Element | null`.
 
-- [ ] **Step 1: Write a failing component test**
+- [x] **Step 1: Write a failing component test**
 
 Create a representative text model with `context_length`, `max_output_tokens`, `release_date`, text input/output modalities, five effective capabilities, `metadata_source`, and `metadata_verified_at`. Assert:
 
@@ -45,7 +45,7 @@ assert.match(container.querySelector('[data-model-metadata-note]')?.textContent 
 
 Add a second case with optional dates, capabilities, and source omitted. It must render only existing core facts without empty labels or footer placeholders.
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run:
 
@@ -56,7 +56,7 @@ bun test src/features/pricing/components/__tests__/model-details-capabilities.te
 
 Expected: failure because `model-details-capabilities.tsx` does not exist.
 
-- [ ] **Step 3: Implement the focused component**
+- [x] **Step 3: Implement the focused component**
 
 Implement one bordered section with these internal regions:
 
@@ -72,7 +72,7 @@ Implement one bordered section with these internal regions:
 
 Use `CAPABILITY_LABEL_KEYS`, `MODALITY_LABEL_KEYS`, token/date formatters local to the new component. Render a maximum of three core specification cells. Prefer `release_date`; fall back to `knowledge_cutoff`. Return `null` when no core specification, modality, or capability exists. The metadata footer must not make an otherwise-empty card visible.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run:
 
@@ -93,7 +93,7 @@ Expected: all component cases pass.
 - Consumes: `ModelDetailsCapabilities` from `./model-details-capabilities`.
 - Produces: generic LLM overview containing one capability card followed by the reduced model-information card.
 
-- [ ] **Step 1: Add a failing integration assertion**
+- [x] **Step 1: Add a failing integration assertion**
 
 Export `ModelBackendDetailsSection` for testing and render it with a representative model. Assert:
 
@@ -104,11 +104,11 @@ assert.equal((container.textContent?.match(/models\.dev/g) ?? []).length, 1)
 assert.equal(container.querySelector('[data-model-provider-info]')?.textContent?.includes('models.dev'), false)
 ```
 
-- [ ] **Step 2: Run the integration test and verify RED**
+- [x] **Step 2: Run the integration test and verify RED**
 
 Run the focused Bun test. Expected: source remains in the provider grid and the old quick-stats/signals components still render duplicated modalities.
 
-- [ ] **Step 3: Integrate the new component**
+- [x] **Step 3: Integrate the new component**
 
 Remove `ModelBackendQuickStats`, `ModelBackendSignalsSection`, their now-unused icons/helpers, and the source/verification cells from `ModelBackendProviderSection`. Add `data-model-provider-info` to the provider grid. Render:
 
@@ -123,7 +123,7 @@ export function ModelBackendDetailsSection({ model }: { model: PricingModel }) {
 }
 ```
 
-- [ ] **Step 4: Run focused and pricing tests**
+- [x] **Step 4: Run focused and pricing tests**
 
 Run:
 
@@ -140,7 +140,7 @@ bunx oxlint -c .oxlintrc.json \
 
 Expected: all commands exit 0.
 
-- [ ] **Step 5: Verify the local development page**
+- [x] **Step 5: Verify the local development page**
 
 Refresh `http://127.0.0.1:3000/pricing`, open a text model detail, and verify:
 
@@ -150,6 +150,6 @@ Refresh `http://127.0.0.1:3000/pricing`, open a text model detail, and verify:
 - source/date appear only in the small footer;
 - Seedance and Grok details are unchanged.
 
-- [ ] **Step 6: Commit and archive**
+- [x] **Step 6: Commit and archive**
 
 After fresh verification, update the CCG review, archive the task, and commit the implementation without pushing.
