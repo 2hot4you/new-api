@@ -6,7 +6,7 @@
   "risk": "low",
   "domain": "frontend",
   "currentPhase": "planning",
-  "nextAction": "记录已确认设计并等待书面设计确认",
+  "nextAction": "编写并执行厂商分组网格实施计划",
   "createdAt": "2026-08-13T02:30:00Z",
   "branch": "feat/molii-auth"
 }
