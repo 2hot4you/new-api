@@ -16,42 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { MoliiWordmark } from '@/components/layout/components/molii-wordmark'
+
 interface MoliiBrandSentenceProps {
   sentence: string
 }
-
-const MOLII_LETTERS = [
-  {
-    id: 'm',
-    value: 'M',
-    color: 'pink',
-    gradient: 'from-[#ffb3c7] to-[#f58cad]',
-  },
-  {
-    id: 'o',
-    value: 'o',
-    color: 'blue',
-    gradient: 'from-[#62cdf6] to-[#22aee8]',
-  },
-  {
-    id: 'l',
-    value: 'l',
-    color: 'pink',
-    gradient: 'from-[#ffb3c7] to-[#f58cad]',
-  },
-  {
-    id: 'i-first',
-    value: 'i',
-    color: 'blue',
-    gradient: 'from-[#62cdf6] to-[#22aee8]',
-  },
-  {
-    id: 'i-second',
-    value: 'i',
-    color: 'pink',
-    gradient: 'from-[#ffb3c7] to-[#f58cad]',
-  },
-] as const
 
 export function MoliiBrandSentence({ sentence }: MoliiBrandSentenceProps) {
   const brandIndex = sentence.indexOf('Molii')
@@ -67,16 +36,12 @@ export function MoliiBrandSentence({ sentence }: MoliiBrandSentenceProps) {
       <span aria-hidden='true'>
         {prefix}
         <span data-home-molii-word className='inline whitespace-nowrap'>
-          {MOLII_LETTERS.map((letter) => (
-            <span
-              key={letter.id}
-              data-home-molii-letter={letter.id}
-              data-color={letter.color}
-              className={`inline-block bg-gradient-to-b bg-clip-text text-transparent ${letter.gradient}`}
-            >
-              {letter.value}
-            </span>
-          ))}
+          <MoliiWordmark
+            alt=''
+            aria-hidden='true'
+            draggable={false}
+            className='mx-[0.08em] inline-block h-[0.76em] translate-y-[0.06em] select-none'
+          />
         </span>
         {suffix}
       </span>

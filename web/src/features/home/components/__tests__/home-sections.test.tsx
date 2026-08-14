@@ -79,28 +79,25 @@ function render(node: React.ReactNode): HTMLDivElement {
 describe('Molii home sections', () => {
   after(() => domWindow.close())
 
-  test('renders Molii with the approved per-letter brand color order', () => {
+  test('renders Molii with the shared official wordmark', () => {
     const container = render(
       <MoliiBrandSentence sentence='Create with Molii.' />
     )
-    const letters = [...container.querySelectorAll('[data-home-molii-letter]')]
+    const wordmark = container.querySelector('[data-molii-wordmark]')
 
-    assert.equal(container.textContent, 'Create with Molii.')
-    assert.deepEqual(
-      letters.map((letter) => [
-        letter.textContent,
-        letter.getAttribute('data-color'),
-      ]),
-      [
-        ['M', 'pink'],
-        ['o', 'blue'],
-        ['l', 'pink'],
-        ['i', 'blue'],
-        ['i', 'pink'],
-      ]
+    assert.equal(
+      container
+        .querySelector('[data-home-molii-sentence]')
+        ?.getAttribute('aria-label'),
+      'Create with Molii.'
     )
-    assert.match(letters[0].className, /from-\[#ffb3c7\]/)
-    assert.match(letters[1].className, /from-\[#62cdf6\]/)
+    assert.ok(wordmark)
+    assert.equal(wordmark.getAttribute('src'), '/molii-wordmark.png')
+    assert.match(wordmark.className, /inline-block/)
+    assert.equal(
+      container.querySelectorAll('[data-home-molii-letter]').length,
+      0
+    )
   })
 
   test('preserves translated sentence order when Molii appears first', () => {
@@ -108,11 +105,13 @@ describe('Molii home sections', () => {
       <MoliiBrandSentence sentence='Molii で作成します。' />
     )
 
-    assert.equal(container.textContent, 'Molii で作成します。')
     assert.equal(
-      container.querySelectorAll('[data-home-molii-letter]').length,
-      5
+      container
+        .querySelector('[data-home-molii-sentence]')
+        ?.getAttribute('aria-label'),
+      'Molii で作成します。'
     )
+    assert.equal(container.querySelectorAll('[data-molii-wordmark]').length, 1)
   })
 
   test('leaves translations without Molii unchanged', () => {

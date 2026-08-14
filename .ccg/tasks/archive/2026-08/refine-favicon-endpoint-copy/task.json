@@ -1,0 +1,13 @@
+{
+  "id": "refine-favicon-endpoint-copy",
+  "title": "统一 Molii 品牌字标并优化 API 接入点文案",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-14T00:00:00+08:00",
+  "completedAt": "2026-08-14T15:40:00+08:00",
+  "branch": "feat/molii-auth"
+}
