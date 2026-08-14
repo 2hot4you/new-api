@@ -1,0 +1,12 @@
+{
+  "id": "debug-favicon-port-difference",
+  "title": "排查 3000 与 3001 favicon 不一致",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交修复",
+  "createdAt": "2026-08-14T16:40:00+08:00",
+  "branch": "feat/molii-auth"
+}

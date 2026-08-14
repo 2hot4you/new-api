@@ -47,3 +47,8 @@ export function applyFaviconToDom(url: string) {
     // Ignore malformed URLs
   }
 }
+
+export function applySystemFaviconToDom(logo: unknown) {
+  const systemLogo = typeof logo === 'string' ? logo.trim() : ''
+  applyFaviconToDom(systemLogo || DEFAULT_LOGO)
+}
