@@ -1,0 +1,12 @@
+{
+  "id": "colorize-footer-molii-word",
+  "title": "同步首页 Footer 的 Molii 品牌字母配色",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并随首页品牌字变更提交",
+  "createdAt": "2026-08-14T15:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

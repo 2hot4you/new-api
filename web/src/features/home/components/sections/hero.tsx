@@ -24,6 +24,7 @@ import type { PricingModel } from '@/features/pricing/types'
 import { useStatus } from '@/hooks/use-status'
 
 import { ModelSearch } from '../model-search'
+import { MoliiBrandSentence } from '../molii-brand-sentence'
 
 interface HeroProps {
   models: PricingModel[]
@@ -68,7 +69,7 @@ export function Hero(props: HeroProps) {
             {t('Build with every kind of AI.')}
           </span>
           <span className='text-muted-foreground mt-2 block text-balance sm:whitespace-nowrap'>
-            {t('Create with Molii.')}
+            <MoliiBrandSentence sentence={t('Create with Molii.')} />
           </span>
         </h1>
 

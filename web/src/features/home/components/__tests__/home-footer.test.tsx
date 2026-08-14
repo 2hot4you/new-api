@@ -29,6 +29,21 @@ function renderFooter(
 }
 
 describe('Molii homepage footer', () => {
+  test('uses the homepage brand colors for the Molii footer wordmark', () => {
+    const markup = renderFooter()
+    const letters = [...markup.matchAll(/data-home-molii-letter="([^"]+)"/g)]
+    const colors = [...markup.matchAll(/data-color="([^"]+)"/g)]
+
+    assert.deepEqual(
+      letters.map((match) => match[1]),
+      ['m', 'o', 'l', 'i-first', 'i-second']
+    )
+    assert.deepEqual(
+      colors.map((match) => match[1]),
+      ['pink', 'blue', 'pink', 'blue', 'pink']
+    )
+  })
+
   test('builds documentation child links without accepting unsafe URLs', () => {
     assert.equal(
       buildHomeDocsUrl(

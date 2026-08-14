@@ -24,6 +24,7 @@ import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
 import { buildHomeDocsUrl, getHomeFooterVariant } from '../../lib/home-footer'
+import { MoliiBrandSentence } from '../molii-brand-sentence'
 
 interface HomeFooterContentProps {
   displayName: string
@@ -138,7 +139,7 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
                 className='size-9 rounded-xl bg-white/8 object-contain p-1'
               />
               <span className='text-lg font-semibold tracking-tight'>
-                {props.displayName}
+                <MoliiBrandSentence sentence={props.displayName} />
               </span>
             </a>
             <p className='mt-5 max-w-md text-sm leading-7 text-white/52'>
