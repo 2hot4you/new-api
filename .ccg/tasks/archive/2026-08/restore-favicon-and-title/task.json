@@ -1,0 +1,12 @@
+{
+  "id": "restore-favicon-and-title",
+  "title": "恢复上一版 favicon 并消除 NEWAPI 标题闪烁",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交修复",
+  "createdAt": "2026-08-14T17:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

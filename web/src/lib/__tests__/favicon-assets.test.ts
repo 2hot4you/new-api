@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { describe, test } from 'node:test'
@@ -15,14 +16,41 @@ function readPngSize(path: string) {
   }
 }
 
+function sha256(path: string) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
 describe('Molii favicon assets', () => {
   test('declares the versioned browser and Apple icons', () => {
     const html = readFileSync(resolve(webRoot, 'index.html'), 'utf8')
 
-    assert.match(html, /href="\/molii-favicon-32\.png\?v=3"/)
-    assert.match(html, /href="\/apple-touch-icon\.png\?v=3"/)
+    assert.match(html, /href="\/molii-favicon-32\.png\?v=4"/)
+    assert.match(html, /href="\/apple-touch-icon\.png\?v=4"/)
     assert.doesNotMatch(html, /molii-favicon\.svg/)
     assert.doesNotMatch(html, /rel="icon"[^>]+href="\/logo\.png"/)
+  })
+
+  test('uses Molii Gateway before the application starts', () => {
+    const html = readFileSync(resolve(webRoot, 'index.html'), 'utf8')
+
+    assert.match(html, /<title>Molii Gateway<\/title>/)
+    assert.match(html, /<meta name="title" content="Molii Gateway" \/>/)
+    assert.doesNotMatch(html, /<title>New API<\/title>/)
+  })
+
+  test('uses the full-size pink Molii mark across favicon formats', () => {
+    assert.equal(
+      sha256(resolve(webRoot, 'public/molii-favicon-32.png')),
+      '517fff7fbf2ad18a4337ba841006484d2c863f3e3c5aafd558dac44d4f89beb3'
+    )
+    assert.equal(
+      sha256(resolve(webRoot, 'public/apple-touch-icon.png')),
+      '390c79fd1ef7072f2c2067d7543e7761613897f4bab3dae2d9ea671ab2bb1671'
+    )
+    assert.equal(
+      sha256(resolve(webRoot, 'public/favicon.ico')),
+      '7b5c04aa91ae77b8dbf3a1d77d746d5280c2bef86ba6f11dcfcf23afbde8776f'
+    )
   })
 
   test('ships the favicon files at their declared sizes', () => {

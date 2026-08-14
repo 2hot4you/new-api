@@ -21,8 +21,14 @@ For commercial licensing, please contact support@quantumnous.com
  */
 
 // System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'New API'
+export const DEFAULT_SYSTEM_NAME = 'Molii Gateway'
 export const DEFAULT_LOGO = '/logo.png'
+
+export function resolveSystemName(value: unknown): string {
+  const name = typeof value === 'string' ? value.trim() : ''
+  if (!name || /^new\s*api$/i.test(name)) return DEFAULT_SYSTEM_NAME
+  return name
+}
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {
