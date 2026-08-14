@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -11,6 +13,10 @@ import (
 )
 
 const modelMetadataSyncErrorCode = "model_metadata_sync_failed"
+
+type modelMetadataSyncRequest struct {
+	SyncMode string `json:"sync_mode"`
+}
 
 func modelMetadataSyncContext(c *gin.Context) (context.Context, context.CancelFunc) {
 	timeoutSeconds := common.GetEnvOrDefault("MODEL_METADATA_SYNC_TIMEOUT_SECONDS", 10)
@@ -29,14 +35,32 @@ func respondModelMetadataSyncError(c *gin.Context, action string, err error) {
 	})
 }
 
+func respondInvalidModelMetadataSyncMode(c *gin.Context, message string) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": false,
+		"code":    "invalid_sync_mode",
+		"message": message,
+	})
+}
+
 // SyncUpstreamModels synchronizes enabled model metadata from models.dev.
-// Pricing, channels, enabled state, and administrator-authored values are not
-// overwritten by this operation.
+// Pricing, channels, enabled state, and routing configuration are never
+// overwritten. Existing metadata is replaced only in models_dev_first mode.
 func SyncUpstreamModels(c *gin.Context) {
+	request := modelMetadataSyncRequest{}
+	if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+		respondInvalidModelMetadataSyncMode(c, "同步参数格式无效")
+		return
+	}
+	mode, err := model.ParseModelMetadataSyncMode(request.SyncMode)
+	if err != nil {
+		respondInvalidModelMetadataSyncMode(c, "同步优先级无效，请选择本地优先或 models.dev 优先")
+		return
+	}
 	ctx, cancel := modelMetadataSyncContext(c)
 	defer cancel()
 
-	summary, err := model.SyncModelMetadataFromModelsDev(ctx)
+	summary, err := model.SyncModelMetadataFromModelsDevWithMode(ctx, mode)
 	if err != nil {
 		respondModelMetadataSyncError(c, "sync", err)
 		return

@@ -16,16 +16,29 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-// Query keys
-export * from './query-keys'
+import type { ModelMetadataSyncMode } from '../types'
 
-// Utilities
-export * from './model-utils'
-export * from './model-metadata-sync-mode'
+export const DEFAULT_MODEL_METADATA_SYNC_MODE: ModelMetadataSyncMode =
+  'local_first'
 
-// Form schemas and transformers
-export * from './model-form'
-
-// Actions
-export * from './model-actions'
-export * from './vendor-actions'
+export const MODEL_METADATA_SYNC_MODES: ReadonlyArray<{
+  value: ModelMetadataSyncMode
+  titleKey: string
+  descriptionKey: string
+  destructive: boolean
+}> = [
+  {
+    value: 'local_first',
+    titleKey: 'Local metadata first',
+    descriptionKey:
+      'Keep current model metadata and fill only missing fields from models.dev.',
+    destructive: false,
+  },
+  {
+    value: 'models_dev_first',
+    titleKey: 'models.dev metadata first',
+    descriptionKey:
+      'Replace existing model metadata with values supplied by models.dev.',
+    destructive: true,
+  },
+]

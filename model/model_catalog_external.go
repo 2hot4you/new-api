@@ -79,6 +79,13 @@ type ModelMetadataSyncSummary struct {
 
 type ModelMetadataExternalSyncSummary = ModelMetadataSyncSummary
 
+type ModelMetadataSyncMode string
+
+const (
+	ModelMetadataSyncModeLocalFirst     ModelMetadataSyncMode = "local_first"
+	ModelMetadataSyncModeModelsDevFirst ModelMetadataSyncMode = "models_dev_first"
+)
+
 type resolvedModelsDevModel struct {
 	ProviderID string
 	ModelID    string
@@ -112,6 +119,19 @@ var (
 	modelMetadataSyncNotifications = make(chan struct{}, 1)
 	modelMetadataSyncStartOnce     sync.Once
 )
+
+func ParseModelMetadataSyncMode(value string) (ModelMetadataSyncMode, error) {
+	mode := ModelMetadataSyncMode(strings.TrimSpace(value))
+	if mode == "" {
+		return ModelMetadataSyncModeLocalFirst, nil
+	}
+	switch mode {
+	case ModelMetadataSyncModeLocalFirst, ModelMetadataSyncModeModelsDevFirst:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unsupported model metadata sync mode %q", value)
+	}
+}
 
 func decodeModelsDevCatalog(reader io.Reader, maxBodyBytes int64) (modelsDevCatalog, error) {
 	if maxBodyBytes <= 0 {
@@ -257,17 +277,32 @@ func buildModelsDevCatalogProfile(catalog modelsDevCatalog, modelName string, ve
 	}, true
 }
 
-func migrateBuiltInCatalogDescription(entry *Model, profile CatalogModelProfile, updates map[string]interface{}) {
-	if entry == nil || strings.TrimSpace(profile.Description) == "" {
-		return
+func modelsDevFirstCatalogUpdates(profile CatalogModelProfile, vendorID int) map[string]interface{} {
+	inputs := profile.InputModalities
+	if inputs == nil {
+		inputs = []string{}
 	}
-	localProfile, known := GetCatalogModelProfile(entry.ModelName)
-	if !known || strings.TrimSpace(localProfile.Description) == "" {
-		return
+	outputs := profile.OutputModalities
+	if outputs == nil {
+		outputs = []string{}
 	}
-	if strings.TrimSpace(entry.Description) == strings.TrimSpace(localProfile.Description) &&
-		strings.TrimSpace(entry.Description) != strings.TrimSpace(profile.Description) {
-		updates["description"] = strings.TrimSpace(profile.Description)
+	capabilities := profile.Capabilities
+	if capabilities == nil {
+		capabilities = []string{}
+	}
+	return map[string]interface{}{
+		"vendor_id":            vendorID,
+		"description":          strings.TrimSpace(profile.Description),
+		"icon":                 strings.TrimSpace(profile.Icon),
+		"context_length":       profile.ContextLength,
+		"max_output_tokens":    profile.MaxOutputTokens,
+		"knowledge_cutoff":     strings.TrimSpace(profile.KnowledgeCutoff),
+		"release_date":         strings.TrimSpace(profile.ReleaseDate),
+		"input_modalities":     catalogStringSliceJSON(inputs),
+		"output_modalities":    catalogStringSliceJSON(outputs),
+		"capabilities":         catalogStringSliceJSON(capabilities),
+		"metadata_source":      strings.TrimSpace(profile.MetadataSource),
+		"metadata_verified_at": strings.TrimSpace(profile.MetadataVerifiedAt),
 	}
 }
 
@@ -309,7 +344,6 @@ func PreviewEnabledModelMetadataFromModelsDev(ctx context.Context, catalog model
 			continue
 		}
 		updates := fillCatalogModelBlanks(&entry, 0, profile, true)
-		migrateBuiltInCatalogDescription(&entry, profile, updates)
 		if len(updates) == 0 {
 			continue
 		}
@@ -327,7 +361,15 @@ func PreviewEnabledModelMetadataFromModelsDev(ctx context.Context, catalog model
 }
 
 func SyncEnabledModelMetadataFromModelsDev(ctx context.Context, catalog modelsDevCatalog, verifiedAt string) (ModelMetadataExternalSyncSummary, error) {
+	return SyncEnabledModelMetadataFromModelsDevWithMode(ctx, catalog, verifiedAt, ModelMetadataSyncModeLocalFirst)
+}
+
+func SyncEnabledModelMetadataFromModelsDevWithMode(ctx context.Context, catalog modelsDevCatalog, verifiedAt string, mode ModelMetadataSyncMode) (ModelMetadataExternalSyncSummary, error) {
 	summary := ModelMetadataExternalSyncSummary{}
+	parsedMode, err := ParseModelMetadataSyncMode(string(mode))
+	if err != nil {
+		return summary, err
+	}
 	reconcileSummary, err := ReconcileEnabledModelMetadata()
 	if err != nil {
 		return summary, err
@@ -350,6 +392,7 @@ func SyncEnabledModelMetadataFromModelsDev(ctx context.Context, catalog modelsDe
 			}
 			profile, ok := buildModelsDevCatalogProfile(catalog, modelName, vendorName, verifiedAt)
 			if !ok {
+				summary.SkippedModels = append(summary.SkippedModels, modelName)
 				continue
 			}
 
@@ -364,8 +407,18 @@ func SyncEnabledModelMetadataFromModelsDev(ctx context.Context, catalog modelsDe
 			if entry.DeletedAt.Valid || entry.SyncOfficial == 0 {
 				continue
 			}
-			updates := fillCatalogModelBlanks(&entry, 0, profile, true)
-			migrateBuiltInCatalogDescription(&entry, profile, updates)
+			vendorID := 0
+			if parsedMode == ModelMetadataSyncModeModelsDevFirst {
+				vendorSummary := CatalogReconcileSummary{}
+				vendorID, err = reconcileCatalogVendor(tx, profile.VendorName, &vendorSummary)
+				if err != nil {
+					return err
+				}
+			}
+			updates := fillCatalogModelBlanks(&entry, vendorID, profile, true)
+			if parsedMode == ModelMetadataSyncModeModelsDevFirst {
+				updates = modelsDevFirstCatalogUpdates(profile, vendorID)
+			}
 			if len(updates) == 0 {
 				continue
 			}
@@ -397,13 +450,21 @@ func PreviewModelMetadataFromModelsDev(ctx context.Context) (ModelMetadataSyncPr
 }
 
 func SyncModelMetadataFromModelsDev(ctx context.Context) (ModelMetadataSyncSummary, error) {
+	return SyncModelMetadataFromModelsDevWithMode(ctx, ModelMetadataSyncModeLocalFirst)
+}
+
+func SyncModelMetadataFromModelsDevWithMode(ctx context.Context, mode ModelMetadataSyncMode) (ModelMetadataSyncSummary, error) {
+	parsedMode, err := ParseModelMetadataSyncMode(string(mode))
+	if err != nil {
+		return ModelMetadataSyncSummary{}, err
+	}
 	config := loadModelMetadataSyncConfig()
 	client := &http.Client{Timeout: config.Timeout}
 	catalog, err := fetchModelsDevCatalog(ctx, client, config.URL, config.MaxBodyBytes)
 	if err != nil {
 		return ModelMetadataSyncSummary{}, err
 	}
-	return SyncEnabledModelMetadataFromModelsDev(ctx, catalog, time.Now().UTC().Format("2006-01-02"))
+	return SyncEnabledModelMetadataFromModelsDevWithMode(ctx, catalog, time.Now().UTC().Format("2006-01-02"), parsedMode)
 }
 
 func boundedModelMetadataEnv(name string, fallback int, maximum int) int {

@@ -300,6 +300,11 @@ export type ModelStatus = 0 | 1 // disabled, enabled
 export type QuotaType = 0 | 1 // usage-based, per-call
 
 /**
+ * models.dev metadata synchronization priority
+ */
+export type ModelMetadataSyncMode = 'local_first' | 'models_dev_first'
+
+/**
  * Sync locale
  */
 export type SyncLocale = 'zh' | 'en' | 'ja'

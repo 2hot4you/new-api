@@ -1,12 +1,12 @@
 {
   "id": "models-dev-sync-priority",
   "title": "models.dev 同步优先级选择",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "等待用户审核设计文档",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交实现",
   "createdAt": "2026-08-14T20:05:00+08:00",
   "branch": "feat/molii-auth"
 }

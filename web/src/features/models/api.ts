@@ -27,6 +27,7 @@ import type {
   Model,
   Vendor,
   SearchModelsParams,
+  ModelMetadataSyncMode,
   SyncUpstreamResponse,
   PreviewUpstreamDiffResponse,
   MissingModelsResponse,
@@ -186,6 +187,7 @@ export async function deleteVendor(
  * Sync upstream models (missing only or with overwrite)
  */
 export async function syncUpstream(params?: {
+  sync_mode?: ModelMetadataSyncMode
   locale?: SyncLocale
   source?: SyncSource
   overwrite?: SyncOverwritePayload[]

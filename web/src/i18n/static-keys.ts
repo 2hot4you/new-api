@@ -96,9 +96,15 @@ export const STATIC_I18N_KEYS = [
   'Sync model metadata from models.dev',
   'Fetch the latest public model capabilities and descriptions from models.dev.',
   'Source: models.dev',
-  'Local pricing, channels, enabled state, and administrator-authored descriptions are preserved.',
+  'Metadata priority',
+  'Local metadata first',
+  'Keep current model metadata and fill only missing fields from models.dev.',
+  'models.dev metadata first',
+  'Replace existing model metadata with values supplied by models.dev.',
+  'This overwrites existing descriptions, vendors, icons, limits, modalities, capabilities, and dates.',
+  'Local pricing, channels, enabled state, and routing configuration are always preserved.',
   'Chinese model descriptions are manually reviewed in Molii and are not machine-translated during synchronization.',
-  'Model metadata sync completed: {{created}} created, {{updated}} updated',
+  'Model metadata sync completed: {{created}} created, {{updated}} updated, {{skipped}} skipped',
 
   // Roles
   'Super Admin',

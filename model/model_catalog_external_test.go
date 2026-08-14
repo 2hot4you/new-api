@@ -109,6 +109,28 @@ func TestResolveModelsDevModelRejectsAmbiguousSuffixes(t *testing.T) {
 	}
 }
 
+func TestParseModelMetadataSyncMode(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    ModelMetadataSyncMode
+		wantErr bool
+	}{
+		{"", ModelMetadataSyncModeLocalFirst, false},
+		{"local_first", ModelMetadataSyncModeLocalFirst, false},
+		{"models_dev_first", ModelMetadataSyncModeModelsDevFirst, false},
+		{"unknown", "", true},
+	}
+	for _, tt := range tests {
+		got, err := ParseModelMetadataSyncMode(tt.input)
+		if (err != nil) != tt.wantErr {
+			t.Fatalf("ParseModelMetadataSyncMode(%q) error = %v, wantErr=%v", tt.input, err, tt.wantErr)
+		}
+		if got != tt.want {
+			t.Fatalf("ParseModelMetadataSyncMode(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 func TestPreviewEnabledModelMetadataFromModelsDevDoesNotWrite(t *testing.T) {
 	setupModelCatalogReconcileTestDB(t)
 	addEnabledCatalogAbility(t, "qwen-next-auto")
@@ -183,7 +205,91 @@ func TestSyncEnabledModelMetadataFromModelsDevOnlyFillsBlanks(t *testing.T) {
 	}
 }
 
-func TestSyncEnabledModelMetadataFromModelsDevMigratesKnownLegacyCatalogDescription(t *testing.T) {
+func TestSyncEnabledModelMetadataFromModelsDevWithModeOverwritesOnlyModelsDevMetadata(t *testing.T) {
+	setupModelCatalogReconcileTestDB(t)
+	addEnabledCatalogAbility(t, "qwen-next-auto")
+
+	customVendor := Vendor{Name: "Custom Vendor", Description: "admin vendor", Icon: "Custom", Status: 1}
+	if err := customVendor.Insert(); err != nil {
+		t.Fatalf("insert custom vendor: %v", err)
+	}
+	entry := Model{
+		ModelName:          "qwen-next-auto",
+		Description:        "admin description",
+		Icon:               "AdminIcon",
+		Tags:               "admin-tag",
+		VendorID:           customVendor.Id,
+		Endpoints:          "admin-endpoint",
+		Status:             0,
+		SyncOfficial:       1,
+		NameRule:           NameRulePrefix,
+		ContextLength:      123,
+		MaxOutputTokens:    456,
+		KnowledgeCutoff:    "admin-knowledge",
+		ReleaseDate:        "2025-01-01",
+		InputModalities:    []string{"audio"},
+		OutputModalities:   []string{"audio"},
+		Capabilities:       []string{"audio_generation"},
+		MetadataSource:     "admin",
+		MetadataVerifiedAt: "2025-01-02",
+	}
+	if err := entry.Insert(); err != nil {
+		t.Fatalf("insert model: %v", err)
+	}
+	catalog, err := decodeModelsDevCatalog(strings.NewReader(modelsDevFixture("qwen-next-auto", "alibaba-cn")), 1<<20)
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+
+	summary, err := SyncEnabledModelMetadataFromModelsDevWithMode(
+		context.Background(), catalog, "2026-08-14", ModelMetadataSyncModeModelsDevFirst,
+	)
+	if err != nil {
+		t.Fatalf("sync metadata: %v", err)
+	}
+	if summary.UpdatedModels != 1 {
+		t.Fatalf("summary = %+v", summary)
+	}
+
+	var stored Model
+	if err := DB.First(&stored, entry.Id).Error; err != nil {
+		t.Fatalf("read model: %v", err)
+	}
+	if stored.Description != "external description" || stored.Icon != getDefaultVendorIcon("阿里巴巴") {
+		t.Fatalf("models.dev description/icon not applied: %+v", stored)
+	}
+	if stored.VendorID == customVendor.Id || stored.ContextLength != 1_000_000 || stored.MaxOutputTokens != 65_536 {
+		t.Fatalf("models.dev vendor/limits not applied: %+v", stored)
+	}
+	if stored.KnowledgeCutoff != "2025-06" || stored.ReleaseDate != "2026-08-01" {
+		t.Fatalf("models.dev dates not applied: %+v", stored)
+	}
+	if got := strings.Join(stored.InputModalities, ","); got != "text,image,file" {
+		t.Fatalf("input modalities = %q", got)
+	}
+	if got := strings.Join(stored.OutputModalities, ","); got != "text" {
+		t.Fatalf("output modalities = %q", got)
+	}
+	if got := strings.Join(stored.Capabilities, ","); got != "reasoning,tools,structured_output,vision" {
+		t.Fatalf("capabilities = %q", got)
+	}
+	if stored.MetadataSource != "models.dev" || stored.MetadataVerifiedAt != "2026-08-14" {
+		t.Fatalf("metadata provenance not applied: %+v", stored)
+	}
+	if stored.Status != 0 || stored.SyncOfficial != 1 || stored.NameRule != NameRulePrefix ||
+		stored.Tags != "admin-tag" || stored.Endpoints != "admin-endpoint" {
+		t.Fatalf("local routing/configuration was overwritten: %+v", stored)
+	}
+	var ability Ability
+	if err := DB.Where("model = ?", "qwen-next-auto").First(&ability).Error; err != nil {
+		t.Fatalf("read ability: %v", err)
+	}
+	if ability.Group != "default" || !ability.Enabled {
+		t.Fatalf("channel ability was changed: %+v", ability)
+	}
+}
+
+func TestSyncEnabledModelMetadataFromModelsDevWithModeReplacesKnownLegacyCatalogDescription(t *testing.T) {
 	setupModelCatalogReconcileTestDB(t)
 	addEnabledCatalogAbility(t, "kimi-k3")
 	entry := Model{
@@ -207,7 +313,9 @@ func TestSyncEnabledModelMetadataFromModelsDevMigratesKnownLegacyCatalogDescript
 		t.Fatalf("decode fixture: %v", err)
 	}
 
-	if _, err := SyncEnabledModelMetadataFromModelsDev(context.Background(), catalog, "2026-08-14"); err != nil {
+	if _, err := SyncEnabledModelMetadataFromModelsDevWithMode(
+		context.Background(), catalog, "2026-08-14", ModelMetadataSyncModeModelsDevFirst,
+	); err != nil {
 		t.Fatalf("sync metadata: %v", err)
 	}
 	var stored Model
