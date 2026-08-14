@@ -1,0 +1,12 @@
+{
+  "id": "reuse-header-logo-in-footer",
+  "title": "Footer 与控制台统一复用 Header 品牌 Logo",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地变更",
+  "createdAt": "2026-08-14T15:30:00+08:00",
+  "branch": "feat/molii-auth"
+}

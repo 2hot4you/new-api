@@ -23,6 +23,7 @@ describe('public header brand', () => {
   test('uses the Molii wordmark without repeating the site name by default', () => {
     const markup = renderBrand()
 
+    assert.match(markup, /data-molii-wordmark="true"/)
     assert.match(markup, /data-header-wordmark="true"/)
     assert.match(markup, /src="\/molii-wordmark\.png"/)
     assert.match(markup, /alt="Molii"/)

@@ -20,8 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DEFAULT_LOGO } from '@/lib/constants'
 
 import { HeaderLogo } from './header-logo'
-
-const MOLII_WORDMARK = '/molii-wordmark.png'
+import { MoliiWordmark } from './molii-wordmark'
 
 export interface HeaderBrandProps {
   systemLogo: string
@@ -51,13 +50,10 @@ export function HeaderBrand({
     }
 
     return (
-      <img
+      <MoliiWordmark
         data-header-wordmark='true'
-        src={MOLII_WORDMARK}
         alt={siteName}
-        width={375}
-        height={150}
-        className='h-7 w-auto max-w-[4.375rem] object-contain transition-transform duration-300 group-hover:scale-105'
+        className='h-7 max-w-[4.375rem] transition-transform duration-300 group-hover:scale-105'
       />
     )
   }

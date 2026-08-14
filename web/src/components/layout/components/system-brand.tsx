@@ -26,7 +26,10 @@ import {
 } from '@/components/ui/sidebar'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { DEFAULT_LOGO } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+
+import { MoliiWordmark } from './molii-wordmark'
 
 type SystemBrandProps = {
   defaultName?: string
@@ -37,6 +40,43 @@ type SystemBrandProps = {
    * - 'inline': compact horizontal pill (used inside the top app bar).
    */
   variant?: 'sidebar' | 'inline'
+}
+
+interface SystemBrandInlineContentProps {
+  logo: string
+  name: string
+  logoAlt: string
+}
+
+export function SystemBrandInlineContent({
+  logo,
+  name,
+  logoAlt,
+}: SystemBrandInlineContentProps) {
+  if (logo === DEFAULT_LOGO) {
+    return (
+      <MoliiWordmark
+        data-console-wordmark
+        alt={name}
+        className='h-6 max-w-[3.75rem]'
+      />
+    )
+  }
+
+  return (
+    <>
+      <div className='flex size-5 items-center justify-center overflow-hidden rounded-md'>
+        <img
+          src={logo}
+          alt={logoAlt}
+          className='size-full rounded-md object-cover'
+        />
+      </div>
+      <span data-system-brand-name className='max-w-[12rem] truncate'>
+        {name}
+      </span>
+    </>
+  )
 }
 
 /**
@@ -65,14 +105,7 @@ export function SystemBrand(props: SystemBrandProps) {
           'hover:bg-accent focus-visible:ring-ring/40 focus-visible:ring-2'
         )}
       >
-        <div className='flex size-5 items-center justify-center overflow-hidden rounded-md'>
-          <img
-            src={logo}
-            alt={t('Logo')}
-            className='size-full rounded-md object-cover'
-          />
-        </div>
-        <span className='max-w-[12rem] truncate'>{name}</span>
+        <SystemBrandInlineContent logo={logo} name={name} logoAlt={t('Logo')} />
       </Link>
     )
   }

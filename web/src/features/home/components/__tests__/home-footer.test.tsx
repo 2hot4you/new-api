@@ -29,19 +29,25 @@ function renderFooter(
 }
 
 describe('Molii homepage footer', () => {
-  test('uses the homepage brand colors for the Molii footer wordmark', () => {
+  test('uses the shared large Molii wordmark in the default footer', () => {
     const markup = renderFooter()
-    const letters = [...markup.matchAll(/data-home-molii-letter="([^"]+)"/g)]
-    const colors = [...markup.matchAll(/data-color="([^"]+)"/g)]
 
-    assert.deepEqual(
-      letters.map((match) => match[1]),
-      ['m', 'o', 'l', 'i-first', 'i-second']
-    )
-    assert.deepEqual(
-      colors.map((match) => match[1]),
-      ['pink', 'blue', 'pink', 'blue', 'pink']
-    )
+    assert.match(markup, /data-molii-wordmark="true"/)
+    assert.match(markup, /data-home-footer-wordmark="true"/)
+    assert.match(markup, /class="[^"]*h-12[^"]*"/)
+    assert.doesNotMatch(markup, /src="\/logo\.png"/)
+    assert.doesNotMatch(markup, /data-home-molii-letter/)
+  })
+
+  test('preserves configured footer branding', () => {
+    const markup = renderFooter({
+      displayName: 'Custom Brand',
+      displayLogo: '/custom-brand.png',
+    })
+
+    assert.match(markup, /src="\/custom-brand\.png"/)
+    assert.match(markup, />Custom Brand<\/span>/)
+    assert.doesNotMatch(markup, /data-molii-wordmark/)
   })
 
   test('builds documentation child links without accepting unsafe URLs', () => {

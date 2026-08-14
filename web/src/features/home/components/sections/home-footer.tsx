@@ -20,11 +20,12 @@ import { ArrowUpRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Footer } from '@/components/layout/components/footer'
+import { MoliiWordmark } from '@/components/layout/components/molii-wordmark'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { DEFAULT_LOGO } from '@/lib/constants'
 
 import { buildHomeDocsUrl, getHomeFooterVariant } from '../../lib/home-footer'
-import { MoliiBrandSentence } from '../molii-brand-sentence'
 
 interface HomeFooterContentProps {
   displayName: string
@@ -77,6 +78,7 @@ function FooterColumn(props: { title: string; links: HomeFooterLink[] }) {
 export function HomeFooterContent(props: HomeFooterContentProps) {
   const { t } = useTranslation()
   const currentYear = new Date().getFullYear()
+  const useMoliiWordmark = props.displayLogo === DEFAULT_LOGO
   const quickStartLink = buildHomeDocsUrl(
     props.docsLink,
     '/getting-started/quickstart'
@@ -133,14 +135,24 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
         <div className='grid min-w-0 gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_repeat(3,1fr)] lg:gap-14'>
           <div className='min-w-0 sm:col-span-2 lg:col-span-1'>
             <a href='/' className='inline-flex items-center gap-3'>
-              <img
-                src={props.displayLogo}
-                alt={props.displayName}
-                className='size-9 rounded-xl bg-white/8 object-contain p-1'
-              />
-              <span className='text-lg font-semibold tracking-tight'>
-                <MoliiBrandSentence sentence={props.displayName} />
-              </span>
+              {useMoliiWordmark ? (
+                <MoliiWordmark
+                  data-home-footer-wordmark
+                  alt={props.displayName}
+                  className='h-12 max-w-[7.5rem]'
+                />
+              ) : (
+                <>
+                  <img
+                    src={props.displayLogo}
+                    alt={props.displayName}
+                    className='size-9 rounded-xl bg-white/8 object-contain p-1'
+                  />
+                  <span className='text-lg font-semibold tracking-tight'>
+                    {props.displayName}
+                  </span>
+                </>
+              )}
             </a>
             <p className='mt-5 max-w-md text-sm leading-7 text-white/52'>
               {t('footer.home.brandDescription')}
