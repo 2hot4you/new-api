@@ -56,8 +56,33 @@ type modelsDevLimit struct {
 	Output  int `json:"output"`
 }
 
-type ModelMetadataExternalSyncSummary struct {
-	UpdatedModels int `json:"updated_models"`
+type ModelMetadataSyncItem struct {
+	ModelName string   `json:"model_name"`
+	Fields    []string `json:"fields,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
+}
+
+type ModelMetadataSyncPreview struct {
+	SourceURL           string                  `json:"source_url"`
+	WillCreate          []ModelMetadataSyncItem `json:"will_create"`
+	WillUpdate          []ModelMetadataSyncItem `json:"will_update"`
+	Skipped             []ModelMetadataSyncItem `json:"skipped"`
+	MissingTranslations []string                `json:"missing_translations"`
+}
+
+type ModelMetadataSyncSummary struct {
+	CreatedModels       int      `json:"created_models"`
+	UpdatedModels       int      `json:"updated_models"`
+	SkippedModels       []string `json:"skipped_models"`
+	MissingTranslations []string `json:"missing_translations"`
+}
+
+type ModelMetadataExternalSyncSummary = ModelMetadataSyncSummary
+
+type resolvedModelsDevModel struct {
+	ProviderID string
+	ModelID    string
+	Entry      modelsDevModel
 }
 
 type modelMetadataSyncConfig struct {
@@ -169,44 +194,146 @@ func modelsDevCapabilities(entry modelsDevModel, inputs []string) []string {
 	return capabilities
 }
 
-func buildModelsDevCatalogProfile(catalog modelsDevCatalog, modelName string, vendorName string, verifiedAt string) (CatalogModelProfile, bool) {
-	preferences := modelsDevProviderPreferences[vendorName]
-	for _, providerID := range preferences {
+func modelsDevBaseModelID(value string) string {
+	value = strings.TrimSpace(value)
+	if index := strings.LastIndex(value, "/"); index >= 0 {
+		return value[index+1:]
+	}
+	return value
+}
+
+func resolveModelsDevModel(catalog modelsDevCatalog, modelName string, vendorName string) (resolvedModelsDevModel, error) {
+	modelName = strings.TrimSpace(modelName)
+	for _, providerID := range modelsDevProviderPreferences[vendorName] {
 		provider, exists := catalog[providerID]
 		if !exists {
 			continue
 		}
-		entry, exists := provider.Models[modelName]
-		if !exists || strings.TrimSpace(entry.ID) != modelName {
+		if entry, exists := provider.Models[modelName]; exists && strings.EqualFold(strings.TrimSpace(entry.ID), modelName) {
+			return resolvedModelsDevModel{ProviderID: providerID, ModelID: modelName, Entry: entry}, nil
+		}
+		matches := make([]resolvedModelsDevModel, 0, 1)
+		for key, entry := range provider.Models {
+			entryID := strings.TrimSpace(entry.ID)
+			if entryID == "" {
+				entryID = key
+			}
+			if strings.EqualFold(modelsDevBaseModelID(key), modelName) || strings.EqualFold(modelsDevBaseModelID(entryID), modelName) {
+				matches = append(matches, resolvedModelsDevModel{ProviderID: providerID, ModelID: key, Entry: entry})
+			}
+		}
+		if len(matches) > 1 {
+			return resolvedModelsDevModel{}, fmt.Errorf("ambiguous models.dev match for %q in provider %q", modelName, providerID)
+		}
+		if len(matches) == 1 {
+			return matches[0], nil
+		}
+	}
+	return resolvedModelsDevModel{}, fmt.Errorf("models.dev metadata not found for %q", modelName)
+}
+
+func buildModelsDevCatalogProfile(catalog modelsDevCatalog, modelName string, vendorName string, verifiedAt string) (CatalogModelProfile, bool) {
+	resolved, err := resolveModelsDevModel(catalog, modelName, vendorName)
+	if err != nil {
+		return CatalogModelProfile{}, false
+	}
+	entry := resolved.Entry
+	inputs := normalizeModelsDevModalities(entry.Modalities.Input)
+	outputs := normalizeModelsDevModalities(entry.Modalities.Output)
+	return CatalogModelProfile{
+		ModelName:          modelName,
+		VendorName:         vendorName,
+		Description:        strings.TrimSpace(entry.Description),
+		Icon:               getDefaultVendorIcon(vendorName),
+		ContextLength:      entry.Limit.Context,
+		MaxOutputTokens:    entry.Limit.Output,
+		KnowledgeCutoff:    strings.TrimSpace(entry.Knowledge),
+		ReleaseDate:        strings.TrimSpace(entry.ReleaseDate),
+		InputModalities:    inputs,
+		OutputModalities:   outputs,
+		Capabilities:       modelsDevCapabilities(entry, inputs),
+		MetadataSource:     "models.dev",
+		MetadataVerifiedAt: verifiedAt,
+	}, true
+}
+
+func migrateBuiltInCatalogDescription(entry *Model, profile CatalogModelProfile, updates map[string]interface{}) {
+	if entry == nil || strings.TrimSpace(profile.Description) == "" {
+		return
+	}
+	localProfile, known := GetCatalogModelProfile(entry.ModelName)
+	if !known || strings.TrimSpace(localProfile.Description) == "" {
+		return
+	}
+	if strings.TrimSpace(entry.Description) == strings.TrimSpace(localProfile.Description) &&
+		strings.TrimSpace(entry.Description) != strings.TrimSpace(profile.Description) {
+		updates["description"] = strings.TrimSpace(profile.Description)
+	}
+}
+
+func PreviewEnabledModelMetadataFromModelsDev(ctx context.Context, catalog modelsDevCatalog, sourceURL string, verifiedAt string) (ModelMetadataSyncPreview, error) {
+	preview := ModelMetadataSyncPreview{SourceURL: sourceURL, WillCreate: []ModelMetadataSyncItem{}, WillUpdate: []ModelMetadataSyncItem{}, Skipped: []ModelMetadataSyncItem{}, MissingTranslations: []string{}}
+	modelNames, err := enabledCatalogModelNames(DB.WithContext(ctx))
+	if err != nil {
+		return ModelMetadataSyncPreview{}, err
+	}
+	sort.Strings(modelNames)
+	for _, modelName := range modelNames {
+		modelName = strings.TrimSpace(modelName)
+		if modelName == "" || modelName == "grok-imagine-video-1.5-preview" {
 			continue
 		}
-		inputs := normalizeModelsDevModalities(entry.Modalities.Input)
-		outputs := normalizeModelsDevModalities(entry.Modalities.Output)
-		return CatalogModelProfile{
-			ModelName:          modelName,
-			VendorName:         vendorName,
-			Description:        strings.TrimSpace(entry.Description),
-			Icon:               getDefaultVendorIcon(vendorName),
-			ContextLength:      entry.Limit.Context,
-			MaxOutputTokens:    entry.Limit.Output,
-			KnowledgeCutoff:    strings.TrimSpace(entry.Knowledge),
-			ReleaseDate:        strings.TrimSpace(entry.ReleaseDate),
-			InputModalities:    inputs,
-			OutputModalities:   outputs,
-			Capabilities:       modelsDevCapabilities(entry, inputs),
-			MetadataSource:     "models.dev",
-			MetadataVerifiedAt: verifiedAt,
-		}, true
+		vendorName := InferCatalogVendorName(modelName)
+		if localProfile, known := GetCatalogModelProfile(modelName); known && localProfile.VendorName != "" {
+			vendorName = localProfile.VendorName
+		}
+		profile, ok := buildModelsDevCatalogProfile(catalog, modelName, vendorName, verifiedAt)
+		if !ok {
+			preview.Skipped = append(preview.Skipped, ModelMetadataSyncItem{ModelName: modelName, Reason: "metadata_not_found"})
+			continue
+		}
+		var entry Model
+		err := DB.WithContext(ctx).Unscoped().Where("model_name = ?", modelName).First(&entry).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			preview.WillCreate = append(preview.WillCreate, ModelMetadataSyncItem{ModelName: modelName})
+			if profile.Description != "" {
+				preview.MissingTranslations = append(preview.MissingTranslations, modelName)
+			}
+			continue
+		}
+		if err != nil {
+			return ModelMetadataSyncPreview{}, err
+		}
+		if entry.DeletedAt.Valid || entry.SyncOfficial == 0 {
+			preview.Skipped = append(preview.Skipped, ModelMetadataSyncItem{ModelName: modelName, Reason: "sync_disabled"})
+			continue
+		}
+		updates := fillCatalogModelBlanks(&entry, 0, profile, true)
+		migrateBuiltInCatalogDescription(&entry, profile, updates)
+		if len(updates) == 0 {
+			continue
+		}
+		fields := make([]string, 0, len(updates))
+		for field := range updates {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		preview.WillUpdate = append(preview.WillUpdate, ModelMetadataSyncItem{ModelName: modelName, Fields: fields})
+		if strings.TrimSpace(entry.Description) == "" && profile.Description != "" {
+			preview.MissingTranslations = append(preview.MissingTranslations, modelName)
+		}
 	}
-	return CatalogModelProfile{}, false
+	return preview, nil
 }
 
 func SyncEnabledModelMetadataFromModelsDev(ctx context.Context, catalog modelsDevCatalog, verifiedAt string) (ModelMetadataExternalSyncSummary, error) {
 	summary := ModelMetadataExternalSyncSummary{}
-	if _, err := ReconcileEnabledModelMetadata(); err != nil {
+	reconcileSummary, err := ReconcileEnabledModelMetadata()
+	if err != nil {
 		return summary, err
 	}
-	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	summary.CreatedModels = reconcileSummary.CreatedModels
+	err = DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		modelNames, err := enabledCatalogModelNames(tx)
 		if err != nil {
 			return err
@@ -238,6 +365,7 @@ func SyncEnabledModelMetadataFromModelsDev(ctx context.Context, catalog modelsDe
 				continue
 			}
 			updates := fillCatalogModelBlanks(&entry, 0, profile, true)
+			migrateBuiltInCatalogDescription(&entry, profile, updates)
 			if len(updates) == 0 {
 				continue
 			}
@@ -256,6 +384,26 @@ func SyncEnabledModelMetadataFromModelsDev(ctx context.Context, catalog modelsDe
 		InvalidatePricingCache()
 	}
 	return summary, nil
+}
+
+func PreviewModelMetadataFromModelsDev(ctx context.Context) (ModelMetadataSyncPreview, error) {
+	config := loadModelMetadataSyncConfig()
+	client := &http.Client{Timeout: config.Timeout}
+	catalog, err := fetchModelsDevCatalog(ctx, client, config.URL, config.MaxBodyBytes)
+	if err != nil {
+		return ModelMetadataSyncPreview{}, err
+	}
+	return PreviewEnabledModelMetadataFromModelsDev(ctx, catalog, config.URL, time.Now().UTC().Format("2006-01-02"))
+}
+
+func SyncModelMetadataFromModelsDev(ctx context.Context) (ModelMetadataSyncSummary, error) {
+	config := loadModelMetadataSyncConfig()
+	client := &http.Client{Timeout: config.Timeout}
+	catalog, err := fetchModelsDevCatalog(ctx, client, config.URL, config.MaxBodyBytes)
+	if err != nil {
+		return ModelMetadataSyncSummary{}, err
+	}
+	return SyncEnabledModelMetadataFromModelsDev(ctx, catalog, time.Now().UTC().Format("2006-01-02"))
 }
 
 func boundedModelMetadataEnv(name string, fallback int, maximum int) int {

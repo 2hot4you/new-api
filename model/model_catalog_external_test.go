@@ -64,6 +64,79 @@ func TestModelsDevProfileRejectsUntrustedReseller(t *testing.T) {
 	}
 }
 
+func TestResolveModelsDevModelSupportsTrustedExactSuffixAndCaseInsensitiveIDs(t *testing.T) {
+	catalog, err := decodeModelsDevCatalog(strings.NewReader(`{
+		"alibaba-cn":{"id":"alibaba-cn","models":{"qwen3.8-max":{"id":"qwen3.8-max","description":"qwen"}}},
+		"moonshotai-cn":{"id":"moonshotai-cn","models":{"moonshotai/kimi-k3":{"id":"moonshotai/kimi-k3","description":"kimi"}}},
+		"minimax-cn":{"id":"minimax-cn","models":{"MiniMax-M3":{"id":"MiniMax-M3","description":"minimax"}}}
+	}`), 1<<20)
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+
+	tests := []struct {
+		name, localModel, vendor, wantDescription string
+	}{
+		{"exact", "qwen3.8-max", "阿里巴巴", "qwen"},
+		{"provider suffix", "kimi-k3", "Moonshot", "kimi"},
+		{"case insensitive", "minimax-m3", "MiniMax", "minimax"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved, err := resolveModelsDevModel(catalog, tt.localModel, tt.vendor)
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			if resolved.Entry.Description != tt.wantDescription {
+				t.Fatalf("description = %q, want %q", resolved.Entry.Description, tt.wantDescription)
+			}
+		})
+	}
+}
+
+func TestResolveModelsDevModelRejectsAmbiguousSuffixes(t *testing.T) {
+	catalog, err := decodeModelsDevCatalog(strings.NewReader(`{
+		"moonshotai-cn":{"id":"moonshotai-cn","models":{
+			"moonshotai/kimi-k3":{"id":"moonshotai/kimi-k3"},
+			"legacy/kimi-k3":{"id":"legacy/kimi-k3"}
+		}}
+	}`), 1<<20)
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	if _, err := resolveModelsDevModel(catalog, "kimi-k3", "Moonshot"); err == nil {
+		t.Fatal("ambiguous suffixes must be rejected")
+	}
+}
+
+func TestPreviewEnabledModelMetadataFromModelsDevDoesNotWrite(t *testing.T) {
+	setupModelCatalogReconcileTestDB(t)
+	addEnabledCatalogAbility(t, "qwen-next-auto")
+	entry := Model{ModelName: "qwen-next-auto", Status: 1, SyncOfficial: 1}
+	if err := entry.Insert(); err != nil {
+		t.Fatalf("insert model: %v", err)
+	}
+	catalog, err := decodeModelsDevCatalog(strings.NewReader(modelsDevFixture("qwen-next-auto", "alibaba-cn")), 1<<20)
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+
+	preview, err := PreviewEnabledModelMetadataFromModelsDev(context.Background(), catalog, "https://models.dev/api.json", "2026-08-14")
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if len(preview.WillUpdate) != 1 || preview.WillUpdate[0].ModelName != "qwen-next-auto" {
+		t.Fatalf("preview = %+v", preview)
+	}
+	var stored Model
+	if err := DB.First(&stored, entry.Id).Error; err != nil {
+		t.Fatalf("read model: %v", err)
+	}
+	if stored.ContextLength != 0 || stored.Description != "" {
+		t.Fatalf("preview wrote model: %+v", stored)
+	}
+}
+
 func TestSyncEnabledModelMetadataFromModelsDevOnlyFillsBlanks(t *testing.T) {
 	setupModelCatalogReconcileTestDB(t)
 	addEnabledCatalogAbility(t, "qwen-next-auto")
@@ -107,6 +180,43 @@ func TestSyncEnabledModelMetadataFromModelsDevOnlyFillsBlanks(t *testing.T) {
 	}
 	if second.UpdatedModels != 0 {
 		t.Fatalf("second sync must be idempotent: %+v", second)
+	}
+}
+
+func TestSyncEnabledModelMetadataFromModelsDevMigratesKnownLegacyCatalogDescription(t *testing.T) {
+	setupModelCatalogReconcileTestDB(t)
+	addEnabledCatalogAbility(t, "kimi-k3")
+	entry := Model{
+		ModelName:    "kimi-k3",
+		Description:  "面向通用对话、内容生成与复杂问答的文本模型；支持通过 OpenAI 兼容 Chat Completions API 调用。",
+		Status:       1,
+		SyncOfficial: 1,
+	}
+	if err := entry.Insert(); err != nil {
+		t.Fatalf("insert model: %v", err)
+	}
+	catalog, err := decodeModelsDevCatalog(strings.NewReader(`{
+		"moonshotai-cn":{"id":"moonshotai-cn","models":{"moonshotai/kimi-k3":{
+			"id":"moonshotai/kimi-k3",
+			"description":"Multimodal Kimi model with 1M context and toggleable max-effort thinking for long-horizon agent work",
+			"modalities":{"input":["text","image"],"output":["text"]},
+			"limit":{"context":1048576,"output":131072}
+		}}}
+	}`), 1<<20)
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+
+	if _, err := SyncEnabledModelMetadataFromModelsDev(context.Background(), catalog, "2026-08-14"); err != nil {
+		t.Fatalf("sync metadata: %v", err)
+	}
+	var stored Model
+	if err := DB.First(&stored, entry.Id).Error; err != nil {
+		t.Fatalf("read model: %v", err)
+	}
+	want := "Multimodal Kimi model with 1M context and toggleable max-effort thinking for long-horizon agent work"
+	if stored.Description != want {
+		t.Fatalf("description = %q, want %q", stored.Description, want)
 	}
 }
 

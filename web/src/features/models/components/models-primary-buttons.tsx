@@ -65,6 +65,11 @@ export function ModelsPrimaryButtons() {
 
   return (
     <div className='flex items-center gap-2'>
+      <Button onClick={handleSync} variant='outline' size='sm'>
+        <RefreshCw className='h-4 w-4' />
+        {t('Sync models.dev')}
+      </Button>
+
       {/* Create Model */}
       <Button onClick={handleCreateModel} size='sm'>
         <Plus className='h-4 w-4' />
@@ -81,13 +86,6 @@ export function ModelsPrimaryButtons() {
             {t('Missing Models')}
             <DropdownMenuShortcut>
               <AlertCircle className='h-4 w-4' />
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
-
-          <DropdownMenuItem onClick={handleSync}>
-            {t('Sync Upstream')}
-            <DropdownMenuShortcut>
-              <RefreshCw className='h-4 w-4' />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 

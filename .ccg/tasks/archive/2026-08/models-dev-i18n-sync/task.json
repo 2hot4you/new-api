@@ -1,12 +1,12 @@
 {
   "id": "models-dev-i18n-sync",
   "title": "models.dev 模型元数据多语言同步",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "等待用户审核设计文档",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
   "createdAt": "2026-08-14T19:35:00+08:00",
   "branch": "feat/molii-auth"
 }

@@ -2,9 +2,9 @@
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -24,7 +24,13 @@ import type { TFunction } from 'i18next'
 import type { PricingModel } from '../../types'
 import { getPricingModelDescription } from '../model-description'
 
-const translate = ((key: string) => `translated:${key}`) as TFunction
+const translations: Record<string, string> = {
+  'Localized models.dev description': '本地化后的模型简介',
+  'Seedance description': 'translated:Seedance description',
+}
+
+const translate = ((key: string, options?: { defaultValue?: string }) =>
+  translations[key] ?? options?.defaultValue ?? key) as TFunction
 
 function makeModel(overrides: Partial<PricingModel>): PricingModel {
   return {
@@ -49,6 +55,24 @@ describe('pricing model descriptions', () => {
     )
 
     assert.equal(description, 'Custom description')
+  })
+
+  test('translates a models.dev description when a curated locale entry exists', () => {
+    const description = getPricingModelDescription(
+      makeModel({ description: 'Localized models.dev description' }),
+      translate
+    )
+
+    assert.equal(description, '本地化后的模型简介')
+  })
+
+  test('keeps the original models.dev description when no locale entry exists', () => {
+    const description = getPricingModelDescription(
+      makeModel({ description: 'New untranslated models.dev description' }),
+      translate
+    )
+
+    assert.equal(description, 'New untranslated models.dev description')
   })
 
   test('translates the backend-provided fallback key when no custom description exists', () => {

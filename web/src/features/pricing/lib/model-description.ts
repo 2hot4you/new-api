@@ -2,9 +2,9 @@
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -25,8 +25,12 @@ export function getPricingModelDescription(
   t: TFunction
 ): string | undefined {
   const customDescription = model.description?.trim()
-  if (customDescription) return customDescription
+  if (customDescription) {
+    return t(customDescription, { defaultValue: customDescription })
+  }
 
   const descriptionKey = model.description_i18n_key?.trim()
-  return descriptionKey ? t(descriptionKey) : undefined
+  return descriptionKey
+    ? t(descriptionKey, { defaultValue: descriptionKey })
+    : undefined
 }
