@@ -1,0 +1,12 @@
+{
+  "id": "complete-i18n-translations",
+  "title": "补齐现有语言包缺失翻译",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交翻译",
+  "createdAt": "2026-08-14T10:30:00+08:00",
+  "branch": "feat/molii-auth"
+}
