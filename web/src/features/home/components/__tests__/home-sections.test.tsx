@@ -42,6 +42,7 @@ const { Features } = await import('../sections/features')
 const { HowItWorks } = await import('../sections/how-it-works')
 const { CTA } = await import('../sections/cta')
 const { Hero } = await import('../sections/hero')
+const { HomeFooterContent } = await import('../sections/home-footer')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en' })
@@ -181,5 +182,18 @@ describe('Molii home sections', () => {
     assert.match(container.textContent ?? '', /Authorization: Bearer/)
     assert.ok(container.querySelector('a[href="/pricing"]'))
     assert.equal(container.querySelector('form'), null)
+  })
+
+  test('ends the default homepage with the dedicated Molii footer', () => {
+    const container = render(
+      <HomeFooterContent
+        displayName='Molii'
+        displayLogo='/logo.png'
+        userAgreementEnabled={false}
+        privacyPolicyEnabled={false}
+      />
+    )
+
+    assert.ok(container.querySelector('[data-home-footer]'))
   })
 })

@@ -20,7 +20,6 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
-import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
@@ -31,6 +30,7 @@ import {
   CTA,
   Features,
   Hero,
+  HomeFooter,
   HowItWorks,
   LatestModels,
   ModelEcosystem,
@@ -63,7 +63,7 @@ function DefaultHome(props: { isAuthenticated: boolean }) {
       <HowItWorks />
       <LatestModels models={catalog.latestModels} />
       <CTA isAuthenticated={props.isAuthenticated} />
-      <Footer />
+      <HomeFooter />
     </PublicLayout>
   )
 }

@@ -1,0 +1,12 @@
+{
+  "id": "redesign-home-footer",
+  "title": "重构新版首页 Footer",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交实现",
+  "createdAt": "2026-08-14T02:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
