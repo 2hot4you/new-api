@@ -1,0 +1,12 @@
+{
+  "id": "molii-favicon",
+  "title": "统一 Molii favicon 品牌图标",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已验证并归档",
+  "createdAt": "2026-08-14T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}

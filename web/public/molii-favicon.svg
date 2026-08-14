@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Molii">
+  <defs>
+    <linearGradient id="molii-pink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffb9ce" />
+      <stop offset="0.52" stop-color="#ff91b7" />
+      <stop offset="1" stop-color="#ff73a8" />
+    </linearGradient>
+  </defs>
+  <path
+    d="M11 51V31C11 23.27 17.27 17 25 17S39 23.27 39 31V51M39 31C39 23.27 45.27 17 53 17V51"
+    fill="none"
+    stroke="url(#molii-pink)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="10"
+  />
+</svg>
