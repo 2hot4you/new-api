@@ -1,0 +1,13 @@
+{
+  "id": "audit-local-dev-ports",
+  "title": "审计本地 3000 与 3001 端口",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "development",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-14T16:30:00+08:00",
+  "completedAt": "2026-08-14T16:35:00+08:00",
+  "branch": "feat/molii-auth"
+}
