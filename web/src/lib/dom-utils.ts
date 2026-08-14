@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { DEFAULT_LOGO } from './constants'
 
-export const MOLII_FAVICON_URL = '/molii-favicon-32.png?v=2'
+export const MOLII_FAVICON_URL = '/molii-favicon-32.png?v=3'
 
 export function resolveFaviconUrl(url: string) {
   try {

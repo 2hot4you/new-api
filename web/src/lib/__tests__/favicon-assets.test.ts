@@ -19,8 +19,8 @@ describe('Molii favicon assets', () => {
   test('declares the versioned browser and Apple icons', () => {
     const html = readFileSync(resolve(webRoot, 'index.html'), 'utf8')
 
-    assert.match(html, /href="\/molii-favicon-32\.png\?v=2"/)
-    assert.match(html, /href="\/apple-touch-icon\.png\?v=2"/)
+    assert.match(html, /href="\/molii-favicon-32\.png\?v=3"/)
+    assert.match(html, /href="\/apple-touch-icon\.png\?v=3"/)
     assert.doesNotMatch(html, /molii-favicon\.svg/)
     assert.doesNotMatch(html, /rel="icon"[^>]+href="\/logo\.png"/)
   })
