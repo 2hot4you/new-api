@@ -1,0 +1,12 @@
+{
+  "id": "colorize-home-molii-word",
+  "title": "为首页标题中的 Molii 添加品牌字母配色",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "planning",
+  "nextAction": "等待用户审核已确认方案的书面设计",
+  "createdAt": "2026-08-14T14:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
