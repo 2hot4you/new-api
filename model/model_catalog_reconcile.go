@@ -162,6 +162,15 @@ func ReconcileEnabledModelMetadata() (CatalogReconcileSummary, error) {
 			if modelName == "" || modelName == "grok-imagine-video-1.5-preview" {
 				continue
 			}
+			var entry Model
+			entryErr := tx.Unscoped().Where("model_name = ?", modelName).First(&entry).Error
+			if entryErr != nil && !errors.Is(entryErr, gorm.ErrRecordNotFound) {
+				return entryErr
+			}
+			if entryErr == nil && (entry.DeletedAt.Valid || entry.SyncOfficial == 0) {
+				continue
+			}
+
 			profile, known := GetCatalogModelProfile(modelName)
 			vendorName := profile.VendorName
 			if vendorName == "" {
@@ -172,20 +181,12 @@ func ReconcileEnabledModelMetadata() (CatalogReconcileSummary, error) {
 				return err
 			}
 
-			var entry Model
-			err = tx.Unscoped().Where("model_name = ?", modelName).First(&entry).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
+			if errors.Is(entryErr, gorm.ErrRecordNotFound) {
 				entry = newCatalogModel(modelName, vendorID, profile, known)
 				if err := tx.Create(&entry).Error; err != nil {
 					return err
 				}
 				summary.CreatedModels++
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			if entry.DeletedAt.Valid {
 				continue
 			}
 			updates := fillCatalogModelBlanks(&entry, vendorID, profile, known)

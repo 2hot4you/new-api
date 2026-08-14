@@ -45,6 +45,7 @@ func reconcileCatalogAfterChannelRefresh() {
 			summary.CreatedModels, summary.UpdatedModels, summary.CreatedVendors, summary.UpdatedVendors,
 		))
 	}
+	NotifyModelMetadataAutoSync()
 }
 
 func InitChannelCache() {
