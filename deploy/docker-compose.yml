@@ -68,12 +68,14 @@ services:
           --file=/migrations/20260803_molii_postgres.sql \
           --file=/migrations/20260810_async_task_billing_jobs.sql \
           --file=/migrations/20260811_molii_grok_management_credentials.sql \
-          --file=/migrations/20260812_default_token.sql
+          --file=/migrations/20260812_default_token.sql \
+          --file=/migrations/20260815_model_marketplace_metadata.sql
     volumes:
       - ./migrations/20260803_molii_postgres.sql:/migrations/20260803_molii_postgres.sql:ro
       - ./migrations/20260810_async_task_billing_jobs.sql:/migrations/20260810_async_task_billing_jobs.sql:ro
       - ./migrations/20260811_molii_grok_management_credentials.sql:/migrations/20260811_molii_grok_management_credentials.sql:ro
       - ./migrations/20260812_default_token.sql:/migrations/20260812_default_token.sql:ro
+      - ./migrations/20260815_model_marketplace_metadata.sql:/migrations/20260815_model_marketplace_metadata.sql:ro
     depends_on:
       postgres:
         condition: service_healthy
