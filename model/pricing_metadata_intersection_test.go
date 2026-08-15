@@ -1,10 +1,12 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +43,159 @@ func dtoChannelSettingsEmpty() dto.ChannelOtherSettings {
 	return dto.ChannelOtherSettings{}
 }
 
+func completePublishedLLM() Model {
+	return Model{
+		ModelName:             "marketplace-pricing-model",
+		DisplayName:           "Marketplace Pricing Model",
+		Description:           "A persisted public model.",
+		DescriptionEN:         "An English public model description.",
+		Icon:                  "OpenAI",
+		Tags:                  "chat",
+		Status:                1,
+		SyncOfficial:          1,
+		MarketplaceEnabled:    true,
+		ContextLength:         123_456,
+		MaxOutputTokens:       7_890,
+		KnowledgeCutoff:       "2025-04",
+		ReleaseDate:           "2026-01-02",
+		InputModalities:       []string{"text"},
+		OutputModalities:      []string{"text"},
+		Capabilities:          []string{"streaming", "tools"},
+		SupportedParameters:   []string{"stream", "tools"},
+		SupportedResolutions:  []string{"1024x1024"},
+		SupportedAspectRatios: []string{"1:1"},
+		MaxInputImages:        3,
+		OutputFormats:         []string{"url"},
+		MinDuration:           1,
+		MaxDuration:           15,
+		ReferenceModalities:   []string{"image"},
+		MetadataSource:        "admin",
+		MetadataVerifiedAt:    "2026-08-13",
+	}
+}
+
+func pricingModelIDs() []string {
+	items := GetPricing()
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ModelName)
+	}
+	return ids
+}
+
+func configureMarketplaceModelPrice(t *testing.T, modelName string) {
+	t.Helper()
+	originalPrices := ratio_setting.GetModelPriceCopy()
+	t.Cleanup(func() {
+		payload, err := json.Marshal(originalPrices)
+		require.NoError(t, err)
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(payload)))
+	})
+	prices := ratio_setting.GetModelPriceCopy()
+	prices[modelName] = 0.42
+	payload, err := json.Marshal(prices)
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(payload)))
+}
+
+func seedVendorPriceGroupAndEndpoint(t *testing.T, row *Model) {
+	t.Helper()
+	vendor := Vendor{Name: "Published Vendor", Description: "Published introduction", Icon: "OpenAI", Status: 1}
+	require.NoError(t, vendor.Insert())
+	row.VendorID = vendor.Id
+	require.NoError(t, row.Insert())
+	configureMarketplaceModelPrice(t, row.ModelName)
+	insertPricingEndpointChannel(t, 805, constant.ChannelTypeOpenAI, dtoChannelSettingsEmpty())
+	insertPricingEndpointAbility(t, 805, row.ModelName)
+}
+
+func TestPricingRequiresExplicitCompleteMarketplacePublication(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	row := completePublishedLLM()
+	seedVendorPriceGroupAndEndpoint(t, &row)
+	RefreshPricing()
+	require.Contains(t, pricingModelIDs(), row.ModelName)
+
+	require.NoError(t, DB.Model(&row).Update("marketplace_enabled", false).Error)
+	RefreshPricing()
+	require.NotContains(t, pricingModelIDs(), row.ModelName)
+}
+
+func TestPricingMetadataIntersection(t *testing.T) {
+	tests := []struct {
+		name            string
+		expectPublished bool
+		mutate          func(t *testing.T, row *Model)
+	}{
+		{
+			name:            "draft model",
+			expectPublished: false,
+			mutate: func(t *testing.T, row *Model) {
+				require.NoError(t, DB.Model(row).Update("marketplace_enabled", false).Error)
+			},
+		},
+		{
+			name:            "incomplete metadata",
+			expectPublished: true,
+			mutate: func(t *testing.T, row *Model) {
+				require.NoError(t, DB.Model(row).Update("display_name", "").Error)
+			},
+		},
+		{
+			name:            "disabled model",
+			expectPublished: true,
+			mutate: func(t *testing.T, row *Model) {
+				require.NoError(t, DB.Model(row).Update("status", 0).Error)
+			},
+		},
+		{
+			name:            "disabled vendor",
+			expectPublished: true,
+			mutate: func(t *testing.T, row *Model) {
+				require.NoError(t, DB.Model(&Vendor{}).Where("id = ?", row.VendorID).Update("status", 0).Error)
+			},
+		},
+		{
+			name:            "missing price",
+			expectPublished: true,
+			mutate: func(t *testing.T, row *Model) {
+				payload, err := json.Marshal(map[string]float64{})
+				require.NoError(t, err)
+				require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(payload)))
+			},
+		},
+		{
+			name:            "empty groups",
+			expectPublished: true,
+			mutate: func(t *testing.T, row *Model) {
+				require.NoError(t, DB.Where("model = ?", row.ModelName).Delete(&Ability{}).Error)
+			},
+		},
+		{
+			name:            "empty endpoints",
+			expectPublished: true,
+			mutate: func(t *testing.T, row *Model) {
+				require.NoError(t, DB.Model(&Channel{}).Where("id = ?", 805).Update("type", constant.ChannelTypeMoliiGrokAIGC).Error)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetPricingEndpointTestTables(t)
+			row := completePublishedLLM()
+			seedVendorPriceGroupAndEndpoint(t, &row)
+			tt.mutate(t, &row)
+			RefreshPricing()
+			require.NotContains(t, pricingModelIDs(), row.ModelName)
+
+			var persisted Model
+			require.NoError(t, DB.First(&persisted, row.Id).Error)
+			require.Equal(t, tt.expectPublished, persisted.MarketplaceEnabled, "temporary blockers must not withdraw publication intent")
+		})
+	}
+}
+
 func TestPricingUsesPersistedMetadataAndReferencedVendorsOnly(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 	insertPricingEndpointChannel(t, 802, constant.ChannelTypeOpenAI, dtoChannelSettingsEmpty())
@@ -50,19 +205,20 @@ func TestPricingUsesPersistedMetadataAndReferencedVendorsOnly(t *testing.T) {
 	require.NoError(t, vendor.Insert())
 	unused := Vendor{Name: "Unused Vendor", Description: "Must not be returned", Icon: "Claude.Color", Status: 1}
 	require.NoError(t, unused.Insert())
-	entry := Model{
-		ModelName: "catalog-priced-model", Description: "Persisted model", Icon: "OpenAI", Tags: "chat",
-		VendorID: vendor.Id, Status: 1, SyncOfficial: 1, ContextLength: 123_456, MaxOutputTokens: 7_890,
-		KnowledgeCutoff: "2025-04", ReleaseDate: "2026-01-02", InputModalities: []string{"text", "image"},
-		OutputModalities: []string{"text"}, Capabilities: []string{"streaming", "tools"},
-		MetadataSource: "admin", MetadataVerifiedAt: "2026-08-13",
-	}
+	entry := completePublishedLLM()
+	entry.ModelName = "catalog-priced-model"
+	entry.DisplayName = "Database Display Name"
+	entry.Description = "Persisted model"
+	entry.VendorID = vendor.Id
 	require.NoError(t, entry.Insert())
+	configureMarketplaceModelPrice(t, entry.ModelName)
 
 	InvalidatePricingCache()
 	pricing := findPricingModel(GetPricing(), entry.ModelName)
 	require.NotNil(t, pricing)
+	assert.Equal(t, entry.DisplayName, pricing.DisplayName)
 	assert.Equal(t, entry.Description, pricing.Description)
+	assert.Equal(t, entry.DescriptionEN, pricing.DescriptionEN)
 	assert.Equal(t, entry.ContextLength, pricing.ContextLength)
 	assert.Equal(t, entry.MaxOutputTokens, pricing.MaxOutputTokens)
 	assert.Equal(t, entry.InputModalities, pricing.InputModalities)
@@ -70,6 +226,15 @@ func TestPricingUsesPersistedMetadataAndReferencedVendorsOnly(t *testing.T) {
 	assert.Equal(t, entry.Capabilities, pricing.Capabilities)
 	assert.Equal(t, entry.MetadataSource, pricing.MetadataSource)
 	assert.Equal(t, entry.MetadataVerifiedAt, pricing.MetadataVerifiedAt)
+	assert.Equal(t, entry.SupportedParameters, pricing.SupportedParameters)
+	assert.Equal(t, entry.SupportedResolutions, pricing.SupportedResolutions)
+	assert.Equal(t, entry.SupportedAspectRatios, pricing.SupportedAspectRatios)
+	assert.Equal(t, entry.MaxInputImages, pricing.MaxInputImages)
+	assert.Equal(t, entry.OutputFormats, pricing.OutputFormats)
+	assert.Equal(t, entry.MinDuration, pricing.MinDuration)
+	assert.Equal(t, entry.MaxDuration, pricing.MaxDuration)
+	assert.Equal(t, entry.ReferenceModalities, pricing.ReferenceModalities)
+	assert.Equal(t, entry.UpdatedTime, pricing.MetadataUpdatedTime)
 
 	vendors := GetVendors()
 	require.Len(t, vendors, 1)

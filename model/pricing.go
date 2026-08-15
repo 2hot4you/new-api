@@ -18,7 +18,9 @@ import (
 
 type Pricing struct {
 	ModelName              string                                 `json:"model_name"`
+	DisplayName            string                                 `json:"display_name,omitempty"`
 	Description            string                                 `json:"description,omitempty"`
+	DescriptionEN          string                                 `json:"description_en,omitempty"`
 	DescriptionI18nKey     string                                 `json:"description_i18n_key,omitempty"`
 	Icon                   string                                 `json:"icon,omitempty"`
 	Tags                   string                                 `json:"tags,omitempty"`
@@ -47,8 +49,17 @@ type Pricing struct {
 	InputModalities        []string                               `json:"input_modalities,omitempty"`
 	OutputModalities       []string                               `json:"output_modalities,omitempty"`
 	Capabilities           []string                               `json:"capabilities,omitempty"`
+	SupportedParameters    []string                               `json:"supported_parameters,omitempty"`
+	SupportedResolutions   []string                               `json:"supported_resolutions,omitempty"`
+	SupportedAspectRatios  []string                               `json:"supported_aspect_ratios,omitempty"`
+	MaxInputImages         int                                    `json:"max_input_images,omitempty"`
+	OutputFormats          []string                               `json:"output_formats,omitempty"`
+	MinDuration            int                                    `json:"min_duration,omitempty"`
+	MaxDuration            int                                    `json:"max_duration,omitempty"`
+	ReferenceModalities    []string                               `json:"reference_modalities,omitempty"`
 	MetadataSource         string                                 `json:"metadata_source,omitempty"`
 	MetadataVerifiedAt     string                                 `json:"metadata_verified_at,omitempty"`
+	MetadataUpdatedTime    int64                                  `json:"metadata_updated_time,omitempty"`
 	BillingCurrency        string                                 `json:"billing_currency,omitempty"`
 }
 
@@ -379,24 +390,32 @@ func updatePricing() {
 	pricingMap = make([]Pricing, 0)
 	referencedVendorIDs := make(map[int]struct{})
 	for model, groups := range modelGroupsMap {
+		meta, ok := metaMap[model]
+		if !ok || meta.Status != 1 || !meta.MarketplaceEnabled || !meta.EvaluateMarketplaceReadiness().Complete {
+			continue
+		}
+		vendor, exists := vendorMap[meta.VendorID]
+		if !exists || vendor.Status != 1 {
+			continue
+		}
+
+		modelPrice, hasModelPrice := ratio_setting.GetModelPrice(model, false)
+		modelRatio, hasModelRatio, _ := ratio_setting.GetModelRatio(model)
+		billingExpr, hasBillingExpr := billing_setting.GetBillingExpr(model)
+		hasBillingExpr = hasBillingExpr && strings.TrimSpace(billingExpr) != ""
+		if !IsModelPricingConfigured(model) || len(groups.Items()) == 0 || len(modelSupportEndpointTypes[model]) == 0 {
+			continue
+		}
+
 		pricing := Pricing{
 			ModelName:              model,
 			EnableGroup:            groups.Items(),
 			SupportedEndpointTypes: modelSupportEndpointTypes[model],
 		}
-
-		meta, ok := metaMap[model]
-		if !ok || meta.Status != 1 {
-			continue
-		}
-		if meta.VendorID != 0 {
-			vendor, exists := vendorMap[meta.VendorID]
-			if !exists || vendor.Status != 1 {
-				continue
-			}
-			referencedVendorIDs[meta.VendorID] = struct{}{}
-		}
+		referencedVendorIDs[meta.VendorID] = struct{}{}
+		pricing.DisplayName = meta.DisplayName
 		pricing.Description = meta.Description
+		pricing.DescriptionEN = meta.DescriptionEN
 		pricing.Icon = meta.Icon
 		pricing.Tags = meta.Tags
 		pricing.VendorID = meta.VendorID
@@ -407,14 +426,21 @@ func updatePricing() {
 		pricing.InputModalities = append([]string(nil), meta.InputModalities...)
 		pricing.OutputModalities = append([]string(nil), meta.OutputModalities...)
 		pricing.Capabilities = append([]string(nil), meta.Capabilities...)
+		pricing.SupportedParameters = append([]string(nil), meta.SupportedParameters...)
+		pricing.SupportedResolutions = append([]string(nil), meta.SupportedResolutions...)
+		pricing.SupportedAspectRatios = append([]string(nil), meta.SupportedAspectRatios...)
+		pricing.MaxInputImages = meta.MaxInputImages
+		pricing.OutputFormats = append([]string(nil), meta.OutputFormats...)
+		pricing.MinDuration = meta.MinDuration
+		pricing.MaxDuration = meta.MaxDuration
+		pricing.ReferenceModalities = append([]string(nil), meta.ReferenceModalities...)
 		pricing.MetadataSource = meta.MetadataSource
 		pricing.MetadataVerifiedAt = meta.MetadataVerifiedAt
-		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
-		if findPrice {
+		pricing.MetadataUpdatedTime = meta.UpdatedTime
+		if hasModelPrice {
 			pricing.ModelPrice = modelPrice
 			pricing.QuotaType = 1
-		} else {
-			modelRatio, _, _ := ratio_setting.GetModelRatio(model)
+		} else if hasModelRatio || hasBillingExpr {
 			pricing.ModelRatio = modelRatio
 			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(model)
 			pricing.QuotaType = 0
@@ -437,12 +463,11 @@ func updatePricing() {
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
 		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
-			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
+			if hasBillingExpr {
 				pricing.BillingMode = billingMode
-				pricing.BillingExpr = expr
+				pricing.BillingExpr = billingExpr
 			}
 		}
-		pricing.BillingCurrency = getMarketplaceBillingCurrency(model)
 		if videoPricing, ok := ratio_setting.GetStarAIVideoPricing(model); ok {
 			pricing.VideoPricing = videoPricing
 		}

@@ -162,7 +162,9 @@ func GetCatalogVendorProfile(vendorName string) (CatalogVendorProfile, bool) {
 	return profile, ok
 }
 
-// Compatibility view retained until pricing is fully sourced from Model rows.
+// marketplaceCatalogMetadata remains as an inert compatibility type while
+// legacy catalog profiles are still consumed by migration and reconciliation
+// code. Public pricing reads only persisted Model rows.
 type marketplaceCatalogMetadata struct {
 	ContextLength      int
 	MaxOutputTokens    int
@@ -177,22 +179,9 @@ type marketplaceCatalogMetadata struct {
 }
 
 func getMarketplaceCatalogMetadata(modelName string) (marketplaceCatalogMetadata, bool) {
-	profile, ok := GetCatalogModelProfile(modelName)
-	if !ok || profile.ContextLength == 0 {
-		return marketplaceCatalogMetadata{}, false
-	}
-	return marketplaceCatalogMetadata{
-		ContextLength: profile.ContextLength, MaxOutputTokens: profile.MaxOutputTokens,
-		KnowledgeCutoff: profile.KnowledgeCutoff, ReleaseDate: profile.ReleaseDate,
-		InputModalities: profile.InputModalities, OutputModalities: profile.OutputModalities,
-		Capabilities: profile.Capabilities, MetadataSource: profile.MetadataSource,
-		MetadataVerifiedAt: profile.MetadataVerifiedAt, BillingCurrency: getMarketplaceBillingCurrency(modelName),
-	}, true
+	return marketplaceCatalogMetadata{}, false
 }
 
 func getMarketplaceBillingCurrency(modelName string) string {
-	if modelName == "minimax-m3" || modelName == "qwen3.5-flash" || modelName == "qwen3.5-plus" {
-		return "CNY"
-	}
 	return ""
 }
