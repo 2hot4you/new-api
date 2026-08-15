@@ -38,9 +38,9 @@ type BoundChannel struct {
 type Model struct {
 	Id                    int            `json:"id"`
 	ModelName             string         `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
-	DisplayName           string         `json:"display_name,omitempty" gorm:"type:varchar(255)"`
+	DisplayName           string         `json:"display_name,omitempty" gorm:"type:varchar(255);not null;default:''"`
 	Description           string         `json:"description,omitempty" gorm:"type:text"`
-	DescriptionEN         string         `json:"description_en,omitempty" gorm:"type:text"`
+	DescriptionEN         string         `json:"description_en,omitempty" gorm:"type:text;not null;default:''"`
 	Icon                  string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
 	Tags                  string         `json:"tags,omitempty" gorm:"type:varchar(255)"`
 	VendorID              int            `json:"vendor_id,omitempty" gorm:"index"`
@@ -57,14 +57,14 @@ type Model struct {
 	MetadataSource        string         `json:"metadata_source,omitempty" gorm:"type:varchar(128)"`
 	MetadataVerifiedAt    string         `json:"metadata_verified_at,omitempty" gorm:"type:varchar(32)"`
 	MarketplaceEnabled    bool           `json:"marketplace_enabled" gorm:"not null;default:false"`
-	SupportedParameters   []string       `json:"supported_parameters,omitempty" gorm:"serializer:json;type:text"`
-	SupportedResolutions  []string       `json:"supported_resolutions,omitempty" gorm:"serializer:json;type:text"`
-	SupportedAspectRatios []string       `json:"supported_aspect_ratios,omitempty" gorm:"serializer:json;type:text"`
-	MaxInputImages        int            `json:"max_input_images,omitempty"`
-	OutputFormats         []string       `json:"output_formats,omitempty" gorm:"serializer:json;type:text"`
-	MinDuration           int            `json:"min_duration,omitempty"`
-	MaxDuration           int            `json:"max_duration,omitempty"`
-	ReferenceModalities   []string       `json:"reference_modalities,omitempty" gorm:"serializer:json;type:text"`
+	SupportedParameters   []string       `json:"supported_parameters,omitempty" gorm:"serializer:json;type:text;not null;default:'[]'"`
+	SupportedResolutions  []string       `json:"supported_resolutions,omitempty" gorm:"serializer:json;type:text;not null;default:'[]'"`
+	SupportedAspectRatios []string       `json:"supported_aspect_ratios,omitempty" gorm:"serializer:json;type:text;not null;default:'[]'"`
+	MaxInputImages        int            `json:"max_input_images,omitempty" gorm:"not null;default:0"`
+	OutputFormats         []string       `json:"output_formats,omitempty" gorm:"serializer:json;type:text;not null;default:'[]'"`
+	MinDuration           int            `json:"min_duration,omitempty" gorm:"not null;default:0"`
+	MaxDuration           int            `json:"max_duration,omitempty" gorm:"not null;default:0"`
+	ReferenceModalities   []string       `json:"reference_modalities,omitempty" gorm:"serializer:json;type:text;not null;default:'[]'"`
 	CreatedTime           int64          `json:"created_time" gorm:"bigint"`
 	UpdatedTime           int64          `json:"updated_time" gorm:"bigint"`
 	DeletedAt             gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`

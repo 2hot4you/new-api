@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // localMarketplaceMetadataSeeds20260815 is migration-only source data. It is
@@ -176,6 +177,71 @@ func localGrokAspectRatios() []string {
 	return []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"}
 }
 
+func ensureModelMarketplaceMetadataSchema(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("ensure model marketplace metadata schema: database is nil")
+	}
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", "molii-new-api-20260815-model-marketplace-metadata").Error; err != nil {
+			return fmt.Errorf("lock model marketplace metadata schema: %w", err)
+		}
+		if err := tx.Exec(`
+			UPDATE public.models
+			SET display_name = COALESCE(display_name, ''),
+			    description_en = COALESCE(description_en, ''),
+			    marketplace_enabled = COALESCE(marketplace_enabled, false),
+			    supported_parameters = COALESCE(supported_parameters, '[]'),
+			    supported_resolutions = COALESCE(supported_resolutions, '[]'),
+			    supported_aspect_ratios = COALESCE(supported_aspect_ratios, '[]'),
+			    max_input_images = COALESCE(max_input_images, 0),
+			    output_formats = COALESCE(output_formats, '[]'),
+			    min_duration = COALESCE(min_duration, 0),
+			    max_duration = COALESCE(max_duration, 0),
+			    reference_modalities = COALESCE(reference_modalities, '[]')
+		`).Error; err != nil {
+			return fmt.Errorf("normalize model marketplace metadata nulls: %w", err)
+		}
+		if err := tx.Exec(`
+			ALTER TABLE public.models
+			  ALTER COLUMN display_name SET DEFAULT '',
+			  ALTER COLUMN display_name SET NOT NULL,
+			  ALTER COLUMN description_en SET DEFAULT '',
+			  ALTER COLUMN description_en SET NOT NULL,
+			  ALTER COLUMN marketplace_enabled SET DEFAULT false,
+			  ALTER COLUMN marketplace_enabled SET NOT NULL,
+			  ALTER COLUMN supported_parameters SET DEFAULT '[]',
+			  ALTER COLUMN supported_parameters SET NOT NULL,
+			  ALTER COLUMN supported_resolutions SET DEFAULT '[]',
+			  ALTER COLUMN supported_resolutions SET NOT NULL,
+			  ALTER COLUMN supported_aspect_ratios SET DEFAULT '[]',
+			  ALTER COLUMN supported_aspect_ratios SET NOT NULL,
+			  ALTER COLUMN max_input_images SET DEFAULT 0,
+			  ALTER COLUMN max_input_images SET NOT NULL,
+			  ALTER COLUMN output_formats SET DEFAULT '[]',
+			  ALTER COLUMN output_formats SET NOT NULL,
+			  ALTER COLUMN min_duration SET DEFAULT 0,
+			  ALTER COLUMN min_duration SET NOT NULL,
+			  ALTER COLUMN max_duration SET DEFAULT 0,
+			  ALTER COLUMN max_duration SET NOT NULL,
+			  ALTER COLUMN reference_modalities SET DEFAULT '[]',
+			  ALTER COLUMN reference_modalities SET NOT NULL
+		`).Error; err != nil {
+			return fmt.Errorf("converge model marketplace metadata constraints: %w", err)
+		}
+		if err := tx.Exec(`
+			CREATE INDEX IF NOT EXISTS idx_models_marketplace_enabled_status
+			ON public.models (marketplace_enabled, status)
+			WHERE deleted_at IS NULL
+		`).Error; err != nil {
+			return fmt.Errorf("create model marketplace publication index: %w", err)
+		}
+		return nil
+	})
+}
+
 // BackfillLocalMarketplaceMetadata migrates reviewed local catalog facts into
 // existing Model rows. It never creates models and never overwrites a non-empty
 // administrator value.
@@ -208,71 +274,96 @@ func BackfillLocalMarketplaceMetadata(db *gorm.DB) error {
 			if err := seed.NormalizeCatalogMetadata(); err != nil {
 				return fmt.Errorf("normalize local marketplace metadata for %s: %w", seed.ModelName, err)
 			}
-
-			updates := make(map[string]interface{})
-			applyLocalMarketplaceSeed(row, &seed, updates)
-			if row.Status == 1 && !row.MarketplaceEnabled && row.EvaluateMarketplaceReadiness().Complete {
-				row.MarketplaceEnabled = true
-				updates["marketplace_enabled"] = true
-			}
-			if len(updates) == 0 {
-				continue
-			}
-			if err := tx.Model(&Model{}).Where("id = ?", row.Id).Updates(updates).Error; err != nil {
+			if err := updateLocalMarketplaceFieldsIfEmpty(tx, row.Id, &seed); err != nil {
 				return fmt.Errorf("backfill local marketplace metadata for %s: %w", row.ModelName, err)
+			}
+
+			var persisted Model
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", row.Id).First(&persisted).Error; err != nil {
+				return fmt.Errorf("reload local marketplace metadata for %s: %w", row.ModelName, err)
+			}
+			if persisted.Status == 1 && !persisted.MarketplaceEnabled && persisted.EvaluateMarketplaceReadiness().Complete {
+				if err := tx.Model(&Model{}).
+					Where("id = ? AND status = ? AND marketplace_enabled = ?", persisted.Id, 1, false).
+					UpdateColumn("marketplace_enabled", true).Error; err != nil {
+					return fmt.Errorf("publish local marketplace metadata for %s: %w", row.ModelName, err)
+				}
 			}
 		}
 		return nil
 	})
 }
 
-func applyLocalMarketplaceSeed(row, seed *Model, updates map[string]interface{}) {
-	fillLocalMarketplaceString(updates, "display_name", &row.DisplayName, seed.DisplayName)
-	fillLocalMarketplaceString(updates, "description", &row.Description, seed.Description)
-	fillLocalMarketplaceString(updates, "description_en", &row.DescriptionEN, seed.DescriptionEN)
-	fillLocalMarketplaceString(updates, "icon", &row.Icon, seed.Icon)
-	fillLocalMarketplaceString(updates, "tags", &row.Tags, seed.Tags)
-	fillLocalMarketplaceInt(updates, "context_length", &row.ContextLength, seed.ContextLength)
-	fillLocalMarketplaceInt(updates, "max_output_tokens", &row.MaxOutputTokens, seed.MaxOutputTokens)
-	fillLocalMarketplaceString(updates, "knowledge_cutoff", &row.KnowledgeCutoff, seed.KnowledgeCutoff)
-	fillLocalMarketplaceString(updates, "release_date", &row.ReleaseDate, seed.ReleaseDate)
-	fillLocalMarketplaceStrings(updates, "input_modalities", &row.InputModalities, seed.InputModalities)
-	fillLocalMarketplaceStrings(updates, "output_modalities", &row.OutputModalities, seed.OutputModalities)
-	fillLocalMarketplaceStrings(updates, "capabilities", &row.Capabilities, seed.Capabilities)
-	fillLocalMarketplaceString(updates, "metadata_source", &row.MetadataSource, seed.MetadataSource)
-	fillLocalMarketplaceString(updates, "metadata_verified_at", &row.MetadataVerifiedAt, seed.MetadataVerifiedAt)
-	fillLocalMarketplaceStrings(updates, "supported_parameters", &row.SupportedParameters, seed.SupportedParameters)
-	fillLocalMarketplaceStrings(updates, "supported_resolutions", &row.SupportedResolutions, seed.SupportedResolutions)
-	fillLocalMarketplaceStrings(updates, "supported_aspect_ratios", &row.SupportedAspectRatios, seed.SupportedAspectRatios)
-	fillLocalMarketplaceInt(updates, "max_input_images", &row.MaxInputImages, seed.MaxInputImages)
-	fillLocalMarketplaceStrings(updates, "output_formats", &row.OutputFormats, seed.OutputFormats)
-	fillLocalMarketplaceInt(updates, "min_duration", &row.MinDuration, seed.MinDuration)
-	fillLocalMarketplaceInt(updates, "max_duration", &row.MaxDuration, seed.MaxDuration)
-	fillLocalMarketplaceStrings(updates, "reference_modalities", &row.ReferenceModalities, seed.ReferenceModalities)
-}
-
-func fillLocalMarketplaceString(updates map[string]interface{}, column string, current *string, seed string) {
-	if strings.TrimSpace(*current) != "" || strings.TrimSpace(seed) == "" {
-		return
+func updateLocalMarketplaceFieldsIfEmpty(tx *gorm.DB, id int, seed *Model) error {
+	stringFields := []struct {
+		column string
+		value  string
+	}{
+		{"display_name", seed.DisplayName},
+		{"description", seed.Description},
+		{"description_en", seed.DescriptionEN},
+		{"icon", seed.Icon},
+		{"tags", seed.Tags},
+		{"knowledge_cutoff", seed.KnowledgeCutoff},
+		{"release_date", seed.ReleaseDate},
+		{"metadata_source", seed.MetadataSource},
+		{"metadata_verified_at", seed.MetadataVerifiedAt},
 	}
-	*current = seed
-	updates[column] = seed
-}
-
-func fillLocalMarketplaceInt(updates map[string]interface{}, column string, current *int, seed int) {
-	if *current != 0 || seed == 0 {
-		return
+	for _, field := range stringFields {
+		if strings.TrimSpace(field.value) == "" {
+			continue
+		}
+		emptyCondition := fmt.Sprintf("TRIM(COALESCE(%s, '')) = ''", field.column)
+		if err := tx.Model(&Model{}).Where("id = ?", id).Where(emptyCondition).UpdateColumn(field.column, field.value).Error; err != nil {
+			return fmt.Errorf("fill %s: %w", field.column, err)
+		}
 	}
-	*current = seed
-	updates[column] = seed
-}
 
-func fillLocalMarketplaceStrings(updates map[string]interface{}, column string, current *[]string, seed []string) {
-	if len(*current) != 0 || len(seed) == 0 {
-		return
+	integerFields := []struct {
+		column string
+		value  int
+	}{
+		{"context_length", seed.ContextLength},
+		{"max_output_tokens", seed.MaxOutputTokens},
+		{"max_input_images", seed.MaxInputImages},
+		{"min_duration", seed.MinDuration},
+		{"max_duration", seed.MaxDuration},
 	}
-	value := append([]string(nil), seed...)
-	*current = value
-	encoded, _ := json.Marshal(value)
-	updates[column] = string(encoded)
+	for _, field := range integerFields {
+		if field.value == 0 {
+			continue
+		}
+		emptyCondition := fmt.Sprintf("COALESCE(%s, 0) = 0", field.column)
+		if err := tx.Model(&Model{}).Where("id = ?", id).Where(emptyCondition).UpdateColumn(field.column, field.value).Error; err != nil {
+			return fmt.Errorf("fill %s: %w", field.column, err)
+		}
+	}
+
+	arrayFields := []struct {
+		column string
+		value  []string
+	}{
+		{"input_modalities", seed.InputModalities},
+		{"output_modalities", seed.OutputModalities},
+		{"capabilities", seed.Capabilities},
+		{"supported_parameters", seed.SupportedParameters},
+		{"supported_resolutions", seed.SupportedResolutions},
+		{"supported_aspect_ratios", seed.SupportedAspectRatios},
+		{"output_formats", seed.OutputFormats},
+		{"reference_modalities", seed.ReferenceModalities},
+	}
+	for _, field := range arrayFields {
+		if len(field.value) == 0 {
+			continue
+		}
+		encoded, err := json.Marshal(field.value)
+		if err != nil {
+			return fmt.Errorf("encode %s: %w", field.column, err)
+		}
+		emptyCondition := fmt.Sprintf("%s IS NULL OR TRIM(%s) IN ('', '[]', 'null')", field.column, field.column)
+		if err := tx.Model(&Model{}).Where("id = ?", id).Where(emptyCondition).UpdateColumn(field.column, string(encoded)).Error; err != nil {
+			return fmt.Errorf("fill %s: %w", field.column, err)
+		}
+	}
+	return nil
 }

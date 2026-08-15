@@ -3,6 +3,7 @@
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+project_dir=$(CDPATH= cd -- "$script_dir/../.." && pwd)
 migration="$script_dir/20260815_model_marketplace_metadata.sql"
 postgres_image=${POSTGRES_TEST_IMAGE:-postgres:15-alpine@sha256:3d0f7584ed7d04e27fa050d6683a74746608faf21f202be78460d679cc56461f}
 container="model-marketplace-metadata-migration-test-$$"
@@ -18,6 +19,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 docker run --detach --rm --name "$container" \
+  --publish 127.0.0.1::5432 \
   --env POSTGRES_DB=migration_contract \
   --env POSTGRES_PASSWORD=migration_contract \
   --env POSTGRES_USER=migration_contract \
@@ -119,5 +121,33 @@ BEGIN
 END
 $contract$;
 SQL
+
+docker exec "$container" createdb --username=migration_contract fresh_bootstrap
+docker exec "$container" createdb --username=migration_contract concurrent_backfill
+docker exec --interactive "$container" psql \
+  --username=migration_contract --dbname=fresh_bootstrap \
+  --set=ON_ERROR_STOP=1 <"$migration" >/dev/null
+docker exec --interactive "$container" psql --username=migration_contract --dbname=fresh_bootstrap --set=ON_ERROR_STOP=1 <<'SQL'
+DO $contract$
+BEGIN
+  IF to_regclass('public.models') IS NOT NULL THEN
+    RAISE EXCEPTION 'fresh Compose migration ordering fixture unexpectedly created models';
+  END IF;
+END
+$contract$;
+SQL
+
+postgres_port=$(docker port "$container" 5432/tcp | sed -n '1s/.*://p')
+if [ -z "$postgres_port" ]; then
+  echo "failed to resolve PostgreSQL test port" >&2
+  exit 1
+fi
+(
+  cd "$project_dir"
+  MODEL_MARKETPLACE_POSTGRES_TEST_DSN="postgresql://migration_contract:migration_contract@127.0.0.1:$postgres_port/fresh_bootstrap?sslmode=disable" \
+    go test ./model -run 'TestMarketplacePostgresFreshBootstrapConverges' -count=1
+  MODEL_MARKETPLACE_POSTGRES_TEST_DSN="postgresql://migration_contract:migration_contract@127.0.0.1:$postgres_port/concurrent_backfill?sslmode=disable" \
+    go test ./model -run 'TestBackfillLocalMarketplaceMetadataPreservesConcurrentAdministratorUpdate' -count=1
+)
 
 echo "Model marketplace metadata migration contract passed"

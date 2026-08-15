@@ -1,11 +1,16 @@
 package model
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -57,6 +62,156 @@ func loadMarketplaceRow(t *testing.T, db *gorm.DB, modelName string) Model {
 	var row Model
 	require.NoError(t, db.Where("model_name = ?", modelName).First(&row).Error)
 	return row
+}
+
+func openMarketplacePostgresTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := strings.TrimSpace(os.Getenv("MODEL_MARKETPLACE_POSTGRES_TEST_DSN"))
+	if dsn == "" {
+		t.Skip("MODEL_MARKETPLACE_POSTGRES_TEST_DSN is not set")
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	return db
+}
+
+func TestMarketplacePostgresFreshBootstrapConverges(t *testing.T) {
+	db := openMarketplacePostgresTestDB(t)
+	require.False(t, db.Migrator().HasTable(&Model{}), "the explicit Compose migration must have run before models exists")
+
+	require.NoError(t, db.AutoMigrate(&Model{}))
+	require.NoError(t, ensureModelMarketplaceMetadataSchema(db))
+
+	var requiredColumns int64
+	require.NoError(t, db.Raw(`
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'models'
+		  AND column_name IN (
+		    'display_name', 'description_en', 'marketplace_enabled',
+		    'supported_parameters', 'supported_resolutions', 'supported_aspect_ratios',
+		    'max_input_images', 'output_formats', 'min_duration', 'max_duration',
+		    'reference_modalities'
+		  )
+		  AND is_nullable = 'NO'
+	`).Scan(&requiredColumns).Error)
+	require.Equal(t, int64(11), requiredColumns)
+
+	var indexCount int64
+	require.NoError(t, db.Raw(`
+		SELECT count(*)
+		FROM pg_indexes
+		WHERE schemaname = 'public'
+		  AND tablename = 'models'
+		  AND indexname = 'idx_models_marketplace_enabled_status'
+		  AND indexdef LIKE '%(marketplace_enabled, status)%'
+		  AND indexdef LIKE '%WHERE (deleted_at IS NULL)%'
+	`).Scan(&indexCount).Error)
+	require.Equal(t, int64(1), indexCount)
+
+	type defaultsRow struct {
+		DisplayName           string
+		DescriptionEN         string
+		MarketplaceEnabled    bool
+		SupportedParameters   string
+		SupportedResolutions  string
+		SupportedAspectRatios string
+		MaxInputImages        int
+		OutputFormats         string
+		MinDuration           int
+		MaxDuration           int
+		ReferenceModalities   string
+	}
+	var defaults defaultsRow
+	require.NoError(t, db.Raw(`
+		INSERT INTO public.models (model_name)
+		VALUES ('fresh-bootstrap-defaults')
+		RETURNING display_name, description_en, marketplace_enabled,
+		  supported_parameters, supported_resolutions, supported_aspect_ratios,
+		  max_input_images, output_formats, min_duration, max_duration,
+		  reference_modalities
+	`).Scan(&defaults).Error)
+	require.Equal(t, "", defaults.DisplayName)
+	require.Equal(t, "", defaults.DescriptionEN)
+	require.False(t, defaults.MarketplaceEnabled)
+	require.Equal(t, "[]", defaults.SupportedParameters)
+	require.Equal(t, "[]", defaults.SupportedResolutions)
+	require.Equal(t, "[]", defaults.SupportedAspectRatios)
+	require.Zero(t, defaults.MaxInputImages)
+	require.Equal(t, "[]", defaults.OutputFormats)
+	require.Zero(t, defaults.MinDuration)
+	require.Zero(t, defaults.MaxDuration)
+	require.Equal(t, "[]", defaults.ReferenceModalities)
+}
+
+func TestBackfillLocalMarketplaceMetadataPreservesConcurrentAdministratorUpdate(t *testing.T) {
+	setupDB := openMarketplacePostgresTestDB(t)
+	require.NoError(t, setupDB.AutoMigrate(&Model{}))
+	require.NoError(t, ensureModelMarketplaceMetadataSchema(setupDB))
+	require.NoError(t, setupDB.Exec("TRUNCATE TABLE public.models RESTART IDENTITY").Error)
+	require.NoError(t, setupDB.Create(&Model{
+		ModelName: "qwen3.5-flash",
+		VendorID:  1,
+		Status:    1,
+	}).Error)
+
+	dsn := strings.TrimSpace(os.Getenv("MODEL_MARKETPLACE_POSTGRES_TEST_DSN"))
+	backfillDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	adminDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	for _, connection := range []*gorm.DB{backfillDB, adminDB} {
+		sqlDB, dbErr := connection.DB()
+		require.NoError(t, dbErr)
+		t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	}
+
+	readObserved := make(chan struct{})
+	resumeBackfill := make(chan struct{})
+	var blockOnce sync.Once
+	require.NoError(t, backfillDB.Callback().Query().After("gorm:query").Register("test:block_after_marketplace_read", func(tx *gorm.DB) {
+		if tx.Statement.Table != "models" {
+			return
+		}
+		blockOnce.Do(func() {
+			close(readObserved)
+			<-resumeBackfill
+		})
+	}))
+
+	backfillResult := make(chan error, 1)
+	go func() { backfillResult <- BackfillLocalMarketplaceMetadata(backfillDB) }()
+
+	select {
+	case <-readObserved:
+	case <-time.After(5 * time.Second):
+		close(resumeBackfill)
+		t.Fatal("backfill did not reach the post-read pause")
+	}
+	require.NoError(t, adminDB.Model(&Model{}).
+		Where("model_name = ?", "qwen3.5-flash").
+		UpdateColumns(map[string]interface{}{
+			"description": "concurrent administrator description",
+			"status":      0,
+		}).Error)
+	close(resumeBackfill)
+
+	select {
+	case err := <-backfillResult:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("backfill did not finish after resuming")
+	}
+
+	var stored Model
+	require.NoError(t, adminDB.Where("model_name = ?", "qwen3.5-flash").First(&stored).Error)
+	require.Equal(t, "concurrent administrator description", stored.Description)
+	require.Zero(t, stored.Status)
+	require.False(t, stored.MarketplaceEnabled)
 }
 
 func TestBackfillLocalMarketplaceMetadataCoversCurrentCatalog(t *testing.T) {
