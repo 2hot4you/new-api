@@ -1,0 +1,12 @@
+{
+  "id": "restore-current-dev-frontend",
+  "title": "恢复 3000 当前工作区开发界面",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-15T12:58:00+08:00",
+  "branch": "feat/molii-auth"
+}
