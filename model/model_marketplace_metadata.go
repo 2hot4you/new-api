@@ -199,7 +199,7 @@ func normalizeMarketplaceCatalogMetadata(mi *Model) error {
 	if mi.MaxOutputTokens < 0 {
 		return fmt.Errorf("max_output_tokens must be non-negative")
 	}
-	if mi.ContextLength > 0 && mi.MaxOutputTokens > mi.ContextLength {
+	if InferMarketplaceCategory(mi) == MarketplaceCategoryLLM && mi.ContextLength > 0 && mi.MaxOutputTokens > mi.ContextLength {
 		return fmt.Errorf("max_output_tokens must not exceed context_length")
 	}
 	if mi.MaxInputImages < 0 {

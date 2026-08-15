@@ -237,3 +237,43 @@ func TestMarketplaceMetadataConditionalRules(t *testing.T) {
 		require.ErrorContains(t, model.NormalizeCatalogMetadata(), "reference_modalities contains unsupported value")
 	})
 }
+
+func TestNormalizeMarketplaceMetadataLimitsOutputTokensToLLM(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		model   Model
+		wantErr bool
+	}{
+		{
+			name: "rejects LLM output tokens above context length",
+			model: Model{
+				InputModalities:     []string{"text"},
+				OutputModalities:    []string{"text"},
+				Capabilities:        []string{"streaming"},
+				ContextLength:       100,
+				MaxOutputTokens:     101,
+				SupportedParameters: []string{"stream"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "allows non LLM legacy token fields above context length",
+			model: Model{
+				InputModalities:  []string{"text"},
+				OutputModalities: []string{"image"},
+				Capabilities:     []string{"image_generation"},
+				ContextLength:    100,
+				MaxOutputTokens:  101,
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.model.NormalizeCatalogMetadata()
+			if tt.wantErr {
+				require.ErrorContains(t, err, "max_output_tokens must not exceed context_length")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
