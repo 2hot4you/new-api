@@ -2,12 +2,14 @@ package controller
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -30,9 +32,35 @@ func TestUpdateVendorMetaRefreshesPricingVendorIntroduction(t *testing.T) {
 
 	vendor := model.Vendor{Name: "Vendor", Description: "old introduction", Icon: "OpenAI", Status: 1}
 	require.NoError(t, vendor.Insert())
-	entry := model.Model{ModelName: "vendor-refresh-model", VendorID: vendor.Id, Status: 1, SyncOfficial: 1}
+	entry := model.Model{
+		ModelName:           "vendor-refresh-model",
+		DisplayName:         "Vendor Refresh Model",
+		Description:         "A published test model.",
+		VendorID:            vendor.Id,
+		Status:              1,
+		SyncOfficial:        1,
+		MarketplaceEnabled:  true,
+		ContextLength:       128_000,
+		MaxOutputTokens:     8_000,
+		ReleaseDate:         "2026-08-15",
+		InputModalities:     []string{"text"},
+		OutputModalities:    []string{"text"},
+		Capabilities:        []string{"streaming"},
+		SupportedParameters: []string{"stream"},
+	}
 	require.NoError(t, entry.Insert())
-	channel := model.Channel{Name: "channel", Key: "test", Status: common.ChannelStatusEnabled, Models: entry.ModelName, Group: "default"}
+	originalPrices := ratio_setting.GetModelPriceCopy()
+	t.Cleanup(func() {
+		payload, marshalErr := json.Marshal(originalPrices)
+		require.NoError(t, marshalErr)
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(payload)))
+	})
+	prices := ratio_setting.GetModelPriceCopy()
+	prices[entry.ModelName] = 0.42
+	payload, err := json.Marshal(prices)
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(payload)))
+	channel := model.Channel{Name: "channel", Key: "test", Type: 1, Status: common.ChannelStatusEnabled, Models: entry.ModelName, Group: "default"}
 	require.NoError(t, db.Create(&channel).Error)
 	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: entry.ModelName, ChannelId: channel.Id, Enabled: true}).Error)
 

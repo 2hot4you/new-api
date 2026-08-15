@@ -276,6 +276,17 @@ func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	})
 
 	db := setupModelListControllerTestDB(t)
+	vendor := model.Vendor{Name: "Tiered Billing Vendor", Status: 1}
+	require.NoError(t, vendor.Insert())
+	require.NoError(t, db.Create(&model.Channel{
+		Id:     1,
+		Name:   "tiered-billing-channel",
+		Key:    "test",
+		Type:   1,
+		Status: common.ChannelStatusEnabled,
+		Models: "zz-tiered-visible-model,zz-tiered-empty-expr-model,zz-tiered-missing-expr-model,zz-unpriced-model",
+		Group:  "default",
+	}).Error)
 	require.NoError(t, db.Create(&model.User{
 		Id:       1001,
 		Username: "model-list-user",
@@ -289,12 +300,29 @@ func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 		{Group: "default", Model: "zz-tiered-missing-expr-model", ChannelId: 1, Enabled: true},
 		{Group: "default", Model: "zz-unpriced-model", ChannelId: 1, Enabled: true},
 	}).Error)
-	require.NoError(t, db.Create(&[]model.Model{
-		{ModelName: "zz-tiered-visible-model", Status: 1},
+	entries := []model.Model{
+		{
+			ModelName:           "zz-tiered-visible-model",
+			DisplayName:         "Tiered Visible Model",
+			Description:         "A published tiered billing model.",
+			VendorID:            vendor.Id,
+			Status:              1,
+			MarketplaceEnabled:  true,
+			ReleaseDate:         "2026-08-15",
+			InputModalities:     []string{"text"},
+			OutputModalities:    []string{"text"},
+			Capabilities:        []string{"streaming"},
+			SupportedParameters: []string{"stream"},
+			ContextLength:       128_000,
+			MaxOutputTokens:     8_000,
+		},
 		{ModelName: "zz-tiered-empty-expr-model", Status: 1},
 		{ModelName: "zz-tiered-missing-expr-model", Status: 1},
 		{ModelName: "zz-unpriced-model", Status: 1},
-	}).Error)
+	}
+	for i := range entries {
+		require.NoError(t, db.Create(&entries[i]).Error)
+	}
 	model.InvalidatePricingCache()
 
 	recorder := httptest.NewRecorder()
@@ -316,15 +344,8 @@ func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	require.Equal(t, "tiered_expr", visiblePricing.BillingMode)
 	require.NotEmpty(t, visiblePricing.BillingExpr)
 
-	emptyExprPricing, ok := pricingByName["zz-tiered-empty-expr-model"]
-	require.True(t, ok)
-	require.Empty(t, emptyExprPricing.BillingMode)
-	require.Empty(t, emptyExprPricing.BillingExpr)
-
-	missingExprPricing, ok := pricingByName["zz-tiered-missing-expr-model"]
-	require.True(t, ok)
-	require.Empty(t, missingExprPricing.BillingMode)
-	require.Empty(t, missingExprPricing.BillingExpr)
+	require.NotContains(t, pricingByName, "zz-tiered-empty-expr-model")
+	require.NotContains(t, pricingByName, "zz-tiered-missing-expr-model")
 }
 
 func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T) {

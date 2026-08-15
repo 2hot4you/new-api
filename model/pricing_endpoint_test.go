@@ -64,16 +64,13 @@ func pricingEndpointAdvancedCustomConfig(routes ...dto.AdvancedCustomRoute) dto.
 	}
 }
 
-func pricingEndpointTypesByModel(t *testing.T) map[string][]constant.EndpointType {
+func pricingEndpointTypesByModel(t *testing.T, modelNames ...string) map[string][]constant.EndpointType {
 	t.Helper()
 	InitChannelCache()
-	return pricingEndpointTypesFromPricing(GetPricing())
-}
-
-func pricingEndpointTypesFromPricing(pricings []Pricing) map[string][]constant.EndpointType {
-	byModel := make(map[string][]constant.EndpointType)
-	for _, pricing := range pricings {
-		byModel[pricing.ModelName] = pricing.SupportedEndpointTypes
+	GetPricing()
+	byModel := make(map[string][]constant.EndpointType, len(modelNames))
+	for _, modelName := range modelNames {
+		byModel[modelName] = GetModelSupportEndpointTypes(modelName)
 	}
 	return byModel
 }
@@ -96,7 +93,7 @@ func TestPricingAdvancedCustomUsesConfiguredEndpointTypes(t *testing.T) {
 	insertPricingEndpointAbility(t, 101, "gemini-2.5-flash")
 	insertPricingEndpointAbility(t, 101, "gpt-4o")
 
-	byModel := pricingEndpointTypesByModel(t)
+	byModel := pricingEndpointTypesByModel(t, "gemini-2.5-flash", "gpt-4o")
 
 	assert.Equal(t, []constant.EndpointType{
 		constant.EndpointTypeOpenAI,
@@ -128,7 +125,7 @@ func TestPricingModelMetadataEndpointsMergeWithAdvancedCustomInference(t *testin
 		NameRule: NameRuleExact,
 	}).Error)
 
-	byModel := pricingEndpointTypesByModel(t)
+	byModel := pricingEndpointTypesByModel(t, "gemini-2.5-flash")
 
 	assert.Equal(t, []constant.EndpointType{
 		constant.EndpointTypeOpenAIResponse,
@@ -157,7 +154,7 @@ func TestPricingModelMetadataEndpointsCanProvideEndpointWithoutChannelInference(
 		NameRule: NameRuleExact,
 	}).Error)
 
-	byModel := pricingEndpointTypesByModel(t)
+	byModel := pricingEndpointTypesByModel(t, "metadata-only-model")
 
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, byModel["metadata-only-model"])
 }
@@ -168,7 +165,7 @@ func TestPricingAdvancedCustomMissingConfigFallsBackToChannelType(t *testing.T) 
 	insertPricingEndpointChannel(t, 102, constant.ChannelTypeAdvancedCustom, dto.ChannelOtherSettings{})
 	insertPricingEndpointAbility(t, 102, "gpt-4o")
 
-	byModel := pricingEndpointTypesByModel(t)
+	byModel := pricingEndpointTypesByModel(t, "gpt-4o")
 
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, byModel["gpt-4o"])
 }
@@ -183,7 +180,7 @@ func TestPricingNativeChannelEndpointTypesUnchanged(t *testing.T) {
 	insertPricingEndpointAbility(t, 202, "gemini-2.5-flash")
 	insertPricingEndpointAbility(t, 203, "claude-3-5-sonnet")
 
-	byModel := pricingEndpointTypesByModel(t)
+	byModel := pricingEndpointTypesByModel(t, "gpt-4o", "gemini-2.5-flash", "claude-3-5-sonnet")
 
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, byModel["gpt-4o"])
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeGemini, constant.EndpointTypeOpenAI}, byModel["gemini-2.5-flash"])
@@ -202,7 +199,7 @@ func TestInitChannelCacheInvalidatesPricingCache(t *testing.T) {
 	insertPricingEndpointAbility(t, 301, "gemini-3.5-flash")
 	InitChannelCache()
 
-	initial := pricingEndpointTypesByModel(t)
+	initial := pricingEndpointTypesByModel(t, "gemini-3.5-flash")
 	require.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, initial["gemini-3.5-flash"])
 
 	var channel Channel
@@ -222,7 +219,7 @@ func TestInitChannelCacheInvalidatesPricingCache(t *testing.T) {
 	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", 301).Update("settings", channel.OtherSettings).Error)
 	InitChannelCache()
 
-	updated := pricingEndpointTypesByModel(t)
+	updated := pricingEndpointTypesByModel(t, "gemini-3.5-flash")
 	assert.Equal(t, []constant.EndpointType{
 		constant.EndpointTypeOpenAI,
 		constant.EndpointTypeOpenAIResponse,
@@ -246,12 +243,12 @@ func TestInitChannelCacheInvalidatesStartupPricingBuiltBeforeChannelCache(t *tes
 	))
 	insertPricingEndpointAbility(t, 302, "gemini-3.5-flash")
 
-	staleByModel := pricingEndpointTypesFromPricing(GetPricing())
-	require.Nil(t, staleByModel["gemini-3.5-flash"])
+	GetPricing()
+	require.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, GetModelSupportEndpointTypes("gemini-3.5-flash"))
 
 	InitChannelCache()
 
-	rebuiltByModel := pricingEndpointTypesFromPricing(GetPricing())
+	rebuiltByModel := pricingEndpointTypesByModel(t, "gemini-3.5-flash")
 	assert.Equal(t, []constant.EndpointType{
 		constant.EndpointTypeOpenAI,
 		constant.EndpointTypeOpenAIResponse,

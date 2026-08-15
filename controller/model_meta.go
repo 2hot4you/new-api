@@ -253,7 +253,14 @@ func enrichModels(models []*model.Model) {
 			ruleIndices = append(ruleIndices, i)
 		}
 	}
-	pricings := model.GetPricing()
+	// Refresh endpoint inference before enriching rule models. The public pricing
+	// catalog is intentionally filtered to published models, so it must not be
+	// used as the runtime source for rule matches, groups, or endpoints.
+	model.GetPricing()
+	runtimeAbilities, err := model.GetAllEnableAbilityWithChannels()
+	if err != nil {
+		runtimeAbilities = nil
+	}
 
 	// 2) 批量查询精确模型的绑定渠道
 	channelsByModel, _ := model.GetBoundChannelsByModelsMap(exactNames)
@@ -281,36 +288,46 @@ func enrichModels(models []*model.Model) {
 		return
 	}
 
-	// 4) 一次性读取定价缓存，内存匹配所有规则模型
+	// 4) 从启用的运行时能力快照匹配所有规则模型。公共定价目录会排除
+	// 草稿和临时不可售模型，不能作为这里的运行时可用性来源。
 	// 为全部规则模型收集匹配名集合、端点并集、分组并集、配额集合
 	matchedNamesByIdx := make(map[int][]string)
+	matchedNameSetByIdx := make(map[int]map[string]struct{})
 	endpointSetByIdx := make(map[int]map[constant.EndpointType]struct{})
 	groupSetByIdx := make(map[int]map[string]struct{})
 	quotaSetByIdx := make(map[int]map[int]struct{})
 
-	for _, p := range pricings {
+	for _, ability := range runtimeAbilities {
 		for _, idx := range ruleIndices {
 			mm := models[idx]
 			var matched bool
 			switch mm.NameRule {
 			case model.NameRulePrefix:
-				matched = strings.HasPrefix(p.ModelName, mm.ModelName)
+				matched = strings.HasPrefix(ability.Model, mm.ModelName)
 			case model.NameRuleSuffix:
-				matched = strings.HasSuffix(p.ModelName, mm.ModelName)
+				matched = strings.HasSuffix(ability.Model, mm.ModelName)
 			case model.NameRuleContains:
-				matched = strings.Contains(p.ModelName, mm.ModelName)
+				matched = strings.Contains(ability.Model, mm.ModelName)
 			}
 			if !matched {
 				continue
 			}
-			matchedNamesByIdx[idx] = append(matchedNamesByIdx[idx], p.ModelName)
+			names := matchedNameSetByIdx[idx]
+			if names == nil {
+				names = make(map[string]struct{})
+				matchedNameSetByIdx[idx] = names
+			}
+			if _, seen := names[ability.Model]; !seen {
+				names[ability.Model] = struct{}{}
+				matchedNamesByIdx[idx] = append(matchedNamesByIdx[idx], ability.Model)
+			}
 
 			es := endpointSetByIdx[idx]
 			if es == nil {
 				es = make(map[constant.EndpointType]struct{})
 				endpointSetByIdx[idx] = es
 			}
-			for _, et := range p.SupportedEndpointTypes {
+			for _, et := range model.GetModelSupportEndpointTypes(ability.Model) {
 				es[et] = struct{}{}
 			}
 
@@ -319,16 +336,16 @@ func enrichModels(models []*model.Model) {
 				gs = make(map[string]struct{})
 				groupSetByIdx[idx] = gs
 			}
-			for _, g := range p.EnableGroup {
-				gs[g] = struct{}{}
-			}
+			gs[ability.Group] = struct{}{}
 
 			qs := quotaSetByIdx[idx]
 			if qs == nil {
 				qs = make(map[int]struct{})
 				quotaSetByIdx[idx] = qs
 			}
-			qs[p.QuotaType] = struct{}{}
+			for _, quotaType := range model.GetModelQuotaTypes(ability.Model) {
+				qs[quotaType] = struct{}{}
+			}
 		}
 	}
 
@@ -343,6 +360,7 @@ func enrichModels(models []*model.Model) {
 	for n := range allMatchedSet {
 		allMatched = append(allMatched, n)
 	}
+	sort.Strings(allMatched)
 	matchedChannelsByModel, _ := model.GetBoundChannelsByModelsMap(allMatched)
 
 	// 6) 回填每个规则模型的并集信息
@@ -367,6 +385,7 @@ func enrichModels(models []*model.Model) {
 			for g := range gs {
 				groups = append(groups, g)
 			}
+			sort.Strings(groups)
 			mm.EnableGroups = groups
 		}
 
@@ -394,10 +413,17 @@ func enrichModels(models []*model.Model) {
 			for _, ch := range channelSet {
 				chs = append(chs, ch)
 			}
+			sort.Slice(chs, func(i, j int) bool {
+				if chs[i].Name == chs[j].Name {
+					return chs[i].Type < chs[j].Type
+				}
+				return chs[i].Name < chs[j].Name
+			})
 			mm.BoundChannels = chs
 		}
 
 		// 匹配信息
+		sort.Strings(names)
 		mm.MatchedModels = names
 		mm.MatchedCount = len(names)
 	}
