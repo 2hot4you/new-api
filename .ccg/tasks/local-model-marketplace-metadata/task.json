@@ -1,0 +1,13 @@
+{
+  "id": "local-model-marketplace-metadata",
+  "title": "模型广场改为本地模型元数据配置",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "analysis",
+  "currentPhase": "planning",
+  "nextAction": "完成设计文档自审并等待用户评审",
+  "createdAt": "2026-08-15T13:25:00+08:00",
+  "branch": "feat/molii-auth"
+}
