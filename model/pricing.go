@@ -91,11 +91,26 @@ func GetPricing() []Pricing {
 	return pricingMap
 }
 
-// IsModelPricingConfigured checks the current in-memory pricing settings
-// without refreshing caches or writing persistent state.
+// IsModelPricingConfigured checks explicit pricing settings without accepting
+// the operational self-use fallback ratio or mutating any cache.
 func IsModelPricingConfigured(modelName string) bool {
-	_, _, configured := ratio_setting.GetModelRatioOrPrice(modelName)
-	return configured
+	if _, configured := ratio_setting.GetModelPrice(modelName, false); configured {
+		return true
+	}
+
+	normalizedName := ratio_setting.FormatMatchingModelName(modelName)
+	modelRatios := ratio_setting.GetModelRatioCopy()
+	if _, configured := modelRatios[normalizedName]; configured {
+		return true
+	}
+	if strings.HasSuffix(normalizedName, ratio_setting.CompactModelSuffix) {
+		if _, configured := modelRatios[ratio_setting.CompactWildcardModelKey]; configured {
+			return true
+		}
+	}
+
+	expression, configured := billing_setting.GetBillingExpr(modelName)
+	return configured && strings.TrimSpace(expression) != ""
 }
 
 func InvalidatePricingCache() {

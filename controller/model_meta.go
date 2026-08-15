@@ -241,6 +241,7 @@ func enrichModels(models []*model.Model) {
 	exactNames := make([]string, 0)
 	exactIdx := make(map[string][]int) // modelName -> indices in models
 	ruleIndices := make([]int, 0)
+	runtimeEndpointCounts := make([]int, len(models))
 	for i, m := range models {
 		if m == nil {
 			continue
@@ -252,6 +253,7 @@ func enrichModels(models []*model.Model) {
 			ruleIndices = append(ruleIndices, i)
 		}
 	}
+	pricings := model.GetPricing()
 
 	// 2) 批量查询精确模型的绑定渠道
 	channelsByModel, _ := model.GetBoundChannelsByModelsMap(exactNames)
@@ -261,8 +263,9 @@ func enrichModels(models []*model.Model) {
 		chs := channelsByModel[name]
 		for _, idx := range indices {
 			mm := models[idx]
+			eps := model.GetModelSupportEndpointTypes(mm.ModelName)
+			runtimeEndpointCounts[idx] = len(eps)
 			if mm.Endpoints == "" {
-				eps := model.GetModelSupportEndpointTypes(mm.ModelName)
 				if b, err := json.Marshal(eps); err == nil {
 					mm.Endpoints = string(b)
 				}
@@ -274,13 +277,11 @@ func enrichModels(models []*model.Model) {
 	}
 
 	if len(ruleIndices) == 0 {
-		enrichMarketplaceStates(models)
+		enrichMarketplaceStates(models, runtimeEndpointCounts)
 		return
 	}
 
 	// 4) 一次性读取定价缓存，内存匹配所有规则模型
-	pricings := model.GetPricing()
-
 	// 为全部规则模型收集匹配名集合、端点并集、分组并集、配额集合
 	matchedNamesByIdx := make(map[int][]string)
 	endpointSetByIdx := make(map[int]map[constant.EndpointType]struct{})
@@ -347,6 +348,7 @@ func enrichModels(models []*model.Model) {
 	// 6) 回填每个规则模型的并集信息
 	for _, idx := range ruleIndices {
 		mm := models[idx]
+		runtimeEndpointCounts[idx] = len(endpointSetByIdx[idx])
 
 		// 端点并集 -> 序列化
 		if es, ok := endpointSetByIdx[idx]; ok && mm.Endpoints == "" {
@@ -400,10 +402,10 @@ func enrichModels(models []*model.Model) {
 		mm.MatchedCount = len(names)
 	}
 
-	enrichMarketplaceStates(models)
+	enrichMarketplaceStates(models, runtimeEndpointCounts)
 }
 
-func enrichMarketplaceStates(models []*model.Model) {
+func enrichMarketplaceStates(models []*model.Model, runtimeEndpointCounts []int) {
 	vendorIDs := make([]int, 0, len(models))
 	seenVendorIDs := make(map[int]struct{}, len(models))
 	for _, entry := range models {
@@ -427,7 +429,7 @@ func enrichMarketplaceStates(models []*model.Model) {
 		}
 	}
 
-	for _, entry := range models {
+	for index, entry := range models {
 		if entry == nil {
 			continue
 		}
@@ -446,19 +448,11 @@ func enrichMarketplaceStates(models []*model.Model) {
 			}
 		}
 
-		endpointCount := 0
-		var endpointTypes []constant.EndpointType
-		if json.Unmarshal([]byte(entry.Endpoints), &endpointTypes) == nil {
-			endpointCount = len(endpointTypes)
-		}
-		if endpointCount == 0 && entry.NameRule == model.NameRuleExact {
-			endpointCount = len(model.GetModelSupportEndpointTypes(entry.ModelName))
-		}
 		entry.MarketplaceBlockers = model.EvaluateMarketplaceBlockers(
 			enabledVendors[entry.VendorID],
 			pricingConfigured,
 			len(entry.EnableGroups),
-			endpointCount,
+			runtimeEndpointCounts[index],
 		)
 		entry.MarketplaceVisible = entry.Status == 1 &&
 			entry.MarketplaceEnabled &&

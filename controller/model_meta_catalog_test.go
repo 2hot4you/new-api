@@ -9,7 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -312,4 +315,94 @@ func TestModelMarketplaceBlockersAreStableAndComplete(t *testing.T) {
 		model.EvaluateMarketplaceBlockers(false, false, 0, 0),
 	)
 	assert.Empty(t, model.EvaluateMarketplaceBlockers(true, true, 1, 1))
+}
+
+func insertRuleMarketplaceRuntime(t *testing.T, db *gorm.DB, ruleName string, endpoints string, channelType int, settings dto.ChannelOtherSettings) model.Model {
+	t.Helper()
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+	})
+	vendor := model.Vendor{Name: "Vendor " + ruleName, Status: 1}
+	require.NoError(t, vendor.Insert())
+	entry := model.Model{
+		ModelName:           ruleName,
+		NameRule:            model.NameRulePrefix,
+		DisplayName:         "Rule model",
+		Description:         "Rule description",
+		VendorID:            vendor.Id,
+		Endpoints:           endpoints,
+		Status:              1,
+		SyncOfficial:        1,
+		ReleaseDate:         "2026-08-15",
+		InputModalities:     []string{"text"},
+		OutputModalities:    []string{"text"},
+		Capabilities:        []string{"streaming"},
+		SupportedParameters: []string{"stream"},
+		ContextLength:       128_000,
+		MaxOutputTokens:     8_000,
+		MarketplaceEnabled:  true,
+	}
+	require.NoError(t, db.Create(&entry).Error)
+
+	channel := model.Channel{
+		Name:   "Channel " + ruleName,
+		Key:    "not-a-real-key",
+		Type:   channelType,
+		Status: common.ChannelStatusEnabled,
+	}
+	if settings.AdvancedCustom != nil {
+		channel.SetOtherSettings(settings)
+	}
+	require.NoError(t, db.Create(&channel).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     ruleName + "child",
+		ChannelId: channel.Id,
+		Enabled:   true,
+	}).Error)
+	model.InvalidatePricingCache()
+	return entry
+}
+
+func advancedCustomRouteForOtherModel() dto.ChannelOtherSettings {
+	return dto.ChannelOtherSettings{
+		AdvancedCustom: &dto.AdvancedCustomConfig{
+			Routes: []dto.AdvancedCustomRoute{{
+				IncomingPath: "/v1/responses",
+				UpstreamPath: "/v1/responses",
+				Models:       []string{"some-other-model"},
+			}},
+		},
+	}
+}
+
+func TestModelMarketplaceRuleCustomObjectEndpointUsesRuntimeEndpointSet(t *testing.T) {
+	db := setupModelMetaCatalogControllerTest(t)
+	entry := insertRuleMarketplaceRuntime(t, db, "custom-object-rule-", `{"custom_chat":"/v1/custom/chat"}`, constant.ChannelTypeAdvancedCustom, advancedCustomRouteForOtherModel())
+
+	enrichModels([]*model.Model{&entry})
+
+	assert.NotContains(t, entry.MarketplaceBlockers, "endpoint_unavailable")
+	assert.Equal(t, []string{"custom-object-rule-child"}, entry.MatchedModels)
+}
+
+func TestModelMarketplaceRuleMatchedRuntimeEndpointsUseUnion(t *testing.T) {
+	db := setupModelMetaCatalogControllerTest(t)
+	entry := insertRuleMarketplaceRuntime(t, db, "runtime-union-rule-", "", constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+
+	enrichModels([]*model.Model{&entry})
+
+	assert.NotContains(t, entry.MarketplaceBlockers, "endpoint_unavailable")
+	assert.Contains(t, entry.Endpoints, string(constant.EndpointTypeOpenAI))
+}
+
+func TestModelMarketplaceRuleStaleEndpointArrayDoesNotCountAsRuntimeEndpoint(t *testing.T) {
+	db := setupModelMetaCatalogControllerTest(t)
+	entry := insertRuleMarketplaceRuntime(t, db, "stale-array-rule-", `["stale_endpoint"]`, constant.ChannelTypeAdvancedCustom, advancedCustomRouteForOtherModel())
+
+	enrichModels([]*model.Model{&entry})
+
+	assert.Contains(t, entry.MarketplaceBlockers, "endpoint_unavailable")
 }
