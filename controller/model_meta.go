@@ -2,6 +2,8 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,7 +13,25 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+var (
+	errModelNameImmutable            = errors.New("model name is immutable")
+	errMarketplaceMetadataIncomplete = errors.New("marketplace metadata is incomplete")
+)
+
+func writeModelMetaPublicationError(c *gin.Context, code string, message string, missingFields []string) {
+	response := gin.H{
+		"success": false,
+		"code":    code,
+		"message": message,
+	}
+	if missingFields != nil {
+		response["missing_fields"] = missingFields
+	}
+	c.JSON(http.StatusOK, response)
+}
 
 // GetAllModelsMeta 获取模型列表（分页）
 func GetAllModelsMeta(c *gin.Context) {
@@ -101,6 +121,11 @@ func CreateModelMeta(c *gin.Context) {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}
+	readiness := m.EvaluateMarketplaceReadiness()
+	if m.MarketplaceEnabled && !readiness.Complete {
+		writeModelMetaPublicationError(c, "marketplace_metadata_incomplete", errMarketplaceMetadataIncomplete.Error(), readiness.Missing)
+		return
+	}
 	// 名称冲突检查
 	if dup, err := model.IsModelNameDuplicated(0, m.ModelName); err != nil {
 		common.ApiError(c, err)
@@ -115,6 +140,7 @@ func CreateModelMeta(c *gin.Context) {
 		return
 	}
 	model.RefreshPricing()
+	enrichModels([]*model.Model{&m})
 	common.ApiSuccess(c, &m)
 }
 
@@ -132,32 +158,60 @@ func UpdateModelMeta(c *gin.Context) {
 		return
 	}
 
-	if statusOnly {
-		// 只更新状态，防止误清空其他字段
-		if err := model.DB.Model(&model.Model{}).Where("id = ?", m.Id).Update("status", m.Status).Error; err != nil {
-			common.ApiError(c, err)
-			return
+	missingFields := []string(nil)
+	withdrawn := false
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		persisted, err := model.GetModelByIDForUpdate(tx, m.Id)
+		if err != nil {
+			return err
 		}
-	} else {
-		if err := m.NormalizeCatalogMetadata(); err != nil {
-			common.ApiErrorMsg(c, err.Error())
-			return
-		}
-		// 名称冲突检查
-		if dup, err := model.IsModelNameDuplicated(m.Id, m.ModelName); err != nil {
-			common.ApiError(c, err)
-			return
-		} else if dup {
-			common.ApiErrorMsg(c, "模型名称已存在")
-			return
+		if m.ModelName != "" && m.ModelName != persisted.ModelName {
+			return errModelNameImmutable
 		}
 
-		if err := m.Update(); err != nil {
-			common.ApiError(c, err)
-			return
+		if statusOnly {
+			if err := tx.Model(&model.Model{}).Where("id = ?", persisted.Id).Update("status", m.Status).Error; err != nil {
+				return err
+			}
+			persisted.Status = m.Status
+			m = *persisted
+			return nil
 		}
+
+		if m.ModelName == "" {
+			return errModelNameImmutable
+		}
+		if err := m.NormalizeCatalogMetadata(); err != nil {
+			return err
+		}
+
+		readiness := m.EvaluateMarketplaceReadiness()
+		if !persisted.MarketplaceEnabled && m.MarketplaceEnabled && !readiness.Complete {
+			missingFields = readiness.Missing
+			return errMarketplaceMetadataIncomplete
+		}
+		if persisted.MarketplaceEnabled && !readiness.Complete {
+			m.MarketplaceEnabled = false
+			withdrawn = true
+		}
+		m.Id = persisted.Id
+		return m.UpdateTx(tx)
+	})
+	if errors.Is(err, errModelNameImmutable) {
+		writeModelMetaPublicationError(c, "model_name_immutable", err.Error(), nil)
+		return
+	}
+	if errors.Is(err, errMarketplaceMetadataIncomplete) {
+		writeModelMetaPublicationError(c, "marketplace_metadata_incomplete", err.Error(), missingFields)
+		return
+	}
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
 	model.RefreshPricing()
+	m.MarketplaceWithdrawn = withdrawn
+	enrichModels([]*model.Model{&m})
 	common.ApiSuccess(c, &m)
 }
 
@@ -220,6 +274,7 @@ func enrichModels(models []*model.Model) {
 	}
 
 	if len(ruleIndices) == 0 {
+		enrichMarketplaceStates(models)
 		return
 	}
 
@@ -343,5 +398,71 @@ func enrichModels(models []*model.Model) {
 		// 匹配信息
 		mm.MatchedModels = names
 		mm.MatchedCount = len(names)
+	}
+
+	enrichMarketplaceStates(models)
+}
+
+func enrichMarketplaceStates(models []*model.Model) {
+	vendorIDs := make([]int, 0, len(models))
+	seenVendorIDs := make(map[int]struct{}, len(models))
+	for _, entry := range models {
+		if entry == nil || entry.VendorID <= 0 {
+			continue
+		}
+		if _, seen := seenVendorIDs[entry.VendorID]; seen {
+			continue
+		}
+		seenVendorIDs[entry.VendorID] = struct{}{}
+		vendorIDs = append(vendorIDs, entry.VendorID)
+	}
+
+	enabledVendors := make(map[int]bool, len(vendorIDs))
+	if len(vendorIDs) > 0 {
+		var vendors []model.Vendor
+		if err := model.DB.Select("id", "status").Where("id IN ?", vendorIDs).Find(&vendors).Error; err == nil {
+			for _, vendor := range vendors {
+				enabledVendors[vendor.Id] = vendor.Status == 1
+			}
+		}
+	}
+
+	for _, entry := range models {
+		if entry == nil {
+			continue
+		}
+		readiness := entry.EvaluateMarketplaceReadiness()
+		entry.MarketplaceCategory = string(readiness.Category)
+		entry.MarketplaceComplete = readiness.Complete
+		entry.MarketplaceMissingFields = readiness.Missing
+
+		pricingConfigured := model.IsModelPricingConfigured(entry.ModelName)
+		if !pricingConfigured {
+			for _, matchedName := range entry.MatchedModels {
+				if model.IsModelPricingConfigured(matchedName) {
+					pricingConfigured = true
+					break
+				}
+			}
+		}
+
+		endpointCount := 0
+		var endpointTypes []constant.EndpointType
+		if json.Unmarshal([]byte(entry.Endpoints), &endpointTypes) == nil {
+			endpointCount = len(endpointTypes)
+		}
+		if endpointCount == 0 && entry.NameRule == model.NameRuleExact {
+			endpointCount = len(model.GetModelSupportEndpointTypes(entry.ModelName))
+		}
+		entry.MarketplaceBlockers = model.EvaluateMarketplaceBlockers(
+			enabledVendors[entry.VendorID],
+			pricingConfigured,
+			len(entry.EnableGroups),
+			endpointCount,
+		)
+		entry.MarketplaceVisible = entry.Status == 1 &&
+			entry.MarketplaceEnabled &&
+			readiness.Complete &&
+			len(entry.MarketplaceBlockers) == 0
 	}
 }

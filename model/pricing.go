@@ -91,6 +91,13 @@ func GetPricing() []Pricing {
 	return pricingMap
 }
 
+// IsModelPricingConfigured checks the current in-memory pricing settings
+// without refreshing caches or writing persistent state.
+func IsModelPricingConfigured(modelName string) bool {
+	_, _, configured := ratio_setting.GetModelRatioOrPrice(modelName)
+	return configured
+}
+
 func InvalidatePricingCache() {
 	updatePricingLock.Lock()
 	defer updatePricingLock.Unlock()

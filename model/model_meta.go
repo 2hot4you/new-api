@@ -79,9 +79,10 @@ type Model struct {
 
 	MarketplaceCategory      string   `json:"marketplace_category,omitempty" gorm:"-"`
 	MarketplaceComplete      bool     `json:"marketplace_complete" gorm:"-"`
-	MarketplaceMissingFields []string `json:"marketplace_missing_fields,omitempty" gorm:"-"`
+	MarketplaceMissingFields []string `json:"marketplace_missing_fields" gorm:"-"`
 	MarketplaceVisible       bool     `json:"marketplace_visible" gorm:"-"`
-	MarketplaceBlockers      []string `json:"marketplace_blockers,omitempty" gorm:"-"`
+	MarketplaceBlockers      []string `json:"marketplace_blockers" gorm:"-"`
+	MarketplaceWithdrawn     bool     `json:"marketplace_withdrawn,omitempty" gorm:"-"`
 }
 
 func (mi *Model) Insert() error {
@@ -115,11 +116,26 @@ func IsModelNameDuplicated(id int, name string) (bool, error) {
 }
 
 func (mi *Model) Update() error {
+	return mi.UpdateTx(DB)
+}
+
+// UpdateTx persists a complete model metadata edit on the supplied transaction.
+func (mi *Model) UpdateTx(tx *gorm.DB) error {
 	mi.UpdatedTime = common.GetTimestamp()
 	// 使用 Select 强制更新所有字段，包括零值
-	return DB.Model(&Model{}).Where("id = ?", mi.Id).
+	return tx.Model(&Model{}).Where("id = ?", mi.Id).
 		Select("model_name", "display_name", "description", "description_en", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "context_length", "max_output_tokens", "knowledge_cutoff", "release_date", "input_modalities", "output_modalities", "capabilities", "metadata_source", "metadata_verified_at", "marketplace_enabled", "supported_parameters", "supported_resolutions", "supported_aspect_ratios", "max_input_images", "output_formats", "min_duration", "max_duration", "reference_modalities", "updated_time").
 		Updates(mi).Error
+}
+
+// GetModelByIDForUpdate loads a model under the database's row-locking rules.
+// Callers must keep all dependent writes on the same transaction.
+func GetModelByIDForUpdate(tx *gorm.DB, id int) (*Model, error) {
+	var entry Model
+	if err := lockForUpdate(tx).First(&entry, id).Error; err != nil {
+		return nil, err
+	}
+	return &entry, nil
 }
 
 func validateOptionalCatalogDate(field string, value string) error {

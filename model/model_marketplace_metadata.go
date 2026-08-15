@@ -35,6 +35,25 @@ type MarketplaceReadiness struct {
 	Missing  []string
 }
 
+// EvaluateMarketplaceBlockers returns runtime availability blockers in stable
+// order. Publication intent is deliberately not part of this calculation.
+func EvaluateMarketplaceBlockers(vendorEnabled bool, pricingConfigured bool, groupCount int, endpointCount int) []string {
+	blockers := make([]string, 0, 4)
+	if !vendorEnabled {
+		blockers = append(blockers, "vendor_disabled")
+	}
+	if !pricingConfigured {
+		blockers = append(blockers, "pricing_missing")
+	}
+	if groupCount <= 0 {
+		blockers = append(blockers, "group_unavailable")
+	}
+	if endpointCount <= 0 {
+		blockers = append(blockers, "endpoint_unavailable")
+	}
+	return blockers
+}
+
 // InferMarketplaceCategory derives the marketplace category solely from a
 // model's declared capabilities and modalities.
 func InferMarketplaceCategory(model *Model) MarketplaceCategory {
