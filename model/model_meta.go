@@ -36,27 +36,38 @@ type BoundChannel struct {
 }
 
 type Model struct {
-	Id                 int            `json:"id"`
-	ModelName          string         `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
-	Description        string         `json:"description,omitempty" gorm:"type:text"`
-	Icon               string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
-	Tags               string         `json:"tags,omitempty" gorm:"type:varchar(255)"`
-	VendorID           int            `json:"vendor_id,omitempty" gorm:"index"`
-	Endpoints          string         `json:"endpoints,omitempty" gorm:"type:text"`
-	Status             int            `json:"status" gorm:"default:1"`
-	SyncOfficial       int            `json:"sync_official" gorm:"default:1"`
-	ContextLength      int            `json:"context_length,omitempty"`
-	MaxOutputTokens    int            `json:"max_output_tokens,omitempty"`
-	KnowledgeCutoff    string         `json:"knowledge_cutoff,omitempty" gorm:"type:varchar(64)"`
-	ReleaseDate        string         `json:"release_date,omitempty" gorm:"type:varchar(32)"`
-	InputModalities    []string       `json:"input_modalities,omitempty" gorm:"serializer:json;type:text"`
-	OutputModalities   []string       `json:"output_modalities,omitempty" gorm:"serializer:json;type:text"`
-	Capabilities       []string       `json:"capabilities,omitempty" gorm:"serializer:json;type:text"`
-	MetadataSource     string         `json:"metadata_source,omitempty" gorm:"type:varchar(128)"`
-	MetadataVerifiedAt string         `json:"metadata_verified_at,omitempty" gorm:"type:varchar(32)"`
-	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
-	UpdatedTime        int64          `json:"updated_time" gorm:"bigint"`
-	DeletedAt          gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`
+	Id                    int            `json:"id"`
+	ModelName             string         `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
+	DisplayName           string         `json:"display_name,omitempty" gorm:"type:varchar(255)"`
+	Description           string         `json:"description,omitempty" gorm:"type:text"`
+	DescriptionEN         string         `json:"description_en,omitempty" gorm:"type:text"`
+	Icon                  string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
+	Tags                  string         `json:"tags,omitempty" gorm:"type:varchar(255)"`
+	VendorID              int            `json:"vendor_id,omitempty" gorm:"index"`
+	Endpoints             string         `json:"endpoints,omitempty" gorm:"type:text"`
+	Status                int            `json:"status" gorm:"default:1"`
+	SyncOfficial          int            `json:"sync_official" gorm:"default:1"`
+	ContextLength         int            `json:"context_length,omitempty"`
+	MaxOutputTokens       int            `json:"max_output_tokens,omitempty"`
+	KnowledgeCutoff       string         `json:"knowledge_cutoff,omitempty" gorm:"type:varchar(64)"`
+	ReleaseDate           string         `json:"release_date,omitempty" gorm:"type:varchar(32)"`
+	InputModalities       []string       `json:"input_modalities,omitempty" gorm:"serializer:json;type:text"`
+	OutputModalities      []string       `json:"output_modalities,omitempty" gorm:"serializer:json;type:text"`
+	Capabilities          []string       `json:"capabilities,omitempty" gorm:"serializer:json;type:text"`
+	MetadataSource        string         `json:"metadata_source,omitempty" gorm:"type:varchar(128)"`
+	MetadataVerifiedAt    string         `json:"metadata_verified_at,omitempty" gorm:"type:varchar(32)"`
+	MarketplaceEnabled    bool           `json:"marketplace_enabled" gorm:"not null;default:false"`
+	SupportedParameters   []string       `json:"supported_parameters,omitempty" gorm:"serializer:json;type:text"`
+	SupportedResolutions  []string       `json:"supported_resolutions,omitempty" gorm:"serializer:json;type:text"`
+	SupportedAspectRatios []string       `json:"supported_aspect_ratios,omitempty" gorm:"serializer:json;type:text"`
+	MaxInputImages        int            `json:"max_input_images,omitempty"`
+	OutputFormats         []string       `json:"output_formats,omitempty" gorm:"serializer:json;type:text"`
+	MinDuration           int            `json:"min_duration,omitempty"`
+	MaxDuration           int            `json:"max_duration,omitempty"`
+	ReferenceModalities   []string       `json:"reference_modalities,omitempty" gorm:"serializer:json;type:text"`
+	CreatedTime           int64          `json:"created_time" gorm:"bigint"`
+	UpdatedTime           int64          `json:"updated_time" gorm:"bigint"`
+	DeletedAt             gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`
 
 	BoundChannels []BoundChannel `json:"bound_channels,omitempty" gorm:"-"`
 	EnableGroups  []string       `json:"enable_groups,omitempty" gorm:"-"`
@@ -65,6 +76,12 @@ type Model struct {
 
 	MatchedModels []string `json:"matched_models,omitempty" gorm:"-"`
 	MatchedCount  int      `json:"matched_count,omitempty" gorm:"-"`
+
+	MarketplaceCategory      string   `json:"marketplace_category,omitempty" gorm:"-"`
+	MarketplaceComplete      bool     `json:"marketplace_complete" gorm:"-"`
+	MarketplaceMissingFields []string `json:"marketplace_missing_fields,omitempty" gorm:"-"`
+	MarketplaceVisible       bool     `json:"marketplace_visible" gorm:"-"`
+	MarketplaceBlockers      []string `json:"marketplace_blockers,omitempty" gorm:"-"`
 }
 
 func (mi *Model) Insert() error {
@@ -101,7 +118,7 @@ func (mi *Model) Update() error {
 	mi.UpdatedTime = common.GetTimestamp()
 	// 使用 Select 强制更新所有字段，包括零值
 	return DB.Model(&Model{}).Where("id = ?", mi.Id).
-		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "context_length", "max_output_tokens", "knowledge_cutoff", "release_date", "input_modalities", "output_modalities", "capabilities", "metadata_source", "metadata_verified_at", "updated_time").
+		Select("model_name", "display_name", "description", "description_en", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "context_length", "max_output_tokens", "knowledge_cutoff", "release_date", "input_modalities", "output_modalities", "capabilities", "metadata_source", "metadata_verified_at", "marketplace_enabled", "supported_parameters", "supported_resolutions", "supported_aspect_ratios", "max_input_images", "output_formats", "min_duration", "max_duration", "reference_modalities", "updated_time").
 		Updates(mi).Error
 }
 
@@ -127,12 +144,6 @@ func validateCatalogValues(field string, values []string, allowed map[string]str
 // NormalizeCatalogMetadata normalizes optional catalog facts before they are
 // persisted. It intentionally does not invent missing metadata.
 func (mi *Model) NormalizeCatalogMetadata() error {
-	if mi.ContextLength < 0 {
-		return fmt.Errorf("context_length must be non-negative")
-	}
-	if mi.MaxOutputTokens < 0 {
-		return fmt.Errorf("max_output_tokens must be non-negative")
-	}
 	mi.KnowledgeCutoff = strings.TrimSpace(mi.KnowledgeCutoff)
 	mi.ReleaseDate = strings.TrimSpace(mi.ReleaseDate)
 	mi.MetadataSource = strings.TrimSpace(mi.MetadataSource)
@@ -140,6 +151,9 @@ func (mi *Model) NormalizeCatalogMetadata() error {
 	mi.InputModalities = normalizeLookupValues(mi.InputModalities)
 	mi.OutputModalities = normalizeLookupValues(mi.OutputModalities)
 	mi.Capabilities = normalizeLookupValues(mi.Capabilities)
+	if err := normalizeMarketplaceCatalogMetadata(mi); err != nil {
+		return err
+	}
 	if err := validateCatalogValues("input_modalities", mi.InputModalities, allowedModelModalities); err != nil {
 		return err
 	}
