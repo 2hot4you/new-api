@@ -25,6 +25,10 @@ var allowedMarketplaceOutputFormats = map[string]struct{}{
 	"url": {}, "b64_json": {},
 }
 
+var allowedMarketplaceReferenceModalities = map[string]struct{}{
+	"image": {}, "video": {}, "audio": {},
+}
+
 type MarketplaceReadiness struct {
 	Category MarketplaceCategory
 	Complete bool
@@ -37,22 +41,20 @@ func InferMarketplaceCategory(model *Model) MarketplaceCategory {
 	if model == nil {
 		return MarketplaceCategoryLLM
 	}
-	if containsString(model.Capabilities, "embeddings") {
-		return MarketplaceCategoryEmbedding
-	}
 	if containsString(model.Capabilities, "video_generation") ||
-		containsString(model.Capabilities, "video_editing") ||
 		containsString(model.OutputModalities, "video") {
 		return MarketplaceCategoryVideo
 	}
 	if containsString(model.Capabilities, "image_generation") ||
-		containsString(model.Capabilities, "image_editing") ||
 		containsString(model.OutputModalities, "image") {
 		return MarketplaceCategoryImage
 	}
 	if containsString(model.Capabilities, "audio_generation") ||
 		containsString(model.OutputModalities, "audio") {
 		return MarketplaceCategoryAudio
+	}
+	if containsString(model.Capabilities, "embeddings") {
+		return MarketplaceCategoryEmbedding
 	}
 	return MarketplaceCategoryLLM
 }
@@ -67,80 +69,127 @@ func (mi *Model) EvaluateMarketplaceReadiness() MarketplaceReadiness {
 		}
 	}
 
-	missing := make([]string, 0)
+	missing := make(map[string]struct{})
+	addMissing := func(field string) {
+		missing[field] = struct{}{}
+	}
 	if strings.TrimSpace(mi.ModelName) == "" {
-		missing = append(missing, "model_name")
+		addMissing("model_name")
 	}
 	if strings.TrimSpace(mi.DisplayName) == "" {
-		missing = append(missing, "display_name")
+		addMissing("display_name")
 	}
 	if strings.TrimSpace(mi.Description) == "" {
-		missing = append(missing, "description")
+		addMissing("description")
 	}
 	if mi.VendorID <= 0 {
-		missing = append(missing, "vendor_id")
+		addMissing("vendor_id")
 	}
 	if strings.TrimSpace(mi.ReleaseDate) == "" {
-		missing = append(missing, "release_date")
+		addMissing("release_date")
 	}
 	if len(mi.InputModalities) == 0 {
-		missing = append(missing, "input_modalities")
+		addMissing("input_modalities")
 	}
 	if len(mi.OutputModalities) == 0 {
-		missing = append(missing, "output_modalities")
+		addMissing("output_modalities")
 	}
 	if len(mi.Capabilities) == 0 {
-		missing = append(missing, "capabilities")
+		addMissing("capabilities")
 	}
 
 	category := InferMarketplaceCategory(mi)
 	switch category {
 	case MarketplaceCategoryLLM:
-		if len(mi.SupportedParameters) == 0 {
-			missing = append(missing, "supported_parameters")
+		if len(mi.SupportedParameters) == 0 || hasInvalidCatalogValues(mi.SupportedParameters, allowedMarketplaceParameters) {
+			addMissing("supported_parameters")
 		}
 		if mi.ContextLength <= 0 {
-			missing = append(missing, "context_length")
+			addMissing("context_length")
 		}
 		if mi.MaxOutputTokens <= 0 {
-			missing = append(missing, "max_output_tokens")
+			addMissing("max_output_tokens")
+		}
+		if mi.ContextLength > 0 && mi.MaxOutputTokens > mi.ContextLength {
+			addMissing("max_output_tokens")
+		}
+		if !containsString(mi.InputModalities, "text") {
+			addMissing("input_modalities")
+		}
+		if !containsString(mi.OutputModalities, "text") {
+			addMissing("output_modalities")
 		}
 	case MarketplaceCategoryImage:
-		appendImageReadinessMissing(mi, &missing)
+		appendVisualReadinessMissing(mi, addMissing)
+		if len(mi.OutputFormats) == 0 || hasInvalidCatalogValues(mi.OutputFormats, allowedMarketplaceOutputFormats) {
+			addMissing("output_formats")
+		}
+		if !containsString(mi.OutputModalities, "image") {
+			addMissing("output_modalities")
+		}
+		if containsString(mi.Capabilities, "image_editing") && !containsString(mi.InputModalities, "image") {
+			addMissing("input_modalities")
+		}
+		if containsString(mi.Capabilities, "image_editing") && mi.MaxInputImages <= 0 {
+			addMissing("max_input_images")
+		}
 	case MarketplaceCategoryVideo:
-		appendImageReadinessMissing(mi, &missing)
+		appendVisualReadinessMissing(mi, addMissing)
 		if mi.MinDuration <= 0 {
-			missing = append(missing, "min_duration")
+			addMissing("min_duration")
 		}
 		if mi.MaxDuration <= 0 {
-			missing = append(missing, "max_duration")
+			addMissing("max_duration")
 		}
-		if len(mi.ReferenceModalities) == 0 {
-			missing = append(missing, "reference_modalities")
+		if mi.MinDuration > 0 && mi.MaxDuration > 0 && mi.MinDuration > mi.MaxDuration {
+			addMissing("min_duration")
+			addMissing("max_duration")
+		}
+		if !containsString(mi.OutputModalities, "video") {
+			addMissing("output_modalities")
+		}
+		if hasInvalidReferenceModalities(mi.ReferenceModalities, mi.InputModalities) {
+			addMissing("reference_modalities")
 		}
 	}
 
-	sort.Strings(missing)
+	missingFields := make([]string, 0, len(missing))
+	for field := range missing {
+		missingFields = append(missingFields, field)
+	}
+	sort.Strings(missingFields)
 	return MarketplaceReadiness{
 		Category: category,
-		Complete: len(missing) == 0,
-		Missing:  missing,
+		Complete: len(missingFields) == 0,
+		Missing:  missingFields,
 	}
 }
 
-func appendImageReadinessMissing(model *Model, missing *[]string) {
+func appendVisualReadinessMissing(model *Model, addMissing func(string)) {
 	if len(model.SupportedResolutions) == 0 {
-		*missing = append(*missing, "supported_resolutions")
+		addMissing("supported_resolutions")
 	}
 	if len(model.SupportedAspectRatios) == 0 {
-		*missing = append(*missing, "supported_aspect_ratios")
+		addMissing("supported_aspect_ratios")
 	}
-	if len(model.OutputFormats) == 0 {
-		*missing = append(*missing, "output_formats")
+}
+
+func hasInvalidReferenceModalities(referenceModalities []string, inputModalities []string) bool {
+	for _, modality := range referenceModalities {
+		if _, ok := allowedMarketplaceReferenceModalities[modality]; !ok || !containsString(inputModalities, modality) {
+			return true
+		}
 	}
-	if containsString(model.Capabilities, "image_editing") && model.MaxInputImages <= 0 {
-		*missing = append(*missing, "max_input_images")
+	return false
+}
+
+func hasInvalidCatalogValues(values []string, allowed map[string]struct{}) bool {
+	for _, value := range values {
+		if _, ok := allowed[value]; !ok {
+			return true
+		}
 	}
+	return false
 }
 
 func normalizeMarketplaceCatalogMetadata(mi *Model) error {
@@ -149,6 +198,9 @@ func normalizeMarketplaceCatalogMetadata(mi *Model) error {
 	}
 	if mi.MaxOutputTokens < 0 {
 		return fmt.Errorf("max_output_tokens must be non-negative")
+	}
+	if mi.ContextLength > 0 && mi.MaxOutputTokens > mi.ContextLength {
+		return fmt.Errorf("max_output_tokens must not exceed context_length")
 	}
 	if mi.MaxInputImages < 0 {
 		return fmt.Errorf("max_input_images must be non-negative")
@@ -178,10 +230,11 @@ func normalizeMarketplaceCatalogMetadata(mi *Model) error {
 	if err := validateCatalogValues("output_formats", mi.OutputFormats, allowedMarketplaceOutputFormats); err != nil {
 		return err
 	}
-	for _, modality := range mi.ReferenceModalities {
-		if !containsString(mi.InputModalities, modality) {
-			return fmt.Errorf("reference_modalities must be a subset of input_modalities")
-		}
+	if err := validateCatalogValues("reference_modalities", mi.ReferenceModalities, allowedMarketplaceReferenceModalities); err != nil {
+		return err
+	}
+	if hasInvalidReferenceModalities(mi.ReferenceModalities, mi.InputModalities) {
+		return fmt.Errorf("reference_modalities must be a subset of input_modalities")
 	}
 	return nil
 }

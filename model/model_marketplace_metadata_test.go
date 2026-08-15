@@ -117,11 +117,12 @@ func TestEvaluateMarketplaceReadinessByCategory(t *testing.T) {
 func TestNormalizeMarketplaceMetadata(t *testing.T) {
 	t.Run("normalizes duplicate arrays", func(t *testing.T) {
 		model := marketplaceBaseModel()
+		model.InputModalities = []string{"text", "image"}
 		model.SupportedParameters = []string{" stream ", "temperature", "stream", ""}
 		model.SupportedResolutions = []string{" 1024x1024 ", "1024x1024", ""}
 		model.SupportedAspectRatios = []string{" 1:1 ", "1:1", ""}
 		model.OutputFormats = []string{" url ", "url", ""}
-		model.ReferenceModalities = []string{" text ", "text", ""}
+		model.ReferenceModalities = []string{" image ", "image", ""}
 
 		require.NoError(t, model.NormalizeCatalogMetadata())
 		require.Equal(t, "Qwen Test", model.DisplayName)
@@ -131,7 +132,7 @@ func TestNormalizeMarketplaceMetadata(t *testing.T) {
 		require.Equal(t, []string{"1024x1024"}, model.SupportedResolutions)
 		require.Equal(t, []string{"1:1"}, model.SupportedAspectRatios)
 		require.Equal(t, []string{"url"}, model.OutputFormats)
-		require.Equal(t, []string{"text"}, model.ReferenceModalities)
+		require.Equal(t, []string{"image"}, model.ReferenceModalities)
 	})
 
 	tests := []struct {
@@ -163,4 +164,76 @@ func TestNormalizeMarketplaceMetadata(t *testing.T) {
 			require.Error(t, tt.model.NormalizeCatalogMetadata())
 		})
 	}
+}
+
+func TestMarketplaceMetadataConditionalRules(t *testing.T) {
+	t.Run("category priority follows video image audio embedding", func(t *testing.T) {
+		model := marketplaceBaseModel()
+		model.OutputModalities = []string{"video"}
+		model.Capabilities = []string{"embeddings", "video_generation"}
+		require.Equal(t, MarketplaceCategoryVideo, InferMarketplaceCategory(&model))
+	})
+
+	t.Run("LLM requires text modalities and bounded output tokens", func(t *testing.T) {
+		model := marketplaceBaseModel()
+		model.InputModalities = []string{"image"}
+		model.OutputModalities = []string{"file"}
+		model.Capabilities = []string{"streaming"}
+		model.MaxOutputTokens = model.ContextLength + 1
+
+		got := model.EvaluateMarketplaceReadiness()
+		require.False(t, got.Complete)
+		require.Equal(t, []string{"input_modalities", "max_output_tokens", "output_modalities"}, got.Missing)
+	})
+
+	t.Run("image editing requires image input and image output", func(t *testing.T) {
+		model := marketplaceBaseModel()
+		model.Capabilities = []string{"image_generation", "image_editing"}
+		model.SupportedResolutions = []string{"1024x1024"}
+		model.SupportedAspectRatios = []string{"1:1"}
+		model.OutputFormats = []string{"url"}
+		model.MaxInputImages = 1
+
+		got := model.EvaluateMarketplaceReadiness()
+		require.False(t, got.Complete)
+		require.Equal(t, []string{"input_modalities", "output_modalities"}, got.Missing)
+	})
+
+	t.Run("video does not require image output formats or reference inputs", func(t *testing.T) {
+		model := marketplaceBaseModel()
+		model.OutputModalities = []string{"video"}
+		model.Capabilities = []string{"video_generation"}
+		model.SupportedResolutions = []string{"720p"}
+		model.SupportedAspectRatios = []string{"16:9"}
+		model.MinDuration = 5
+		model.MaxDuration = 10
+
+		got := model.EvaluateMarketplaceReadiness()
+		require.True(t, got.Complete)
+		require.Empty(t, got.Missing)
+	})
+
+	t.Run("video reports invalid duration range and reference modality", func(t *testing.T) {
+		model := marketplaceBaseModel()
+		model.InputModalities = []string{"text", "file"}
+		model.OutputModalities = []string{"video"}
+		model.Capabilities = []string{"video_generation"}
+		model.SupportedResolutions = []string{"720p"}
+		model.SupportedAspectRatios = []string{"16:9"}
+		model.MinDuration = 10
+		model.MaxDuration = 5
+		model.ReferenceModalities = []string{"file"}
+
+		got := model.EvaluateMarketplaceReadiness()
+		require.False(t, got.Complete)
+		require.Equal(t, []string{"max_duration", "min_duration", "reference_modalities"}, got.Missing)
+		require.Error(t, model.NormalizeCatalogMetadata())
+	})
+
+	t.Run("normalization rejects unsupported reference modality", func(t *testing.T) {
+		model := marketplaceBaseModel()
+		model.InputModalities = []string{"text", "file"}
+		model.ReferenceModalities = []string{"file"}
+		require.ErrorContains(t, model.NormalizeCatalogMetadata(), "reference_modalities contains unsupported value")
+	})
 }
