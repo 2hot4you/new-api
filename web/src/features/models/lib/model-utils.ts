@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 
 import { formatTimestampToDate } from '@/lib/format'
 
@@ -187,11 +187,4 @@ export function validateEndpointsJSON(endpoints: string): boolean {
  */
 export function isModelEnabled(model: Model): boolean {
   return model.status === 1
-}
-
-/**
- * Check if model syncs with official
- */
-export function isModelSyncOfficial(model: Model): boolean {
-  return model.sync_official === 1
 }

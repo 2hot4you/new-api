@@ -402,35 +402,6 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
       enableSorting: false,
     },
 
-    // Sync Official column
-    {
-      accessorKey: 'sync_official',
-      header: t('Official Sync'),
-      meta: { mobileHidden: true },
-      cell: ({ row }) => {
-        const syncOfficial = row.getValue('sync_official') as number
-        return (
-          <StatusBadge
-            variant={syncOfficial === 1 ? 'success' : 'warning'}
-            size='sm'
-            copyable={false}
-            className='-ml-1.5 max-w-none shrink-0'
-          >
-            {syncOfficial === 1 ? t('Official Sync') : t('No Sync')}
-          </StatusBadge>
-        )
-      },
-      filterFn: (row, id, value) => {
-        if (!value || value.length === 0 || value.includes('all')) return true
-        const syncOfficial = row.getValue(id) as number
-        if (value.includes('yes')) return syncOfficial === 1
-        if (value.includes('no')) return syncOfficial !== 1
-        return false
-      },
-      size: 100,
-      enableSorting: false,
-    },
-
     // Created Time column
     {
       accessorKey: 'created_time',

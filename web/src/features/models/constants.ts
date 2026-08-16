@@ -88,18 +88,6 @@ export function getModelStatusConfig(
 }
 
 // ============================================================================
-// Sync Status Options
-// ============================================================================
-
-export function getSyncStatusOptions(t: TFunction) {
-  return [
-    { label: t('All Sync Status'), value: 'all' },
-    { label: t('Official Sync'), value: 'yes' },
-    { label: t('No Sync'), value: 'no' },
-  ] as const
-}
-
-// ============================================================================
 // Deployment Status
 // ============================================================================
 

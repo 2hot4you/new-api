@@ -16,14 +16,20 @@ const modelsRoot = join(import.meta.dirname, '../..')
 test('models metadata uses the local editor without external sync controls', () => {
   const sources = [
     'api.ts',
+    'components/models-columns.tsx',
+    'components/models-table.tsx',
     'components/models-primary-buttons.tsx',
     'components/models-dialogs.tsx',
     'components/models-provider.tsx',
+    'components/drawers/model-mutate-drawer.tsx',
+    'lib/model-form.ts',
   ].map((file) => readFileSync(join(modelsRoot, file), 'utf8'))
 
   for (const source of sources) {
     assert.doesNotMatch(source, /models\.dev/i)
     assert.doesNotMatch(source, /sync_upstream/)
     assert.doesNotMatch(source, /sync-wizard/)
+    assert.doesNotMatch(source, /sync_official/)
+    assert.doesNotMatch(source, /Official Sync/)
   }
 })

@@ -26,11 +26,19 @@ docker run --detach --rm --name "$container" \
   "$postgres_image" >/dev/null
 
 attempt=0
-until docker exec "$container" pg_isready --username=migration_contract --dbname=migration_contract >/dev/null 2>&1; do
+ready_checks=0
+while [ "$ready_checks" -lt 3 ]; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 30 ]; then
     docker logs "$container" >&2
     exit 1
+  fi
+  if docker exec "$container" pg_isready --username=migration_contract --dbname=migration_contract >/dev/null 2>&1; then
+    ready_checks=$((ready_checks + 1))
+  else
+    # The official image briefly starts PostgreSQL while initializing and then
+    # restarts it. Requiring consecutive checks avoids racing that shutdown.
+    ready_checks=0
   fi
   sleep 1
 done

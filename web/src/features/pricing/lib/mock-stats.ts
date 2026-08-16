@@ -815,20 +815,26 @@ const VIDEO_PARAMS: SupportedParameter[] = [
 
 type ApiCategory = 'reasoning' | 'embedding' | 'image' | 'video' | 'chat'
 
-/**
- * Refine the broad PROFILE_BY_NAME bucket into an API-shape category. The
- * `image` bucket from `PROFILE_BY_NAME` lumps still-image and video models
- * together (because their performance profiles overlap); for the API tab we
- * need to distinguish them so the request-parameter table is accurate.
- */
+/** Derive the API-shape category from persisted capabilities and endpoints. */
 function apiCategoryOf(model: PricingModel): ApiCategory {
-  if (model.supported_endpoint_types?.includes('openai-video')) return 'video'
-  if (model.supported_endpoint_types?.includes('embeddings')) return 'embedding'
-  if (model.supported_endpoint_types?.includes('image-generation'))
+  if (model.supported_endpoint_types?.includes('openai-video')) {
+    return 'video'
+  }
+  if (model.supported_endpoint_types?.includes('embeddings')) {
+    return 'embedding'
+  }
+  if (model.supported_endpoint_types?.includes('image-generation')) {
     return 'image'
-  if (model.output_modalities?.includes('video')) return 'video'
-  if (model.output_modalities?.includes('image')) return 'image'
-  if (model.capabilities?.includes('reasoning')) return 'reasoning'
+  }
+  if (model.output_modalities?.includes('video')) {
+    return 'video'
+  }
+  if (model.output_modalities?.includes('image')) {
+    return 'image'
+  }
+  if (model.capabilities?.includes('reasoning')) {
+    return 'reasoning'
+  }
   return 'chat'
 }
 

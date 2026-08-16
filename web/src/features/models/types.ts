@@ -65,7 +65,6 @@ export interface Model {
   vendor_id?: number
   endpoints?: string
   status: number
-  sync_official: number
   created_time: number
   updated_time: number
   name_rule: number
@@ -137,7 +136,6 @@ export interface GetModelsParams {
   page_size?: number
   vendor?: string // vendor ID to filter by
   status?: string // filter by status
-  sync_official?: string // filter by sync_official status
 }
 
 /**
@@ -147,7 +145,6 @@ export interface SearchModelsParams {
   keyword?: string
   vendor?: string // vendor ID to filter by
   status?: string // filter by status
-  sync_official?: string // filter by sync_official status
   p?: number
   page_size?: number
 }

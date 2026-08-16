@@ -20,7 +20,6 @@ import {
   sideDrawerFooterClassName,
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
-  sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { JsonEditor } from '@/components/json-editor'
 import { Button } from '@/components/ui/button'
@@ -55,7 +54,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { Switch } from '@/components/ui/switch'
 
 import { createModel, getModel, getVendors, updateModel } from '../../api'
 import { ENDPOINT_TEMPLATES, getNameRuleOptions } from '../../constants'
@@ -83,7 +81,6 @@ const EMPTY_FORM_VALUES: ModelFormValues = {
   endpoints: '',
   name_rule: 0,
   status: true,
-  sync_official: true,
   marketplace_enabled: false,
   context_length: 0,
   max_output_tokens: 0,
@@ -436,27 +433,6 @@ export function ModelMutateDrawer({
                               )}
                             </FormDescription>
                             <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name='sync_official'
-                        render={({ field }) => (
-                          <FormItem className={sideDrawerSwitchItemClassName()}>
-                            <div>
-                              <FormLabel>{t('Official Sync')}</FormLabel>
-                              <FormDescription>
-                                {t('Sync this model with official upstream')}
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </FormControl>
                           </FormItem>
                         )}
                       />

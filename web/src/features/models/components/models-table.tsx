@@ -26,11 +26,7 @@ import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 
 import { getModels, searchModels, getVendors } from '../api'
-import {
-  DEFAULT_PAGE_SIZE,
-  getModelStatusOptions,
-  getSyncStatusOptions,
-} from '../constants'
+import { DEFAULT_PAGE_SIZE, getModelStatusOptions } from '../constants'
 import { modelsQueryKeys, vendorsQueryKeys } from '../lib'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { useModelsColumns } from './models-columns'
@@ -63,7 +59,6 @@ export function ModelsTable() {
     columnFilters: [
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'vendor_id', searchKey: 'vendor', type: 'array' },
-      { columnId: 'sync_official', searchKey: 'sync', type: 'array' },
     ],
   })
 
@@ -72,10 +67,6 @@ export function ModelsTable() {
     (columnFilters.find((f) => f.id === 'status')?.value as string[]) || []
   const vendorFilter =
     (columnFilters.find((f) => f.id === 'vendor_id')?.value as string[]) || []
-  const syncFilter =
-    (columnFilters.find((f) => f.id === 'sync_official')?.value as string[]) ||
-    []
-
   // Fetch vendors for filter
   const { data: vendorsData } = useQuery({
     queryKey: vendorsQueryKeys.list(),
@@ -105,17 +96,9 @@ export function ModelsTable() {
     statusFilter.length > 0 && !statusFilter.includes('all')
       ? statusFilter[0]
       : undefined
-  const syncFilterValue =
-    syncFilter.length > 0 && !syncFilter.includes('all')
-      ? syncFilter[0]
-      : undefined
-
-  // Use search API whenever any filter is active so status/sync are applied server-side
+  // Use search API whenever any filter is active so status is applied server-side.
   const shouldSearch = Boolean(
-    globalFilter?.trim() ||
-    activeVendorFilter ||
-    statusFilterValue ||
-    syncFilterValue
+    globalFilter?.trim() || activeVendorFilter || statusFilterValue
   )
 
   // Fetch models data
@@ -125,7 +108,6 @@ export function ModelsTable() {
       keyword: globalFilter,
       vendor: activeVendorFilter,
       status: statusFilterValue,
-      sync_official: syncFilterValue,
       p: pagination.pageIndex + 1,
       page_size: pagination.pageSize,
     }),
@@ -135,7 +117,6 @@ export function ModelsTable() {
           keyword: globalFilter,
           vendor: activeVendorFilter,
           status: statusFilterValue,
-          sync_official: syncFilterValue,
           p: pagination.pageIndex + 1,
           page_size: pagination.pageSize,
         })
@@ -213,12 +194,6 @@ export function ModelsTable() {
             columnId: 'vendor_id',
             title: t('Vendor'),
             options: vendorFilterOptions,
-            singleSelect: true,
-          },
-          {
-            columnId: 'sync_official',
-            title: t('Official Sync'),
-            options: [...getSyncStatusOptions(t)],
             singleSelect: true,
           },
         ],
