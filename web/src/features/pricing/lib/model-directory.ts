@@ -139,22 +139,7 @@ export function getModelCategories(models: PricingModel[]): ModelCategory[] {
 
 export function getModelInputModalities(model: PricingModel): Modality[] {
   const explicit = new Set(model.input_modalities ?? [])
-  if (explicit.size > 0) {
-    return MODALITY_ORDER.filter((modality) => explicit.has(modality))
-  }
-
-  const endpoints = endpointSet(model)
-  if (
-    endpoints.has('openai') ||
-    endpoints.has('openai-response') ||
-    endpoints.has('anthropic') ||
-    endpoints.has('gemini') ||
-    endpoints.has('image-generation') ||
-    endpoints.has('openai-video')
-  ) {
-    return ['text']
-  }
-  return []
+  return MODALITY_ORDER.filter((modality) => explicit.has(modality))
 }
 
 export function getContextBucketId(

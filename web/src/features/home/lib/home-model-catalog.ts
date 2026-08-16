@@ -142,9 +142,10 @@ function modelSearchText(model: PricingModel): string {
 
   return [
     model.model_name,
+    model.display_name,
     model.vendor_name,
     model.description,
-    model.description_i18n_key,
+    model.description_en,
     ...(model.input_modalities ?? []),
     ...(model.output_modalities ?? []),
     ...capabilities,

@@ -37,7 +37,7 @@ const MODALITY_LABELS: Record<Modality, string> = {
 }
 
 export function LatestModels(props: LatestModelsProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   if (props.models.length === 0) return null
 
   return (
@@ -64,9 +64,13 @@ export function LatestModels(props: LatestModelsProps) {
         <div className='grid overflow-hidden rounded-3xl border md:grid-cols-3'>
           {props.models.map((model, index) => {
             const description =
-              getPricingModelDescription(model, t) ||
+              getPricingModelDescription(
+                model,
+                i18n.resolvedLanguage ?? i18n.language
+              ) ||
               model.vendor_description ||
               t('Explore this model in the Molii model marketplace.')
+            const displayName = model.display_name?.trim() || model.model_name
             const modalities = [
               ...(model.input_modalities ?? []),
               ...(model.output_modalities ?? []),
@@ -97,8 +101,13 @@ export function LatestModels(props: LatestModelsProps) {
                         {model.vendor_name || t('Molii model')}
                       </div>
                       <h3 className='mt-0.5 text-base font-semibold break-all'>
-                        {model.model_name}
+                        {displayName}
                       </h3>
+                      {displayName !== model.model_name && (
+                        <div className='text-muted-foreground/70 mt-0.5 font-mono text-[10px] break-all'>
+                          {model.model_name}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <ArrowUpRight className='text-muted-foreground size-5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5' />

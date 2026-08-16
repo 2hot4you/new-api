@@ -19,18 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import type { TFunction } from 'i18next'
-
 import type { PricingModel } from '../../types'
 import { getPricingModelDescription } from '../model-description'
-
-const translations: Record<string, string> = {
-  'Localized models.dev description': '本地化后的模型简介',
-  'Seedance description': 'translated:Seedance description',
-}
-
-const translate = ((key: string, options?: { defaultValue?: string }) =>
-  translations[key] ?? options?.defaultValue ?? key) as TFunction
 
 function makeModel(overrides: Partial<PricingModel>): PricingModel {
   return {
@@ -45,42 +35,42 @@ function makeModel(overrides: Partial<PricingModel>): PricingModel {
 }
 
 describe('pricing model descriptions', () => {
-  test('uses a custom catalog description before the localized fallback', () => {
+  test('uses the English description for English locales', () => {
     const description = getPricingModelDescription(
       makeModel({
-        description: 'Custom description',
-        description_i18n_key: 'Fallback description',
+        description: '中文简介',
+        description_en: 'English description',
       }),
-      translate
+      'en-US'
     )
 
-    assert.equal(description, 'Custom description')
+    assert.equal(description, 'English description')
   })
 
-  test('translates a models.dev description when a curated locale entry exists', () => {
+  test('uses the Chinese description for non-English locales', () => {
     const description = getPricingModelDescription(
-      makeModel({ description: 'Localized models.dev description' }),
-      translate
+      makeModel({
+        description: '中文简介',
+        description_en: 'English description',
+      }),
+      'zh-CN'
     )
 
-    assert.equal(description, '本地化后的模型简介')
+    assert.equal(description, '中文简介')
   })
 
-  test('keeps the original models.dev description when no locale entry exists', () => {
+  test('falls back to Chinese when the English description is missing', () => {
     const description = getPricingModelDescription(
-      makeModel({ description: 'New untranslated models.dev description' }),
-      translate
+      makeModel({ description: '中文简介' }),
+      'en'
     )
 
-    assert.equal(description, 'New untranslated models.dev description')
+    assert.equal(description, '中文简介')
   })
 
-  test('translates the backend-provided fallback key when no custom description exists', () => {
-    const description = getPricingModelDescription(
-      makeModel({ description_i18n_key: 'Seedance description' }),
-      translate
-    )
+  test('returns undefined when neither persisted description is configured', () => {
+    const description = getPricingModelDescription(makeModel({}), 'ja')
 
-    assert.equal(description, 'translated:Seedance description')
+    assert.equal(description, undefined)
   })
 })

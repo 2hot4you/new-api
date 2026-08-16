@@ -147,7 +147,7 @@ func newLocalLLMMarketplaceSeed(modelName, description string, contextLength, ma
 		InputModalities:     []string{"text"},
 		OutputModalities:    []string{"text"},
 		Capabilities:        capabilities,
-		MetadataSource:      "models.dev",
+		MetadataSource:      "Molii curated",
 		MetadataVerifiedAt:  "2026-08-13",
 		SupportedParameters: supportedParameters,
 	}

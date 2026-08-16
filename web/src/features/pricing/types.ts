@@ -54,8 +54,9 @@ export type MoliiGrokPricing = {
 export type PricingModel = {
   id: number
   model_name: string
+  display_name?: string
   description?: string
-  description_i18n_key?: string
+  description_en?: string
   icon?: string
   vendor_id?: number
   vendor_name?: string
@@ -95,12 +96,18 @@ export type PricingModel = {
   max_output_tokens?: number
   knowledge_cutoff?: string
   release_date?: string
-  parameter_count?: string
   input_modalities?: Modality[]
   output_modalities?: Modality[]
   capabilities?: ModelCapability[]
-  metadata_source?: string
-  metadata_verified_at?: string
+  supported_parameters?: string[]
+  supported_resolutions?: string[]
+  supported_aspect_ratios?: string[]
+  max_input_images?: number
+  output_formats?: string[]
+  min_duration?: number
+  max_duration?: number
+  reference_modalities?: Modality[]
+  metadata_updated_time?: number
 }
 
 /** Input/output modalities supported by a model. */

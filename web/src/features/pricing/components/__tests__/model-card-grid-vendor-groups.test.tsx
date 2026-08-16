@@ -66,6 +66,7 @@ function model(
     vendor_name: vendorName,
     vendor_icon: vendorName,
     description: `${modelName} description`,
+    display_name: `${modelName} display`,
     release_date: releaseDate,
     context_length: 1_000_000,
     max_output_tokens: 64_000,
@@ -114,6 +115,8 @@ describe('high-density model directory grid', () => {
     )
     assert.equal(container.querySelectorAll('[data-model-card]').length, 2)
     assert.match(container.textContent ?? '', /DeepSeek/)
+    assert.match(container.textContent ?? '', /new-model display/)
+    assert.match(container.textContent ?? '', /new-model/)
     assert.match(container.textContent ?? '', /new-model description/)
     assert.match(container.textContent ?? '', /1M/)
     assert.match(container.textContent ?? '', /64K/)

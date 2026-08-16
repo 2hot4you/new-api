@@ -609,20 +609,16 @@ const COMMON_CHAT_PARAMS: SupportedParameter[] = [
   },
 ]
 
-const EXACT_CHAT_COMPLETIONS_MODELS = new Set([
-  'minimax-m3',
-  'qwen3.5-flash',
-  'qwen3.5-plus',
-])
-
-function exactChatCompletionsParameters(
-  modelName: string
+function configuredChatCompletionsParameters(
+  model: PricingModel,
+  optionalParameters: SupportedParameter[]
 ): SupportedParameter[] {
+  const configured = new Set(model.supported_parameters ?? [])
   return [
     {
       name: 'model',
       type: 'enum',
-      enumValues: [modelName],
+      enumValues: [model.model_name],
       descriptionKey: 'Model ID selected for this request',
       required: true,
     },
@@ -633,7 +629,7 @@ function exactChatCompletionsParameters(
       descriptionKey: 'Conversation messages for the Chat Completions request',
       required: true,
     },
-    ...COMMON_CHAT_PARAMS,
+    ...optionalParameters.filter((parameter) => configured.has(parameter.name)),
   ]
 }
 
@@ -827,13 +823,12 @@ type ApiCategory = 'reasoning' | 'embedding' | 'image' | 'video' | 'chat'
  */
 function apiCategoryOf(model: PricingModel): ApiCategory {
   if (model.supported_endpoint_types?.includes('openai-video')) return 'video'
-  const profile = PROFILE_BY_NAME(model.model_name)
-  if (profile === 'embedding' || profile === 'reasoning') return profile
-  if (profile === 'image') {
-    return /sora|veo|kling|pika|video|wan-|hunyuanvideo/i.test(model.model_name)
-      ? 'video'
-      : 'image'
-  }
+  if (model.supported_endpoint_types?.includes('embeddings')) return 'embedding'
+  if (model.supported_endpoint_types?.includes('image-generation'))
+    return 'image'
+  if (model.output_modalities?.includes('video')) return 'video'
+  if (model.output_modalities?.includes('image')) return 'image'
+  if (model.capabilities?.includes('reasoning')) return 'reasoning'
   return 'chat'
 }
 
@@ -845,11 +840,16 @@ function apiCategoryOf(model: PricingModel): ApiCategory {
 export function buildSupportedParameters(
   model: PricingModel
 ): SupportedParameter[] {
-  if (EXACT_CHAT_COMPLETIONS_MODELS.has(model.model_name)) {
-    return exactChatCompletionsParameters(model.model_name)
-  }
   const cat = apiCategoryOf(model)
-  if (cat === 'reasoning') return REASONING_PARAMS
+  if (cat === 'reasoning') {
+    return configuredChatCompletionsParameters(model, [
+      ...COMMON_CHAT_PARAMS,
+      ...REASONING_PARAMS.filter(
+        (parameter) =>
+          !COMMON_CHAT_PARAMS.some((common) => common.name === parameter.name)
+      ),
+    ])
+  }
   if (cat === 'embedding') return EMBEDDING_PARAMS
   if (cat === 'image') return IMAGE_PARAMS
   if (cat === 'video') {
@@ -876,5 +876,5 @@ export function buildSupportedParameters(
       }
     })
   }
-  return COMMON_CHAT_PARAMS
+  return configuredChatCompletionsParameters(model, COMMON_CHAT_PARAMS)
 }

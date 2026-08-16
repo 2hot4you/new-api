@@ -224,8 +224,6 @@ func TestPricingUsesPersistedMetadataAndReferencedVendorsOnly(t *testing.T) {
 	assert.Equal(t, entry.InputModalities, pricing.InputModalities)
 	assert.Equal(t, entry.OutputModalities, pricing.OutputModalities)
 	assert.Equal(t, entry.Capabilities, pricing.Capabilities)
-	assert.Equal(t, entry.MetadataSource, pricing.MetadataSource)
-	assert.Equal(t, entry.MetadataVerifiedAt, pricing.MetadataVerifiedAt)
 	assert.Equal(t, entry.SupportedParameters, pricing.SupportedParameters)
 	assert.Equal(t, entry.SupportedResolutions, pricing.SupportedResolutions)
 	assert.Equal(t, entry.SupportedAspectRatios, pricing.SupportedAspectRatios)

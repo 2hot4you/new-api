@@ -203,7 +203,7 @@ function CompactPricing(props: { summary: CompactPricingSummary }) {
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const modelIconKey = props.model.icon || props.model.vendor_icon
@@ -217,7 +217,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     showRechargePrice: props.showRechargePrice,
     selectedGroup: props.selectedGroup,
   })
-  const description = getPricingModelDescription(props.model, t)
+  const description = getPricingModelDescription(
+    props.model,
+    i18n.resolvedLanguage ?? i18n.language
+  )
+  const displayName = props.model.display_name?.trim() || props.model.model_name
   const capabilities = CAPABILITY_PRIORITY.filter((capability) =>
     props.model.capabilities?.includes(capability)
   ).slice(0, 4)
@@ -260,9 +264,14 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             <div className='text-muted-foreground text-[11px] font-medium'>
               {props.model.vendor_name || t('Unknown vendor')}
             </div>
-            <h2 className='text-foreground mt-0.5 line-clamp-2 font-mono text-sm leading-5 font-semibold'>
-              {props.model.model_name}
+            <h2 className='text-foreground mt-0.5 line-clamp-2 text-sm leading-5 font-semibold'>
+              {displayName}
             </h2>
+            {displayName !== props.model.model_name && (
+              <div className='text-muted-foreground/70 mt-0.5 truncate font-mono text-[10px]'>
+                {props.model.model_name}
+              </div>
+            )}
           </div>
         </div>
         <button

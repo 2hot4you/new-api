@@ -70,8 +70,15 @@ function model(overrides: Partial<PricingModel> = {}): PricingModel {
       'tools',
       'structured_output',
     ],
-    metadata_source: 'models.dev',
-    metadata_verified_at: '2026-08-13',
+    supported_parameters: ['stream', 'tools'],
+    supported_resolutions: ['720p', '1080p'],
+    supported_aspect_ratios: ['16:9', '9:16'],
+    max_input_images: 3,
+    output_formats: ['url'],
+    min_duration: 4,
+    max_duration: 15,
+    reference_modalities: ['image', 'video'],
+    metadata_updated_time: 1_786_569_600,
     ...overrides,
   }
 }
@@ -111,7 +118,7 @@ async function renderDetails(pricingModel: PricingModel) {
 describe('LLM model capability overview card', () => {
   after(() => domWindow.close())
 
-  test('combines specifications, modalities, capabilities, and provenance', async () => {
+  test('combines specifications, modalities, capabilities, and update time', async () => {
     const { container, root } = await renderCapabilities(model())
 
     const card = container.querySelector('[data-model-capabilities-card]')
@@ -126,14 +133,15 @@ describe('LLM model capability overview card', () => {
       container.querySelectorAll('[data-model-capability]').length,
       5
     )
-    assert.match(
-      container.querySelector('[data-model-metadata-note]')?.textContent ?? '',
-      /models\.dev/
+    assert.equal(
+      container.querySelectorAll('[data-model-capability-metadata]').length,
+      7
     )
-    assert.match(
-      container.querySelector('[data-model-metadata-note]')?.textContent ?? '',
-      /2026-08-13/
-    )
+    assert.match(container.textContent ?? '', /720p/)
+    assert.match(container.textContent ?? '', /16:9/)
+    assert.match(container.textContent ?? '', /4–15/)
+    assert.ok(container.querySelector('[data-model-metadata-note]'))
+    assert.doesNotMatch(container.textContent ?? '', /models\.dev|Source/)
 
     await act(async () => root.unmount())
     container.remove()
@@ -147,8 +155,7 @@ describe('LLM model capability overview card', () => {
         input_modalities: undefined,
         output_modalities: undefined,
         capabilities: undefined,
-        metadata_source: undefined,
-        metadata_verified_at: undefined,
+        metadata_updated_time: undefined,
       })
     )
 
@@ -180,7 +187,7 @@ describe('LLM model capability overview card', () => {
     container.remove()
   })
 
-  test('integrates one capability card and keeps provenance out of provider information', async () => {
+  test('integrates one capability card and keeps internal provenance out of public details', async () => {
     const { container, root } = await renderDetails(
       model({
         vendor_name: 'DeepSeek',
@@ -196,7 +203,7 @@ describe('LLM model capability overview card', () => {
       container.querySelectorAll('[data-model-modalities]').length,
       1
     )
-    assert.equal((container.textContent?.match(/models\.dev/g) ?? []).length, 1)
+    assert.equal((container.textContent?.match(/models\.dev/g) ?? []).length, 0)
     assert.equal(
       container
         .querySelector('[data-model-provider-info]')

@@ -149,7 +149,7 @@ describe('model directory categories and modalities', () => {
     )
   })
 
-  test('uses explicit input metadata before endpoint defaults', () => {
+  test('uses only persisted input metadata', () => {
     assert.deepEqual(
       getModelInputModalities(
         model('vision-chat', {
@@ -163,7 +163,7 @@ describe('model directory categories and modalities', () => {
       getModelInputModalities(
         model('plain-chat', { supported_endpoint_types: ['openai'] })
       ),
-      ['text']
+      []
     )
   })
 })

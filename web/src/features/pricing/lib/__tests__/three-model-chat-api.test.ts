@@ -16,6 +16,13 @@ function model(modelName: string): PricingModel {
     completion_ratio: 0,
     enable_groups: ['default'],
     supported_endpoint_types: ['openai'],
+    capabilities: ['reasoning'],
+    supported_parameters: [
+      'stream',
+      'tools',
+      'tool_choice',
+      'reasoning_effort',
+    ],
   }
 }
 
@@ -28,22 +35,10 @@ describe('three-model Chat Completions API details', () => {
       assert.deepEqual(parameterNames, [
         'model',
         'messages',
-        'temperature',
-        'top_p',
-        'max_tokens',
-        'frequency_penalty',
-        'presence_penalty',
-        'stop',
-        'seed',
-        'n',
         'stream',
-        'response_format',
         'tools',
         'tool_choice',
-        'logprobs',
-        'top_logprobs',
-        'logit_bias',
-        'user',
+        'reasoning_effort',
       ])
       const parameters = buildSupportedParameters(model(modelName))
       assert.equal(parameters[0]?.required, true)

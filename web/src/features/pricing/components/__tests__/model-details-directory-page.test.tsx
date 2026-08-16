@@ -88,7 +88,7 @@ describe('independent model directory detail page', () => {
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
           <ModelDetailsContent
-            model={model('deepseek-v4')}
+            model={model('deepseek-v4', { display_name: 'DeepSeek V4' })}
             groupRatio={{ default: 1 }}
             usableGroup={{ default: { desc: 'Default', ratio: 1 } }}
             endpointMap={{}}
@@ -106,6 +106,8 @@ describe('independent model directory detail page', () => {
     for (const id of ['pricing', 'capabilities', 'performance', 'api']) {
       assert.ok(container.querySelector(`#${id}`), `missing #${id}`)
     }
+    assert.match(container.textContent ?? '', /DeepSeek V4/)
+    assert.match(container.textContent ?? '', /deepseek-v4/)
 
     queryClient.clear()
   })

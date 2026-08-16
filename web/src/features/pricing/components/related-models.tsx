@@ -30,7 +30,7 @@ export function RelatedModels(props: {
   models: PricingModel[]
   onSelect: (modelName: string) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const related = getRelatedModels(props.currentModel, props.models)
   if (related.length === 0) return null
 
@@ -60,12 +60,20 @@ export function RelatedModels(props: {
                   : model.model_name.charAt(0).toUpperCase()}
               </span>
               <span className='min-w-0 flex-1'>
-                <span className='block truncate font-mono text-sm font-semibold'>
-                  {model.model_name}
+                <span className='block truncate text-sm font-semibold'>
+                  {model.display_name?.trim() || model.model_name}
                 </span>
+                {model.display_name?.trim() &&
+                  model.display_name.trim() !== model.model_name && (
+                    <span className='text-muted-foreground/70 mt-0.5 block truncate font-mono text-[10px]'>
+                      {model.model_name}
+                    </span>
+                  )}
                 <span className='text-muted-foreground mt-1 line-clamp-2 block text-xs leading-5'>
-                  {getPricingModelDescription(model, t) ||
-                    t('No description available.')}
+                  {getPricingModelDescription(
+                    model,
+                    i18n.resolvedLanguage ?? i18n.language
+                  ) || t('No description available.')}
                 </span>
                 {model.release_date && (
                   <span className='text-muted-foreground/60 mt-1.5 block text-[10px]'>

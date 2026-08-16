@@ -21,7 +21,6 @@ type Pricing struct {
 	DisplayName            string                                 `json:"display_name,omitempty"`
 	Description            string                                 `json:"description,omitempty"`
 	DescriptionEN          string                                 `json:"description_en,omitempty"`
-	DescriptionI18nKey     string                                 `json:"description_i18n_key,omitempty"`
 	Icon                   string                                 `json:"icon,omitempty"`
 	Tags                   string                                 `json:"tags,omitempty"`
 	VendorID               int                                    `json:"vendor_id,omitempty"`
@@ -57,8 +56,6 @@ type Pricing struct {
 	MinDuration            int                                    `json:"min_duration,omitempty"`
 	MaxDuration            int                                    `json:"max_duration,omitempty"`
 	ReferenceModalities    []string                               `json:"reference_modalities,omitempty"`
-	MetadataSource         string                                 `json:"metadata_source,omitempty"`
-	MetadataVerifiedAt     string                                 `json:"metadata_verified_at,omitempty"`
 	MetadataUpdatedTime    int64                                  `json:"metadata_updated_time,omitempty"`
 	BillingCurrency        string                                 `json:"billing_currency,omitempty"`
 }
@@ -434,8 +431,6 @@ func updatePricing() {
 		pricing.MinDuration = meta.MinDuration
 		pricing.MaxDuration = meta.MaxDuration
 		pricing.ReferenceModalities = append([]string(nil), meta.ReferenceModalities...)
-		pricing.MetadataSource = meta.MetadataSource
-		pricing.MetadataVerifiedAt = meta.MetadataVerifiedAt
 		pricing.MetadataUpdatedTime = meta.UpdatedTime
 		if hasModelPrice {
 			pricing.ModelPrice = modelPrice

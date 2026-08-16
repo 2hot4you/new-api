@@ -16,21 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { TFunction } from 'i18next'
-
 import type { PricingModel } from '../types'
 
 export function getPricingModelDescription(
   model: PricingModel,
-  t: TFunction
+  language?: string
 ): string | undefined {
-  const customDescription = model.description?.trim()
-  if (customDescription) {
-    return t(customDescription, { defaultValue: customDescription })
-  }
-
-  const descriptionKey = model.description_i18n_key?.trim()
-  return descriptionKey
-    ? t(descriptionKey, { defaultValue: descriptionKey })
-    : undefined
+  const chineseDescription = model.description?.trim()
+  const englishDescription = model.description_en?.trim()
+  return language?.toLowerCase().startsWith('en')
+    ? englishDescription || chineseDescription || undefined
+    : chineseDescription || englishDescription || undefined
 }

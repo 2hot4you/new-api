@@ -34,7 +34,7 @@ func addEnabledCatalogAbility(t *testing.T, modelName string) {
 	}
 }
 
-func TestReconcileEnabledModelMetadataCreatesKnownCatalogOnce(t *testing.T) {
+func TestReconcileEnabledModelMetadataCreatesUnpublishedDraftOnce(t *testing.T) {
 	setupModelCatalogReconcileTestDB(t)
 	addEnabledCatalogAbility(t, "deepseek-v4-flash-202605")
 
@@ -42,7 +42,7 @@ func TestReconcileEnabledModelMetadataCreatesKnownCatalogOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
-	if first.CreatedModels != 1 || first.CreatedVendors != 1 {
+	if first.CreatedModels != 1 || first.CreatedVendors != 0 {
 		t.Fatalf("unexpected first summary: %+v", first)
 	}
 
@@ -50,15 +50,8 @@ func TestReconcileEnabledModelMetadataCreatesKnownCatalogOnce(t *testing.T) {
 	if err := DB.Where("model_name = ?", "deepseek-v4-flash-202605").First(&entry).Error; err != nil {
 		t.Fatalf("read reconciled model: %v", err)
 	}
-	if entry.Description == "" || entry.ContextLength != 1_000_000 || entry.VendorID == 0 || entry.Status != 1 {
-		t.Fatalf("incomplete reconciled model: %+v", entry)
-	}
-	var vendor Vendor
-	if err := DB.First(&vendor, entry.VendorID).Error; err != nil {
-		t.Fatalf("read reconciled vendor: %v", err)
-	}
-	if vendor.Name != "DeepSeek" || vendor.Icon == "" || vendor.Description == "" {
-		t.Fatalf("incomplete reconciled vendor: %+v", vendor)
+	if entry.DisplayName != entry.ModelName || entry.Description != "" || entry.ContextLength != 0 || entry.VendorID != 0 || entry.Status != 1 || entry.MarketplaceEnabled {
+		t.Fatalf("discovered model must remain an unpublished metadata draft: %+v", entry)
 	}
 
 	second, err := ReconcileEnabledModelMetadata()
@@ -67,6 +60,31 @@ func TestReconcileEnabledModelMetadataCreatesKnownCatalogOnce(t *testing.T) {
 	}
 	if second != (CatalogReconcileSummary{}) {
 		t.Fatalf("second reconcile must be a no-op: %+v", second)
+	}
+}
+
+func TestReconcileEnabledModelMetadataDoesNotBackfillExistingDraft(t *testing.T) {
+	setupModelCatalogReconcileTestDB(t)
+	addEnabledCatalogAbility(t, "qwen3.5-plus")
+	draft := Model{ModelName: "qwen3.5-plus", DisplayName: "Qwen 3.5 Plus", Status: 1, SyncOfficial: 1}
+	if err := draft.Insert(); err != nil {
+		t.Fatalf("insert draft: %v", err)
+	}
+
+	summary, err := ReconcileEnabledModelMetadata()
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if summary != (CatalogReconcileSummary{}) {
+		t.Fatalf("existing metadata drafts must not be modified: %+v", summary)
+	}
+
+	var stored Model
+	if err := DB.First(&stored, draft.Id).Error; err != nil {
+		t.Fatalf("read draft: %v", err)
+	}
+	if stored.DisplayName != "Qwen 3.5 Plus" || stored.Description != "" || stored.VendorID != 0 || stored.MarketplaceEnabled {
+		t.Fatalf("draft metadata was unexpectedly inferred: %+v", stored)
 	}
 }
 

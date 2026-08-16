@@ -20,7 +20,6 @@ import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
-  Database,
   Layers,
   Maximize2,
 } from 'lucide-react'
@@ -89,6 +88,11 @@ function formatCatalogDate(value?: string): string {
   })
 }
 
+function formatUpdatedTime(value?: number): string {
+  if (!value || !Number.isFinite(value) || value <= 0) return ''
+  return new Date(value * 1000).toLocaleDateString()
+}
+
 function ModalityValue(props: { items: string[] }) {
   const { t } = useTranslation()
 
@@ -151,6 +155,36 @@ export function ModelDetailsCapabilities(props: { model: PricingModel }) {
     inputModalities.length > 0 || outputModalities.length > 0
   const hasPrimaryContent =
     coreSpecs.length > 0 || hasModalities || capabilities.length > 0
+  const updatedTime = formatUpdatedTime(model.metadata_updated_time)
+  const metadataRows: Array<{ label: string; values: string[] }> = []
+  const addMetadataRow = (label: string, values?: readonly string[]) => {
+    const normalized = normalizeItems(values)
+    if (normalized.length > 0) metadataRows.push({ label, values: normalized })
+  }
+  addMetadataRow(t('Supported parameters'), model.supported_parameters)
+  addMetadataRow(t('Supported resolutions'), model.supported_resolutions)
+  addMetadataRow(t('Supported aspect ratios'), model.supported_aspect_ratios)
+  if ((model.max_input_images ?? 0) > 0) {
+    metadataRows.push({
+      label: t('Maximum input images'),
+      values: [String(model.max_input_images)],
+    })
+  }
+  addMetadataRow(t('Output formats'), model.output_formats)
+  if ((model.min_duration ?? 0) > 0 || (model.max_duration ?? 0) > 0) {
+    const minimum = model.min_duration ?? model.max_duration
+    const maximum = model.max_duration ?? model.min_duration
+    metadataRows.push({
+      label: t('Duration'),
+      values: [minimum === maximum ? `${minimum}s` : `${minimum}–${maximum}s`],
+    })
+  }
+  addMetadataRow(
+    t('Reference modalities'),
+    model.reference_modalities?.map((item) =>
+      t(MODALITY_LABEL_KEYS[item] ?? item)
+    )
+  )
   let coreSpecsGridClass = 'grid-cols-1'
   if (coreSpecs.length >= 3) {
     coreSpecsGridClass = 'grid-cols-2 @2xl/details:grid-cols-3'
@@ -246,25 +280,41 @@ export function ModelDetailsCapabilities(props: { model: PricingModel }) {
         </div>
       )}
 
-      {(model.metadata_source || model.metadata_verified_at) && (
+      {metadataRows.length > 0 && (
+        <div className='bg-border grid gap-px border-t sm:grid-cols-2'>
+          {metadataRows.map((row) => (
+            <div
+              key={row.label}
+              className='bg-background min-w-0 px-4 py-3'
+              data-model-capability-metadata='true'
+            >
+              <div className='text-muted-foreground text-[11px] font-medium'>
+                {row.label}
+              </div>
+              <div className='mt-1 flex flex-wrap gap-1.5'>
+                {row.values.map((value) => (
+                  <span
+                    key={value}
+                    className='bg-muted/60 text-foreground rounded px-2 py-1 font-mono text-[11px]'
+                  >
+                    {value}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {updatedTime && (
         <div
           className='text-muted-foreground/70 flex flex-wrap items-center gap-x-2 gap-y-1 border-t px-4 py-2 text-[10px]'
           data-model-metadata-note='true'
         >
-          <Database className='size-3' />
-          {model.metadata_source && (
-            <span>
-              {t('Source')} {model.metadata_source}
-            </span>
-          )}
-          {model.metadata_source && model.metadata_verified_at && (
-            <span aria-hidden='true'>·</span>
-          )}
-          {model.metadata_verified_at && (
-            <span>
-              {t('Last verified')} {model.metadata_verified_at}
-            </span>
-          )}
+          <CalendarClock className='size-3' />
+          <span>
+            {t('Metadata updated')} {updatedTime}
+          </span>
         </div>
       )}
     </section>

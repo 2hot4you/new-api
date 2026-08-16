@@ -253,14 +253,6 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
     )
   }
 
-  if (model.parameter_count) {
-    cells.push(
-      <CatalogInfoCell key='parameters' label={t('Parameters')}>
-        <CatalogTextValue>{model.parameter_count}</CatalogTextValue>
-      </CatalogInfoCell>
-    )
-  }
-
   if (cells.length === 0) return null
 
   return (
@@ -290,12 +282,15 @@ export function ModelBackendDetailsSection(props: { model: PricingModel }) {
 // ----------------------------------------------------------------------------
 
 function ModelHeader(props: { model: PricingModel }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const model = props.model
   const modelIconKey = model.icon || model.vendor_icon
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 20) : null
   const description =
-    getPricingModelDescription(model, t) || model.vendor_description || null
+    getPricingModelDescription(model, i18n.resolvedLanguage ?? i18n.language) ||
+    model.vendor_description ||
+    null
+  const displayName = model.display_name?.trim() || model.model_name
   const inputModalities = getModelInputModalities(model)
   const outputModalities = model.output_modalities ?? []
   const supportsPlayground =
@@ -313,8 +308,8 @@ function ModelHeader(props: { model: PricingModel }) {
             </span>
             <div className='min-w-0'>
               <div className='flex min-w-0 items-center gap-2'>
-                <h1 className='min-w-0 font-mono text-xl font-bold tracking-tight break-words sm:text-2xl'>
-                  {model.model_name}
+                <h1 className='min-w-0 text-xl font-bold tracking-tight break-words sm:text-2xl'>
+                  {displayName}
                 </h1>
                 <CopyButton
                   value={model.model_name || ''}
@@ -325,6 +320,11 @@ function ModelHeader(props: { model: PricingModel }) {
                   aria-label={t('Copy model name')}
                 />
               </div>
+              {displayName !== model.model_name && (
+                <div className='text-muted-foreground mt-1 font-mono text-xs break-all'>
+                  {model.model_name}
+                </div>
+              )}
               <div className='mt-1 flex flex-wrap items-center gap-2 text-xs'>
                 {model.vendor_name && (
                   <span className='text-muted-foreground font-medium'>

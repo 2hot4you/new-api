@@ -67,7 +67,7 @@ func TestInitializeChannelCacheAtStartupWarnsWithMemoryCacheDisabled(t *testing.
 	assert.NotContains(t, output.String(), "channels synced from database")
 }
 
-func TestInitializeChannelCacheAtStartupReconcilesModelCatalogWithoutMemoryCache(t *testing.T) {
+func TestInitializeChannelCacheAtStartupCreatesLocalMetadataDraftWithoutMemoryCache(t *testing.T) {
 	previousDB := model.DB
 	previousMemoryCacheEnabled := common.MemoryCacheEnabled
 	previousRedisEnabled := common.RedisEnabled
@@ -97,5 +97,9 @@ func TestInitializeChannelCacheAtStartupReconcilesModelCatalogWithoutMemoryCache
 
 	var entry model.Model
 	require.NoError(t, db.Where("model_name = ?", "glm-5.2").First(&entry).Error)
-	assert.Equal(t, 1_000_000, entry.ContextLength)
+	assert.Equal(t, "glm-5.2", entry.DisplayName)
+	assert.Zero(t, entry.ContextLength)
+	assert.Zero(t, entry.VendorID)
+	assert.Empty(t, entry.Description)
+	assert.False(t, entry.MarketplaceEnabled)
 }
