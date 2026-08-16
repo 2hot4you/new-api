@@ -57,7 +57,9 @@ export interface BoundChannel {
 export interface Model {
   id: number
   model_name: string
+  display_name?: string
   description?: string
+  description_en?: string
   icon?: string
   tags?: string
   vendor_id?: number
@@ -76,12 +78,27 @@ export interface Model {
   capabilities?: ModelCapability[]
   metadata_source?: string
   metadata_verified_at?: string
+  marketplace_enabled?: boolean
+  supported_parameters?: string[]
+  supported_resolutions?: string[]
+  supported_aspect_ratios?: string[]
+  max_input_images?: number
+  output_formats?: string[]
+  min_duration?: number
+  max_duration?: number
+  reference_modalities?: ModelModality[]
   // Runtime fields
   bound_channels?: BoundChannel[]
   enable_groups?: string[]
   quota_types?: number[]
   matched_models?: string[]
   matched_count?: number
+  marketplace_category?: 'llm' | 'image' | 'video' | 'audio' | 'embedding'
+  marketplace_complete?: boolean
+  marketplace_missing_fields?: string[]
+  marketplace_visible?: boolean
+  marketplace_blockers?: string[]
+  marketplace_withdrawn?: boolean
 }
 
 /**
