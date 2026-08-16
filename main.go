@@ -108,9 +108,6 @@ func main() {
 		// for compatibility with old versions
 		common.MemoryCacheEnabled = true
 	}
-	modelMetadataSyncContext, cancelModelMetadataSync := context.WithCancel(context.Background())
-	defer cancelModelMetadataSync()
-	model.StartModelMetadataAutoSync(modelMetadataSyncContext)
 	initializeChannelCacheAtStartup()
 
 	// Warm pricing after channel cache initialization so Advanced Custom

@@ -200,56 +200,6 @@ export interface GetVendorResponse {
 }
 
 /**
- * Sync diff data
- */
-export interface SyncDiffData {
-  missing?: Array<{
-    model_name: string
-    vendor?: string
-    [key: string]: unknown
-  }>
-  conflicts?: Array<{
-    model_name: string
-    local?: Partial<Model>
-    upstream?: Partial<Model>
-    fields?: Array<{
-      field: string
-      local?: unknown
-      upstream?: unknown
-    }>
-    [key: string]: unknown
-  }>
-}
-
-export interface SyncOverwritePayload {
-  model_name: string
-  fields: string[]
-}
-
-/**
- * Sync upstream response
- */
-export interface SyncUpstreamResponse {
-  success: boolean
-  message?: string
-  data?: {
-    created_models?: number
-    updated_models?: number
-    created_vendors?: number
-    skipped_models?: string[]
-  }
-}
-
-/**
- * Preview upstream diff response
- */
-export interface PreviewUpstreamDiffResponse {
-  success: boolean
-  message?: string
-  data?: SyncDiffData
-}
-
-/**
  * Missing models response
  */
 export interface MissingModelsResponse {
@@ -315,21 +265,6 @@ export type ModelStatus = 0 | 1 // disabled, enabled
  * Quota type
  */
 export type QuotaType = 0 | 1 // usage-based, per-call
-
-/**
- * models.dev metadata synchronization priority
- */
-export type ModelMetadataSyncMode = 'local_first' | 'models_dev_first'
-
-/**
- * Sync locale
- */
-export type SyncLocale = 'zh' | 'en' | 'ja'
-
-/**
- * Sync upstream source
- */
-export type SyncSource = 'official' | 'config'
 
 // ============================================================================
 // Model Deployments Types

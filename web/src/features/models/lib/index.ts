@@ -21,8 +21,6 @@ export * from './query-keys'
 
 // Utilities
 export * from './model-utils'
-export * from './model-metadata-sync-mode'
-
 // Form schemas and transformers
 export * from './model-form'
 

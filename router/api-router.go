@@ -369,8 +369,6 @@ func SetApiRouter(router *gin.Engine) {
 		modelsRoute := apiRouter.Group("/models")
 		modelsRoute.Use(middleware.AdminAuth())
 		{
-			modelsRoute.GET("/sync_upstream/preview", controller.SyncUpstreamPreview)
-			modelsRoute.POST("/sync_upstream", controller.SyncUpstreamModels)
 			modelsRoute.GET("/missing", controller.GetMissingModels)
 			modelsRoute.GET("/", controller.GetAllModelsMeta)
 			modelsRoute.GET("/search", controller.SearchModelsMeta)

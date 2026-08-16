@@ -88,23 +88,10 @@ export const STATIC_I18N_KEYS = [
   'Supported Protocols',
   'Dynamic Tiered',
 
-  // Curated models.dev descriptions. English descriptions are stable keys;
-  // Chinese translations are reviewed and maintained manually.
+  // Curated model descriptions. English descriptions are stable keys;
+  // Chinese translations are reviewed and maintained locally.
   'Multimodal Kimi model with 1M context and toggleable max-effort thinking for long-horizon agent work',
   '2.4-trillion-parameter MoE flagship for coding, professional work, multimodal understanding, and long-horizon agentic workflows',
-  'Sync models.dev',
-  'Sync model metadata from models.dev',
-  'Fetch the latest public model capabilities and descriptions from models.dev.',
-  'Source: models.dev',
-  'Metadata priority',
-  'Local metadata first',
-  'Keep current model metadata and fill only missing fields from models.dev.',
-  'models.dev metadata first',
-  'Replace existing model metadata with values supplied by models.dev.',
-  'This overwrites existing descriptions, vendors, icons, limits, modalities, capabilities, and dates.',
-  'Local pricing, channels, enabled state, and routing configuration are always preserved.',
-  'Chinese model descriptions are manually reviewed in Molii and are not machine-translated during synchronization.',
-  'Model metadata sync completed: {{created}} created, {{updated}} updated, {{skipped}} skipped',
 
   // Roles
   'Super Admin',

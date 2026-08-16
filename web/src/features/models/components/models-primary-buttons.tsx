@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Plus,
   MoreHorizontal,
-  RefreshCw,
   List,
   Building2,
   AlertCircle,
@@ -51,10 +50,6 @@ export function ModelsPrimaryButtons() {
     setOpen('missing-models')
   }
 
-  const handleSync = () => {
-    setOpen('sync-wizard')
-  }
-
   const handlePrefillGroups = () => {
     setOpen('prefill-groups')
   }
@@ -65,11 +60,6 @@ export function ModelsPrimaryButtons() {
 
   return (
     <div className='flex items-center gap-2'>
-      <Button onClick={handleSync} variant='outline' size='sm'>
-        <RefreshCw className='h-4 w-4' />
-        {t('Sync models.dev')}
-      </Button>
-
       {/* Create Model */}
       <Button onClick={handleCreateModel} size='sm'>
         <Plus className='h-4 w-4' />
