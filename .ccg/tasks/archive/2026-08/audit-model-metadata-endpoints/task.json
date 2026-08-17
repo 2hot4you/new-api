@@ -1,0 +1,12 @@
+{
+  "id": "audit-model-metadata-endpoints",
+  "title": "确认模型元数据端点字段来源",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档审计任务",
+  "createdAt": "2026-08-17T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
