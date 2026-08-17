@@ -46,7 +46,7 @@ var localMarketplaceMetadataSeeds20260815 = []Model{
 	newLocalLLMMarketplaceSeed(
 		"qwen3.5-plus",
 		"面向更高能力长上下文对话的模型；当前通过本网关的 OpenAI 兼容 Chat Completions API 调用。",
-		1_000_000, 65_536, "2025-04", "2026-02-16", false,
+		1_000_000, 65_536, "", "2026-02-16", false,
 	),
 	{
 		ModelName:             "doubao-seedance-2-0-260128",
@@ -57,8 +57,6 @@ var localMarketplaceMetadataSeeds20260815 = []Model{
 		InputModalities:       []string{"text", "image", "video", "audio"},
 		OutputModalities:      []string{"video", "audio"},
 		Capabilities:          []string{"video_generation", "video_editing", "audio_generation", "web_search"},
-		MetadataSource:        "Molii local API",
-		MetadataVerifiedAt:    "2026-08-13",
 		SupportedResolutions:  []string{"480p", "720p", "1080p", "4k"},
 		SupportedAspectRatios: []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"},
 		MaxInputImages:        9,
@@ -76,8 +74,6 @@ var localMarketplaceMetadataSeeds20260815 = []Model{
 		InputModalities:       []string{"text", "image", "video", "audio"},
 		OutputModalities:      []string{"video", "audio"},
 		Capabilities:          []string{"video_generation", "video_editing", "audio_generation", "web_search"},
-		MetadataSource:        "Molii local API",
-		MetadataVerifiedAt:    "2026-08-13",
 		SupportedResolutions:  []string{"480p", "720p"},
 		SupportedAspectRatios: []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"},
 		MaxInputImages:        9,
@@ -97,8 +93,6 @@ var localMarketplaceMetadataSeeds20260815 = []Model{
 		InputModalities:       []string{"text", "image", "video"},
 		OutputModalities:      []string{"video"},
 		Capabilities:          []string{"video_generation", "video_editing"},
-		MetadataSource:        "Molii local API",
-		MetadataVerifiedAt:    "2026-08-13",
 		SupportedResolutions:  []string{"480p", "720p"},
 		SupportedAspectRatios: localGrokAspectRatios(),
 		MaxInputImages:        1,
@@ -116,8 +110,6 @@ var localMarketplaceMetadataSeeds20260815 = []Model{
 		InputModalities:       []string{"text", "image"},
 		OutputModalities:      []string{"video"},
 		Capabilities:          []string{"video_generation"},
-		MetadataSource:        "Molii local API",
-		MetadataVerifiedAt:    "2026-08-13",
 		SupportedResolutions:  []string{"480p", "720p", "1080p"},
 		SupportedAspectRatios: localGrokAspectRatios(),
 		MaxInputImages:        7,
@@ -147,8 +139,6 @@ func newLocalLLMMarketplaceSeed(modelName, description string, contextLength, ma
 		InputModalities:     []string{"text"},
 		OutputModalities:    []string{"text"},
 		Capabilities:        capabilities,
-		MetadataSource:      "Molii curated",
-		MetadataVerifiedAt:  "2026-08-13",
 		SupportedParameters: supportedParameters,
 	}
 }
@@ -163,8 +153,6 @@ func newLocalGrokImageMarketplaceSeed(modelName, description string) Model {
 		InputModalities:       []string{"text", "image"},
 		OutputModalities:      []string{"image"},
 		Capabilities:          []string{"image_generation", "image_editing"},
-		MetadataSource:        "Molii local API",
-		MetadataVerifiedAt:    "2026-08-13",
 		SupportedResolutions:  []string{"1k", "2k"},
 		SupportedAspectRatios: append(localGrokAspectRatios(), "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"),
 		MaxInputImages:        3,
@@ -306,8 +294,6 @@ func updateLocalMarketplaceFieldsIfEmpty(tx *gorm.DB, id int, seed *Model) error
 		{"tags", seed.Tags},
 		{"knowledge_cutoff", seed.KnowledgeCutoff},
 		{"release_date", seed.ReleaseDate},
-		{"metadata_source", seed.MetadataSource},
-		{"metadata_verified_at", seed.MetadataVerifiedAt},
 	}
 	for _, field := range stringFields {
 		if strings.TrimSpace(field.value) == "" {

@@ -1,12 +1,12 @@
 {
   "id": "curate-local-model-metadata",
   "title": "检索并完善本地模型广场元数据",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "data",
-  "currentPhase": "planning",
-  "nextAction": "完成设计文档并编写实施计划",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地变更",
   "createdAt": "2026-08-17T00:00:00+08:00",
   "branch": "feat/molii-auth"
 }

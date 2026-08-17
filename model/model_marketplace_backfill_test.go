@@ -228,8 +228,8 @@ func TestBackfillLocalMarketplaceMetadataCoversCurrentCatalog(t *testing.T) {
 		require.Truef(t, row.MarketplaceEnabled, "%s was not published", row.ModelName)
 		require.Equal(t, row.ModelName, row.DisplayName)
 		require.Equal(t, "existing catalog description", row.Description)
-		require.NotEmpty(t, row.MetadataSource)
-		require.NotEmpty(t, row.MetadataVerifiedAt)
+		require.Empty(t, row.MetadataSource)
+		require.Empty(t, row.MetadataVerifiedAt)
 	}
 }
 
@@ -327,6 +327,32 @@ func TestBackfillLocalMarketplaceMetadataPreservesAdministratorValues(t *testing
 	require.Equal(t, admin.MaxDuration, stored.MaxDuration)
 	require.Equal(t, admin.ReferenceModalities, stored.ReferenceModalities)
 	require.False(t, stored.MarketplaceEnabled)
+}
+
+func TestBackfillLocalMarketplaceMetadataDoesNotRestoreClearedOptionalProvenance(t *testing.T) {
+	db := newMarketplaceMigrationTestDB(t)
+	require.NoError(t, db.Create(&Model{
+		ModelName:           "qwen3.5-plus",
+		DisplayName:         "Qwen3.5 Plus",
+		Description:         "curated description",
+		DescriptionEN:       "curated English description",
+		VendorID:            1,
+		Status:              1,
+		ContextLength:       1_000_000,
+		MaxOutputTokens:     64_000,
+		ReleaseDate:         "2026-02-16",
+		InputModalities:     []string{"text", "image", "file", "video"},
+		OutputModalities:    []string{"text"},
+		Capabilities:        []string{"streaming", "vision", "tools"},
+		SupportedParameters: []string{"stream", "tools", "tool_choice"},
+	}).Error)
+
+	require.NoError(t, BackfillLocalMarketplaceMetadata(db))
+
+	stored := loadMarketplaceRow(t, db, "qwen3.5-plus")
+	require.Empty(t, stored.KnowledgeCutoff)
+	require.Empty(t, stored.MetadataSource)
+	require.Empty(t, stored.MetadataVerifiedAt)
 }
 
 func TestBackfillLocalMarketplaceMetadataPublishesOnlyCompleteEnabledRows(t *testing.T) {
