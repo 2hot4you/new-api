@@ -306,8 +306,32 @@ test_workflow_delivery_contract() {
   assert_contains "$content" "group: deploy-\${{ github.ref_name }}" 'workflow serializes deployment per branch environment'
   assert_contains "$content" "if: \${{ always() }}" 'Telegram notification runs for every deployment outcome'
   assert_contains "$content" 'TELEGRAM_BOT_TOKEN' 'workflow supports Telegram bot delivery'
+  assert_contains "$content" 'bash deploy/app-version.sh' 'workflow derives a schema-safe application version'
   assert_not_contains "$content" 'SQL_DSN' 'workflow does not receive the PostgreSQL secret'
   assert_not_contains "$content" 'REDIS_CONN_STRING' 'workflow does not receive the Redis secret'
+}
+
+test_app_version_fits_setup_schema() {
+  local script sha output status
+  script="$PROJECT_ROOT/deploy/app-version.sh"
+  sha='6b9673b4ac7f4360fa0aab3674154a4833ff462f'
+
+  set +e
+  output=$(bash "$script" development "$sha" 2>&1)
+  status=$?
+  set -e
+
+  if (( status != 0 )); then
+    fail 'application version generator runs successfully'
+    return
+  fi
+
+  assert_equals "$output" 'development-6b9673b4ac7f' 'application version uses a 12-character commit SHA'
+  if (( ${#output} <= 50 )); then
+    pass 'application version fits setups.version varchar(50)'
+  else
+    fail "application version fits setups.version varchar(50) (length: ${#output})"
+  fi
 }
 
 printf 'TAP version 13\n'
@@ -317,6 +341,7 @@ test_successful_deploy_keeps_requested_image
 test_failed_deploy_rolls_back_previous_image
 test_compose_isolates_both_environments
 test_workflow_delivery_contract
+test_app_version_fits_setup_schema
 
 if (( FAILED_COUNT > 0 )); then
   printf '# %d of %d assertions failed\n' "$FAILED_COUNT" "$TEST_COUNT" >&2

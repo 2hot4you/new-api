@@ -1,0 +1,12 @@
+{
+  "id": "design-new-api-cicd",
+  "title": "设计 new-api 自动部署、健康检查与 Telegram 通知方案",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "devops",
+  "currentPhase": "review",
+  "nextAction": "提交并推送版本号修复，监控 development 自动部署",
+  "createdAt": "2026-08-18T00:00:00Z",
+  "branch": "develop"
+}
