@@ -1,0 +1,12 @@
+{
+  "id": "clarify-molii-cicd-runbook",
+  "title": "明确 Molii CI/CD 操作手册的执行顺序与操作环境",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "docs",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交文档修正",
+  "createdAt": "2026-08-18T00:00:00Z",
+  "branch": "feat/new-api-cicd"
+}
