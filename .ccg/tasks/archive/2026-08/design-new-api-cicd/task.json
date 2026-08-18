@@ -1,0 +1,12 @@
+{
+  "id": "design-new-api-cicd",
+  "title": "实现 new-api 双环境 CI/CD 与 Telegram 健康通知",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "devops",
+  "currentPhase": "completed",
+  "nextAction": "配置服务器和 GitHub Secrets 后合并到 develop",
+  "createdAt": "2026-08-18T00:00:00Z",
+  "branch": "feat/new-api-cicd"
+}
