@@ -1,0 +1,32 @@
+services:
+  new-api:
+    image: ${IMAGE:?IMAGE is required}
+    container_name: ${CONTAINER_NAME:?CONTAINER_NAME is required}
+    restart: always
+    command: --log-dir /app/logs
+    env_file:
+      - .env.runtime
+    ports:
+      - target: 3000
+        published: ${HOST_PORT:?HOST_PORT is required}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O - http://127.0.0.1:3000/api/status | grep -Eq '"success"[[:space:]]*:[[:space:]]*true'
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
