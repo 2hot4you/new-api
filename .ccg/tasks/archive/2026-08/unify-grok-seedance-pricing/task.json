@@ -1,0 +1,12 @@
+{
+  "id": "unify-grok-seedance-pricing",
+  "title": "统一 Grok 与 Seedance 模型定价配置入口",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-19T00:00:00+08:00",
+  "branch": "main"
+}
