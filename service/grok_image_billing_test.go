@@ -148,3 +148,18 @@ func TestAppendGrokImageBillingLogSupportsLegacySnapshotWithoutModelSplit(t *tes
 	assert.Empty(t, appendGrokImageBillingLog(ordinary, &relaycommon.RelayInfo{}, 1, 123))
 	assert.NotContains(t, ordinary, "grok_image_billing")
 }
+
+func TestAppendGrokImageBillingLogWritesOnlyPreviewAvailabilityFlag(t *testing.T) {
+	other := map[string]interface{}{}
+	relayInfo := &relaycommon.RelayInfo{
+		GrokImagePreviewAvailable: true,
+		GrokImageBilling:          &relaycommon.GrokImageBillingSnapshot{Version: 1, Model: "grok-imagine-image"},
+	}
+
+	appendGrokImageBillingLog(other, relayInfo, 1, 0)
+
+	assert.Equal(t, true, other["grok_image_preview_available"])
+	serialized := common.MapToJsonStr(other)
+	assert.NotContains(t, serialized, "imgen.x.ai")
+	assert.NotContains(t, serialized, "token=")
+}

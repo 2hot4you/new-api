@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -55,6 +56,25 @@ func GetUserLogs(c *gin.Context) {
 	pageInfo.SetItems(logs)
 	common.ApiSuccess(c, pageInfo)
 	return
+}
+
+// GetGrokImagePreview returns the temporary result URL set indexed by the log's
+// owner and request ID. Missing, expired, unavailable, and unauthorized values
+// intentionally share a 404 response to avoid exposing preview existence.
+func GetGrokImagePreview(c *gin.Context) {
+	targetUserID, _ := strconv.Atoi(c.Param("user_id"))
+	requestID := c.Param("request_id")
+	viewerID := c.GetInt("id")
+	if targetUserID <= 0 || requestID == "" || (viewerID != targetUserID && c.GetInt("role") < common.RoleAdminUser) {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	urls, err := service.GetGrokImagePreview(targetUserID, requestID)
+	if err != nil {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"urls": urls})
 }
 
 // Deprecated: SearchAllLogs 已废弃，前端未使用该接口。

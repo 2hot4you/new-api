@@ -88,6 +88,7 @@ import {
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 import { GrokImageBillingCard } from './grok-image-billing-card'
+import { GrokImagePreviewCard } from './grok-image-preview-card'
 import { GrokVideoBillingCard } from './grok-video-billing-card'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
@@ -1203,6 +1204,8 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {isGrokImage && (
           <GrokImageBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />
         )}
+
+        {isGrokImage && <GrokImagePreviewCard log={props.log} />}
 
         {isGrokVideo && (
           <GrokVideoBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />

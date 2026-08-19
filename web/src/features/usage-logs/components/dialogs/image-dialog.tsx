@@ -89,6 +89,7 @@ export function ImageDialog({
               onLoad={handleImageLoad}
               onError={handleImageError}
               loading='lazy'
+              referrerPolicy='no-referrer'
             />
 
             {/* Error text overlay (shown on skeleton) */}

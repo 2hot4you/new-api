@@ -172,6 +172,7 @@ export interface GrokVideoBillingV1 {
 
 export interface LogOtherData {
   grok_image_billing?: GrokImageBillingV1
+  grok_image_preview_available?: boolean
   grok_video_billing?: GrokVideoBillingV1
   admin_info?: {
     is_multi_key?: boolean
@@ -448,6 +449,15 @@ export interface GetLogsResponse {
     total: number
     page: number
     page_size: number
+  }
+}
+
+export interface GrokImagePreviewResponse {
+  success: boolean
+  expired?: boolean
+  message?: string
+  data?: {
+    urls?: string[]
   }
 }
 

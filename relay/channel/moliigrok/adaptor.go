@@ -401,6 +401,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 
 	data := make([]dto.ImageData, 0, actualCount)
+	previewURLs := make([]string, 0, actualCount)
 	for _, item := range upstream.Data {
 		resultURL := strings.TrimSpace(item.URL)
 		if resultURL == "" {
@@ -416,11 +417,13 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			MimeType:      item.MimeType,
 			RevisedPrompt: item.RevisedPrompt,
 		})
+		previewURLs = append(previewURLs, resultURL)
 	}
 	if info == nil {
 		logGrokImageValidationFailureFields(requestContext, nil, "parse_upstream_response", "missing_relay_info", "")
 		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeBadResponse, http.StatusBadGateway)
 	}
+	info.GrokImagePreviewAvailable = service.RegisterGrokImagePreview(info.UserId, info.RequestId, previewURLs) == nil
 	if info != nil && info.PriceData.UsePrice {
 		outputPrice := c.GetFloat64(imageBillingOutputPriceContextKey)
 		inputPrice := c.GetFloat64(imageBillingInputPriceContextKey)

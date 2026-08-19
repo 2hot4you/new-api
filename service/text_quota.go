@@ -421,6 +421,9 @@ func appendGrokImageBillingLog(other map[string]interface{}, relayInfo *relaycom
 	snapshot.GroupRatio = groupRatio
 	snapshot.FinalCost = float64(settledQuota) / common.QuotaPerUnit
 	other["grok_image_billing"] = snapshot
+	if relayInfo.GrokImagePreviewAvailable {
+		other["grok_image_preview_available"] = true
+	}
 
 	operation := "Grok 图片生成"
 	if snapshot.Operation == "edit" {

@@ -3,7 +3,9 @@ package moliigrok
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,8 +18,11 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	kittypes "github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	hosttypes "github.com/QuantumNous/new-api/types"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -350,6 +355,112 @@ func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {
 	assert.InDelta(t, 0.04, info.GrokImageBilling.OutputCost, 0.000001)
 	assert.Zero(t, info.GrokImageBilling.InputCost)
 	assert.InDelta(t, 0.04, info.GrokImageBilling.Subtotal, 0.000001)
+}
+
+func TestImageResponseKeepsPaidSuccessWhenPreviewRegistrationIsUnavailable(t *testing.T) {
+	previousEnabled, previousRDB := common.RedisEnabled, common.RDB
+	common.RedisEnabled = false
+	common.RDB = nil
+	t.Cleanup(func() {
+		common.RedisEnabled = previousEnabled
+		common.RDB = previousRDB
+	})
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set(validatedImageCountContextKey, 1)
+	info := imageInfo()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`{"data":[{"url":"https://imgen.x.ai/paid-result.webp?token=private"}]}`)),
+	}
+
+	usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	assert.Contains(t, recorder.Body.String(), "paid-result.webp")
+	assert.False(t, info.GrokImagePreviewAvailable)
+}
+
+func TestImageResponseRegistersTrustedResultsForOwnerPreview(t *testing.T) {
+	previousEnabled, previousRDB := common.RedisEnabled, common.RDB
+	server := miniredis.RunT(t)
+	common.RedisEnabled = true
+	common.RDB = redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() {
+		_ = common.RDB.Close()
+		common.RedisEnabled = previousEnabled
+		common.RDB = previousRDB
+	})
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set(validatedImageCountContextKey, 1)
+	info := imageInfo()
+	resultURL := "https://imgen.x.ai/preview-result.webp?token=private"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`{"data":[{"url":"` + resultURL + `"}]}`)),
+	}
+
+	usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	assert.True(t, info.GrokImagePreviewAvailable)
+	urls, err := service.GetGrokImagePreview(info.UserId, info.RequestId)
+	require.NoError(t, err)
+	assert.Equal(t, []string{resultURL}, urls)
+}
+
+func TestImageResponseKeepsPaidSuccessBoundedWhenPreviewRedisStalls(t *testing.T) {
+	previousEnabled, previousRDB := common.RedisEnabled, common.RDB
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	stop := make(chan struct{})
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer connection.Close()
+		<-stop
+	}()
+	common.RedisEnabled = true
+	common.RDB = redis.NewClient(&redis.Options{
+		Addr:         listener.Addr().String(),
+		TLSConfig:    &tls.Config{InsecureSkipVerify: true},
+		DialTimeout:  time.Second,
+		ReadTimeout:  time.Second,
+		WriteTimeout: time.Second,
+		PoolTimeout:  time.Second,
+	})
+	t.Cleanup(func() {
+		close(stop)
+		_ = listener.Close()
+		_ = common.RDB.Close()
+		common.RedisEnabled = previousEnabled
+		common.RDB = previousRDB
+	})
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set(validatedImageCountContextKey, 1)
+	info := imageInfo()
+	resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"data":[{"url":"https://imgen.x.ai/paid-stalled-preview.webp?token=private"}]}`))}
+
+	startedAt := time.Now()
+	usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+	elapsed := time.Since(startedAt)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	assert.Less(t, elapsed, 500*time.Millisecond)
+	assert.Contains(t, recorder.Body.String(), "paid-stalled-preview.webp")
+	assert.False(t, info.GrokImagePreviewAvailable)
 }
 
 func TestImageResponseReturnsTrustedXAIURLForAllSupportedModels(t *testing.T) {

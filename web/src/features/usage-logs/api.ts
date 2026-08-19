@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { isAxiosError } from 'axios'
+
 import { api } from '@/lib/api'
 
 import {
@@ -30,6 +32,7 @@ import type {
   GetLogStatsResponse,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
+  GrokImagePreviewResponse,
   UserInfo,
 } from './types'
 
@@ -160,6 +163,24 @@ export async function getUserInfo(
 ): Promise<{ success: boolean; message?: string; data?: UserInfo }> {
   const res = await api.get(`/api/user/${userId}`)
   return res.data
+}
+
+export async function getGrokImagePreview(
+  userId: number,
+  requestId: string
+): Promise<GrokImagePreviewResponse> {
+  try {
+    const res = await api.get(
+      `/api/log/grok-image-preview/${encodeURIComponent(userId)}/${encodeURIComponent(requestId)}`,
+      { skipBusinessError: true, skipErrorHandler: true }
+    )
+    return res.data
+  } catch (error: unknown) {
+    if (isAxiosError(error) && error.response?.status === 404) {
+      return { success: false, expired: true }
+    }
+    throw error
+  }
 }
 
 // ============================================================================

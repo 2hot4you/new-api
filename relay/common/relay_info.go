@@ -223,6 +223,9 @@ type RelayInfo struct {
 
 	GrokImageBilling *GrokImageBillingSnapshot
 	GrokVideoBilling *GrokVideoBillingSnapshot
+	// GrokImagePreviewAvailable is runtime-only. It records whether trusted
+	// result URLs were saved to the temporary Redis preview index.
+	GrokImagePreviewAvailable bool
 
 	// Input video probe data is populated before a Grok video edit is charged.
 	// It is copied into the task billing snapshot after upstream acceptance.
