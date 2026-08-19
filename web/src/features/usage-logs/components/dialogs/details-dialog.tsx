@@ -745,7 +745,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
   let dialogWidthClass = 'sm:max-w-lg'
   if (isTieredBilling) {
     dialogWidthClass = 'sm:max-w-4xl lg:max-w-5xl'
-  } else if (isStarAIVideoLog || isGrokImage || isGrokVideo) {
+  } else if (isGrokImage) {
+    dialogWidthClass = 'sm:max-w-5xl'
+  } else if (isStarAIVideoLog || isGrokVideo) {
     dialogWidthClass = 'sm:max-w-2xl'
   }
 
@@ -1201,11 +1203,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {/* Token breakdown (for consume/error types with token data) */}
         {other && isStarAIVideoLog && <StarAIVideoBillingCard other={other} />}
 
-        {isGrokImage && (
+        {isGrokImage && other?.grok_image_preview_available !== true && (
           <GrokImageBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />
         )}
 
-        {isGrokImage && <GrokImagePreviewCard log={props.log} />}
+        {isGrokImage && other?.grok_image_preview_available === true && (
+          <GrokImagePreviewCard log={props.log} quotaPerUnit={quotaPerUnit} />
+        )}
 
         {isGrokVideo && (
           <GrokVideoBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />

@@ -133,7 +133,7 @@ async function renderCard(
   await act(async () => {
     const content = (
       <I18nextProvider i18n={i18n}>
-        <GrokImagePreviewCard log={log} />
+        <GrokImagePreviewCard log={log} quotaPerUnit={500000} />
       </I18nextProvider>
     )
     root.render(
@@ -297,7 +297,69 @@ describe('Grok image preview card', () => {
     rendered.container.remove()
   })
 
-  test('shows the temporary-link warning before up to four no-referrer images', async () => {
+  test('renders the selected image, parameters, billing, and temporary-result download action in a two-column panel', async () => {
+    const url = 'https://imgen.x.ai/result.png?token=private'
+    apiClient.get = async () => ({
+      data: { success: true, data: { urls: [url] } },
+    })
+    const rendered = await renderCard({
+      ...baseLog,
+      other: JSON.stringify({
+        grok_image_preview_available: true,
+        grok_image_billing: {
+          version: 1,
+          model: 'grok-imagine-image-2.0',
+          operation: 'generation',
+          resolution: '2k',
+          quality: 'medium',
+          aspect_ratio: '16:9',
+          requested_output_count: 1,
+          output_count: 1,
+          input_image_count: 0,
+          output_unit_price: 0.06,
+          input_unit_price: 0,
+          output_cost: 0.06,
+          input_cost: 0,
+          subtotal: 0.06,
+          group_ratio: 1,
+          final_cost: 0.06,
+        },
+      }),
+    })
+    await waitForCondition(
+      () => rendered.container.querySelector('[data-grok-image-main]') !== null,
+      'Expected the large selected image'
+    )
+
+    const panel = rendered.container.querySelector('[data-grok-image-layout]')
+    const download = rendered.container.querySelector(
+      'a[data-grok-image-download]'
+    ) as HTMLAnchorElement | null
+    const text = rendered.container.textContent ?? ''
+    assert.ok(panel)
+    assert.ok(panel.className.includes('lg:grid-cols'))
+    assert.equal(
+      download?.getAttribute('href'),
+      'https://imgen.x.ai/result.png?token=private'
+    )
+    assert.equal(download?.getAttribute('target'), '_blank')
+    assert.equal(download?.getAttribute('referrerpolicy'), 'no-referrer')
+    for (const expected of [
+      'grok-imagine-image-2.0',
+      '2K',
+      '16:9',
+      'MEDIUM',
+      'Billing Formula',
+      'Final Charge',
+    ]) {
+      assert.equal(text.includes(expected), true, expected)
+    }
+
+    await act(async () => rendered.root.unmount())
+    rendered.container.remove()
+  })
+
+  test('shows the temporary-link warning with up to four no-referrer images', async () => {
     const urls = [
       'https://imgen.x.ai/a',
       'https://imgen.x.ai/b',
@@ -325,19 +387,14 @@ describe('Grok image preview card', () => {
       await response.promise
     })
     await waitForCondition(
-      () => rendered.container.querySelectorAll('img').length === 4,
+      () => rendered.container.querySelectorAll('img').length === 5,
       'Expected the preview gallery to render four images'
     )
 
     const alert = rendered.container.querySelector('[role="alert"]')
     const images = rendered.container.querySelectorAll('img')
     assert.ok(alert)
-    assert.equal(images.length, 4)
-    assert.equal(
-      alert.compareDocumentPosition(images[0]) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      Node.DOCUMENT_POSITION_FOLLOWING
-    )
+    assert.equal(images.length, 5)
     for (const image of images) {
       assert.equal(image.referrerPolicy, 'no-referrer')
     }
@@ -354,7 +411,7 @@ describe('Grok image preview card', () => {
     const selectedImages = [...testDocument.querySelectorAll('img')].filter(
       (image) => image.getAttribute('src') === urls[0]
     )
-    assert.equal(selectedImages.length, 2)
+    assert.equal(selectedImages.length, 3)
     for (const image of selectedImages) {
       assert.equal(image.referrerPolicy, 'no-referrer')
     }
@@ -559,6 +616,7 @@ describe('Grok image preview card', () => {
         <QueryClientProvider client={rendered.queryClient}>
           <I18nextProvider i18n={i18n}>
             <GrokImagePreviewCard
+              quotaPerUnit={500000}
               log={{
                 ...baseLog,
                 user_id: 8,

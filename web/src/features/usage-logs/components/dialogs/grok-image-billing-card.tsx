@@ -50,6 +50,7 @@ function BillingMetric(props: {
 export function GrokImageBillingCard(props: {
   log: UsageLog
   quotaPerUnit: number
+  showParameters?: boolean
 }) {
   const { t } = useTranslation()
   const state = getGrokImageBillingState(props.log)
@@ -59,6 +60,7 @@ export function GrokImageBillingCard(props: {
     Number.isFinite(props.quotaPerUnit) && props.quotaPerUnit > 0
       ? formatGrokImageCny(props.log.quota / props.quotaPerUnit)
       : '-'
+  const showParameters = props.showParameters ?? true
 
   return (
     <section className='min-w-0 space-y-1.5'>
@@ -84,55 +86,57 @@ export function GrokImageBillingCard(props: {
           </>
         ) : (
           <>
-            <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
-              <BillingMetric
-                label={t('Model ID')}
-                value={state.billing.model}
-                mono
-              />
-              <BillingMetric
-                label={t('Operation')}
-                value={
-                  state.billing.operation === 'edit'
-                    ? t('Image Editing')
-                    : t('Image Generation')
-                }
-              />
-              <BillingMetric
-                label={t('Resolution')}
-                value={state.billing.resolution.toUpperCase()}
-                mono
-              />
-              {state.billing.quality && (
+            {showParameters ? (
+              <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
                 <BillingMetric
-                  label={t('Quality')}
-                  value={state.billing.quality.toUpperCase()}
+                  label={t('Model ID')}
+                  value={state.billing.model}
                   mono
                 />
-              )}
-              <BillingMetric
-                label={t('Aspect Ratio')}
-                value={state.billing.aspect_ratio}
-                mono
-              />
-              <BillingMetric
-                label={t('Requested Outputs')}
-                value={state.billing.requested_output_count}
-                mono
-              />
-              <BillingMetric
-                label={t('Actual Outputs')}
-                value={state.billing.output_count}
-                mono
-              />
-              {state.billing.operation === 'edit' && (
                 <BillingMetric
-                  label={t('Input Images')}
-                  value={state.billing.input_image_count}
+                  label={t('Operation')}
+                  value={
+                    state.billing.operation === 'edit'
+                      ? t('Image Editing')
+                      : t('Image Generation')
+                  }
+                />
+                <BillingMetric
+                  label={t('Resolution')}
+                  value={state.billing.resolution.toUpperCase()}
                   mono
                 />
-              )}
-            </div>
+                {state.billing.quality && (
+                  <BillingMetric
+                    label={t('Quality')}
+                    value={state.billing.quality.toUpperCase()}
+                    mono
+                  />
+                )}
+                <BillingMetric
+                  label={t('Aspect Ratio')}
+                  value={state.billing.aspect_ratio}
+                  mono
+                />
+                <BillingMetric
+                  label={t('Requested Outputs')}
+                  value={state.billing.requested_output_count}
+                  mono
+                />
+                <BillingMetric
+                  label={t('Actual Outputs')}
+                  value={state.billing.output_count}
+                  mono
+                />
+                {state.billing.operation === 'edit' && (
+                  <BillingMetric
+                    label={t('Input Images')}
+                    value={state.billing.input_image_count}
+                    mono
+                  />
+                )}
+              </div>
+            ) : null}
 
             <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
               <BillingMetric

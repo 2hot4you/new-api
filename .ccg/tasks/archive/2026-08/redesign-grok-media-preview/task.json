@@ -1,0 +1,12 @@
+{
+  "id": "redesign-grok-media-preview",
+  "title": "重构 Grok 图片与视频预览、计费信息和下载操作",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-20T00:00:00Z",
+  "branch": "develop"
+}

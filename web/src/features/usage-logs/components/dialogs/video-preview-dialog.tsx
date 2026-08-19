@@ -16,17 +16,28 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Film, MonitorPlay, TriangleAlert } from 'lucide-react'
+import {
+  Calculator,
+  Download,
+  Film,
+  MonitorPlay,
+  TriangleAlert,
+} from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+import {
+  formatTaskBillingCny,
+  formatTaskBillingFormula,
+} from '../../lib/task-billing'
 import { shouldShowGrokVideoTemporaryLinkWarning } from '../../lib/task-video-preview'
 import type { TaskLog } from '../../types'
 import { shouldShowVideoTechnicalMetadata } from './video-preview-metadata'
@@ -100,6 +111,10 @@ export function VideoPreviewDialog({
     log.finish_time && log.submit_time
       ? Math.max(0, log.finish_time - log.submit_time)
       : undefined
+  const billingFormula = log.billing
+    ? formatTaskBillingFormula(log.billing)
+    : null
+  const downloadHref = log.result_url
 
   return (
     <Dialog
@@ -232,6 +247,51 @@ export function VideoPreviewDialog({
               />
             ) : null}
           </div>
+
+          <Button
+            className='mb-3 w-full'
+            render={
+              <a
+                href={downloadHref}
+                download
+                target='_blank'
+                rel='noopener noreferrer'
+                referrerPolicy='no-referrer'
+                data-grok-video-download
+              />
+            }
+          >
+            <Download data-icon='inline-start' />
+            {t('Download')}
+          </Button>
+
+          {log.billing ? (
+            <div className='mb-3 space-y-2 rounded-lg border p-3'>
+              <div className='grid grid-cols-2 gap-2'>
+                <DetailItem
+                  label={t('Final Charge')}
+                  value={formatTaskBillingCny(log.billing.final_cost)}
+                  mono
+                />
+                <DetailItem
+                  label={t('Group Ratio')}
+                  value={`${log.billing.group_ratio.toFixed(4)}x`}
+                  mono
+                />
+              </div>
+              {billingFormula ? (
+                <div className='space-y-1.5 rounded-md border border-sky-200 bg-sky-50/70 p-2 dark:border-sky-900 dark:bg-sky-950/20'>
+                  <div className='flex items-center gap-1.5 text-xs font-medium text-sky-700 dark:text-sky-300'>
+                    <Calculator className='size-3.5' aria-hidden='true' />
+                    {t('Billing Formula')}
+                  </div>
+                  <p className='overflow-x-auto font-mono text-xs whitespace-nowrap'>
+                    {billingFormula}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2'>
             <div className='sm:col-span-2 lg:col-span-1 xl:col-span-2'>

@@ -90,7 +90,44 @@ async function renderVideoPreview(platform: string) {
             channel_id: 1,
             submit_time: 1,
             result_url: '/v1/videos/task_public_preview/content?signature=test',
-            video_params: { has_video: false },
+            video_params: {
+              has_video: false,
+              resolution: '720p',
+              ratio: '16:9',
+              seconds: 6,
+            },
+            billing: {
+              state: 'settled',
+              mode: 'grok_video',
+              model: 'grok-imagine-video',
+              final_cost: 0.42,
+              group_ratio: 1,
+              detail_available: true,
+              grok_video: {
+                version: 1,
+                model: 'grok-imagine-video',
+                operation: 'text_to_video',
+                input_type: 'text',
+                requested_duration_seconds: 6,
+                estimated_duration_seconds: 6,
+                actual_duration_seconds: 6,
+                requested_resolution: '720p',
+                estimated_resolution: '720p',
+                actual_resolution: '720p',
+                aspect_ratio: '16:9',
+                input_image_count: 0,
+                video_input_billed_seconds: 0,
+                output_unit_price: 0.07,
+                image_input_unit_price: 0,
+                video_input_unit_price: 0,
+                output_cost: 0.42,
+                image_input_cost: 0,
+                video_input_cost: 0,
+                subtotal: 0.42,
+                group_ratio: 1,
+                final_cost: 0.42,
+              },
+            },
             status: TASK_STATUS.SUCCESS,
           },
         })
@@ -196,5 +233,26 @@ describe('task video preview', () => {
     assert.equal(document.querySelector('[role="alert"]'), null)
     await act(async () => seedance.root.unmount())
     seedance.host.remove()
+  })
+
+  test('shows video parameters, billing formula, and a same-origin download action', async () => {
+    const rendered = await renderVideoPreview(TASK_PLATFORMS.MOLII_GROK)
+    const download = document.querySelector<HTMLAnchorElement>(
+      'a[data-grok-video-download]'
+    )
+    const text = document.body.textContent ?? ''
+
+    assert.equal(
+      download?.getAttribute('href'),
+      '/v1/videos/task_public_preview/content?signature=test'
+    )
+    assert.equal(download?.getAttribute('target'), '_blank')
+    assert.equal(download?.getAttribute('referrerpolicy'), 'no-referrer')
+    for (const expected of ['720p', '16:9', '6 seconds', 'Billing Formula']) {
+      assert.equal(text.includes(expected), true, expected)
+    }
+
+    await act(async () => rendered.root.unmount())
+    rendered.host.remove()
   })
 })
