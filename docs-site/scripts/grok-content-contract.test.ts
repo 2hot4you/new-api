@@ -29,6 +29,20 @@ function frontmatter(source: string): Record<string, string> {
   );
 }
 
+function bashBlocks(source: string): string {
+  return [...source.matchAll(/```bash\n([\s\S]*?)\n```/g)].map((match) => match[1]).join('\n\n');
+}
+
+function curlCommandContaining(source: string, needle: string): string {
+  const needleIndex = source.indexOf(needle);
+  expect(needleIndex, `missing curl marker: ${needle}`).toBeGreaterThanOrEqual(0);
+  const precedingCurl = source.lastIndexOf('\ncurl ', needleIndex);
+  const start = precedingCurl >= 0 ? precedingCurl + 1 : source.startsWith('curl ') ? 0 : -1;
+  expect(start, `missing curl command for: ${needle}`).toBeGreaterThanOrEqual(0);
+  const blankLine = source.indexOf('\n\n', needleIndex);
+  return source.slice(start, blankLine >= 0 ? blankLine : source.length);
+}
+
 describe('Grok Imagine public documentation contract', () => {
   test('all Grok pages carry user-facing API provenance metadata', async () => {
     for (const relativePath of pages) {
@@ -132,6 +146,64 @@ describe('Grok Imagine public documentation contract', () => {
     const snippet = 'curl --location-trusted --include --request POST --header "Authorization: Bearer $MOLII_API_KEY"';
 
     expect(snippet).toMatch(redirectFollowingOption);
+  });
+
+  test('video content reference keeps Grok redirects distinct from proxied platforms', async () => {
+    const source = await page('docs/api-reference/videos.mdx');
+    const contentSection = source.slice(source.indexOf('## `GET /v1/videos/{task_id}/content`'));
+
+    expect(contentSection).toMatch(/Grok[^\n]*307[^\n]*Location/);
+    expect(contentSection).toMatch(/(?:Seedance|其他平台)[^\n]*(?:200|206)[^\n]*(?:代理|字节)/);
+    expect(contentSection).toMatch(/Grok[^\n]*Range[^\n]*xAI/);
+    expect(contentSection).toMatch(/(?:Seedance|其他平台)[^\n]*Range[^\n]*Molii/);
+  });
+
+  test('download examples isolate authorization and clean private redirect headers', async () => {
+    for (const [relativePath, sectionHeading] of [
+      ['docs/api-reference/videos.mdx', '## `GET /v1/videos/{task_id}/content`'],
+      ['docs/examples/grok-poll-download.mdx', '## 安全跟随下载重定向'],
+    ] as const) {
+      const source = await page(relativePath);
+      const code = bashBlocks(source.slice(source.indexOf(sectionHeading)));
+      const firstRequest = curlCommandContaining(code, '/content');
+      const targetRequest = curlCommandContaining(code, '--url "$XAI_RESULT_URL"');
+
+      expect(code, relativePath).toContain('umask 077');
+      expect(code, relativePath).toMatch(/HEADER_FILE=\$\(mktemp\b/);
+      for (const temporaryFile of ['HEADER_FILE', 'RESULT_FILE', 'META_FILE']) {
+        expect(code, relativePath).toContain(`rm -f -- "$${temporaryFile}"`);
+      }
+      expect(code, relativePath).toMatch(/trap cleanup[^\n]*EXIT/);
+      for (const signal of ['HUP', 'INT', 'TERM']) {
+        expect(code, relativePath).toMatch(new RegExp(`trap '[^']*exit[^']*'[^\\n]*${signal}`));
+      }
+      expect(code.indexOf('trap cleanup'), relativePath).toBeLessThan(code.indexOf('HEADER_FILE=$(mktemp'));
+      expect(code, relativePath).not.toContain('export XAI_RESULT_URL');
+      expect(firstRequest, relativePath).toContain('Authorization: Bearer $MOLII_API_KEY');
+      expect(targetRequest, relativePath).not.toContain('Authorization:');
+      expect(targetRequest, relativePath).not.toContain('--location-trusted');
+    }
+  });
+
+  test('result URL guidance uses exact executable xAI host allowlists', async () => {
+    const imageGuide = await page('docs/models/grok-imagine-image.mdx');
+    const videoGuide = await page('docs/models/grok-imagine-video.mdx');
+    const downloadCode = bashBlocks(await page('docs/examples/grok-poll-download.mdx'));
+
+    expect(imageGuide).toContain('https://imgen.x.ai/generated-image.png?temporary-signature=REDACTED');
+    for (const host of ['`imgen.x.ai`', '`files-cdn.x.ai`']) expect(imageGuide).toContain(host);
+    for (const host of ['`vidgen.x.ai`', '`files-cdn.x.ai`']) expect(videoGuide).toContain(host);
+    for (const guide of [imageGuide, videoGuide]) {
+      expect(guide).toContain('协议必须为 HTTPS');
+      expect(guide).toContain('不允许 userinfo');
+      expect(guide).toContain('端口只能省略或显式为 `443`');
+      expect(guide).toContain('hostname 必须精确等于');
+      expect(guide).toContain('不要使用字符串包含、后缀或子域名匹配');
+    }
+    expect(downloadCode).toContain('case "$XAI_RESULT_URL" in');
+    for (const prefix of ['https://vidgen.x.ai/', 'https://files-cdn.x.ai/']) {
+      expect(downloadCode).toContain(prefix);
+    }
   });
 
   test('overview and sidebar expose Grok guides while excluding the retired technical preview', async () => {

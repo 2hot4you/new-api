@@ -5474,6 +5474,7 @@
     "Generated": "Generated",
     "Video Preview": "Video Preview",
     "The video is streamed from the upstream provider and is not stored by Molii.": "The video is streamed from the upstream provider and is not stored by Molii.",
+    "Result links are temporarily provided by the upstream provider and may expire. Please download and save them securely as soon as possible.": "Result links are temporarily provided by the upstream provider and may expire. Please download and save them securely as soon as possible.",
     "Your browser does not support video playback.": "Your browser does not support video playback.",
     "Video playback failed": "Video playback failed",
     "The playback link may have expired. Refresh the task logs and try again.": "The playback link may have expired. Refresh the task logs and try again.",

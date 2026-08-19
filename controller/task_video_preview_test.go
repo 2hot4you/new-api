@@ -170,7 +170,7 @@ func TestTasksToDtoExposesOnlySignedMoliiGrokPlaybackURL(t *testing.T) {
 		Data:     []byte(`{"status":"done","url":"https://private.example/result.mp4"}`),
 		PrivateData: model.TaskPrivateData{
 			UpstreamTaskID: "upstream-private-id",
-			ResultURL:      "https://private.example/video.mp4?signature=upstream-secret",
+			ResultURL:      "https://vidgen.x.ai/video.mp4?token=upstream-secret",
 			BillingContext: &model.TaskBillingContext{
 				EstimatedResolution: "480p",
 				EstimatedRatio:      "16:9",
@@ -184,7 +184,8 @@ func TestTasksToDtoExposesOnlySignedMoliiGrokPlaybackURL(t *testing.T) {
 	assert.True(t, strings.HasPrefix(items[0].ResultURL, "/v1/videos/"), items[0].ResultURL)
 	assert.Contains(t, items[0].ResultURL, "/v1/videos/task_grok_preview_success/content?")
 	assert.NotContains(t, items[0].ResultURL, "configured.example")
-	assert.NotContains(t, items[0].ResultURL, "private.example")
+	assert.NotContains(t, items[0].ResultURL, "vidgen.x.ai")
+	assert.NotContains(t, items[0].ResultURL, "upstream-secret")
 	assert.Nil(t, items[0].Data)
 	require.NotNil(t, items[0].VideoParams)
 	assert.Equal(t, "480p", items[0].VideoParams.Resolution)

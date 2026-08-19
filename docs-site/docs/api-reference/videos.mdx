@@ -305,7 +305,7 @@ curl --fail-with-body --silent --show-error \
 }
 ```
 
-完成后 `status` 为 `completed`、`progress` 为 `100`，`metadata.url` 可能提供短期内容地址。失败时 `status` 为 `failed`，并返回公开 `error.code` 与 `error.message`。
+完成后 `status` 为 `completed`、`progress` 为 `100`。对于 Grok 任务，`metadata.url` 直接返回经过验证的 xAI 临时结果 URL；该 URL 可能过期，应立即下载并妥善保存。失败时 `status` 为 `failed`，并返回公开 `error.code` 与 `error.message`。
 
 | 状态 | 含义 | 是否继续轮询 |
 | --- | --- | --- |
@@ -327,47 +327,110 @@ curl --fail-with-body --silent --show-error \
 
 ## `GET /v1/videos/{task_id}/content`
 
-代理下载已完成任务的视频内容。只有任务属于当前用户且已完成时才返回视频。
+为已完成任务提供受保护的结果入口。该入口会先验证当前用户对任务的归属以及任务是否已成功完成，然后按平台采用不同的交付方式：
+
+- Grok 任务返回 HTTP `307 Temporary Redirect`，`Location` 指向经过验证的 xAI 临时结果 URL；Molii 不代理 Grok 视频字节。
+- Seedance 和其他兼容平台保持原有代理语义，由 Molii 返回 HTTP `200` 完整字节或 HTTP `206` 分段字节，不会改为 Grok 的 307 行为。
 
 ### 鉴权
 
-API 客户端发送 `Authorization: Bearer $MOLII_API_KEY`。任务响应中的短期签名 URL 可在有效期内按其自身规则访问，不要同时转发 API Key。
+所有平台向 Molii 内容入口发起的首次请求都需要 `Authorization: Bearer $MOLII_API_KEY`。仅 Grok 会返回跨域 `Location`；访问该地址时必须移除 Molii Authorization，不要使用会把凭据转发到其他主机的 `--location-trusted` 或等价选项。Seedance 和其他平台的视频字节直接由 Molii 代理返回。
 
 ### 请求参数
 
 | 参数 | 位置 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- | --- |
 | `task_id` | path | string | 是 | 已完成任务的公共 ID |
-| `Range` | header | string | 否 | 断点续传范围，例如 `bytes=1048576-` |
-| `If-Range` | header | string | 否 | 与 `Range` 配合使用 |
+| `Range` | header | string | 否 | Grok 的初始 307 不消费该范围，应在 xAI 请求中重新发送；Seedance 和其他平台则直接向 Molii 发送该头以获取 206，例如 `bytes=1048576-` |
+| `If-Range` | header | string | 否 | Grok 应发给 xAI 目标 URL；Seedance 和其他平台应发给 Molii 内容入口，与对应的 `Range` 配合使用 |
 
 该接口没有请求体。
 
+Grok 的 `Range` 和 `If-Range` 应在拿到 307 后发送给 xAI；Seedance 和其他平台的 `Range` 和 `If-Range` 则直接发送给 Molii。
+
 ### 请求示例
 
+下面仅演示 Grok 分支。先只向 Molii 请求重定向响应，再校验 `Location`；第二次请求不携带 Molii Authorization。响应头和未完成的下载都放入仅当前用户可读的临时文件，并在成功、失败或信号中断时清理：
+
 ```bash
-curl --fail-with-body --silent --show-error \
+set -eu
+umask 077
+HEADER_FILE=
+RESULT_FILE=
+META_FILE=
+cleanup() {
+  [ -z "$HEADER_FILE" ] || rm -f -- "$HEADER_FILE"
+  [ -z "$RESULT_FILE" ] || rm -f -- "$RESULT_FILE"
+  [ -z "$META_FILE" ] || rm -f -- "$META_FILE"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+HEADER_FILE=$(mktemp "${TMPDIR:-/tmp}/molii-grok-headers.XXXXXX")
+RESULT_FILE=$(mktemp "${TMPDIR:-/tmp}/molii-grok-result.XXXXXX")
+META_FILE=$(mktemp "${TMPDIR:-/tmp}/molii-grok-meta.XXXXXX")
+
+curl --silent --show-error \
   --url "${MOLII_API_BASE_URL%/}/v1/videos/task_public_123/content" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
-  --output result.mp4
+  --dump-header "$HEADER_FILE" \
+  --output /dev/null
+
+MOLII_STATUS=$(awk '/^HTTP\// { status=$2 } END { print status }' "$HEADER_FILE")
+
+[ "$MOLII_STATUS" = '307' ] || {
+  echo 'Molii content endpoint did not return the expected Grok redirect' >&2
+  exit 1
+}
+
+XAI_RESULT_URL=$(awk '
+  /^[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:/ {
+    sub(/\r$/, "")
+    sub(/^[^:]+:[[:space:]]*/, "")
+    print
+    exit
+  }
+' "$HEADER_FILE")
+
+case "$XAI_RESULT_URL" in
+  https://vidgen.x.ai/*|https://vidgen.x.ai:443/*|\
+  https://files-cdn.x.ai/*|https://files-cdn.x.ai:443/*) ;;
+  *) echo 'Rejected unexpected Grok video result URL' >&2; exit 1 ;;
+esac
+
+curl --fail --silent --show-error \
+  --proto '=https' \
+  --url "$XAI_RESULT_URL" \
+  --header 'Accept: video/*' \
+  --output "$RESULT_FILE" \
+  --write-out '%{http_code}\n%{content_type}' >"$META_FILE"
+
+XAI_STATUS=$(sed -n '1p' "$META_FILE")
+XAI_CONTENT_TYPE=$(sed -n '2p' "$META_FILE")
+case "$XAI_STATUS" in 200|206) ;; *) exit 1 ;; esac
+case "$XAI_CONTENT_TYPE" in video/*) ;; *) exit 1 ;; esac
+mv -- "$RESULT_FILE" result.mp4
+RESULT_FILE=
 ```
+
+不要把 `MOLII_API_KEY` 传给第二条命令，也不要在脚本输出或日志中打印 `XAI_RESULT_URL`。
 
 ### 成功响应
 
-- HTTP `200`：完整视频内容。
-- HTTP `206`：响应 `Range` 的部分内容。
-- `Content-Type` 应为 `video/*`，常见为 `video/mp4`。
-- 可能包含 `Content-Length`、`Content-Range`、`Accept-Ranges` 和缓存相关响应头。
+- Grok：Molii 内容入口返回 HTTP `307`，并在 `Location` 中给出经过验证的临时 xAI URL；xAI 随后可能返回 HTTP `200` 完整内容或 HTTP `206` 分段内容。
+- Seedance 和其他平台：Molii 内容入口自身返回 HTTP `200` 或 `206` 并代理视频字节，不返回 Grok 的 xAI `Location`。
+- 两个分支最终内容的 `Content-Type` 都应为 `video/*`，常见为 `video/mp4`，并可能包含 `Content-Length`、`Content-Range`、`Accept-Ranges` 和缓存相关响应头。
 
 下载前应验证 HTTP 状态和 `Content-Type`，不要把 JSON 错误体保存成 `.mp4`。
 
 ### 错误与重试
 
 - 任务未完成、失败或内容暂不可用时，不要把响应写入视频文件。
-- 短期地址过期时重新查询任务，获取最新内容入口。
+- 短期地址过期后不要假定重新查询会延长有效期；需要时重新生成结果。
 - `429`、暂时性 `5xx` 和传输错误可在总截止时间内退避重试 GET。
 - 下载 URL 和签名参数属于临时凭据，不要写入分析日志或公开分享。
 
 ### 计费
 
-下载本身不再次收取视频生成费用。存储、流量或其他账户级费用若存在，以 Molii 当前账户规则为准。
+下载本身不再次收取视频生成费用。结果由 xAI 临时托管，不应据此推断 Molii 提供持久存储。

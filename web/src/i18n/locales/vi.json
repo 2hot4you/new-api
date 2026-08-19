@@ -5474,6 +5474,7 @@
     "Generated": "Đã tạo",
     "Video Preview": "Xem trước video",
     "The video is streamed from the upstream provider and is not stored by Molii.": "Video được truyền trực tiếp từ nhà cung cấp thượng nguồn và không được Molii lưu trữ.",
+    "Result links are temporarily provided by the upstream provider and may expire. Please download and save them securely as soon as possible.": "Các liên kết kết quả được nhà cung cấp thượng nguồn cung cấp tạm thời và có thể hết hạn. Vui lòng tải xuống và lưu trữ an toàn sớm nhất có thể.",
     "Your browser does not support video playback.": "Trình duyệt của bạn không hỗ trợ phát video.",
     "Video playback failed": "Phát video thất bại",
     "The playback link may have expired. Refresh the task logs and try again.": "Liên kết phát có thể đã hết hạn. Hãy làm mới nhật ký tác vụ và thử lại.",

@@ -5474,6 +5474,7 @@
     "Generated": "Générée",
     "Video Preview": "Aperçu vidéo",
     "The video is streamed from the upstream provider and is not stored by Molii.": "La vidéo est diffusée depuis le fournisseur en amont et n'est pas stockée par Molii.",
+    "Result links are temporarily provided by the upstream provider and may expire. Please download and save them securely as soon as possible.": "Les liens de résultats sont fournis temporairement par le fournisseur en amont et peuvent expirer. Veuillez les télécharger et les conserver en lieu sûr dès que possible.",
     "Your browser does not support video playback.": "Votre navigateur ne prend pas en charge la lecture vidéo.",
     "Video playback failed": "Échec de la lecture vidéo",
     "The playback link may have expired. Refresh the task logs and try again.": "Le lien de lecture a peut-être expiré. Actualisez les journaux des tâches et réessayez.",

@@ -61,43 +61,6 @@ func taskInfo() *relaycommon.RelayInfo {
 	}
 }
 
-func TestPersistTaskResultUsesStableTaskAnchorAndCompletionRetention(t *testing.T) {
-	createdAt := time.Date(2026, time.July, 31, 23, 59, 0, 0, time.UTC)
-	completedAt := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
-	var captured service.GrokResultStoreRequest
-	adaptor := &TaskAdaptor{persistVideoResult: func(_ context.Context, request service.GrokResultStoreRequest) (*service.StoredObject, bool, error) {
-		captured = request
-		return &service.StoredObject{
-			ObjectKey: "users/grok-results/42/video/2026/07/result.mp4",
-			MIMEType:  "video/mp4",
-			Size:      2048,
-			ExpiresAt: completedAt.Add(24 * time.Hour).Unix(),
-		}, true, nil
-	}}
-	task := &model.Task{TaskID: "task_public_video", UserId: 42, CreatedAt: createdAt.Unix()}
-	result := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Url: "https://provider.invalid/private.mp4", ActualDurationSeconds: 6}
-
-	stored, err := adaptor.PersistTaskResult(context.Background(), task, result, completedAt)
-
-	require.NoError(t, err)
-	require.Equal(t, service.GrokResultStoreRequest{
-		SourceURL:      "https://provider.invalid/private.mp4",
-		UserID:         42,
-		MediaType:      "video",
-		MIMEType:       "video/mp4",
-		IdempotencyKey: "task_public_video",
-		CreatedAt:      completedAt,
-		KeyAnchor:      createdAt,
-	}, captured)
-	require.Equal(t, &model.TaskStoredResult{
-		ObjectKey:       "users/grok-results/42/video/2026/07/result.mp4",
-		MIMEType:        "video/mp4",
-		Size:            2048,
-		ExpiresAt:       completedAt.Add(24 * time.Hour).Unix(),
-		DurationSeconds: 6,
-	}, stored)
-}
-
 func TestVideoRequestUsesDirectFieldsAndDefaults(t *testing.T) {
 	tests := []struct {
 		name string
@@ -714,13 +677,13 @@ func TestParseVideoTaskStatusesAndClampProgress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.status, func(t *testing.T) {
-			body := `{"status":"` + tt.status + `","progress":` + strconv.Itoa(tt.progress) + `,"video":{"url":"https://videos.example/result.mp4","duration":5},"usage":{"cost_in_usd_ticks":4000000000}}`
+			body := `{"status":"` + tt.status + `","progress":` + strconv.Itoa(tt.progress) + `,"video":{"url":"https://vidgen.x.ai/result.mp4?token=signed","duration":5},"usage":{"cost_in_usd_ticks":4000000000}}`
 			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(body))
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, result.Status)
 			assert.Equal(t, tt.wantProgress, result.Progress)
 			if tt.wantURL {
-				assert.Equal(t, "https://videos.example/result.mp4", result.Url)
+				assert.Equal(t, "https://vidgen.x.ai/result.mp4?token=signed", result.Url)
 				assert.Equal(t, 5.0, result.ActualDurationSeconds)
 				assert.Equal(t, 0.4, result.ProviderCost)
 			} else {
@@ -742,7 +705,7 @@ func TestParseVideoTaskResultNormalizesExplicitResolution(t *testing.T) {
 		{resolution: "", want: ""},
 	} {
 		t.Run(tt.resolution, func(t *testing.T) {
-			body := `{"status":"done","video":{"url":"https://videos.example/result.mp4","duration":5,"resolution":` + strconv.Quote(tt.resolution) + `}}`
+			body := `{"status":"done","video":{"url":"https://files-cdn.x.ai/result.mp4?token=signed","duration":5,"resolution":` + strconv.Quote(tt.resolution) + `}}`
 			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(body))
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, result.ActualResolution)
@@ -750,18 +713,24 @@ func TestParseVideoTaskResultNormalizesExplicitResolution(t *testing.T) {
 	}
 }
 
-func TestParseTaskResultRejectsNonHTTPSVideoURL(t *testing.T) {
-	result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(`{
-		"status":"done",
-		"progress":100,
-		"video":{"url":"http://videos.example/result.mp4"}
-	}`))
-	require.Error(t, err)
-	assert.Nil(t, result)
-	assert.NotContains(t, err.Error(), "videos.example")
+func TestParseTaskResultRejectsUntrustedVideoURL(t *testing.T) {
+	for _, resultURL := range []string{
+		"http://vidgen.x.ai/result.mp4",
+		"https://user:secret@vidgen.x.ai/result.mp4",
+		"https://vidgen.x.ai:8443/result.mp4",
+		"https://vidgen.x.ai.evil.example/result.mp4",
+		"https://other.example/result.mp4?token=do-not-leak",
+	} {
+		body := `{"status":"done","progress":100,"video":{"url":` + strconv.Quote(resultURL) + `}}`
+		result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(body))
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.NotContains(t, err.Error(), "http")
+		assert.NotContains(t, err.Error(), "token")
+	}
 }
 
-func TestConvertToOpenAIVideoUsesPublicContentURL(t *testing.T) {
+func TestConvertToOpenAIVideoUsesTrustedXAIResultURL(t *testing.T) {
 	task := &model.Task{
 		TaskID:     "task_public_123",
 		UserId:     9,
@@ -772,23 +741,22 @@ func TestConvertToOpenAIVideoUsesPublicContentURL(t *testing.T) {
 		Properties: model.Properties{OriginModelName: VideoModel},
 		PrivateData: model.TaskPrivateData{
 			UpstreamTaskID: "upstream-secret-id",
-			ResultURL:      "https://videos.example/result.mp4",
+			ResultURL:      "https://vidgen.x.ai/result.mp4?token=signed",
 		},
 	}
 	body, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
 	require.NoError(t, err)
 	text := string(body)
 	assert.Contains(t, text, "task_public_123")
-	assert.Contains(t, text, "/v1/videos/task_public_123/content")
+	assert.Contains(t, text, "https://vidgen.x.ai/result.mp4?token=signed")
 	assert.NotContains(t, text, "upstream-secret-id")
-	assert.NotContains(t, text, "videos.example")
 }
 
-func TestConvertToOpenAIVideoOmitsExpiredStoredResultURL(t *testing.T) {
+func TestConvertToOpenAIVideoIgnoresStoredResultAndRejectsUntrustedDirectURL(t *testing.T) {
 	task := &model.Task{
 		TaskID: "task_public_expired", UserId: 9, Status: model.TaskStatusSuccess,
 		PrivateData: model.TaskPrivateData{
-			ResultURL: "/v1/videos/task_public_expired/content",
+			ResultURL: "https://other.example/result.mp4?token=do-not-leak",
 			StoredResult: &model.TaskStoredResult{
 				ObjectKey: "users/grok-results/9/video/result.mp4",
 				MIMEType:  "video/mp4", ExpiresAt: time.Now().Add(-time.Second).Unix(),
@@ -797,7 +765,8 @@ func TestConvertToOpenAIVideoOmitsExpiredStoredResultURL(t *testing.T) {
 	}
 	body, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
 	require.NoError(t, err)
-	assert.NotContains(t, string(body), "/v1/videos/task_public_expired/content")
+	assert.NotContains(t, string(body), "other.example")
+	assert.NotContains(t, string(body), "result.mp4")
 }
 
 func TestTaskSubmitErrorSanitizerHandlesPricingWithoutRequestID(t *testing.T) {

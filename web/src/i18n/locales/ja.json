@@ -5474,6 +5474,7 @@
     "Generated": "生成済み",
     "Video Preview": "動画プレビュー",
     "The video is streamed from the upstream provider and is not stored by Molii.": "動画は上流プロバイダーからストリーミングされ、Molii には保存されません。",
+    "Result links are temporarily provided by the upstream provider and may expire. Please download and save them securely as soon as possible.": "結果リンクは上流プロバイダーから一時的に提供されるため、期限切れになる場合があります。できるだけ早くダウンロードし、安全に保存してください。",
     "Your browser does not support video playback.": "お使いのブラウザーは動画再生に対応していません。",
     "Video playback failed": "動画の再生に失敗しました",
     "The playback link may have expired. Refresh the task logs and try again.": "再生リンクの有効期限が切れている可能性があります。タスクログを更新して再試行してください。",

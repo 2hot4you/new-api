@@ -24,6 +24,12 @@ const VIDEO_TASK_PLATFORMS: ReadonlySet<string> = new Set([
   TASK_PLATFORMS.MOLII_GROK,
 ])
 
+export function shouldShowGrokVideoTemporaryLinkWarning(
+  task: Pick<TaskLog, 'platform'>
+): boolean {
+  return task.platform === TASK_PLATFORMS.MOLII_GROK
+}
+
 export function isGeneratedVideoTask(
   task: Pick<TaskLog, 'platform' | 'status'>
 ): boolean {

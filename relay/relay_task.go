@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -426,6 +425,10 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		taskResp = service.TaskErrorWrapperLocal(errors.New("task_not_exist"), "task_not_exist", http.StatusBadRequest)
 		return
 	}
+	if !isMoliiGrokTaskRoutingConsistent(originTask) {
+		taskResp = service.TaskErrorWrapperLocal(errors.New("invalid task routing"), "invalid_task_routing", http.StatusBadGateway)
+		return
+	}
 
 	isOpenAIVideoAPI := strings.HasPrefix(c.Request.RequestURI, "/v1/videos/")
 
@@ -464,6 +467,19 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		taskResp = service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
 	}
 	return
+}
+
+func isMoliiGrokTaskRoutingConsistent(task *model.Task) bool {
+	if task == nil {
+		return false
+	}
+	channelModel, err := model.CacheGetChannel(task.ChannelId)
+	if err != nil {
+		// Preserve historical behavior for tasks that are wholly outside the
+		// Grok route, while a Grok-marked task must have a verifiable channel.
+		return task.Platform != constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
+	}
+	return service.IsMoliiGrokTaskRoutingConsistent(task.Platform, channelModel.Type)
 }
 
 // tryRealtimeFetch 尝试从上游实时拉取 Gemini/Vertex 任务状态。
@@ -594,18 +610,14 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	taskData := task.Data
 	isStarAI := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
 	isMoliiGrok := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
-	if (isStarAI || isMoliiGrok) && task.Status == model.TaskStatusSuccess {
-		if !isMoliiGrok || task.PrivateData.StoredResult == nil || task.HasUnexpiredStoredResult(time.Now()) {
-			if isMoliiGrok && task.PrivateData.StoredResult != nil {
-				resultURL = service.BuildSignedVideoProxyURLUntil(task.TaskID, task.UserId, time.Unix(task.PrivateData.StoredResult.ExpiresAt, 0))
-			} else {
-				resultURL = service.BuildSignedVideoProxyURL(task.TaskID, task.UserId)
-			}
-		} else {
-			resultURL = ""
-		}
-		if isStarAI {
-			taskData = service.RewriteStarAIVideoResponseURLs(task.Data, resultURL)
+	if isStarAI && task.Status == model.TaskStatusSuccess {
+		resultURL = service.BuildSignedVideoProxyURL(task.TaskID, task.UserId)
+		taskData = service.RewriteStarAIVideoResponseURLs(task.Data, resultURL)
+	}
+	if isMoliiGrok {
+		resultURL = ""
+		if task.Status == model.TaskStatusSuccess && service.IsTrustedMoliiGrokVideoURL(task.PrivateData.ResultURL) {
+			resultURL = strings.TrimSpace(task.PrivateData.ResultURL)
 		}
 	}
 	return &dto.TaskDto{

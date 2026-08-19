@@ -42,24 +42,75 @@ curl --location --include --request GET \
 
 该响应的 `data.billing` 会给出 `state`、`final_cost`、`group_ratio` 和模型对应的安全计费明细。仅在 `state` 为 `settled` 时把 `final_cost` 当作最终费用；`refund_pending` 需要继续查询，`unavailable` 不应由客户端自行猜价。
 
-## 检查下载响应头
+## 安全跟随下载重定向
 
-先查看状态码与 `Content-Type`：
+Grok 的受保护内容入口先返回 HTTP `307`。下面的分段命令把响应头和未完成的下载保存到仅当前用户可读的临时文件；无论成功、失败还是收到中断信号，trap 都会清理临时文件。第一步只向 Molii 发送 API Key：
 
 ```bash
-curl --request GET \
+set -eu
+umask 077
+HEADER_FILE=
+RESULT_FILE=
+META_FILE=
+cleanup() {
+  [ -z "$HEADER_FILE" ] || rm -f -- "$HEADER_FILE"
+  [ -z "$RESULT_FILE" ] || rm -f -- "$RESULT_FILE"
+  [ -z "$META_FILE" ] || rm -f -- "$META_FILE"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+HEADER_FILE=$(mktemp "${TMPDIR:-/tmp}/molii-grok-headers.XXXXXX")
+RESULT_FILE=$(mktemp "${TMPDIR:-/tmp}/molii-grok-result.XXXXXX")
+META_FILE=$(mktemp "${TMPDIR:-/tmp}/molii-grok-meta.XXXXXX")
+
+curl --silent --show-error --request GET \
   "$MOLII_API_BASE_URL/v1/videos/$TASK_ID/content" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
-  --header 'Accept: video/*' \
-  --dump-header grok-video.headers \
-  --output grok-result.mp4
+  --dump-header "$HEADER_FILE" \
+  --output /dev/null
+
+MOLII_STATUS=$(awk '/^HTTP\// { status=$2 } END { print status }' "$HEADER_FILE")
+
+[ "$MOLII_STATUS" = '307' ] || {
+  echo 'Molii content endpoint did not return the expected Grok redirect' >&2
+  exit 1
+}
 ```
 
-确认 HTTP 状态为 `2xx` 且 `Content-Type` 为 `video/*`，再播放或移动文件。若下载到的文件只有几十或几百字节，先检查它是否实际上是 JSON 错误响应，不要按 MP4 处理。
+第二步从私有临时响应头读取 `Location`，并在请求前执行精确 allowlist 校验。视频只允许 HTTPS 的 `vidgen.x.ai` 或 `files-cdn.x.ai`，可以省略端口或显式使用 `443`；不能使用 userinfo、子域名、后缀匹配或其他端口。校验通过后的第二次请求不携带 Molii Authorization：
 
 ```bash
-grep -i '^Content-Type:' grok-video.headers
+XAI_RESULT_URL=$(awk '
+  /^[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:/ {
+    sub(/\r$/, "")
+    sub(/^[^:]+:[[:space:]]*/, "")
+    print
+    exit
+  }
+' "$HEADER_FILE")
+
+case "$XAI_RESULT_URL" in
+  https://vidgen.x.ai/*|https://vidgen.x.ai:443/*|\
+  https://files-cdn.x.ai/*|https://files-cdn.x.ai:443/*) ;;
+  *) echo 'Rejected unexpected Grok video result URL' >&2; exit 1 ;;
+esac
+
+curl --fail --silent --show-error \
+  --proto '=https' \
+  --url "$XAI_RESULT_URL" \
+  --header 'Accept: video/*' \
+  --output "$RESULT_FILE" \
+  --write-out '%{http_code}\n%{content_type}' >"$META_FILE"
+
+XAI_STATUS=$(sed -n '1p' "$META_FILE")
+XAI_CONTENT_TYPE=$(sed -n '2p' "$META_FILE")
+case "$XAI_STATUS" in 200|206) ;; *) exit 1 ;; esac
+case "$XAI_CONTENT_TYPE" in video/*) ;; *) exit 1 ;; esac
+mv -- "$RESULT_FILE" grok-result.mp4
+RESULT_FILE=
 file grok-result.mp4
 ```
 
-不要把含 API Key 的下载请求自动重定向到其他主机。若内容入口失效，重新查询任务或刷新生成记录以获取当前入口。
+最终响应应为 `200` 或 `206` 且 `Content-Type` 为 `video/*`。不要使用 `--location-trusted`，不要把 `MOLII_API_KEY` 加到第二条命令，也不要打印或记录完整 `Location`。xAI 结果 URL 是临时地址，可能过期；任务完成后应及时下载并妥善保存。

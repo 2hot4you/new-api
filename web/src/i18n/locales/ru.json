@@ -5474,6 +5474,7 @@
     "Generated": "Создано",
     "Video Preview": "Предпросмотр видео",
     "The video is streamed from the upstream provider and is not stored by Molii.": "Видео передаётся от вышестоящего провайдера и не хранится в Molii.",
+    "Result links are temporarily provided by the upstream provider and may expire. Please download and save them securely as soon as possible.": "Ссылки на результаты временно предоставляются вышестоящим провайдером и могут истечь. Как можно скорее скачайте результаты и сохраните их в безопасном месте.",
     "Your browser does not support video playback.": "Ваш браузер не поддерживает воспроизведение видео.",
     "Video playback failed": "Не удалось воспроизвести видео",
     "The playback link may have expired. Refresh the task logs and try again.": "Срок действия ссылки мог истечь. Обновите журналы задач и повторите попытку.",

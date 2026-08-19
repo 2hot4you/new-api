@@ -3,7 +3,6 @@ package moliigrok
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +16,6 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	kittypes "github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -337,37 +335,46 @@ func TestImageResponseExcludesUpstreamCostAndUsesActualCount(t *testing.T) {
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
 		Body: io.NopCloser(strings.NewReader(`{
-			"data":[{"url":"https://images.example/a.jpg","mime_type":"image/jpeg","revised_prompt":"first revision"},{"url":"https://images.example/b.jpg","mime_type":"image/jpeg","revised_prompt":"second revision"}],
+			"data":[{"url":"https://imgen.x.ai/a.jpg?token=one","mime_type":"image/jpeg","revised_prompt":"first revision"},{"url":"https://files-cdn.x.ai/b.jpg?token=two","mime_type":"image/jpeg","revised_prompt":"second revision"}],
 			"usage":{"cost_in_usd_ticks":200000000}
 		}`)),
 	}
-	var persistenceRequest service.GrokImagePersistenceRequest
-	adaptor := &Adaptor{persistImageResults: func(_ context.Context, request service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error) {
-		persistenceRequest = request
-		return []service.GrokImagePersistedResult{
-			{URL: "https://cos.example/signed-a", MIMEType: "image/jpeg", RevisedPrompt: "first revision"},
-			{URL: "https://cos.example/signed-b", MIMEType: "image/jpeg", RevisedPrompt: "second revision"},
-		}, nil
-	}}
 
-	usage, apiErr := adaptor.DoResponse(c, resp, info)
+	usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
 	require.Nil(t, apiErr)
 	require.NotNil(t, usage)
-	require.Equal(t, info.UserId, persistenceRequest.UserID)
-	require.Equal(t, info.RequestId, persistenceRequest.RequestID)
-	require.Equal(t, info.StartTime, persistenceRequest.CreatedAt)
-	require.Equal(t, []service.GrokImageSource{
-		{URL: "https://images.example/a.jpg", MIMEType: "image/jpeg", RevisedPrompt: "first revision"},
-		{URL: "https://images.example/b.jpg", MIMEType: "image/jpeg", RevisedPrompt: "second revision"},
-	}, persistenceRequest.Images)
 	assert.NotContains(t, recorder.Body.String(), "cost_in_usd_ticks")
-	assert.NotContains(t, recorder.Body.String(), "images.example")
-	assert.JSONEq(t, `{"created":0,"data":[{"url":"https://cos.example/signed-a","b64_json":"","mime_type":"image/jpeg","revised_prompt":"first revision"},{"url":"https://cos.example/signed-b","b64_json":"","mime_type":"image/jpeg","revised_prompt":"second revision"}]}`, recorder.Body.String())
+	assert.JSONEq(t, `{"created":0,"data":[{"url":"https://imgen.x.ai/a.jpg?token=one","b64_json":"","mime_type":"image/jpeg","revised_prompt":"first revision"},{"url":"https://files-cdn.x.ai/b.jpg?token=two","b64_json":"","mime_type":"image/jpeg","revised_prompt":"second revision"}]}`, recorder.Body.String())
 	assert.Equal(t, 0.04, info.PriceData.OtherRatios()["molii_grok_direct_cost"])
 	assert.Equal(t, 2, info.GrokImageBilling.OutputCount)
 	assert.InDelta(t, 0.04, info.GrokImageBilling.OutputCost, 0.000001)
 	assert.Zero(t, info.GrokImageBilling.InputCost)
 	assert.InDelta(t, 0.04, info.GrokImageBilling.Subtotal, 0.000001)
+}
+
+func TestImageResponseReturnsTrustedXAIURLForAllSupportedModels(t *testing.T) {
+	for _, modelName := range []string{"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0"} {
+		t.Run(modelName, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Set(validatedImageCountContextKey, 1)
+			info := imageInfo()
+			info.OriginModelName = modelName
+			info.ChannelMeta.UpstreamModelName = modelName
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{
+					"data":[{"url":"https://files-cdn.x.ai/result.webp?token=signed","mime_type":"image/webp","revised_prompt":"safe revision"}]
+				}`)),
+			}
+
+			_, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+
+			require.Nil(t, apiErr)
+			assert.JSONEq(t, `{"created":0,"data":[{"url":"https://files-cdn.x.ai/result.webp?token=signed","b64_json":"","mime_type":"image/webp","revised_prompt":"safe revision"}]}`, recorder.Body.String())
+		})
+	}
 }
 
 func TestImageResponsePreservesZeroPricedBillingSnapshot(t *testing.T) {
@@ -395,13 +402,10 @@ func TestImageResponsePreservesZeroPricedBillingSnapshot(t *testing.T) {
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(`{"data":[{"url":"https://images.example/free.jpg","mime_type":"image/jpeg"}]}`)),
+		Body:       io.NopCloser(strings.NewReader(`{"data":[{"url":"https://imgen.x.ai/free.jpg","mime_type":"image/jpeg"}]}`)),
 	}
-	adaptor := &Adaptor{persistImageResults: func(_ context.Context, _ service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error) {
-		return []service.GrokImagePersistedResult{{URL: "https://cos.example/free", MIMEType: "image/jpeg"}}, nil
-	}}
 
-	_, apiErr := adaptor.DoResponse(c, resp, info)
+	_, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
 	require.Nil(t, apiErr)
 	assert.Equal(t, 1, info.GrokImageBilling.OutputCount)
 	assert.Zero(t, info.GrokImageBilling.OutputUnitPrice)
@@ -415,7 +419,7 @@ func TestImageResponsePreservesZeroPricedBillingSnapshot(t *testing.T) {
 	assert.Contains(t, string(encoded), `"subtotal":0`)
 }
 
-func TestImageResponsePersistenceFailureReturnsSanitizedErrorBeforeBillingMutation(t *testing.T) {
+func TestImageResponseRejectsUntrustedURLBeforeBillingMutation(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Set(validatedImageCountContextKey, 2)
@@ -446,12 +450,7 @@ func TestImageResponsePersistenceFailureReturnsSanitizedErrorBeforeBillingMutati
 	oldErrorWriter := gin.DefaultErrorWriter
 	gin.DefaultErrorWriter = &logBuffer
 	t.Cleanup(func() { gin.DefaultErrorWriter = oldErrorWriter })
-	secretFailure := "copy https://images.example/secret-a.jpg?signature=do-not-log failed Authorization=Bearer-do-not-log SecretKey=do-not-log"
-	adaptor := &Adaptor{persistImageResults: func(context.Context, service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error) {
-		return nil, errors.New(secretFailure)
-	}}
-
-	usage, apiErr := adaptor.DoResponse(c, resp, info)
+	usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
 
 	require.Nil(t, usage)
 	require.NotNil(t, apiErr)
@@ -463,12 +462,13 @@ func TestImageResponsePersistenceFailureReturnsSanitizedErrorBeforeBillingMutati
 	require.Equal(t, 0.04, info.GrokImageBilling.Subtotal)
 	require.NotContains(t, apiErr.Error(), "images.example")
 	logText := logBuffer.String()
-	require.Contains(t, logText, "event=grok_image_result_persistence_failed")
+	require.Contains(t, logText, "event=grok_image_result_validation_failed")
+	require.NotContains(t, logText, "event=grok_image_result_persistence_failed")
 	require.Contains(t, logText, `request_id="req_public_image"`)
 	require.Contains(t, logText, "user_id=42")
 	require.Contains(t, logText, "channel_id=62")
-	require.Contains(t, logText, `stage="remote_fetch"`)
-	require.Contains(t, logText, `error_category="unexpected_persistence_error"`)
+	require.Contains(t, logText, `stage="validate_source"`)
+	require.Contains(t, logText, `error_category="untrusted_result_url"`)
 	require.Contains(t, logText, "remote_status=0")
 	require.NotContains(t, logText, "images.example")
 	require.NotContains(t, logText, "signature=")
@@ -476,13 +476,13 @@ func TestImageResponsePersistenceFailureReturnsSanitizedErrorBeforeBillingMutati
 	require.NotContains(t, logText, "SecretKey")
 }
 
-func TestGrokImagePersistenceFailureLogIncludesOnlyIntegerRemoteStatus(t *testing.T) {
+func TestGrokImageValidationFailureLogIncludesOnlyIntegerRemoteStatus(t *testing.T) {
 	var logBuffer bytes.Buffer
 	oldErrorWriter := gin.DefaultErrorWriter
 	gin.DefaultErrorWriter = &logBuffer
 	t.Cleanup(func() { gin.DefaultErrorWriter = oldErrorWriter })
 
-	logGrokImagePersistenceFailureFieldsWithRemoteStatus(
+	logGrokImageValidationFailureFieldsWithRemoteStatus(
 		context.Background(),
 		imageInfo(),
 		"remote_fetch",
@@ -492,7 +492,8 @@ func TestGrokImagePersistenceFailureLogIncludesOnlyIntegerRemoteStatus(t *testin
 	)
 
 	logText := logBuffer.String()
-	require.Contains(t, logText, "event=grok_image_result_persistence_failed")
+	require.Contains(t, logText, "event=grok_image_result_validation_failed")
+	require.NotContains(t, logText, "event=grok_image_result_persistence_failed")
 	require.Contains(t, logText, `request_id="req_public_image"`)
 	require.Contains(t, logText, `stage="remote_fetch"`)
 	require.Contains(t, logText, `error_category="non_success_status"`)
@@ -536,7 +537,7 @@ func TestImageResponseParseFailureLogsSafeStageWithoutResponseBody(t *testing.T)
 	require.NotContains(t, logText, "Bearer-do-not-log")
 }
 
-func TestGrokImagePersistenceLogHandlesMissingChannelMetadata(t *testing.T) {
+func TestGrokImageValidationLogHandlesMissingChannelMetadata(t *testing.T) {
 	var logBuffer bytes.Buffer
 	oldErrorWriter := gin.DefaultErrorWriter
 	gin.DefaultErrorWriter = &logBuffer
@@ -548,12 +549,12 @@ func TestGrokImagePersistenceLogHandlesMissingChannelMetadata(t *testing.T) {
 	}
 
 	require.NotPanics(t, func() {
-		logGrokImagePersistenceFailureFields(context.Background(), info, "cos_head", "head_failed", "images.example")
+		logGrokImageValidationFailureFields(context.Background(), info, "validate_source", "untrusted_result_url", "")
 	})
 
 	logText := logBuffer.String()
 	require.Contains(t, logText, "channel_id=0")
-	require.Contains(t, logText, `stage="cos_head"`)
+	require.Contains(t, logText, `stage="validate_source"`)
 }
 
 func TestSanitizeImageErrorNeverReturnsRawProviderDetails(t *testing.T) {

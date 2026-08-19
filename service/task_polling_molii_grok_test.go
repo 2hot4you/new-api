@@ -22,6 +22,7 @@ type privateGrokPollingAdaptor struct {
 	statusCode      int
 	body            []byte
 	result          *relaycommon.TaskInfo
+	fetchCalls      int
 	adjustQuota     int
 	finalizeBilling bool
 	persistErr      error
@@ -32,6 +33,7 @@ type privateGrokPollingAdaptor struct {
 func (a *privateGrokPollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
 
 func (a *privateGrokPollingAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+	a.fetchCalls++
 	return &http.Response{StatusCode: a.statusCode, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(a.body))}, nil
 }
 
@@ -91,7 +93,7 @@ func (a *privateGrokPollingAdaptor) PersistTaskResult(_ context.Context, task *m
 	}, nil
 }
 
-func TestMoliiGrokSuccessPersistsVideoBeforeTerminalCAS(t *testing.T) {
+func TestMoliiGrokSuccessStoresTrustedPrivateURLWithoutPersistence(t *testing.T) {
 	setupTaskBillingReconciliationTest(t)
 	const userID, channelID = 611, 612
 	const upstreamID = "grok-private-persistence-id"
@@ -106,39 +108,29 @@ func TestMoliiGrokSuccessPersistsVideoBeforeTerminalCAS(t *testing.T) {
 
 	adaptor := &privateGrokPollingAdaptor{
 		statusCode: http.StatusOK,
-		body:       []byte(`{"status":"done","video":{"url":"https://video.example/private-signed.mp4"}}`),
+		body:       []byte(`{"status":"done","video":{"url":"https://vidgen.x.ai/private.mp4?token=signed"}}`),
 		result: &relaycommon.TaskInfo{
 			Status:                model.TaskStatusSuccess,
 			Progress:              "100%",
-			Url:                   "https://video.example/private-signed.mp4",
+			Url:                   "https://vidgen.x.ai/private.mp4?token=signed",
 			ActualDurationSeconds: 6,
-		},
-		onPersist: func(_ *model.Task, result *relaycommon.TaskInfo, _ time.Time) {
-			require.Equal(t, "https://video.example/private-signed.mp4", result.Url)
-			var before model.Task
-			require.NoError(t, model.DB.First(&before, task.ID).Error)
-			require.EqualValues(t, model.TaskStatusInProgress, before.Status)
-			var jobCount int64
-			require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("task_id = ?", task.ID).Count(&jobCount).Error)
-			require.Zero(t, jobCount, "billing job must not exist before COS persistence")
 		},
 	}
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
-	require.Equal(t, 1, adaptor.persistCalls)
+	require.Zero(t, adaptor.persistCalls)
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	require.EqualValues(t, model.TaskStatusSuccess, reloaded.Status)
-	require.NotNil(t, reloaded.PrivateData.StoredResult)
-	require.Equal(t, "video/mp4", reloaded.PrivateData.StoredResult.MIMEType)
-	require.Equal(t, 6.0, reloaded.PrivateData.StoredResult.DurationSeconds)
-	require.NotContains(t, reloaded.PrivateData.ResultURL, "video.example")
-	require.NotContains(t, string(reloaded.Data), "video.example")
+	require.Nil(t, reloaded.PrivateData.StoredResult)
+	require.Equal(t, "https://vidgen.x.ai/private.mp4?token=signed", reloaded.PrivateData.ResultURL)
+	require.NotContains(t, string(reloaded.Data), "vidgen.x.ai")
+	require.NotContains(t, string(reloaded.Data), "token")
 	_ = loadTaskBillingJobByTaskID(t, task.ID)
 }
 
-func TestMoliiGrokPersistenceFailureLeavesTaskRetryableWithoutBillingJob(t *testing.T) {
+func TestMoliiGrokUntrustedResultLeavesTaskRetryableWithoutBillingJob(t *testing.T) {
 	setupTaskBillingReconciliationTest(t)
 	const userID, channelID = 613, 614
 	const upstreamID = "grok-private-copy-failure-id"
@@ -154,19 +146,20 @@ func TestMoliiGrokPersistenceFailureLeavesTaskRetryableWithoutBillingJob(t *test
 	adaptor := &privateGrokPollingAdaptor{
 		statusCode: http.StatusOK,
 		body:       []byte(`{"status":"done"}`),
-		result:     &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://video.example/private-signed.mp4"},
-		persistErr: errors.New("COS copy failed"),
+		result:     &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://vidgen.x.ai.evil.example/private.mp4?token=do-not-leak"},
 	}
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 
 	err := updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task})
-	require.ErrorContains(t, err, "result persistence failed")
-	require.Equal(t, 1, adaptor.persistCalls)
+	require.ErrorContains(t, err, "invalid result URL")
+	require.NotContains(t, err.Error(), "evil.example")
+	require.NotContains(t, err.Error(), "token")
+	require.Zero(t, adaptor.persistCalls)
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	require.EqualValues(t, model.TaskStatusInProgress, reloaded.Status)
 	require.Nil(t, reloaded.PrivateData.StoredResult)
-	require.NotContains(t, reloaded.PrivateData.ResultURL, "video.example")
+	require.Empty(t, reloaded.PrivateData.ResultURL)
 	var jobCount int64
 	require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("task_id = ?", task.ID).Count(&jobCount).Error)
 	require.Zero(t, jobCount)
@@ -220,6 +213,69 @@ func TestPrivateGrokPollingRejectsUnexpectedHTTPStatusWithoutRawBody(t *testing.
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "raw provider body")
 	assert.NotContains(t, err.Error(), "upstream-secret")
+}
+
+func TestUpdateVideoTasksRejectsMoliiGrokPlatformChannelMismatchBeforeFetch(t *testing.T) {
+	truncate(t)
+	previousMemoryCacheEnabled := common.MemoryCacheEnabled
+	previousGetTaskAdaptorFunc := GetTaskAdaptorFunc
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = previousMemoryCacheEnabled
+		GetTaskAdaptorFunc = previousGetTaskAdaptorFunc
+	})
+
+	tests := []struct {
+		name        string
+		platform    constant.TaskPlatform
+		channelType int
+	}{
+		{
+			name:        "grok platform with non-grok channel",
+			platform:    constant.TaskPlatform("62"),
+			channelType: constant.ChannelTypeOpenAI,
+		},
+		{
+			name:        "non-grok platform with grok channel",
+			platform:    constant.TaskPlatform("1"),
+			channelType: constant.ChannelTypeMoliiGrokAIGC,
+		},
+	}
+
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channelID := 650 + index
+			upstreamID := "upstream-routing-mismatch-" + tt.name
+			channel := &model.Channel{Id: channelID, Type: tt.channelType, Name: tt.name, Key: "secret"}
+			require.NoError(t, model.DB.Create(channel).Error)
+			task := &model.Task{
+				TaskID:    "task_public_routing_mismatch",
+				Platform:  tt.platform,
+				ChannelId: channelID,
+				Status:    model.TaskStatusInProgress,
+				PrivateData: model.TaskPrivateData{
+					UpstreamTaskID: upstreamID,
+				},
+			}
+			require.NoError(t, model.DB.Create(task).Error)
+			adaptor := &privateGrokPollingAdaptor{
+				statusCode: http.StatusAccepted,
+				body:       []byte(`{"status":"pending"}`),
+				result:     &relaycommon.TaskInfo{Status: model.TaskStatusInProgress, Progress: "25%"},
+			}
+			GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+
+			err := updateVideoTasks(context.Background(), tt.platform, channelID, []string{upstreamID}, map[string]*model.Task{upstreamID: task})
+
+			require.ErrorContains(t, err, "platform/channel mismatch")
+			assert.Zero(t, adaptor.fetchCalls)
+			assert.EqualValues(t, model.TaskStatusInProgress, task.Status)
+			assert.Empty(t, task.FinishTime)
+			var billingJobs int64
+			require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("task_id = ?", task.ID).Count(&billingJobs).Error)
+			assert.Zero(t, billingJobs)
+		})
+	}
 }
 
 func TestMoliiGrokFailureRefundsExactlyOnceAcrossStalePolls(t *testing.T) {
@@ -288,8 +344,8 @@ func TestMoliiGrokSuccessDoesNotDoubleSettleAcrossStalePolls(t *testing.T) {
 	require.NoError(t, model.DB.First(&stalePoll, task.ID).Error)
 	adaptor := &privateGrokPollingAdaptor{
 		statusCode: http.StatusOK,
-		body:       []byte(`{"status":"done","video":{"url":"https://video.example/result.mp4"}}`),
-		result:     &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://video.example/result.mp4"},
+		body:       []byte(`{"status":"done","video":{"url":"https://files-cdn.x.ai/result.mp4?token=signed"}}`),
+		result:     &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://files-cdn.x.ai/result.mp4?token=signed"},
 	}
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret", BaseURL: &baseURL}
 
@@ -311,9 +367,8 @@ func TestMoliiGrokSuccessDoesNotDoubleSettleAcrossStalePolls(t *testing.T) {
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.EqualValues(t, model.TaskStatusSuccess, reloaded.Status)
-	assert.Contains(t, reloaded.PrivateData.ResultURL, "/v1/videos/task_public_grok_success/content")
-	assert.NotContains(t, reloaded.PrivateData.ResultURL, "video.example")
-	assert.NotNil(t, reloaded.PrivateData.StoredResult)
+	assert.Equal(t, "https://files-cdn.x.ai/result.mp4?token=signed", reloaded.PrivateData.ResultURL)
+	assert.Nil(t, reloaded.PrivateData.StoredResult)
 }
 
 func markFinalUsageGrokTask(task *model.Task) {
@@ -351,7 +406,7 @@ func TestMoliiGrokFinalUsageSuccessLogsExactlyOnceAcrossStalePolls(t *testing.T)
 	adaptor := &privateGrokPollingAdaptor{
 		statusCode:  http.StatusOK,
 		body:        []byte(`{"status":"done"}`),
-		result:      &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", ActualDurationSeconds: 5},
+		result:      &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://vidgen.x.ai/final.mp4?token=signed", ActualDurationSeconds: 5},
 		adjustQuota: taskQuota, finalizeBilling: true,
 	}
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
@@ -377,6 +432,8 @@ func TestMoliiGrokFinalUsageSuccessLogsExactlyOnceAcrossStalePolls(t *testing.T)
 	assert.Contains(t, log.Other, `"grok_video_billing"`)
 	assert.Contains(t, log.Other, `"request_path":"/v1/videos/generations"`)
 	assert.NotContains(t, log.Other, upstreamID)
+	assert.NotContains(t, log.Other, "vidgen.x.ai")
+	assert.NotContains(t, log.Other, "token=signed")
 
 	var user model.User
 	require.NoError(t, model.DB.First(&user, userID).Error)
@@ -402,7 +459,7 @@ func TestMoliiGrokFinalUsageMissingCompletionFinalizationSuppressesSuccessLog(t 
 	task.PrivateData.BillingContext.GrokVideoBilling.VideoInputUnitPrice = 0.01
 	require.NoError(t, model.DB.Create(task).Error)
 
-	adaptor := &privateGrokPollingAdaptor{statusCode: http.StatusOK, body: []byte(`{"status":"done"}`), result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://video.example/edit-result.mp4", ActualDurationSeconds: 6, ProviderCost: 999999}}
+	adaptor := &privateGrokPollingAdaptor{statusCode: http.StatusOK, body: []byte(`{"status":"done"}`), result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://vidgen.x.ai/edit-result.mp4?token=signed", ActualDurationSeconds: 6, ProviderCost: 999999}}
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
 
@@ -418,9 +475,8 @@ func TestMoliiGrokFinalUsageMissingCompletionFinalizationSuppressesSuccessLog(t 
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.EqualValues(t, model.TaskStatusSuccess, reloaded.Status)
-	assert.Contains(t, reloaded.PrivateData.ResultURL, "/v1/videos/task_public_grok_unfinalized/content")
-	assert.NotContains(t, reloaded.PrivateData.ResultURL, "video.example")
-	assert.NotNil(t, reloaded.PrivateData.StoredResult)
+	assert.Equal(t, "https://vidgen.x.ai/edit-result.mp4?token=signed", reloaded.PrivateData.ResultURL)
+	assert.Nil(t, reloaded.PrivateData.StoredResult)
 	assert.Empty(t, reloaded.PrivateData.BillingContext.GrokVideoBilling.ActualResolution)
 }
 
@@ -442,7 +498,7 @@ func TestMoliiGrokFinalUsageZeroSettlementRefundsInternallyThenLogsZeroConsume(t
 
 	adaptor := &privateGrokPollingAdaptor{
 		statusCode: http.StatusOK, body: []byte(`{"status":"done"}`), adjustQuota: 0, finalizeBilling: true,
-		result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", ActualDurationSeconds: 5},
+		result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://vidgen.x.ai/zero.mp4?token=signed", ActualDurationSeconds: 5},
 	}
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
@@ -481,7 +537,7 @@ func TestMoliiGrokFinalUsageFundingFailureSuppressesSuccessLog(t *testing.T) {
 
 	adaptor := &privateGrokPollingAdaptor{
 		statusCode: http.StatusOK, body: []byte(`{"status":"done"}`), adjustQuota: 3000, finalizeBilling: true,
-		result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", ActualDurationSeconds: 6},
+		result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://vidgen.x.ai/funding.mp4?token=signed", ActualDurationSeconds: 6},
 	}
 	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
@@ -633,7 +689,7 @@ func TestMoliiGrokFinalUsageSuccessfulDeltasEmitOnlyFinalConsumption(t *testing.
 
 			adaptor := &privateGrokPollingAdaptor{
 				statusCode: http.StatusOK, body: []byte(`{"status":"done"}`), adjustQuota: tt.actualQuota, finalizeBilling: true,
-				result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", ActualDurationSeconds: 5},
+				result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%", Url: "https://vidgen.x.ai/delta.mp4?token=signed", ActualDurationSeconds: 5},
 			}
 			channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
 			require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))

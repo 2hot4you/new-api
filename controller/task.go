@@ -100,17 +100,19 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 			}
 		}
 		item := relay.TaskModel2Dto(task)
-		isPrivateVideoPlatform := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)) ||
-			task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
-		if isPrivateVideoPlatform {
+		isStarAI := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
+		isMoliiGrok := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
+		if isStarAI || isMoliiGrok {
 			// The URL is generated on demand and points to Molii's signed streaming
 			// proxy. No upstream URL or video content is persisted in the log DTO.
-			if task.Status == model.TaskStatusSuccess && (task.PrivateData.StoredResult == nil || task.HasUnexpiredStoredResult(time.Now())) {
+			if isStarAI && task.Status == model.TaskStatusSuccess && (task.PrivateData.StoredResult == nil || task.HasUnexpiredStoredResult(time.Now())) {
 				if task.PrivateData.StoredResult != nil {
 					item.ResultURL = service.BuildSignedVideoProxyPathUntil(task.TaskID, task.UserId, time.Unix(task.PrivateData.StoredResult.ExpiresAt, 0))
 				} else {
 					item.ResultURL = service.BuildSignedVideoProxyPath(task.TaskID, task.UserId)
 				}
+			} else if isMoliiGrok && task.Status == model.TaskStatusSuccess && service.IsTrustedMoliiGrokVideoURL(task.PrivateData.ResultURL) {
+				item.ResultURL = service.BuildSignedVideoProxyPath(task.TaskID, task.UserId)
 			} else {
 				item.ResultURL = ""
 			}

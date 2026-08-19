@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
@@ -31,11 +30,10 @@ import (
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	apiKey             string
-	baseURL            string
-	videoProber        service.UserVideoProber
-	persistVideoResult func(context.Context, service.GrokResultStoreRequest) (*service.StoredObject, bool, error)
-	resolveUserFile    func(context.Context, int, string, model.MoliiFileMediaType) (*model.MoliiFile, string, error)
+	apiKey          string
+	baseURL         string
+	videoProber     service.UserVideoProber
+	resolveUserFile func(context.Context, int, string, model.MoliiFileMediaType) (*model.MoliiFile, string, error)
 }
 
 const unresolvedFileIDMessage = "Molii file_id could not be resolved"
@@ -61,44 +59,6 @@ func (a *TaskAdaptor) userFileResolver() func(context.Context, int, string, mode
 		return a.resolveUserFile
 	}
 	return service.ResolveUserFile
-}
-
-func (a *TaskAdaptor) PersistTaskResult(ctx context.Context, task *model.Task, result *relaycommon.TaskInfo, completedAt time.Time) (*model.TaskStoredResult, error) {
-	if task == nil || result == nil || task.UserId <= 0 || strings.TrimSpace(task.TaskID) == "" || completedAt.IsZero() || strings.TrimSpace(result.Url) == "" {
-		return nil, errors.New("Molii Grok Imagine API video result metadata is invalid")
-	}
-	keyAnchor := completedAt
-	if task.CreatedAt > 0 {
-		keyAnchor = time.Unix(task.CreatedAt, 0).UTC()
-	} else if task.SubmitTime > 0 {
-		keyAnchor = time.Unix(task.SubmitTime, 0).UTC()
-	}
-	persist := service.PersistGrokVideoResultWithStatus
-	if a != nil && a.persistVideoResult != nil {
-		persist = a.persistVideoResult
-	}
-	stored, _, err := persist(ctx, service.GrokResultStoreRequest{
-		SourceURL:      strings.TrimSpace(result.Url),
-		UserID:         task.UserId,
-		MediaType:      "video",
-		MIMEType:       "video/mp4",
-		IdempotencyKey: task.TaskID,
-		CreatedAt:      completedAt,
-		KeyAnchor:      keyAnchor,
-	})
-	if err != nil {
-		return nil, errors.New("Molii Grok Imagine API video result persistence failed")
-	}
-	if stored == nil || strings.TrimSpace(stored.ObjectKey) == "" || stored.MIMEType != "video/mp4" || stored.ExpiresAt <= completedAt.Unix() {
-		return nil, errors.New("Molii Grok Imagine API video result persistence returned invalid metadata")
-	}
-	return &model.TaskStoredResult{
-		ObjectKey:       stored.ObjectKey,
-		MIMEType:        stored.MIMEType,
-		Size:            stored.Size,
-		ExpiresAt:       stored.ExpiresAt,
-		DurationSeconds: result.ActualDurationSeconds,
-	}, nil
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError {
@@ -821,8 +781,7 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.ActualDurationSeconds = upstream.Video.Duration
 		result.ActualResolution = normalizePollingResolution(upstream.Video.Resolution)
 		result.ProviderCost = float64(upstream.Usage.CostInUSDTicks) / 10_000_000_000
-		parsedURL, err := url.Parse(result.Url)
-		if err != nil || !strings.EqualFold(parsedURL.Scheme, "https") || strings.TrimSpace(parsedURL.Host) == "" {
+		if !service.IsTrustedMoliiGrokVideoURL(result.Url) {
 			return nil, errors.New("Molii Grok Imagine API returned an invalid video result")
 		}
 	case "failed", "expired":
@@ -857,12 +816,9 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	video.SetProgressStr(task.Progress)
 	video.CreatedAt = task.CreatedAt
 	video.CompletedAt = task.UpdatedAt
-	if task.Status == model.TaskStatusSuccess && strings.TrimSpace(task.GetResultURL()) != "" && (task.PrivateData.StoredResult == nil || task.HasUnexpiredStoredResult(time.Now())) {
-		if task.PrivateData.StoredResult != nil {
-			video.SetMetadata("url", service.BuildSignedVideoProxyURLUntil(task.TaskID, task.UserId, time.Unix(task.PrivateData.StoredResult.ExpiresAt, 0)))
-		} else {
-			video.SetMetadata("url", service.BuildSignedVideoProxyURL(task.TaskID, task.UserId))
-		}
+	resultURL := strings.TrimSpace(task.PrivateData.ResultURL)
+	if task.Status == model.TaskStatusSuccess && service.IsTrustedMoliiGrokVideoURL(resultURL) {
+		video.SetMetadata("url", resultURL)
 	}
 	if task.Status == model.TaskStatusFailure {
 		video.Error = &dto.OpenAIVideoError{Code: "molii_grok_task_failed", Message: "Molii Grok Imagine API task failed"}

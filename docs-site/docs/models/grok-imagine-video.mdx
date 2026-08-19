@@ -33,7 +33,7 @@ sidebar_position: 4
 | `aspect_ratio` | string | 否 | `16:9` | `1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3` | 编辑和延长请求不接受。 |
 | `resolution` | string | 否 | `480p` | 取决于模型 | 参考图模式最高 `720p`；编辑和延长请求不接受。 |
 
-输入媒体可以使用公网 URL，也可以先上传到 `POST /v1/files`，再传 `{ "file_id": "file_xxx" }`。本地文件和成功生成结果均只保留 24 小时。
+输入媒体可以使用公网 URL，也可以先上传到 `POST /v1/files`，再传 `{ "file_id": "file_xxx" }`。通过文件接口上传的本地素材按其文件有效期管理；成功生成结果使用 xAI 临时 URL，不会复制到 Molii COS。
 
 ## 单图生成
 
@@ -97,11 +97,13 @@ sidebar_position: 4
 ## 异步流程
 
 1. 只发送一次创建、编辑或延长 POST，并保存返回的 `id`。
-2. 调用 `GET /v1/videos/{task_id}` 查询 `queued`、`in_progress`、`completed` 或 `failed`。
-3. 完成后调用 `GET /v1/videos/{task_id}/content` 下载视频。
+2. 调用 `GET /v1/videos/{task_id}` 查询 `queued`、`in_progress`、`completed` 或 `failed`；完成时 `metadata.url` 直接返回经过验证的 xAI 临时结果 URL。
+3. 也可以调用受保护的 `GET /v1/videos/{task_id}/content`；该入口返回 HTTP `307`，`Location` 指向同一经过验证的 xAI 临时 URL。
 4. 查询兼容路径 `GET /v1/video/generations/{task_id}` 可读取 `data.billing` 的公开结算摘要。
 
-Molii 会将成功结果保存到自有对象存储，任务完成后保留 24 小时。请在到期前下载；到期后返回 `410 file_expired` 或 `result_expired`。
+xAI 结果 URL 由上游临时提供，可能过期。任务完成后应立即下载并妥善保存；不要依赖固定保留时长，也不要把完整结果 URL 或签名参数写入日志。跟随内容入口的跨域重定向时，不得把 Molii API Key 转发给目标域名。
+
+应用程序使用视频结果 URL 前应通过 URL 解析器校验：协议必须为 HTTPS，不允许 userinfo，端口只能省略或显式为 `443`，hostname 必须精确等于 `vidgen.x.ai` 或 `files-cdn.x.ai`。不要使用字符串包含、后缀或子域名匹配代替精确比较。可执行的分段校验与下载命令见[任务查询与下载](../examples/grok-poll-download)。
 
 ## 当前目录计费
 

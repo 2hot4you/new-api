@@ -74,12 +74,14 @@ HTTP(S) URL 必须能被服务端直接读取；临时签名 URL 的有效期需
 {
   "created": 1786300000,
   "data": [
-    { "url": "https://media.example.com/result.png" }
+    { "url": "https://imgen.x.ai/generated-image.png?temporary-signature=REDACTED" }
   ]
 }
 ```
 
-`data` 的实际数量可能少于请求的 `n`，最终费用按实际返回数量结算。成功结果由 Molii 保存 24 小时，收到响应后应尽快下载，不要把它当作永久地址。
+`data` 的实际数量可能少于请求的 `n`，最终费用按实际返回数量结算。`data[].url` 是 xAI 临时提供的结果地址，Molii 不会将结果复制到自有 COS；地址可能随时过期。收到响应后应立即下载并妥善保存，不要把它当作永久地址，也不要在日志中记录完整路径、查询参数或响应体。
+
+应用程序使用结果 URL 前应通过 URL 解析器校验：协议必须为 HTTPS，不允许 userinfo，端口只能省略或显式为 `443`，hostname 必须精确等于 `imgen.x.ai` 或 `files-cdn.x.ai`。不要使用字符串包含、后缀或子域名匹配代替精确比较。示例中的查询值仅为 `REDACTED` 占位符，不是真实签名。
 
 ## 当前目录计费
 

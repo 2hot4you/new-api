@@ -16,16 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Film, MonitorPlay } from 'lucide-react'
+import { Film, MonitorPlay, TriangleAlert } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+import { shouldShowGrokVideoTemporaryLinkWarning } from '../../lib/task-video-preview'
 import type { TaskLog } from '../../types'
 import { shouldShowVideoTechnicalMetadata } from './video-preview-metadata'
 
@@ -65,6 +67,7 @@ export function VideoPreviewDialog({
   const [playbackFailed, setPlaybackFailed] = useState(false)
   const params = log.video_params
   const showTechnicalMetadata = shouldShowVideoTechnicalMetadata(log.platform)
+  const showTemporaryLinkWarning = shouldShowGrokVideoTemporaryLinkWarning(log)
 
   const ratioParts = params?.ratio
     ?.split(':')
@@ -121,7 +124,24 @@ export function VideoPreviewDialog({
       contentHeight={isPortrait ? 'min(76vh, 760px)' : 'min(72vh, 700px)'}
       bodyClassName='h-full'
     >
-      <div className={cn('grid min-h-0 gap-4 lg:h-full', layoutGridClass)}>
+      <div
+        className={cn(
+          'grid min-h-0 gap-4 lg:h-full',
+          showTemporaryLinkWarning && 'lg:grid-rows-[auto_minmax(0,1fr)]',
+          layoutGridClass
+        )}
+      >
+        {showTemporaryLinkWarning ? (
+          <Alert className='lg:col-span-2'>
+            <TriangleAlert />
+            <AlertDescription>
+              {t(
+                'Result links are temporarily provided by the upstream provider and may expire. Please download and save them securely as soon as possible.'
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         <section
           className={cn(
             'from-muted/80 via-background to-muted/30 relative flex min-h-[300px] items-center justify-center overflow-hidden rounded-2xl border bg-gradient-to-br p-3 sm:p-5 lg:min-h-0',

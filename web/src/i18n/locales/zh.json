@@ -5474,6 +5474,7 @@
     "Generated": "已生成",
     "Video Preview": "视频预览",
     "The video is streamed from the upstream provider and is not stored by Molii.": "视频由上游实时传输，Molii 不会存储视频文件。",
+    "Result links are temporarily provided by the upstream provider and may expire. Please download and save them securely as soon as possible.": "结果链接由上游临时提供，可能过期，请及时下载并妥善保存。",
     "Your browser does not support video playback.": "你的浏览器不支持视频播放。",
     "Video playback failed": "视频播放失败",
     "The playback link may have expired. Refresh the task logs and try again.": "播放链接可能已过期，请刷新任务日志后重试。",

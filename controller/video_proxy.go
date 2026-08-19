@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,15 +71,42 @@ func videoProxyWithStoredFetcher(c *gin.Context, fetchStored storedVideoFetcher)
 			fmt.Sprintf("Task is not completed yet, current status: %s", task.Status))
 		return
 	}
-	if task.PrivateData.StoredResult != nil {
+	expectedGrokPlatform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
+	if task.Platform != expectedGrokPlatform && task.PrivateData.StoredResult != nil {
+		channel, channelErr := model.CacheGetChannel(task.ChannelId)
+		if channelErr == nil && !service.IsMoliiGrokTaskRoutingConsistent(task.Platform, channel.Type) {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Molii Grok Imagine API task routing rejected: public_task_id=%s reason=platform_channel_mismatch", taskID))
+			videoProxyCodedError(c, http.StatusBadGateway, "upstream_invalid_result_url", "Molii Grok Imagine API video result is unavailable")
+			return
+		}
 		serveStoredGrokVideo(c, task, fetchStored)
 		return
 	}
-
 	channel, err := model.CacheGetChannel(task.ChannelId)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to get channel for task %s: %s", taskID, err.Error()))
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to retrieve channel information")
+		return
+	}
+	isGrokChannel := channel.Type == constant.ChannelTypeMoliiGrokAIGC
+	if !service.IsMoliiGrokTaskRoutingConsistent(task.Platform, channel.Type) {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Molii Grok Imagine API task routing rejected: public_task_id=%s reason=platform_channel_mismatch", taskID))
+		videoProxyCodedError(c, http.StatusBadGateway, "upstream_invalid_result_url", "Molii Grok Imagine API video result is unavailable")
+		return
+	}
+	if isGrokChannel {
+		resultURL := strings.TrimSpace(task.PrivateData.ResultURL)
+		if !service.IsTrustedMoliiGrokVideoURL(resultURL) {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Molii Grok Imagine API result URL rejected: public_task_id=%s reason=untrusted_result", taskID))
+			videoProxyCodedError(c, http.StatusBadGateway, "upstream_invalid_result_url", "Molii Grok Imagine API video result must use a trusted HTTPS URL")
+			return
+		}
+		c.Header("Cache-Control", "private, no-store")
+		c.Header("Referrer-Policy", "no-referrer")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("Location", resultURL)
+		c.Status(http.StatusTemporaryRedirect)
+		c.Writer.WriteHeaderNow()
 		return
 	}
 	baseURL := channel.GetBaseURL()

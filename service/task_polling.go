@@ -49,13 +49,6 @@ type PrivateTaskPollingAdaptor interface {
 	SafePollingError(statusCode int) error
 }
 
-// PrivateTaskResultPersister copies a private provider result into Molii-owned
-// storage before the polling loop is allowed to commit a SUCCESS terminal
-// state and enqueue its billing job.
-type PrivateTaskResultPersister interface {
-	PersistTaskResult(ctx context.Context, task *model.Task, result *relaycommon.TaskInfo, completedAt time.Time) (*model.TaskStoredResult, error)
-}
-
 func privateTaskPollingAdaptor(adaptor TaskPollingAdaptor) (PrivateTaskPollingAdaptor, bool) {
 	privacy, ok := adaptor.(PrivateTaskPollingAdaptor)
 	return privacy, ok && privacy.IsPrivateTaskPolling()
@@ -512,6 +505,9 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 		}
 		return fmt.Errorf("CacheGetChannel failed: %w", err)
 	}
+	if !IsMoliiGrokTaskRoutingConsistent(platform, cacheGetChannel.Type) {
+		return errors.New("Molii Grok Imagine API task platform/channel mismatch")
+	}
 	adaptor := GetTaskAdaptorFunc(platform)
 	if adaptor == nil {
 		return fmt.Errorf("video adaptor not found")
@@ -582,6 +578,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 		logger.LogError(ctx, fmt.Sprintf("Task %s not found in taskM", taskId))
 		return fmt.Errorf("task %s not found", taskId)
+	}
+	if !IsMoliiGrokTaskRoutingConsistent(task.Platform, ch.Type) {
+		return errors.New("Molii Grok Imagine API task platform/channel mismatch")
 	}
 	publicTaskID := task.TaskID
 	isStarAI := ch.Type == constant.ChannelTypeStarAI
@@ -692,22 +691,14 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 	}
 
+	grokResultURL := ""
 	if taskResult.Status == model.TaskStatusSuccess && ch.Type == constant.ChannelTypeMoliiGrokAIGC {
-		persister, ok := adaptor.(PrivateTaskResultPersister)
-		if !ok {
-			return fmt.Errorf("Molii Grok Imagine API result persistence is unavailable for task %s", publicTaskID)
+		grokResultURL = strings.TrimSpace(taskResult.Url)
+		if !IsTrustedMoliiGrokVideoURL(grokResultURL) {
+			return fmt.Errorf("Molii Grok Imagine API returned an invalid result URL for public task %s", publicTaskID)
 		}
-		storedResult, persistErr := persister.PersistTaskResult(ctx, task, taskResult, time.Unix(now, 0))
-		if persistErr != nil {
-			return fmt.Errorf("Molii Grok Imagine API result persistence failed for task %s", publicTaskID)
-		}
-		if storedResult == nil || strings.TrimSpace(storedResult.ObjectKey) == "" || storedResult.ExpiresAt <= now {
-			return fmt.Errorf("Molii Grok Imagine API result persistence returned invalid metadata for task %s", publicTaskID)
-		}
-		task.PrivateData.StoredResult = storedResult
-		// The provider-signed URL is transient input to persistence only. Clear it
-		// before any task snapshot, log, or database write can observe it.
-		taskResult.Url = ""
+		// Private polling logs only status and adaptor-produced SafePollingData;
+		// the URL is persisted exclusively in TaskPrivateData below.
 	}
 
 	task.Status = model.TaskStatus(taskResult.Status)
@@ -726,8 +717,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		if task.FinishTime == 0 {
 			task.FinishTime = now
 		}
-		if ch.Type == constant.ChannelTypeMoliiGrokAIGC && task.PrivateData.StoredResult != nil {
-			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
+		if ch.Type == constant.ChannelTypeMoliiGrokAIGC {
+			task.PrivateData.ResultURL = grokResultURL
 		} else if strings.HasPrefix(taskResult.Url, "data:") {
 			// data: URI (e.g. Vertex base64 encoded video) — keep in Data, not in ResultURL
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
