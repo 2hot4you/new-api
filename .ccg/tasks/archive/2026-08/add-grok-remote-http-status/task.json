@@ -1,0 +1,12 @@
+{
+  "id": "add-grok-remote-http-status",
+  "title": "为 Grok 图片持久化诊断记录远端 HTTP 状态码",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交推送 develop",
+  "createdAt": "2026-08-19T11:32:32Z",
+  "branch": "develop"
+}

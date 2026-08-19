@@ -24,10 +24,11 @@ const (
 )
 
 type grokImagePersistenceError struct {
-	stage      string
-	category   string
-	sourceHost string
-	cause      error
+	stage        string
+	category     string
+	sourceHost   string
+	remoteStatus int
+	cause        error
 }
 
 func (err *grokImagePersistenceError) Error() string {
@@ -57,11 +58,32 @@ func newGrokImagePersistenceError(stage, category, sourceURL string, cause error
 	}
 }
 
+func newGrokImagePersistenceErrorWithRemoteStatus(stage, category, sourceURL string, remoteStatus int, cause error) error {
+	var existing *grokImagePersistenceError
+	if errors.As(cause, &existing) {
+		return existing
+	}
+	return &grokImagePersistenceError{
+		stage:        stage,
+		category:     category,
+		sourceHost:   grokImagePersistenceSourceHost(sourceURL),
+		remoteStatus: remoteStatus,
+		cause:        cause,
+	}
+}
+
 func grokImagePersistenceErrorForMedia(mediaType, stage, category, sourceURL string, cause error) error {
 	if !strings.EqualFold(strings.TrimSpace(mediaType), "image") {
 		return cause
 	}
 	return newGrokImagePersistenceError(stage, category, sourceURL, cause)
+}
+
+func grokImagePersistenceErrorForMediaWithRemoteStatus(mediaType, stage, category, sourceURL string, remoteStatus int, cause error) error {
+	if !strings.EqualFold(strings.TrimSpace(mediaType), "image") {
+		return cause
+	}
+	return newGrokImagePersistenceErrorWithRemoteStatus(stage, category, sourceURL, remoteStatus, cause)
 }
 
 func grokImagePersistenceSourceHost(sourceURL string) string {
@@ -81,4 +103,15 @@ func GrokImagePersistenceErrorDetails(err error) (stage, errorCategory, sourceHo
 		return "", "", "", false
 	}
 	return persistenceErr.stage, persistenceErr.category, persistenceErr.sourceHost, true
+}
+
+// GrokImagePersistenceRemoteStatus returns the HTTP status received while
+// fetching a remote Grok image. Zero means the failure did not include a
+// remote HTTP response status.
+func GrokImagePersistenceRemoteStatus(err error) int {
+	var persistenceErr *grokImagePersistenceError
+	if !errors.As(err, &persistenceErr) || persistenceErr == nil {
+		return 0
+	}
+	return persistenceErr.remoteStatus
 }

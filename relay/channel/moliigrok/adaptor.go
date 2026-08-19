@@ -469,15 +469,21 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 
 func logGrokImagePersistenceFailure(ctx context.Context, info *relaycommon.RelayInfo, err error) {
 	stage, errorCategory, sourceHost, ok := service.GrokImagePersistenceErrorDetails(err)
+	remoteStatus := service.GrokImagePersistenceRemoteStatus(err)
 	if !ok {
 		stage = "remote_fetch"
 		errorCategory = "unexpected_persistence_error"
 		sourceHost = ""
+		remoteStatus = 0
 	}
-	logGrokImagePersistenceFailureFields(ctx, info, stage, errorCategory, sourceHost)
+	logGrokImagePersistenceFailureFieldsWithRemoteStatus(ctx, info, stage, errorCategory, sourceHost, remoteStatus)
 }
 
 func logGrokImagePersistenceFailureFields(ctx context.Context, info *relaycommon.RelayInfo, stage, errorCategory, sourceHost string) {
+	logGrokImagePersistenceFailureFieldsWithRemoteStatus(ctx, info, stage, errorCategory, sourceHost, 0)
+}
+
+func logGrokImagePersistenceFailureFieldsWithRemoteStatus(ctx context.Context, info *relaycommon.RelayInfo, stage, errorCategory, sourceHost string, remoteStatus int) {
 	requestID := ""
 	modelName := ""
 	userID := 0
@@ -489,13 +495,14 @@ func logGrokImagePersistenceFailureFields(ctx context.Context, info *relaycommon
 		channelID = info.GetChannelID()
 	}
 	logger.LogError(ctx, fmt.Sprintf(
-		"event=grok_image_result_persistence_failed request_id=%q model=%q user_id=%d channel_id=%d stage=%q error_category=%q source_host=%q",
+		"event=grok_image_result_persistence_failed request_id=%q model=%q user_id=%d channel_id=%d stage=%q error_category=%q remote_status=%d source_host=%q",
 		requestID,
 		modelName,
 		userID,
 		channelID,
 		stage,
 		errorCategory,
+		remoteStatus,
 		sourceHost,
 	))
 }

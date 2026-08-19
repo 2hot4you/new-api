@@ -243,6 +243,66 @@ func TestObjectStorageCOSReportsSafeRemoteImageStages(t *testing.T) {
 	}
 }
 
+func TestObjectStorageCOSReportsRemoteImageHTTPStatusWithoutSensitiveResponseData(t *testing.T) {
+	for _, status := range []int{401, 403, 404, 410, 429, 502} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			fakeCOS := newObjectStorageCOSTestServer(t)
+			remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"error":"provider-secret-body","token":"do-not-log"}`))
+			}))
+			t.Cleanup(remote.Close)
+			store := newObjectStorageCOSTestStore(t, fakeCOS, remote.Client())
+
+			_, err := store.copyRemoteObjectToCOS(context.Background(), remote.URL+"/private/result.png?signature=do-not-log", ObjectKeySpec{
+				ObjectKey: "users/grok-results/42/image/2026/08/result.png",
+				MediaType: "image",
+				MIMEType:  "image/png",
+				MaxBytes:  1024,
+				ExpiresAt: 1_786_472_000,
+			})
+
+			stage, category, sourceHost, ok := GrokImagePersistenceErrorDetails(err)
+			require.True(t, ok)
+			require.Equal(t, grokImageStageRemoteFetch, stage)
+			require.Equal(t, "non_success_status", category)
+			require.NotEmpty(t, sourceHost)
+			require.NotContains(t, sourceHost, "/private")
+			require.NotContains(t, sourceHost, "signature")
+			require.Equal(t, status, GrokImagePersistenceRemoteStatus(err))
+			require.NotContains(t, err.Error(), "/private/result.png")
+			require.NotContains(t, err.Error(), "signature")
+			require.NotContains(t, err.Error(), "provider-secret-body")
+			require.NotContains(t, err.Error(), "do-not-log")
+			require.Zero(t, fakeCOS.putCount)
+		})
+	}
+}
+
+func TestObjectStorageCOSDoesNotAttachRemoteStatusToVideoErrors(t *testing.T) {
+	fakeCOS := newObjectStorageCOSTestServer(t)
+	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("provider-secret-body"))
+	}))
+	t.Cleanup(remote.Close)
+	store := newObjectStorageCOSTestStore(t, fakeCOS, remote.Client())
+
+	_, err := store.copyRemoteObjectToCOS(context.Background(), remote.URL+"/video.mp4?signature=do-not-log", ObjectKeySpec{
+		ObjectKey: "users/grok-results/42/video/2026/08/result.mp4",
+		MediaType: "video",
+		MIMEType:  "video/mp4",
+		MaxBytes:  1024,
+		ExpiresAt: 1_786_472_000,
+	})
+
+	require.EqualError(t, err, "remote object fetch failed with status 429")
+	require.Zero(t, GrokImagePersistenceRemoteStatus(err))
+	_, _, _, ok := GrokImagePersistenceErrorDetails(err)
+	require.False(t, ok)
+}
+
 func TestObjectStorageCOSClassifiesRedirectRejectionSeparatelyFromFetchFailure(t *testing.T) {
 	fakeCOS := newObjectStorageCOSTestServer(t)
 	redirectErr := errors.New("redirect rejected for https://redirect.example/result?token=secret")

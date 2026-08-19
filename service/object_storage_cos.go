@@ -196,7 +196,7 @@ func (store *objectStorageCOS) copyRemoteObjectToCOSWithStatus(ctx context.Conte
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		cause := fmt.Errorf("remote object fetch failed with status %d", response.StatusCode)
-		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteFetch, "non_success_status", sourceURL, cause)
+		return nil, false, grokImagePersistenceErrorForMediaWithRemoteStatus(key.MediaType, grokImageStageRemoteFetch, "non_success_status", sourceURL, response.StatusCode, cause)
 	}
 	mimeType, err := validateRemoteObjectMIME(response.Header.Get("Content-Type"), key)
 	if err != nil {

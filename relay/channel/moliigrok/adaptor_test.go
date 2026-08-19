@@ -469,10 +469,38 @@ func TestImageResponsePersistenceFailureReturnsSanitizedErrorBeforeBillingMutati
 	require.Contains(t, logText, "channel_id=62")
 	require.Contains(t, logText, `stage="remote_fetch"`)
 	require.Contains(t, logText, `error_category="unexpected_persistence_error"`)
+	require.Contains(t, logText, "remote_status=0")
 	require.NotContains(t, logText, "images.example")
 	require.NotContains(t, logText, "signature=")
 	require.NotContains(t, logText, "Bearer-do-not-log")
 	require.NotContains(t, logText, "SecretKey")
+}
+
+func TestGrokImagePersistenceFailureLogIncludesOnlyIntegerRemoteStatus(t *testing.T) {
+	var logBuffer bytes.Buffer
+	oldErrorWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &logBuffer
+	t.Cleanup(func() { gin.DefaultErrorWriter = oldErrorWriter })
+
+	logGrokImagePersistenceFailureFieldsWithRemoteStatus(
+		context.Background(),
+		imageInfo(),
+		"remote_fetch",
+		"non_success_status",
+		"imgen.x.ai",
+		http.StatusForbidden,
+	)
+
+	logText := logBuffer.String()
+	require.Contains(t, logText, "event=grok_image_result_persistence_failed")
+	require.Contains(t, logText, `request_id="req_public_image"`)
+	require.Contains(t, logText, `stage="remote_fetch"`)
+	require.Contains(t, logText, `error_category="non_success_status"`)
+	require.Contains(t, logText, "remote_status=403")
+	require.Contains(t, logText, `source_host="imgen.x.ai"`)
+	require.NotContains(t, logText, "http://")
+	require.NotContains(t, logText, "https://")
+	require.NotContains(t, logText, "?")
 }
 
 func TestImageResponseParseFailureLogsSafeStageWithoutResponseBody(t *testing.T) {
