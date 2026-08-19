@@ -1,6 +1,7 @@
 package moliigrok
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -42,6 +43,7 @@ func imageInfo() *relaycommon.RelayInfo {
 		RelayMode:       relayconstant.RelayModeImagesGenerations,
 		OriginModelName: "grok-imagine-image",
 		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId:         62,
 			ChannelBaseUrl:    "https://internal.invalid/xai",
 			ApiKey:            "secret",
 			UpstreamModelName: "grok-imagine-image",
@@ -440,8 +442,13 @@ func TestImageResponsePersistenceFailureReturnsSanitizedErrorBeforeBillingMutati
 			{"url":"https://images.example/secret-b.jpg","mime_type":"image/jpeg"}
 		]}`)),
 	}
+	var logBuffer bytes.Buffer
+	oldErrorWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &logBuffer
+	t.Cleanup(func() { gin.DefaultErrorWriter = oldErrorWriter })
+	secretFailure := "copy https://images.example/secret-a.jpg?signature=do-not-log failed Authorization=Bearer-do-not-log SecretKey=do-not-log"
 	adaptor := &Adaptor{persistImageResults: func(context.Context, service.GrokImagePersistenceRequest) ([]service.GrokImagePersistedResult, error) {
-		return nil, errors.New("copy https://images.example/secret-a.jpg failed")
+		return nil, errors.New(secretFailure)
 	}}
 
 	usage, apiErr := adaptor.DoResponse(c, resp, info)
@@ -455,6 +462,70 @@ func TestImageResponsePersistenceFailureReturnsSanitizedErrorBeforeBillingMutati
 	require.Equal(t, 2, info.GrokImageBilling.OutputCount)
 	require.Equal(t, 0.04, info.GrokImageBilling.Subtotal)
 	require.NotContains(t, apiErr.Error(), "images.example")
+	logText := logBuffer.String()
+	require.Contains(t, logText, "event=grok_image_result_persistence_failed")
+	require.Contains(t, logText, `request_id="req_public_image"`)
+	require.Contains(t, logText, "user_id=42")
+	require.Contains(t, logText, "channel_id=62")
+	require.Contains(t, logText, `stage="remote_fetch"`)
+	require.Contains(t, logText, `error_category="unexpected_persistence_error"`)
+	require.NotContains(t, logText, "images.example")
+	require.NotContains(t, logText, "signature=")
+	require.NotContains(t, logText, "Bearer-do-not-log")
+	require.NotContains(t, logText, "SecretKey")
+}
+
+func TestImageResponseParseFailureLogsSafeStageWithoutResponseBody(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	info := imageInfo()
+	secretResponse := `{"data":[{"url":"https://images.example/result?signature=do-not-log"}],"authorization":"Bearer-do-not-log"`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(secretResponse)),
+	}
+	var logBuffer bytes.Buffer
+	oldErrorWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &logBuffer
+	t.Cleanup(func() { gin.DefaultErrorWriter = oldErrorWriter })
+
+	_, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+
+	require.NotNil(t, apiErr)
+	require.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+	require.NotContains(t, apiErr.Error(), "images.example")
+	logText := logBuffer.String()
+	require.Contains(t, logText, `request_id="req_public_image"`)
+	require.Contains(t, logText, `model="grok-imagine-image"`)
+	require.Contains(t, logText, "user_id=42")
+	require.Contains(t, logText, "channel_id=62")
+	require.Contains(t, logText, `stage="parse_upstream_response"`)
+	require.Contains(t, logText, `error_category="invalid_response_json"`)
+	require.NotContains(t, logText, "images.example")
+	require.NotContains(t, logText, "signature=")
+	require.NotContains(t, logText, "Bearer-do-not-log")
+}
+
+func TestGrokImagePersistenceLogHandlesMissingChannelMetadata(t *testing.T) {
+	var logBuffer bytes.Buffer
+	oldErrorWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &logBuffer
+	t.Cleanup(func() { gin.DefaultErrorWriter = oldErrorWriter })
+	info := &relaycommon.RelayInfo{
+		UserId:          42,
+		RequestId:       "req_without_channel_meta",
+		OriginModelName: "grok-imagine-image",
+	}
+
+	require.NotPanics(t, func() {
+		logGrokImagePersistenceFailureFields(context.Background(), info, "cos_head", "head_failed", "images.example")
+	})
+
+	logText := logBuffer.String()
+	require.Contains(t, logText, "channel_id=0")
+	require.Contains(t, logText, `stage="cos_head"`)
 }
 
 func TestSanitizeImageErrorNeverReturnsRawProviderDetails(t *testing.T) {

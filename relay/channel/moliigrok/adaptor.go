@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
@@ -378,16 +379,23 @@ func isFileIDReference(value string) bool {
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
+	requestContext := context.Background()
+	if c != nil && c.Request != nil {
+		requestContext = c.Request.Context()
+	}
 	if resp == nil || resp.Body == nil {
+		logGrokImagePersistenceFailureFields(requestContext, info, "parse_upstream_response", "missing_response_body", "")
 		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeBadResponse, http.StatusBadGateway)
 	}
 	defer service.CloseResponseBodyGracefully(resp)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		logGrokImagePersistenceFailureFields(requestContext, info, "parse_upstream_response", "response_body_read_failed", "")
 		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway)
 	}
 	var upstream imageResponsePayload
 	if err := common.Unmarshal(body, &upstream); err != nil {
+		logGrokImagePersistenceFailureFields(requestContext, info, "parse_upstream_response", "invalid_response_json", "")
 		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}
 	actualCount := len(upstream.Data)
@@ -396,12 +404,14 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		validatedCount = 1
 	}
 	if actualCount < 1 || actualCount > 4 || actualCount > validatedCount {
+		logGrokImagePersistenceFailureFields(requestContext, info, "parse_upstream_response", "invalid_image_count", "")
 		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API returned an invalid image result"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}
 
 	sources := make([]service.GrokImageSource, 0, actualCount)
 	for _, item := range upstream.Data {
 		if strings.TrimSpace(item.URL) == "" {
+			logGrokImagePersistenceFailureFields(requestContext, info, "parse_upstream_response", "missing_source_url", "")
 			return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API returned an invalid image result"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 		}
 		sources = append(sources, service.GrokImageSource{
@@ -411,11 +421,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		})
 	}
 	if info == nil {
+		logGrokImagePersistenceFailureFields(requestContext, nil, "parse_upstream_response", "missing_relay_info", "")
 		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeBadResponse, http.StatusBadGateway)
-	}
-	requestContext := context.Background()
-	if c != nil && c.Request != nil {
-		requestContext = c.Request.Context()
 	}
 	persisted, err := a.imageResultPersister()(requestContext, service.GrokImagePersistenceRequest{
 		UserID:    info.UserId,
@@ -423,7 +430,12 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		CreatedAt: info.StartTime,
 		Images:    sources,
 	})
-	if err != nil || len(persisted) != actualCount {
+	if err != nil {
+		logGrokImagePersistenceFailure(requestContext, info, err)
+		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeBadResponse, http.StatusBadGateway)
+	}
+	if len(persisted) != actualCount {
+		logGrokImagePersistenceFailureFields(requestContext, info, "cos_put", "persisted_result_count_mismatch", "")
 		return nil, types.NewOpenAIError(errors.New("Molii Grok Imagine API request failed"), types.ErrorCodeBadResponse, http.StatusBadGateway)
 	}
 	data := make([]dto.ImageData, 0, actualCount)
@@ -453,6 +465,39 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 	c.JSON(http.StatusOK, dto.ImageResponse{Data: data})
 	return &dto.Usage{}, nil
+}
+
+func logGrokImagePersistenceFailure(ctx context.Context, info *relaycommon.RelayInfo, err error) {
+	stage, errorCategory, sourceHost, ok := service.GrokImagePersistenceErrorDetails(err)
+	if !ok {
+		stage = "remote_fetch"
+		errorCategory = "unexpected_persistence_error"
+		sourceHost = ""
+	}
+	logGrokImagePersistenceFailureFields(ctx, info, stage, errorCategory, sourceHost)
+}
+
+func logGrokImagePersistenceFailureFields(ctx context.Context, info *relaycommon.RelayInfo, stage, errorCategory, sourceHost string) {
+	requestID := ""
+	modelName := ""
+	userID := 0
+	channelID := 0
+	if info != nil {
+		requestID = strings.TrimSpace(info.RequestId)
+		modelName = strings.TrimSpace(info.OriginModelName)
+		userID = info.UserId
+		channelID = info.GetChannelID()
+	}
+	logger.LogError(ctx, fmt.Sprintf(
+		"event=grok_image_result_persistence_failed request_id=%q model=%q user_id=%d channel_id=%d stage=%q error_category=%q source_host=%q",
+		requestID,
+		modelName,
+		userID,
+		channelID,
+		stage,
+		errorCategory,
+		sourceHost,
+	))
 }
 
 func (a *Adaptor) SanitizeImageRequestError(err error) *types.NewAPIError {

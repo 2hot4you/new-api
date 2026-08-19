@@ -52,14 +52,35 @@ type objectStorageCOS struct {
 	config      operation_setting.COSConfig
 }
 
+type objectStorageRedirectError struct {
+	cause error
+}
+
+func (err *objectStorageRedirectError) Error() string {
+	if err == nil || err.cause == nil {
+		return "remote object redirect rejected"
+	}
+	return err.cause.Error()
+}
+
+func (err *objectStorageRedirectError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
 func newObjectStorageFetchClient() *http.Client {
 	client := newProtectedFetchHTTPClientWithoutProxy(nil, nil, nil)
 	protectedRedirect := client.CheckRedirect
 	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if request == nil || request.URL == nil || request.URL.Scheme != "https" {
-			return errors.New("remote object redirects must use HTTPS")
+			return &objectStorageRedirectError{cause: errors.New("remote object redirects must use HTTPS")}
 		}
-		return protectedRedirect(request, via)
+		if err := protectedRedirect(request, via); err != nil {
+			return &objectStorageRedirectError{cause: err}
+		}
+		return nil
 	}
 	return client
 }
@@ -122,59 +143,79 @@ func (store *objectStorageCOS) copyRemoteObjectToCOS(ctx context.Context, source
 
 func (store *objectStorageCOS) copyRemoteObjectToCOSWithStatus(ctx context.Context, sourceURL string, key ObjectKeySpec) (*StoredObject, bool, error) {
 	if err := validateObjectKeySpec(key); err != nil {
-		return nil, false, err
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageBuildObjectKey, "invalid_object_spec", sourceURL, err)
 	}
 	parsed, err := url.Parse(strings.TrimSpace(sourceURL))
 	if err != nil || parsed == nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-		return nil, false, errors.New("remote object URL must be an HTTPS URL without credentials")
+		cause := errors.New("remote object URL must be an HTTPS URL without credentials")
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageValidateSourceURL, "invalid_source_url", sourceURL, cause)
 	}
 
 	if store == nil || store.client == nil {
-		return nil, false, ErrObjectStorageUnavailable
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageCOSHead, "storage_unavailable", sourceURL, ErrObjectStorageUnavailable)
 	}
 	if existing, found, err := headStoredCOSObject(ctx, store.client, key); err != nil {
-		return nil, false, err
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageCOSHead, "head_failed", sourceURL, err)
 	} else if found {
 		return existing, false, nil
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
-		return nil, false, errors.New("remote object URL is invalid")
+		cause := errors.New("remote object URL is invalid")
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageValidateSourceURL, "invalid_source_url", sourceURL, cause)
 	}
 	fetchClient := store.fetchClient
 	if fetchClient == nil {
-		return nil, false, errors.New("protected remote object client is unavailable")
+		cause := errors.New("protected remote object client is unavailable")
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteFetch, "client_unavailable", sourceURL, cause)
 	}
 	response, err := fetchClient.Do(request)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, false, ctxErr
+			return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteFetch, "request_cancelled", sourceURL, ctxErr)
 		}
-		return nil, false, errors.New("remote object fetch failed")
+		var redirectErr *objectStorageRedirectError
+		if errors.As(err, &redirectErr) {
+			if strings.EqualFold(strings.TrimSpace(key.MediaType), "image") {
+				return nil, false, newGrokImagePersistenceError(grokImageStageRemoteRedirect, "redirect_rejected", sourceURL, err)
+			}
+			return nil, false, errors.New("remote object fetch failed")
+		}
+		cause := errors.New("remote object fetch failed")
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteFetch, "request_failed", sourceURL, cause)
 	}
 	if response == nil || response.Body == nil {
-		return nil, false, errors.New("remote object fetch returned no body")
+		cause := errors.New("remote object fetch returned no body")
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteFetch, "missing_response_body", sourceURL, cause)
 	}
 	defer response.Body.Close()
 	if response.Request != nil && response.Request.URL != nil && response.Request.URL.Scheme != "https" {
-		return nil, false, errors.New("remote object redirects must use HTTPS")
+		cause := errors.New("remote object redirects must use HTTPS")
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteRedirect, "insecure_redirect", sourceURL, cause)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, false, fmt.Errorf("remote object fetch failed with status %d", response.StatusCode)
+		cause := fmt.Errorf("remote object fetch failed with status %d", response.StatusCode)
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteFetch, "non_success_status", sourceURL, cause)
 	}
 	mimeType, err := validateRemoteObjectMIME(response.Header.Get("Content-Type"), key)
 	if err != nil {
-		return nil, false, err
+		category := "invalid_content_type"
+		if strings.Contains(err.Error(), "does not match") {
+			category = "content_type_mismatch"
+		}
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteContentType, category, sourceURL, err)
 	}
 	maxBytes := objectStorageMaxBytes(key)
 	if response.ContentLength > maxBytes {
-		return nil, false, fmt.Errorf("remote object exceeds maximum size of %d bytes", maxBytes)
+		cause := fmt.Errorf("remote object exceeds maximum size of %d bytes", maxBytes)
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteSize, "size_exceeded", sourceURL, cause)
 	}
 
 	temporary, err := os.CreateTemp("", "molii-cos-copy-*")
 	if err != nil {
-		return nil, false, fmt.Errorf("prepare bounded remote object copy: %w", err)
+		cause := fmt.Errorf("prepare bounded remote object copy: %w", err)
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteFetch, "buffer_failed", sourceURL, cause)
 	}
 	temporaryName := temporary.Name()
 	defer func() {
@@ -185,18 +226,22 @@ func (store *objectStorageCOS) copyRemoteObjectToCOSWithStatus(ctx context.Conte
 	size, err := io.Copy(temporary, io.LimitReader(&objectStorageContextReader{ctx: ctx, reader: response.Body}, maxBytes+1))
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, false, ctxErr
+			return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteFetch, "request_cancelled", sourceURL, ctxErr)
 		}
-		return nil, false, fmt.Errorf("copy remote object: %w", err)
+		cause := fmt.Errorf("copy remote object: %w", err)
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteFetch, "body_read_failed", sourceURL, cause)
 	}
 	if size <= 0 {
-		return nil, false, errors.New("remote object is empty")
+		cause := errors.New("remote object is empty")
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteSize, "empty_body", sourceURL, cause)
 	}
 	if size > maxBytes {
-		return nil, false, fmt.Errorf("remote object exceeds maximum size of %d bytes", maxBytes)
+		cause := fmt.Errorf("remote object exceeds maximum size of %d bytes", maxBytes)
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageRemoteSize, "size_exceeded", sourceURL, cause)
 	}
 	if _, err := temporary.Seek(0, io.SeekStart); err != nil {
-		return nil, false, fmt.Errorf("prepare COS upload: %w", err)
+		cause := fmt.Errorf("prepare COS upload: %w", err)
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageCOSPut, "buffer_seek_failed", sourceURL, cause)
 	}
 	metadata := http.Header{}
 	metadata.Set("x-cos-meta-expires-at", strconv.FormatInt(key.ExpiresAt, 10))
@@ -218,18 +263,19 @@ func (store *objectStorageCOS) copyRemoteObjectToCOSWithStatus(ctx context.Conte
 	}
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, false, ctxErr
+			return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageCOSPut, "request_cancelled", sourceURL, ctxErr)
 		}
 		if isCOSObjectAlreadyExists(err) {
 			existing, found, headErr := headStoredCOSObject(ctx, store.client, key)
 			if headErr != nil {
-				return nil, false, headErr
+				return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageCOSHead, "head_after_conflict_failed", sourceURL, headErr)
 			}
 			if found {
 				return existing, false, nil
 			}
 		}
-		return nil, false, fmt.Errorf("upload remote object to COS: %w", err)
+		cause := fmt.Errorf("upload remote object to COS: %w", err)
+		return nil, false, grokImagePersistenceErrorForMedia(key.MediaType, grokImageStageCOSPut, "put_failed", sourceURL, cause)
 	}
 	return &StoredObject{ObjectKey: key.ObjectKey, MIMEType: mimeType, Size: size, ExpiresAt: key.ExpiresAt}, true, nil
 }

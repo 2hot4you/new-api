@@ -1,0 +1,12 @@
+{
+  "id": "fix-grok-image-result-502",
+  "title": "排查所有 Grok 图片模型共享持久化链路返回 502",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "review",
+  "nextAction": "完成独立审查后提交并部署 Development 日志版本",
+  "createdAt": "2026-08-19T00:00:00+08:00",
+  "branch": "develop"
+}

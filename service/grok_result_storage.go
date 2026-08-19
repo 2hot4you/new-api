@@ -129,7 +129,7 @@ func PersistGrokResult(ctx context.Context, request GrokResultStoreRequest) (*St
 func PersistGrokResultWithStatus(ctx context.Context, request GrokResultStoreRequest) (*StoredObject, bool, error) {
 	objectStorage, err := newObjectStorageCOSForPersistence(operation_setting.GetCOSConfig())
 	if err != nil {
-		return nil, false, err
+		return nil, false, grokImagePersistenceErrorForMedia(request.MediaType, grokImageStageCOSPut, "storage_unavailable", request.SourceURL, err)
 	}
 	store := &grokResultStore{
 		objectStorage:          objectStorage,
@@ -171,7 +171,7 @@ func (store *grokResultStore) persist(ctx context.Context, request GrokResultSto
 
 func (store *grokResultStore) persistWithStatus(ctx context.Context, request GrokResultStoreRequest) (*StoredObject, bool, error) {
 	if store == nil || store.objectStorage == nil || store.enqueueCleanup == nil {
-		return nil, false, ErrObjectStorageUnavailable
+		return nil, false, grokImagePersistenceErrorForMedia(request.MediaType, grokImageStageCOSPut, "storage_unavailable", request.SourceURL, ErrObjectStorageUnavailable)
 	}
 	keyAnchor := request.KeyAnchor
 	if keyAnchor.IsZero() {
@@ -179,7 +179,7 @@ func (store *grokResultStore) persistWithStatus(ctx context.Context, request Gro
 	}
 	objectKey, err := BuildGrokResultObjectKey(request.UserID, request.MediaType, request.IdempotencyKey, keyAnchor, request.MIMEType)
 	if err != nil {
-		return nil, false, err
+		return nil, false, grokImagePersistenceErrorForMedia(request.MediaType, grokImageStageBuildObjectKey, "invalid_key_metadata", request.SourceURL, err)
 	}
 	expiresAt := request.CreatedAt.Add(grokResultRetention).Unix()
 	keySpec := ObjectKeySpec{
@@ -189,10 +189,10 @@ func (store *grokResultStore) persistWithStatus(ctx context.Context, request Gro
 		ExpiresAt: expiresAt,
 	}
 	if existing, found, err := headStoredCOSObject(ctx, store.objectStorage.client, keySpec); err != nil {
-		return nil, false, err
+		return nil, false, grokImagePersistenceErrorForMedia(request.MediaType, grokImageStageCOSHead, "head_failed", request.SourceURL, err)
 	} else if found {
 		if err := store.enqueueCleanup(existing.ObjectKey, existing.ExpiresAt); err != nil {
-			return nil, false, err
+			return nil, false, grokImagePersistenceErrorForMedia(request.MediaType, grokImageStageCleanupEnqueue, "enqueue_failed", request.SourceURL, err)
 		}
 		return existing, false, nil
 	}
@@ -206,7 +206,7 @@ func (store *grokResultStore) persistWithStatus(ctx context.Context, request Gro
 		registerPendingCleanup = store.enqueueCleanup
 	}
 	if err := registerPendingCleanup(objectKey, expiresAt); err != nil {
-		return nil, false, err
+		return nil, false, grokImagePersistenceErrorForMedia(request.MediaType, grokImageStageCleanupEnqueue, "enqueue_failed", request.SourceURL, err)
 	}
 	stored, created, err := store.objectStorage.copyRemoteObjectToCOSWithStatus(ctx, request.SourceURL, keySpec)
 	if err != nil {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -30,6 +31,55 @@ func TestGrokResultStorageBuildsDeterministicProviderScopedKeys(t *testing.T) {
 	videoKey, err := BuildGrokResultObjectKey(42, "video", "task_abc", createdAt, "video/mp4")
 	require.NoError(t, err)
 	require.Equal(t, "users/grok-results/42/video/2026/08/2bc3df3ae352dcc1429e663890bdb3fd.mp4", videoKey)
+}
+
+func TestGrokResultStorageReportsSafeBuildAndCleanupStagesForImages(t *testing.T) {
+	t.Run("build object key", func(t *testing.T) {
+		store := &grokResultStore{
+			objectStorage:  &objectStorageCOS{},
+			enqueueCleanup: func(string, int64) error { return nil },
+		}
+		_, _, err := store.persistWithStatus(context.Background(), GrokResultStoreRequest{
+			SourceURL:      "https://images.example/result?token=upstream-secret",
+			UserID:         42,
+			MediaType:      "image",
+			MIMEType:       "application/octet-stream",
+			IdempotencyKey: "request-build-stage",
+			CreatedAt:      time.Now(),
+		})
+		stage, category, sourceHost, ok := GrokImagePersistenceErrorDetails(err)
+		require.True(t, ok)
+		require.Equal(t, grokImageStageBuildObjectKey, stage)
+		require.Equal(t, "invalid_key_metadata", category)
+		require.Equal(t, "images.example", sourceHost)
+		require.NotContains(t, err.Error(), "upstream-secret")
+	})
+
+	t.Run("cleanup enqueue", func(t *testing.T) {
+		fakeCOS := newObjectStorageCOSTestServer(t)
+		enqueueErr := errors.New("redis endpoint redis://user:secret@redis.example")
+		store := &grokResultStore{
+			objectStorage: &objectStorageCOS{client: fakeCOS.client},
+			enqueueCleanup: func(string, int64) error {
+				return enqueueErr
+			},
+		}
+		_, _, err := store.persistWithStatus(context.Background(), GrokResultStoreRequest{
+			SourceURL:      "https://images.example/result?token=upstream-secret",
+			UserID:         42,
+			MediaType:      "image",
+			MIMEType:       "image/png",
+			IdempotencyKey: "request-cleanup-stage",
+			CreatedAt:      time.Now(),
+		})
+		require.ErrorIs(t, err, enqueueErr)
+		stage, category, sourceHost, ok := GrokImagePersistenceErrorDetails(err)
+		require.True(t, ok)
+		require.Equal(t, grokImageStageCleanupEnqueue, stage)
+		require.Equal(t, "enqueue_failed", category)
+		require.Equal(t, "images.example", sourceHost)
+		require.NotContains(t, err.Error(), "redis://")
+	})
 }
 
 func TestGrokResultStoragePersistsExactly24HoursAndReusesIdempotencyKey(t *testing.T) {
@@ -387,4 +437,33 @@ func TestPersistGrokVideoResultSerializesSameTaskAcrossNodes(t *testing.T) {
 	require.False(t, peerEntered)
 	close(releaseOwner)
 	require.NoError(t, <-ownerDone)
+}
+
+func TestPersistGrokVideoResultKeepsLegacyRedisLockErrors(t *testing.T) {
+	previousEnabled := common.RedisEnabled
+	previousRDB := common.RDB
+	common.RedisEnabled = false
+	common.RDB = nil
+	t.Cleanup(func() {
+		common.RedisEnabled = previousEnabled
+		common.RDB = previousRDB
+	})
+	persistCalled := false
+
+	_, _, err := persistGrokVideoResultWithStatus(context.Background(), GrokResultStoreRequest{
+		UserID:         42,
+		MediaType:      "video",
+		MIMEType:       "video/mp4",
+		IdempotencyKey: "task_video_lock_error",
+		CreatedAt:      time.Now(),
+	}, func(context.Context, GrokResultStoreRequest) (*StoredObject, bool, error) {
+		persistCalled = true
+		return nil, false, nil
+	})
+
+	require.ErrorIs(t, err, ErrObjectStorageUnavailable)
+	require.EqualError(t, err, ErrObjectStorageUnavailable.Error())
+	require.False(t, persistCalled)
+	_, _, _, typed := GrokImagePersistenceErrorDetails(err)
+	require.False(t, typed)
 }

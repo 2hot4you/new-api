@@ -27,6 +27,8 @@ type objectStorageCOSTestServer struct {
 	contentTypes map[string]string
 	expiresAt    map[string]string
 	putCount     int
+	headStatus   int
+	putStatus    int
 	deleteCount  int
 	deleteStatus map[string]int
 }
@@ -52,6 +54,12 @@ func newObjectStorageCOSTestServer(t *testing.T) *objectStorageCOSTestServer {
 		defer fake.mu.Unlock()
 		switch r.Method {
 		case http.MethodHead:
+			if fake.headStatus != 0 {
+				w.Header().Set("Content-Type", "application/xml")
+				w.WriteHeader(fake.headStatus)
+				_, _ = w.Write([]byte("<Error><Code>InternalError</Code><Message>sensitive SDK details</Message></Error>"))
+				return
+			}
 			body, ok := fake.objects[key]
 			if !ok {
 				w.WriteHeader(http.StatusNotFound)
@@ -64,6 +72,12 @@ func newObjectStorageCOSTestServer(t *testing.T) *objectStorageCOSTestServer {
 			}
 			w.WriteHeader(http.StatusOK)
 		case http.MethodPut:
+			if fake.putStatus != 0 {
+				w.Header().Set("Content-Type", "application/xml")
+				w.WriteHeader(fake.putStatus)
+				_, _ = w.Write([]byte("<Error><Code>InternalError</Code><Message>cos-secret-key</Message></Error>"))
+				return
+			}
 			if strings.EqualFold(r.Header.Get("x-cos-forbid-overwrite"), "true") {
 				if _, exists := fake.objects[key]; exists {
 					w.Header().Set("Content-Type", "application/xml")
@@ -172,7 +186,11 @@ func TestObjectStorageCOSCopiesHTTPSObjectWithBoundedValidatedStreaming(t *testi
 		MaxBytes:  4,
 		ExpiresAt: 1_786_472_000,
 	})
-	require.ErrorContains(t, err, "maximum")
+	stage, category, sourceHost, ok := GrokImagePersistenceErrorDetails(err)
+	require.True(t, ok)
+	require.Equal(t, grokImageStageRemoteSize, stage)
+	require.Equal(t, "size_exceeded", category)
+	require.NotEmpty(t, sourceHost)
 	require.NotContains(t, fakeCOS.objects, "users/grok-results/42/image/2026/08/too-large.png")
 
 	_, err = store.copyRemoteObjectToCOS(context.Background(), remote.URL+"/wrong-type.png", ObjectKeySpec{
@@ -182,6 +200,140 @@ func TestObjectStorageCOSCopiesHTTPSObjectWithBoundedValidatedStreaming(t *testi
 		ExpiresAt: 1_786_472_000,
 	})
 	require.ErrorContains(t, err, "content type")
+}
+
+func TestObjectStorageCOSReportsSafeRemoteImageStages(t *testing.T) {
+	tests := []struct {
+		name         string
+		status       int
+		contentType  string
+		body         string
+		expectedMIME string
+		stage        string
+		category     string
+	}{
+		{name: "non success", status: http.StatusBadGateway, contentType: "image/png", body: "upstream details", expectedMIME: "image/png", stage: grokImageStageRemoteFetch, category: "non_success_status"},
+		{name: "content type mismatch", status: http.StatusOK, contentType: "image/png", body: "png", expectedMIME: "image/jpeg", stage: grokImageStageRemoteContentType, category: "content_type_mismatch"},
+		{name: "empty body", status: http.StatusOK, contentType: "image/png", expectedMIME: "image/png", stage: grokImageStageRemoteSize, category: "empty_body"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			fakeCOS := newObjectStorageCOSTestServer(t)
+			remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", testCase.contentType)
+				w.WriteHeader(testCase.status)
+				_, _ = w.Write([]byte(testCase.body))
+			}))
+			t.Cleanup(remote.Close)
+			store := newObjectStorageCOSTestStore(t, fakeCOS, remote.Client())
+			_, err := store.copyRemoteObjectToCOS(context.Background(), remote.URL+"/result?token=upstream-secret", ObjectKeySpec{
+				ObjectKey: "users/grok-results/42/image/2026/08/result.png",
+				MediaType: "image",
+				MIMEType:  testCase.expectedMIME,
+				MaxBytes:  16,
+				ExpiresAt: 1_786_472_000,
+			})
+			stage, category, sourceHost, ok := GrokImagePersistenceErrorDetails(err)
+			require.True(t, ok)
+			require.Equal(t, testCase.stage, stage)
+			require.Equal(t, testCase.category, category)
+			require.NotEmpty(t, sourceHost)
+			require.NotContains(t, err.Error(), "upstream-secret")
+		})
+	}
+}
+
+func TestObjectStorageCOSClassifiesRedirectRejectionSeparatelyFromFetchFailure(t *testing.T) {
+	fakeCOS := newObjectStorageCOSTestServer(t)
+	redirectErr := errors.New("redirect rejected for https://redirect.example/result?token=secret")
+	store := newObjectStorageCOSTestStore(t, fakeCOS, &http.Client{
+		Transport: objectStorageRoundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, &objectStorageRedirectError{cause: redirectErr}
+		}),
+	})
+
+	_, err := store.copyRemoteObjectToCOS(context.Background(), "https://images.example/result?token=upstream-secret", ObjectKeySpec{
+		ObjectKey: "users/grok-results/42/image/2026/08/result.png",
+		MediaType: "image", MIMEType: "image/png", ExpiresAt: 1_786_472_000,
+	})
+
+	require.ErrorIs(t, err, redirectErr)
+	stage, category, sourceHost, ok := GrokImagePersistenceErrorDetails(err)
+	require.True(t, ok)
+	require.Equal(t, grokImageStageRemoteRedirect, stage)
+	require.Equal(t, "redirect_rejected", category)
+	require.Equal(t, "images.example", sourceHost)
+	require.NotContains(t, err.Error(), "upstream-secret")
+	require.NotContains(t, err.Error(), "redirect.example")
+}
+
+func TestObjectStorageCOSKeepsVideoRedirectFailureGeneric(t *testing.T) {
+	fakeCOS := newObjectStorageCOSTestServer(t)
+	store := newObjectStorageCOSTestStore(t, fakeCOS, &http.Client{
+		Transport: objectStorageRoundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, &objectStorageRedirectError{cause: errors.New("redirect rejected for https://redirect.example/video?token=secret")}
+		}),
+	})
+
+	_, err := store.copyRemoteObjectToCOS(context.Background(), "https://videos.example/result?token=upstream-secret", ObjectKeySpec{
+		ObjectKey: "users/grok-results/42/video/2026/08/result.mp4",
+		MediaType: "video", MIMEType: "video/mp4", ExpiresAt: 1_786_472_000,
+	})
+
+	require.EqualError(t, err, "remote object fetch failed")
+	require.NotContains(t, err.Error(), "videos.example")
+	require.NotContains(t, err.Error(), "redirect.example")
+	require.NotContains(t, err.Error(), "token=")
+}
+
+func TestObjectStorageFetchClientMarksRejectedRedirectWithoutChangingErrorText(t *testing.T) {
+	client := newObjectStorageFetchClient()
+	request := &http.Request{URL: &url.URL{Scheme: "http", Host: "redirect.example", Path: "/result"}}
+
+	err := client.CheckRedirect(request, nil)
+
+	var redirectErr *objectStorageRedirectError
+	require.ErrorAs(t, err, &redirectErr)
+	require.Equal(t, "remote object redirects must use HTTPS", err.Error())
+}
+
+func TestObjectStorageCOSReportsSafeHeadAndPutStagesForImages(t *testing.T) {
+	t.Run("head", func(t *testing.T) {
+		fakeCOS := newObjectStorageCOSTestServer(t)
+		fakeCOS.headStatus = http.StatusInternalServerError
+		store := newObjectStorageCOSTestStore(t, fakeCOS, http.DefaultClient)
+		_, err := store.copyRemoteObjectToCOS(context.Background(), "https://images.example/result?token=upstream-secret", ObjectKeySpec{
+			ObjectKey: "users/grok-results/42/image/2026/08/result.png",
+			MediaType: "image", MIMEType: "image/png", ExpiresAt: 1_786_472_000,
+		})
+		stage, category, sourceHost, ok := GrokImagePersistenceErrorDetails(err)
+		require.True(t, ok)
+		require.Equal(t, grokImageStageCOSHead, stage)
+		require.Equal(t, "head_failed", category)
+		require.Equal(t, "images.example", sourceHost)
+		require.NotContains(t, err.Error(), "sensitive SDK details")
+	})
+
+	t.Run("put", func(t *testing.T) {
+		fakeCOS := newObjectStorageCOSTestServer(t)
+		fakeCOS.putStatus = http.StatusInternalServerError
+		remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("png"))
+		}))
+		t.Cleanup(remote.Close)
+		store := newObjectStorageCOSTestStore(t, fakeCOS, remote.Client())
+		_, err := store.copyRemoteObjectToCOS(context.Background(), remote.URL+"/result?token=upstream-secret", ObjectKeySpec{
+			ObjectKey: "users/grok-results/42/image/2026/08/result.png",
+			MediaType: "image", MIMEType: "image/png", ExpiresAt: 1_786_472_000,
+		})
+		stage, category, sourceHost, ok := GrokImagePersistenceErrorDetails(err)
+		require.True(t, ok)
+		require.Equal(t, grokImageStageCOSPut, stage)
+		require.Equal(t, "put_failed", category)
+		require.NotEmpty(t, sourceHost)
+		require.NotContains(t, err.Error(), "cos-secret-key")
+	})
 }
 
 func TestObjectStorageCOSReusesExistingObjectWithoutFetchingRemoteURL(t *testing.T) {
@@ -364,7 +516,10 @@ func TestObjectStorageCOSRejectsUnknownLengthBodyPastStreamingLimit(t *testing.T
 		MaxBytes:  4,
 		ExpiresAt: 1_786_472_000,
 	})
-	require.ErrorContains(t, err, "maximum")
+	stage, category, _, ok := GrokImagePersistenceErrorDetails(err)
+	require.True(t, ok)
+	require.Equal(t, grokImageStageRemoteSize, stage)
+	require.Equal(t, "size_exceeded", category)
 	require.Empty(t, fakeCOS.objects)
 }
 
