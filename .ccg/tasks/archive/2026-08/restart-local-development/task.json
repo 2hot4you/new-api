@@ -1,0 +1,12 @@
+{
+  "id": "restart-local-development",
+  "title": "重启本地 New API 开发环境",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "operations",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-19T00:00:00+08:00",
+  "branch": "feat/molii-auth"
+}
