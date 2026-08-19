@@ -1,0 +1,12 @@
+{
+  "id": "grok-image-webui-preview",
+  "title": "修复 Grok 图片生成记录无法预览临时结果",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交到 develop",
+  "createdAt": "2026-08-19T23:50:00+08:00",
+  "branch": "develop"
+}
