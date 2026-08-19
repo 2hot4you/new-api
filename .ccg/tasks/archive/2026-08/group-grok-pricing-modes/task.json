@@ -1,0 +1,12 @@
+{
+  "id": "group-grok-pricing-modes",
+  "title": "按计费模式整理 Grok Imagine 定价标签",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-19T00:00:00+08:00",
+  "branch": "main"
+}
