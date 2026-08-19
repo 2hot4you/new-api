@@ -289,6 +289,11 @@ export type BillingSettings = {
   'molii_grok_price.image_quality_input': number
   'molii_grok_price.image_quality_1k': number
   'molii_grok_price.image_quality_2k': number
+  'molii_grok_price.image_20_input': number
+  'molii_grok_price.image_20_low_1k': number
+  'molii_grok_price.image_20_low_2k': number
+  'molii_grok_price.image_20_medium_1k': number
+  'molii_grok_price.image_20_medium_2k': number
   'molii_grok_price.video_15_image_input': number
   'molii_grok_price.video_15_480p': number
   'molii_grok_price.video_15_720p': number

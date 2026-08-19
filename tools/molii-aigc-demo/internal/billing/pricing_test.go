@@ -28,6 +28,10 @@ func fixtureCatalog() Catalog {
 				ModelName:        "grok-imagine-image-quality",
 				MoliiGrokPricing: &GrokPricing{Kind: "image", OutputPrices: map[string]decimal.Decimal{"1k": decimal.RequireFromString("0.05"), "2k": decimal.RequireFromString("0.07")}, ImageInputPrice: decimal.RequireFromString("0.01")},
 			},
+			"grok-imagine-image-2.0": {
+				ModelName:        "grok-imagine-image-2.0",
+				MoliiGrokPricing: &GrokPricing{Kind: "image", OutputPrices: map[string]decimal.Decimal{"low/1k": decimal.RequireFromString("0.04"), "low/2k": decimal.RequireFromString("0.06"), "medium/1k": decimal.RequireFromString("0.06"), "medium/2k": decimal.RequireFromString("0.08")}, ImageInputPrice: decimal.RequireFromString("0.01")},
+			},
 			"grok-imagine-video-1.5": {
 				ModelName:        "grok-imagine-video-1.5",
 				MoliiGrokPricing: &GrokPricing{Kind: "video", OutputPrices: map[string]decimal.Decimal{"1080p": decimal.RequireFromString("0.25")}, ImageInputPrice: decimal.RequireFromString("0.01")},
@@ -87,6 +91,9 @@ func TestGrokEstimatesIncludeInputs(t *testing.T) {
 	catalog := fixtureCatalog()
 	image := catalog.Estimate(EstimateInput{Model: "grok-imagine-image-quality", Operation: "grok.image.edit", Resolution: "2k", OutputCount: 2, InputImageCount: 3})
 	require.True(t, image.Amount.Equal(decimal.RequireFromString("0.17")))
+	image20 := catalog.Estimate(EstimateInput{Model: "grok-imagine-image-2.0", Operation: "grok.image.generate", Quality: "low", Resolution: "2k", OutputCount: 2})
+	require.True(t, image20.Available)
+	require.True(t, image20.Amount.Equal(decimal.RequireFromString("0.12")))
 
 	video15 := catalog.Estimate(EstimateInput{Model: "grok-imagine-video-1.5", Operation: "grok.video.generate", Resolution: "1080p", Duration: 4, InputImageCount: 1})
 	require.True(t, video15.Available)

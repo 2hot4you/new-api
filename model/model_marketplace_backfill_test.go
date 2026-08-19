@@ -26,6 +26,7 @@ var currentMarketplaceCatalogModelNames = []string{
 	"doubao-seedance-2-0-fast-260128",
 	"grok-imagine-image",
 	"grok-imagine-image-quality",
+	"grok-imagine-image-2.0",
 	"grok-imagine-video",
 	"grok-imagine-video-1.5",
 }
@@ -256,6 +257,10 @@ func TestBackfillLocalMarketplaceMetadataUsesValidatedLocalCapabilities(t *testi
 	require.Equal(t, []string{"1k", "2k"}, image.SupportedResolutions)
 	require.Equal(t, 3, image.MaxInputImages)
 	require.Equal(t, []string{"url"}, image.OutputFormats)
+
+	image20 := loadMarketplaceRow(t, db, "grok-imagine-image-2.0")
+	require.Contains(t, image20.SupportedParameters, "quality")
+	require.Equal(t, []string{"1k", "2k"}, image20.SupportedResolutions)
 
 	legacyVideo := loadMarketplaceRow(t, db, "grok-imagine-video")
 	require.Equal(t, []string{"480p", "720p"}, legacyVideo.SupportedResolutions)

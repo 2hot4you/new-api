@@ -74,7 +74,7 @@ func TestPrepareImageRequestBillingRejectsMappingBeforeEstimateOrPreconsume(t *t
 }
 
 func TestPrepareImageRequestBillingAllowsGrokImageIdentity(t *testing.T) {
-	for _, modelName := range []string{"grok-imagine-image", "grok-imagine-image-quality"} {
+	for _, modelName := range []string{"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0"} {
 		t.Run(modelName, func(t *testing.T) {
 			mapping := fmt.Sprintf(`{%q:%q}`, modelName, modelName)
 			c := imageBillingMappingContext(t, modelName, mapping, constant.ChannelTypeMoliiGrokAIGC)

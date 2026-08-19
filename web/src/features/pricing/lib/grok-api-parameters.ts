@@ -80,6 +80,14 @@ const imageResolution: SupportedParameter = {
   descriptionKey: 'Resolution of each generated image',
 }
 
+const imageQuality: SupportedParameter = {
+  name: 'quality',
+  type: 'enum',
+  defaultValue: 'medium',
+  enumValues: ['low', 'medium'],
+  descriptionKey: 'Image quality tier used for output quality and billing',
+}
+
 const imageOutputCount: SupportedParameter = {
   name: 'n',
   type: 'integer',
@@ -118,6 +126,7 @@ function imageParameters(
     ...mediaParameters,
     imageAspectRatio,
     imageResolution,
+    ...(modelName === 'grok-imagine-image-2.0' ? [imageQuality] : []),
     imageOutputCount,
   ]
 }

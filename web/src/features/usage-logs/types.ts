@@ -118,9 +118,13 @@ export type GrokImageOperation = 'generation' | 'edit'
 
 export interface GrokImageBillingV1 {
   version: 1
-  model: 'grok-imagine-image' | 'grok-imagine-image-quality'
+  model:
+    | 'grok-imagine-image'
+    | 'grok-imagine-image-quality'
+    | 'grok-imagine-image-2.0'
   operation: GrokImageOperation
   resolution: string
+  quality?: 'low' | 'medium'
   aspect_ratio: string
   requested_output_count: number
   output_count: number

@@ -29,6 +29,35 @@ func TestDefaultMoliiGrokImagePrices(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestGrokImagineImage20PricesFollowQualityAndResolution(t *testing.T) {
+	tests := []struct {
+		quality    string
+		resolution string
+		wantOutput float64
+	}{
+		{quality: "low", resolution: "1k", wantOutput: 0.04},
+		{quality: "low", resolution: "2k", wantOutput: 0.06},
+		{quality: "medium", resolution: "1k", wantOutput: 0.06},
+		{quality: "medium", resolution: "2k", wantOutput: 0.08},
+		{quality: "", resolution: "1k", wantOutput: 0.06},
+	}
+	for _, tt := range tests {
+		output, input, ok := GetMoliiGrokImagePricesForQuality(
+			"grok-imagine-image-2.0",
+			tt.resolution,
+			tt.quality,
+		)
+		require.True(t, ok)
+		assert.Equal(t, tt.wantOutput, output)
+		assert.Equal(t, 0.01, input)
+	}
+
+	_, _, ok := GetMoliiGrokImagePricesForQuality("grok-imagine-image-2.0", "1k", "high")
+	assert.False(t, ok)
+	_, _, ok = GetMoliiGrokImagePricesForQuality("grok-imagine-image-2.0", "4k", "medium")
+	assert.False(t, ok)
+}
+
 func TestDefaultMoliiGrokVideoPrices(t *testing.T) {
 	tests := []struct {
 		model      string
@@ -61,6 +90,16 @@ func TestMoliiGrokCatalogPricingExposesDirectPrices(t *testing.T) {
 	assert.Equal(t, 0.05, image.OutputPrices["1k"])
 	assert.Equal(t, 0.07, image.OutputPrices["2k"])
 	assert.Equal(t, 0.01, image.ImageInputPrice)
+
+	image20, ok := GetMoliiGrokCatalogPricing("grok-imagine-image-2.0")
+	require.True(t, ok)
+	assert.Equal(t, map[string]float64{
+		"low/1k":    0.04,
+		"low/2k":    0.06,
+		"medium/1k": 0.06,
+		"medium/2k": 0.08,
+	}, image20.OutputPrices)
+	assert.Equal(t, 0.01, image20.ImageInputPrice)
 
 	video, ok := GetMoliiGrokCatalogPricing("grok-imagine-video")
 	require.True(t, ok)

@@ -95,6 +95,7 @@ type grokImageRequest struct {
 	Prompt      string     `json:"prompt"`
 	AspectRatio string     `json:"aspect_ratio"`
 	Resolution  string     `json:"resolution"`
+	Quality     string     `json:"quality,omitempty"`
 	N           *int       `json:"n,omitempty"`
 	Image       *mediaRef  `json:"image,omitempty"`
 	Images      []mediaRef `json:"images,omitempty"`
@@ -353,7 +354,7 @@ func validateSeedanceContent(req *seedanceRequest) error {
 }
 
 func validateGrokImage(req *grokImageRequest, edit bool) error {
-	if req.Model != "grok-imagine-image" && req.Model != "grok-imagine-image-quality" {
+	if req.Model != "grok-imagine-image" && req.Model != "grok-imagine-image-quality" && req.Model != "grok-imagine-image-2.0" {
 		return errors.New("unsupported Grok image model")
 	}
 	req.Prompt = strings.TrimSpace(req.Prompt)
@@ -373,6 +374,17 @@ func validateGrokImage(req *grokImageRequest, edit bool) error {
 	}
 	if req.Resolution != "1k" && req.Resolution != "2k" {
 		return errors.New("resolution must be one of 1k or 2k")
+	}
+	req.Quality = strings.ToLower(strings.TrimSpace(req.Quality))
+	if req.Model == "grok-imagine-image-2.0" {
+		if req.Quality == "" {
+			req.Quality = "medium"
+		}
+		if req.Quality != "low" && req.Quality != "medium" {
+			return errors.New("quality must be one of low or medium")
+		}
+	} else if req.Quality != "" {
+		return errors.New("quality is only supported by grok-imagine-image-2.0")
 	}
 	if req.N == nil {
 		one := 1

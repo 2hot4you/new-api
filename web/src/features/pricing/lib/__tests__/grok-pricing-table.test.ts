@@ -73,6 +73,26 @@ describe('Grok marketplace pricing rows', () => {
     ])
   })
 
+  test('orders image 2.0 quality and resolution tiers', () => {
+    const pricing: MoliiGrokPricing = {
+      kind: 'image',
+      output_unit: 'image',
+      output_prices: {
+        'medium/2k': 0.08,
+        'low/2k': 0.06,
+        'medium/1k': 0.06,
+        'low/1k': 0.04,
+      },
+      image_input_unit: 'image',
+      image_input_price: 0.01,
+    }
+
+    assert.deepEqual(
+      buildGrokPricingRows(pricing).map((row) => row.resolution),
+      ['Low · 1K', 'Low · 2K', 'Medium · 1K', 'Medium · 2K']
+    )
+  })
+
   test('orders every Video 1.5 resolution without inventing video input pricing', () => {
     const pricing: MoliiGrokPricing = {
       kind: 'video',

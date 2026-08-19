@@ -7,6 +7,7 @@ type imageRequestPayload struct {
 	Prompt      string            `json:"prompt"`
 	AspectRatio string            `json:"aspect_ratio"`
 	Resolution  string            `json:"resolution"`
+	Quality     string            `json:"quality,omitempty"`
 	N           int               `json:"n"`
 	Image       *imageMediaInput  `json:"image,omitempty"`
 	Images      []imageMediaInput `json:"images,omitempty"`
@@ -17,6 +18,7 @@ type rawImageRequest struct {
 	Prompt      string          `json:"prompt"`
 	AspectRatio string          `json:"aspect_ratio"`
 	Resolution  string          `json:"resolution"`
+	Quality     string          `json:"quality"`
 	N           *int            `json:"n"`
 	Image       json.RawMessage `json:"image,omitempty"`
 	Images      json.RawMessage `json:"images,omitempty"`

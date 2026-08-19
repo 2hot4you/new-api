@@ -114,7 +114,7 @@ func init() {
 		// The dedicated Molii channel is the preferred owner for these image and
 		// video entries without modifying the official xAI adaptor itself.
 		for i := range openAIModels {
-			for _, modelName := range []string{"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-video", "grok-imagine-video-1.5"} {
+			for _, modelName := range []string{"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0", "grok-imagine-video", "grok-imagine-video-1.5"} {
 				if openAIModels[i].Id == modelName {
 					openAIModels[i].OwnedBy = moliiGrokTaskAdaptor.GetChannelName()
 				}

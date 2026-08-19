@@ -13,6 +13,7 @@ describe('Grok Imagine model metadata', () => {
   test('recognizes exactly the supported Molii Grok models', () => {
     assert.equal(isGrokImagineModel('grok-imagine-image'), true)
     assert.equal(isGrokImagineModel('grok-imagine-image-quality'), true)
+    assert.equal(isGrokImagineModel('grok-imagine-image-2.0'), true)
     assert.equal(isGrokImagineModel('grok-imagine-video'), true)
     assert.equal(isGrokImagineModel('grok-imagine-video-1.5'), true)
     assert.deepEqual(GROK_VIDEO_MODELS, [

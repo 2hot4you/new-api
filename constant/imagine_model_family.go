@@ -15,6 +15,7 @@ const (
 	ImagineModelFamilySeedanceFast     ImagineModelFamily = "seedance_fast"
 	ImagineModelFamilyGrokImage        ImagineModelFamily = "grok_image"
 	ImagineModelFamilyGrokImageQuality ImagineModelFamily = "grok_image_quality"
+	ImagineModelFamilyGrokImage20      ImagineModelFamily = "grok_image_20"
 	ImagineModelFamilyGrokVideoLegacy  ImagineModelFamily = "grok_video_legacy"
 	ImagineModelFamilyGrokVideo15      ImagineModelFamily = "grok_video_15"
 )
@@ -31,6 +32,8 @@ func GetImagineModelFamily(modelName string) ImagineModelFamily {
 		return ImagineModelFamilyGrokImage
 	case "grok-imagine-image-quality":
 		return ImagineModelFamilyGrokImageQuality
+	case "grok-imagine-image-2.0":
+		return ImagineModelFamilyGrokImage20
 	case "grok-imagine-video":
 		return ImagineModelFamilyGrokVideoLegacy
 	case "grok-imagine-video-1.5":

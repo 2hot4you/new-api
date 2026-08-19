@@ -37,6 +37,7 @@ func applyLogCategoryFilter(tx *gorm.DB, logCategory string) *gorm.DB {
 	return tx.Where("logs.model_name IN ?", []string{
 		"grok-imagine-image",
 		"grok-imagine-image-quality",
+		"grok-imagine-image-2.0",
 	})
 }
 

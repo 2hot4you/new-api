@@ -57,14 +57,17 @@ func seedanceFields(resolutions []string) []Field {
 	}
 }
 
-func grokImageOperations() []Operation {
+func grokImageOperations(model string) []Operation {
 	common := []Field{
 		{Name: "model", Label: "Model", Type: "select", Required: true},
 		{Name: "prompt", Label: "Prompt", Type: "textarea", Required: true, Maximum: intp(10000)},
 		{Name: "aspect_ratio", Label: "Aspect ratio", Type: "select", Default: "16:9", Options: imageRatios},
 		{Name: "resolution", Label: "Resolution", Type: "select", Default: "1k", Options: []string{"1k", "2k"}},
-		{Name: "n", Label: "Output count", Type: "integer", Default: 1, Minimum: intp(1), Maximum: intp(4)},
 	}
+	if model == "grok-imagine-image-2.0" {
+		common = append(common, Field{Name: "quality", Label: "Quality", Type: "select", Default: "medium", Options: []string{"low", "medium"}})
+	}
+	common = append(common, Field{Name: "n", Label: "Output count", Type: "integer", Default: 1, Minimum: intp(1), Maximum: intp(4)})
 	edit := append([]Field(nil), common...)
 	edit = append(edit,
 		Field{Name: "image", Label: "Input image", Type: "media"},
@@ -120,8 +123,9 @@ func Models() []Model {
 	return []Model{
 		{ID: "doubao-seedance-2-0-260128", Label: "Seedance 2.0", Provider: "seedance", Kind: "video", Operations: seedanceOps([]string{"480p", "720p", "1080p", "4k"})},
 		{ID: "doubao-seedance-2-0-fast-260128", Label: "Seedance 2.0 Fast", Provider: "seedance", Kind: "video", Operations: seedanceOps([]string{"480p", "720p"})},
-		{ID: "grok-imagine-image", Label: "Grok Imagine Image", Provider: "grok", Kind: "image", Operations: grokImageOperations()},
-		{ID: "grok-imagine-image-quality", Label: "Grok Imagine Image Quality", Provider: "grok", Kind: "image", Operations: grokImageOperations()},
+		{ID: "grok-imagine-image", Label: "Grok Imagine Image", Provider: "grok", Kind: "image", Operations: grokImageOperations("grok-imagine-image")},
+		{ID: "grok-imagine-image-quality", Label: "Grok Imagine Image Quality", Provider: "grok", Kind: "image", Operations: grokImageOperations("grok-imagine-image-quality")},
+		{ID: "grok-imagine-image-2.0", Label: "Grok Imagine Image 2.0", Provider: "grok", Kind: "image", Operations: grokImageOperations("grok-imagine-image-2.0")},
 		{ID: "grok-imagine-video", Label: "Grok Imagine Video", Provider: "grok", Kind: "video", Operations: grokVideoOperations("grok-imagine-video")},
 		{ID: "grok-imagine-video-1.5", Label: "Grok Imagine Video 1.5", Provider: "grok", Kind: "video", Operations: grokVideoOperations("grok-imagine-video-1.5")},
 	}

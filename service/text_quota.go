@@ -406,7 +406,7 @@ func isZeroCostGrokImageBilling(relayInfo *relaycommon.RelayInfo) bool {
 		return false
 	}
 	switch relayInfo.OriginModelName {
-	case "grok-imagine-image", "grok-imagine-image-quality":
+	case "grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0":
 		return true
 	default:
 		return false
@@ -432,6 +432,9 @@ func appendGrokImageBillingLog(other map[string]interface{}, relayInfo *relaycom
 		fmt.Sprintf("分辨率 %s", strings.ToUpper(snapshot.Resolution)),
 		fmt.Sprintf("比例 %s", snapshot.AspectRatio),
 		fmt.Sprintf("输出 %d 张", snapshot.OutputCount),
+	}
+	if snapshot.Quality != "" {
+		parts = append(parts, fmt.Sprintf("质量 %s", snapshot.Quality))
 	}
 	if snapshot.Operation == "edit" {
 		parts = append(parts, fmt.Sprintf("输入 %d 张", snapshot.InputImageCount))

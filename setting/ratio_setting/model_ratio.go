@@ -276,6 +276,7 @@ var defaultModelPrice = map[string]float64{
 	// OtherRatio against these internal ¥1 anchors.
 	"grok-imagine-image":             1,
 	"grok-imagine-image-quality":     1,
+	"grok-imagine-image-2.0":         1,
 	"grok-imagine-video":             1,
 	"grok-imagine-video-1.5":         1,
 	"suno_music":                     0.1,

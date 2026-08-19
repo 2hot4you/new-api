@@ -151,6 +151,7 @@ type RatioSettingsCardProps = {
   toolPricesDefault: string
   titleKey?: string
   visibleTabs?: RatioTabId[]
+  tabSwitcherPlacement?: 'title' | 'inline'
 }
 
 export function RatioSettingsCard({
@@ -159,6 +160,7 @@ export function RatioSettingsCard({
   toolPricesDefault,
   titleKey = 'Pricing Ratios',
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
+  tabSwitcherPlacement = 'title',
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
@@ -481,9 +483,13 @@ export function RatioSettingsCard({
         </SettingsSection>
       ) : (
         <Tabs defaultValue={defaultTab} className='h-full min-h-0 gap-6'>
-          <SettingsPageTitleStatusPortal>
-            {renderTabSwitcher()}
-          </SettingsPageTitleStatusPortal>
+          {tabSwitcherPlacement === 'title' ? (
+            <SettingsPageTitleStatusPortal>
+              {renderTabSwitcher()}
+            </SettingsPageTitleStatusPortal>
+          ) : (
+            renderTabSwitcher()
+          )}
 
           <SettingsSection title={t(titleKey)} className='min-h-0 flex-1'>
             {visibleTabs.map((tab) => (

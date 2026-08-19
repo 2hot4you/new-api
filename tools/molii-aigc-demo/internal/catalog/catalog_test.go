@@ -8,10 +8,10 @@ import (
 
 func TestCatalogContainsExactModels(t *testing.T) {
 	models := Models()
-	require.Len(t, models, 6)
+	require.Len(t, models, 7)
 	want := []string{
 		"doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128",
-		"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-video",
+		"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0", "grok-imagine-video",
 		"grok-imagine-video-1.5",
 	}
 	got := make([]string, 0, len(models))
@@ -28,6 +28,23 @@ func TestCatalogContainsExactModels(t *testing.T) {
 	retiredModel := "grok-imagine-video-1.5-" + "pre" + "view"
 	_, ok = FindModel(retiredModel)
 	require.False(t, ok)
+}
+
+func TestImage20CatalogExposesQualitySelector(t *testing.T) {
+	model, ok := FindModel("grok-imagine-image-2.0")
+	require.True(t, ok)
+	for _, operation := range model.Operations {
+		var quality *Field
+		for i := range operation.Fields {
+			if operation.Fields[i].Name == "quality" {
+				quality = &operation.Fields[i]
+				break
+			}
+		}
+		require.NotNil(t, quality, operation.ID)
+		require.Equal(t, "medium", quality.Default)
+		require.Equal(t, []string{"low", "medium"}, quality.Options)
+	}
 }
 
 func TestGrokVideoPromptsAreRequiredForGenerateAndEdit(t *testing.T) {

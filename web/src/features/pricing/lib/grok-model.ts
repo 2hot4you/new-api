@@ -3,6 +3,7 @@ import type { PricingModel } from '../types'
 export const GROK_IMAGE_MODELS = [
   'grok-imagine-image',
   'grok-imagine-image-quality',
+  'grok-imagine-image-2.0',
 ] as const
 
 export const GROK_VIDEO_MODELS = [
@@ -29,6 +30,7 @@ export function getGrokModelCapabilities(modelName: string) {
   switch (modelName) {
     case 'grok-imagine-image':
     case 'grok-imagine-image-quality':
+    case 'grok-imagine-image-2.0':
       return {
         input: ['Text', 'Image'],
         output: 'Image',

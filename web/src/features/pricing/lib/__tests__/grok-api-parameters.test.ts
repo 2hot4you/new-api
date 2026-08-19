@@ -59,6 +59,16 @@ describe('Grok Imagine API parameters', () => {
     )
   })
 
+  test('exposes the quality tiers used by Grok Imagine Image 2.0 billing', () => {
+    const quality = parameter('grok-imagine-image-2.0', 'generate', 'quality')
+    assert.equal(quality?.defaultValue, 'medium')
+    assert.deepEqual(quality?.enumValues, ['low', 'medium'])
+    assert.equal(
+      parameter('grok-imagine-image', 'generate', 'quality'),
+      undefined
+    )
+  })
+
   test('distinguishes legacy video and video 1.5 generation', () => {
     const legacyImage = parameter('grok-imagine-video', 'generate', 'image')
     const video15Image = parameter(

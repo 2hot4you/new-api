@@ -40,6 +40,7 @@ var allowedAspectRatios = map[string]struct{}{
 var allowedImageModels = map[string]struct{}{
 	"grok-imagine-image":         {},
 	"grok-imagine-image-quality": {},
+	"grok-imagine-image-2.0":     {},
 }
 
 // Adaptor is independent from the official xAI channel. The embedded OpenAI
@@ -133,6 +134,10 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	if resolution != "1k" && resolution != "2k" {
 		return nil, errors.New("resolution must be one of 1k or 2k")
 	}
+	quality, err := normalizeImageQuality(modelName, raw.Quality)
+	if err != nil {
+		return nil, err
+	}
 	aspectRatio := strings.TrimSpace(raw.AspectRatio)
 	if aspectRatio == "" {
 		aspectRatio = "16:9"
@@ -147,6 +152,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		Prompt:      prompt,
 		AspectRatio: aspectRatio,
 		Resolution:  resolution,
+		Quality:     quality,
 		N:           n,
 	}
 	if info.RelayMode != relayconstant.RelayModeImagesEdits && (len(raw.Image) > 0 || len(raw.Images) > 0) {
@@ -194,11 +200,15 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	if resolution == "" {
 		resolution = "1k"
 	}
+	quality, err := normalizeImageQuality(billedModel, raw.Quality)
+	if err != nil {
+		return nil, err
+	}
 	aspectRatio := strings.TrimSpace(raw.AspectRatio)
 	if aspectRatio == "" {
 		aspectRatio = "16:9"
 	}
-	outputPrice, inputPrice, ok := ratio_setting.GetMoliiGrokImagePrices(billedModel, resolution)
+	outputPrice, inputPrice, ok := ratio_setting.GetMoliiGrokImagePricesForQuality(billedModel, resolution, quality)
 	if !ok {
 		return nil, errors.New("Molii Grok image pricing is not configured")
 	}
@@ -241,6 +251,7 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 		BilledModel:          billedModel,
 		Operation:            operation,
 		Resolution:           resolution,
+		Quality:              quality,
 		AspectRatio:          aspectRatio,
 		RequestedOutputCount: n,
 		OutputCount:          n,
@@ -252,6 +263,23 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 		Subtotal:             cost,
 	}
 	return map[string]float64{"molii_grok_direct_cost": cost / basePrice}, nil
+}
+
+func normalizeImageQuality(modelName, requested string) (string, error) {
+	quality := strings.ToLower(strings.TrimSpace(requested))
+	if modelName != "grok-imagine-image-2.0" {
+		if quality != "" {
+			return "", errors.New("quality is only supported by grok-imagine-image-2.0")
+		}
+		return "", nil
+	}
+	if quality == "" {
+		return "medium", nil
+	}
+	if quality != "low" && quality != "medium" {
+		return "", errors.New("quality must be one of low or medium")
+	}
+	return quality, nil
 }
 
 func (a *Adaptor) normalizeImageMedia(ctx context.Context, userID int, imageRaw, imagesRaw []byte) ([]imageMediaInput, error) {

@@ -32,7 +32,7 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
 	case constant.ChannelTypeMoliiGrokAIGC:
 		switch modelName {
-		case "grok-imagine-image", "grok-imagine-image-quality":
+		case "grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0":
 			return []constant.EndpointType{constant.EndpointTypeImageGeneration}
 		case "grok-imagine-video", "grok-imagine-video-1.5":
 			return []constant.EndpointType{constant.EndpointTypeOpenAIVideo}

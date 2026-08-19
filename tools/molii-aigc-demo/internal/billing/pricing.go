@@ -84,6 +84,7 @@ type EstimateInput struct {
 	Model           string
 	Operation       string
 	Resolution      string
+	Quality         string
 	Ratio           string
 	Duration        int
 	OutputCount     int
@@ -193,6 +194,9 @@ func seedanceUnitPrice(rows []SeedancePriceRow, resolution string, withVideo boo
 
 func estimateGrok(pricing GrokPricing, input EstimateInput, result Estimate) Estimate {
 	resolution := strings.ToLower(input.Resolution)
+	if quality := strings.ToLower(strings.TrimSpace(input.Quality)); quality != "" {
+		resolution = quality + "/" + resolution
+	}
 	if input.Operation == "grok.video.edit" && resolution == "" {
 		// New API precharges video edits at the 720p tier for 8.7 seconds,
 		// then settles against the actual upstream duration and inferred tier.

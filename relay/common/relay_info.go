@@ -65,6 +65,7 @@ type GrokImageBillingSnapshot struct {
 	BilledModel          string  `json:"billed_model,omitempty"`
 	Operation            string  `json:"operation"`
 	Resolution           string  `json:"resolution"`
+	Quality              string  `json:"quality,omitempty"`
 	AspectRatio          string  `json:"aspect_ratio"`
 	RequestedOutputCount int     `json:"requested_output_count"`
 	OutputCount          int     `json:"output_count"`

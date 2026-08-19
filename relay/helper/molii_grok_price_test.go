@@ -14,6 +14,7 @@ func TestMoliiGrokModelsUseDirectCostAnchors(t *testing.T) {
 	models := []string{
 		"grok-imagine-image",
 		"grok-imagine-image-quality",
+		"grok-imagine-image-2.0",
 		"grok-imagine-video",
 		"grok-imagine-video-1.5",
 	}

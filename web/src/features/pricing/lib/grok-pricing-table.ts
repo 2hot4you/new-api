@@ -37,22 +37,49 @@ function resolutionRank(resolution: string): number {
   return RESOLUTION_ORDER.get(resolution.toLowerCase()) ?? 100
 }
 
+function parseOutputTier(key: string): {
+  quality: string
+  resolution: string
+  label: string
+} {
+  const [quality, resolution] = key.includes('/')
+    ? key.split('/', 2)
+    : ['', key]
+  if (!quality) return { quality: '', resolution, label: resolution }
+  const qualityLabel = quality.charAt(0).toUpperCase() + quality.slice(1)
+  return {
+    quality,
+    resolution,
+    label: `${qualityLabel} · ${resolution.toUpperCase()}`,
+  }
+}
+
 export function buildGrokPricingRows(
   pricing: MoliiGrokPricing
 ): GrokPricingTableRow[] {
   return Object.entries(pricing.output_prices)
     .sort(([left], [right]) => {
-      const rankDifference = resolutionRank(left) - resolutionRank(right)
-      return rankDifference || left.localeCompare(right)
+      const leftTier = parseOutputTier(left)
+      const rightTier = parseOutputTier(right)
+      const qualityDifference = leftTier.quality.localeCompare(
+        rightTier.quality
+      )
+      const rankDifference =
+        resolutionRank(leftTier.resolution) -
+        resolutionRank(rightTier.resolution)
+      return qualityDifference || rankDifference || left.localeCompare(right)
     })
-    .map(([resolution, outputPrice]) => ({
-      resolution,
-      outputPrice,
-      ...(pricing.image_input_price != null
-        ? { imageInputPrice: pricing.image_input_price }
-        : {}),
-      ...(pricing.video_input_price != null
-        ? { videoInputPrice: pricing.video_input_price }
-        : {}),
-    }))
+    .map(([key, outputPrice]) => {
+      const tier = parseOutputTier(key)
+      return {
+        resolution: tier.label,
+        outputPrice,
+        ...(pricing.image_input_price != null
+          ? { imageInputPrice: pricing.image_input_price }
+          : {}),
+        ...(pricing.video_input_price != null
+          ? { videoInputPrice: pricing.video_input_price }
+          : {}),
+      }
+    })
 }

@@ -17,6 +17,7 @@ func TestBuildSupportedGenerationOperations(t *testing.T) {
 		{"seedance.video.generate", `{"model":"doubao-seedance-2-0-260128","prompt":"cat"}`, "/v1/video/generations"},
 		{"grok.image.generate", `{"model":"grok-imagine-image","prompt":"cat"}`, "/v1/images/generations"},
 		{"grok.image.edit", `{"model":"grok-imagine-image-quality","prompt":"edit","images":["https://example.test/a.png"]}`, "/v1/images/edits"},
+		{"grok.image.generate", `{"model":"grok-imagine-image-2.0","prompt":"poster","quality":"low"}`, "/v1/images/generations"},
 		{"grok.video.generate", `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"url":"https://example.test/a.png"}}`, "/v1/videos"},
 		{"grok.video.edit", `{"model":"grok-imagine-video","prompt":"rain","video":"https://example.test/a.mp4"}`, "/v1/videos/edits"},
 	}

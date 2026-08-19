@@ -19,6 +19,7 @@ const (
 var allowedMarketplaceParameters = map[string]struct{}{
 	"stream": {}, "temperature": {}, "top_p": {}, "max_tokens": {},
 	"tools": {}, "tool_choice": {}, "reasoning_effort": {}, "response_format": {},
+	"quality": {},
 }
 
 var allowedMarketplaceOutputFormats = map[string]struct{}{

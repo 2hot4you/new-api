@@ -131,6 +131,7 @@ func estimateInput(model, operation string, body []byte) billing.EstimateInput {
 		return input
 	}
 	input.Resolution = stringValue(value["resolution"])
+	input.Quality = stringValue(value["quality"])
 	input.Ratio = stringValue(value["ratio"])
 	if input.Ratio == "" {
 		input.Ratio = stringValue(value["aspect_ratio"])

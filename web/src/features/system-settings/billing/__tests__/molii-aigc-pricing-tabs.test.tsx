@@ -93,6 +93,7 @@ describe('Molii Volcengine Imagine API pricing tabs', () => {
             titleStatusContainer={titleContainer}
           >
             <MoliiAigcPricingTabs
+              modelPricing={<MarkerForm name='models' />}
               seedance={<MarkerForm name='seedance' />}
               grokImagine={<MarkerForm name='grok' />}
             />
@@ -101,10 +102,14 @@ describe('Molii Volcengine Imagine API pricing tabs', () => {
       )
     })
 
-    assert.equal(titleContainer.textContent, 'Seedance 2.0Grok Imagine')
-    assert.match(container.textContent ?? '', /seedance-form/)
+    assert.equal(
+      titleContainer.textContent,
+      'General modelsSeedance 2.0Grok Imagine'
+    )
+    assert.match(container.textContent ?? '', /models-form/)
+    assert.doesNotMatch(container.textContent ?? '', /seedance-form/)
     assert.doesNotMatch(container.textContent ?? '', /grok-form/)
-    assert.equal(actionsContainer.textContent, 'seedance-save')
+    assert.equal(actionsContainer.textContent, 'models-save')
 
     const grokTab = [...titleContainer.querySelectorAll('button')].find(
       (button) => button.textContent === 'Grok Imagine'

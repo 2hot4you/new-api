@@ -16,6 +16,15 @@ describe('Grok Imagine API samples', () => {
     assert.doesNotMatch(sample, /"size"/)
   })
 
+  test('includes the official medium quality default for image 2.0', () => {
+    const sample = buildGrokApiSample('curl', {
+      baseUrl: 'https://aigc.claudeye.com',
+      modelName: 'grok-imagine-image-2.0',
+      operation: 'generate',
+    })
+    assert.match(sample, /"quality": "medium"/)
+  })
+
   test('covers video creation, editing, status and download', () => {
     assert.deepEqual(getGrokOperations('grok-imagine-video'), [
       'generate',

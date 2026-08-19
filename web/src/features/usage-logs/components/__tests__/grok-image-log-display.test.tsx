@@ -185,4 +185,40 @@ describe('Grok image billing display', () => {
     await act(async () => rendered.root.unmount())
     rendered.container.remove()
   })
+
+  test('renders the Image 2.0 quality tier used for billing', async () => {
+    const rendered = await renderCard({
+      ...baseLog,
+      model_name: 'grok-imagine-image-2.0',
+      other: JSON.stringify({
+        grok_image_billing: {
+          version: 1,
+          model: 'grok-imagine-image-2.0',
+          operation: 'generation',
+          resolution: '2k',
+          quality: 'medium',
+          aspect_ratio: '16:9',
+          requested_output_count: 1,
+          output_count: 1,
+          input_image_count: 0,
+          output_unit_price: 0.08,
+          input_unit_price: 0.01,
+          output_cost: 0.08,
+          input_cost: 0,
+          subtotal: 0.08,
+          group_ratio: 1,
+          final_cost: 0.08,
+        },
+      }),
+    })
+    const text = rendered.container.textContent ?? ''
+
+    assert.equal(text.includes('grok-imagine-image-2.0'), true)
+    assert.equal(text.includes('Quality'), true)
+    assert.equal(text.includes('MEDIUM'), true)
+    assert.equal(text.includes('¥0.080000'), true)
+
+    await act(async () => rendered.root.unmount())
+    rendered.container.remove()
+  })
 })

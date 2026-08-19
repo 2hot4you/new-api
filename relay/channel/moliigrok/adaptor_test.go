@@ -75,6 +75,38 @@ func TestConvertImageRequestAppliesDefaults(t *testing.T) {
 	assert.JSONEq(t, `{"model":"grok-imagine-image","prompt":"orange cat","aspect_ratio":"16:9","resolution":"1k","n":1}`, string(encoded))
 }
 
+func TestConvertImage20RequestDefaultsQualityAndPreservesExplicitLow(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		wantQuality string
+	}{
+		{name: "default medium", body: `{"model":"grok-imagine-image-2.0","prompt":"poster"}`, wantQuality: "medium"},
+		{name: "explicit low", body: `{"model":"grok-imagine-image-2.0","prompt":"poster","quality":"low"}`, wantQuality: "low"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := imageContext(t, tt.body)
+			info := imageInfo()
+			info.OriginModelName = "grok-imagine-image-2.0"
+			info.ChannelMeta.UpstreamModelName = "grok-imagine-image-2.0"
+			converted, err := (&Adaptor{}).ConvertImageRequest(c, info, dto.ImageRequest{Model: "grok-imagine-image-2.0", Prompt: "poster"})
+			require.NoError(t, err)
+			payload := converted.(imageRequestPayload)
+			assert.Equal(t, tt.wantQuality, payload.Quality)
+		})
+	}
+}
+
+func TestConvertImage20RequestRejectsUnsupportedQuality(t *testing.T) {
+	c := imageContext(t, `{"model":"grok-imagine-image-2.0","prompt":"poster","quality":"high"}`)
+	info := imageInfo()
+	info.OriginModelName = "grok-imagine-image-2.0"
+	info.ChannelMeta.UpstreamModelName = "grok-imagine-image-2.0"
+	_, err := (&Adaptor{}).ConvertImageRequest(c, info, dto.ImageRequest{Model: "grok-imagine-image-2.0", Prompt: "poster"})
+	require.ErrorContains(t, err, "quality")
+}
+
 func TestConvertImageRequestRejectsInvalidInputs(t *testing.T) {
 	longPrompt := strings.Repeat("猫", 10001)
 	tests := []struct {
@@ -242,6 +274,23 @@ func TestEstimateImageBillingSnapshotsGenerationDefaults(t *testing.T) {
 	assert.InDelta(t, 0.002, info.GrokImageBilling.InputUnitPrice, 0.000001)
 	assert.InDelta(t, 0.02, info.GrokImageBilling.OutputCost, 0.000001)
 	assert.InDelta(t, 0.02, info.GrokImageBilling.Subtotal, 0.000001)
+}
+
+func TestEstimateImage20BillingUsesQualityTier(t *testing.T) {
+	body := `{"model":"grok-imagine-image-2.0","prompt":"poster","quality":"low","resolution":"2k","n":2}`
+	c := imageContext(t, body)
+	info := imageInfo()
+	info.OriginModelName = "grok-imagine-image-2.0"
+	info.ChannelMeta.UpstreamModelName = "grok-imagine-image-2.0"
+
+	ratios, err := (&Adaptor{}).EstimateImageBilling(c, info, dto.ImageRequest{Model: "grok-imagine-image-2.0", Prompt: "poster"})
+	require.NoError(t, err)
+	assert.InDelta(t, 0.12, ratios["molii_grok_direct_cost"], 0.000001)
+	require.NotNil(t, info.GrokImageBilling)
+	assert.Equal(t, "low", info.GrokImageBilling.Quality)
+	assert.Equal(t, "2k", info.GrokImageBilling.Resolution)
+	assert.InDelta(t, 0.06, info.GrokImageBilling.OutputUnitPrice, 0.000001)
+	assert.InDelta(t, 0.12, info.GrokImageBilling.Subtotal, 0.000001)
 }
 
 func TestEstimateImageBillingSnapshotsFinalUpstreamModel(t *testing.T) {

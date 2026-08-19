@@ -84,6 +84,7 @@ var localMarketplaceMetadataSeeds20260815 = []Model{
 	},
 	newLocalGrokImageMarketplaceSeed("grok-imagine-image", "支持文本生成图片与参考图编辑，提供 1K、2K 输出，生成速度更快。"),
 	newLocalGrokImageMarketplaceSeed("grok-imagine-image-quality", "更注重画面细节和质量的图片生成与编辑模型，支持 1K、2K 输出。"),
+	newLocalGrokImage20MarketplaceSeed(),
 	{
 		ModelName:             "grok-imagine-video",
 		DisplayName:           "grok-imagine-video",
@@ -159,6 +160,17 @@ func newLocalGrokImageMarketplaceSeed(modelName, description string) Model {
 		OutputFormats:         []string{"url"},
 		ReferenceModalities:   []string{"image"},
 	}
+}
+
+func newLocalGrokImage20MarketplaceSeed() Model {
+	seed := newLocalGrokImageMarketplaceSeed(
+		"grok-imagine-image-2.0",
+		"Grok Imagine 第二代图片生成与编辑模型，支持 Low、Medium 质量档位及 1K、2K 输出。",
+	)
+	seed.DescriptionEN = "Second-generation Grok Imagine image generation and editing model with Low and Medium quality tiers at 1K and 2K resolutions."
+	seed.ReleaseDate = "2026-08-19"
+	seed.SupportedParameters = []string{"quality"}
+	return seed
 }
 
 func localGrokAspectRatios() []string {

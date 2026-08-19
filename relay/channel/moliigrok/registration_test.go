@@ -25,7 +25,7 @@ func TestMoliiGrokChannelRegistration(t *testing.T) {
 	imageAdaptor := relay.GetAdaptor(apiType)
 	require.NotNil(t, imageAdaptor)
 	assert.Equal(t, "Molii Grok Imagine API", imageAdaptor.GetChannelName())
-	assert.ElementsMatch(t, []string{"grok-imagine-image", "grok-imagine-image-quality"}, imageAdaptor.GetModelList())
+	assert.ElementsMatch(t, []string{"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0"}, imageAdaptor.GetModelList())
 
 	platform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
 	videoAdaptor := relay.GetTaskAdaptor(platform)
@@ -35,6 +35,7 @@ func TestMoliiGrokChannelRegistration(t *testing.T) {
 	assert.False(t, relay.TaskAdaptorAllowsRetry(platform))
 
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeImageGeneration}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-image"))
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeImageGeneration}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-image-2.0"))
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-video-1.5"))
 	assert.Empty(t, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-video-1.5-preview"))
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, common.GetEndpointTypesByChannelType(constant.ChannelTypeMoliiGrokAIGC, "grok-imagine-video"))

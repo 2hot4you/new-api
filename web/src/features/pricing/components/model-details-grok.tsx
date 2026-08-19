@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils'
 
 import { getGrokModelCapabilities } from '../lib/grok-model'
+import { buildGrokPricingRows } from '../lib/grok-pricing-table'
 import type { PricingModel } from '../types'
 
 function Card(props: {
@@ -92,14 +93,15 @@ export function ModelDetailsGrokPricing(props: { model: PricingModel }) {
     )
   }
   const outputUnit = pricing.output_unit === 'second' ? t('second') : t('image')
+  const pricingRows = buildGrokPricingRows(pricing)
   return (
     <div className='space-y-3'>
       <div className='grid gap-2 sm:grid-cols-2 @2xl/details:grid-cols-3'>
-        {Object.entries(pricing.output_prices).map(([resolution, price]) => (
+        {pricingRows.map((row) => (
           <Card
-            key={resolution}
-            label={`${resolution.toUpperCase()} ${t('Output')}`}
-            value={`¥${price}`}
+            key={row.resolution}
+            label={`${row.resolution} ${t('Output')}`}
+            value={`¥${row.outputPrice}`}
             hint={`${t('Per')} ${outputUnit}`}
           />
         ))}

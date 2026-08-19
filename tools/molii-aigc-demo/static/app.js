@@ -7,7 +7,7 @@
   const labels = {
     model: "模型", prompt: "提示词", content: "内容序列", generate_audio: "生成音频",
     resolution: "分辨率", ratio: "画面比例", duration: "时长（秒）", watermark: "添加水印",
-    tools: "联网搜索", aspect_ratio: "画面比例", n: "输出数量", image: "输入图片",
+    tools: "联网搜索", aspect_ratio: "画面比例", quality: "质量档位", n: "输出数量", image: "输入图片",
     images: "输入图片列表", video: "输入视频", url: "公开素材 URL", asset_type: "素材类型",
     name: "素材名称", id: "素材 ID"
   };
@@ -37,6 +37,7 @@
     seedanceModel("doubao-seedance-2-0-fast-260128", "Seedance 2.0 Fast", ["480p", "720p"]),
     grokImageModel("grok-imagine-image", "Grok Imagine Image"),
     grokImageModel("grok-imagine-image-quality", "Grok Imagine Image Quality"),
+    grokImageModel("grok-imagine-image-2.0", "Grok Imagine Image 2.0"),
     grokVideoModel("grok-imagine-video", "Grok Imagine Video", false, true),
     grokVideoModel("grok-imagine-video-1.5", "Grok Imagine Video 1.5", true, false),
   ];
@@ -60,7 +61,9 @@
     return { id, label, provider: "seedance", kind: "video", operations: [generate, ...assetOperations()] };
   }
   function grokImageModel(id, label) {
-    const common = [field("model", "select", { required: true }), field("prompt", "textarea", { required: true, maximum: 10000 }), field("aspect_ratio", "select", { default: "16:9", options: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"] }), field("resolution", "select", { default: "1k", options: ["1k", "2k"] }), field("n", "integer", { default: 1, minimum: 1, maximum: 4 })];
+    const common = [field("model", "select", { required: true }), field("prompt", "textarea", { required: true, maximum: 10000 }), field("aspect_ratio", "select", { default: "16:9", options: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"] }), field("resolution", "select", { default: "1k", options: ["1k", "2k"] })];
+    if (id === "grok-imagine-image-2.0") common.push(field("quality", "select", { default: "medium", options: ["low", "medium"] }));
+    common.push(field("n", "integer", { default: 1, minimum: 1, maximum: 4 }));
     return { id, label, provider: "grok", kind: "image", operations: [
       { id: "grok.image.generate", label: "图片生成", method: "POST", path: "/v1/images/generations", generation: true, fields: common },
       { id: "grok.image.edit", label: "图片编辑", method: "POST", path: "/v1/images/edits", generation: true, fields: [...common, field("image", "media"), field("images", "array", { item_type: "media" })] }

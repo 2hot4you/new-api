@@ -21,6 +21,7 @@ import type { GrokImageBillingV1 } from '../types'
 const GROK_IMAGE_MODELS = new Set([
   'grok-imagine-image',
   'grok-imagine-image-quality',
+  'grok-imagine-image-2.0',
 ])
 
 type GrokImageLogLike = {
@@ -93,6 +94,13 @@ export function parseGrokImageBilling(
   ) {
     return null
   }
+  if (
+    value.model === 'grok-imagine-image-2.0' &&
+    value.quality !== 'low' &&
+    value.quality !== 'medium'
+  ) {
+    return null
+  }
 
   return value as unknown as GrokImageBillingV1
 }
@@ -132,5 +140,8 @@ export function getGrokImageListSummary(log: GrokImageLogLike): string | null {
   if (state.kind === 'history') return state.model
   const { billing } = state
   const noun = billing.output_count === 1 ? 'image' : 'images'
-  return `${billing.resolution.toUpperCase()} · ${billing.aspect_ratio} · ${billing.output_count} ${noun}`
+  const quality = billing.quality
+    ? `${billing.quality.charAt(0).toUpperCase()}${billing.quality.slice(1)} · `
+    : ''
+  return `${quality}${billing.resolution.toUpperCase()} · ${billing.aspect_ratio} · ${billing.output_count} ${noun}`
 }

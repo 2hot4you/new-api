@@ -37,8 +37,9 @@ func seedGrokImageLogs(t *testing.T) {
 	logs := []Log{
 		{UserId: 7, CreatedAt: 10, Type: LogTypeConsume, ModelName: "grok-imagine-image", RequestId: "grok-basic"},
 		{UserId: 7, CreatedAt: 20, Type: LogTypeConsume, ModelName: "grok-imagine-image-quality", RequestId: "grok-quality"},
-		{UserId: 7, CreatedAt: 30, Type: LogTypeConsume, ModelName: "grok-imagine-image-extra", RequestId: "near-match"},
-		{UserId: 8, CreatedAt: 40, Type: LogTypeConsume, ModelName: "seedance-1.0-pro", RequestId: "other-fixed-price"},
+		{UserId: 7, CreatedAt: 30, Type: LogTypeConsume, ModelName: "grok-imagine-image-2.0", RequestId: "grok-2"},
+		{UserId: 7, CreatedAt: 40, Type: LogTypeConsume, ModelName: "grok-imagine-image-extra", RequestId: "near-match"},
+		{UserId: 8, CreatedAt: 50, Type: LogTypeConsume, ModelName: "seedance-1.0-pro", RequestId: "other-fixed-price"},
 	}
 	require.NoError(t, LOG_DB.Create(&logs).Error)
 }
@@ -49,15 +50,15 @@ func TestGetAllLogsGrokImageCategoryIsExactAndPaginated(t *testing.T) {
 
 	firstPage, total, err := GetAllLogs(LogTypeUnknown, 0, 0, "", "", "", 0, 1, 0, "", "", "", "grok_image")
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, total)
+	assert.EqualValues(t, 3, total)
 	require.Len(t, firstPage, 1)
-	assert.Equal(t, "grok-imagine-image-quality", firstPage[0].ModelName)
+	assert.Equal(t, "grok-imagine-image-2.0", firstPage[0].ModelName)
 
 	secondPage, total, err := GetAllLogs(LogTypeUnknown, 0, 0, "", "", "", 1, 1, 0, "", "", "", "grok_image")
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, total)
+	assert.EqualValues(t, 3, total)
 	require.Len(t, secondPage, 1)
-	assert.Equal(t, "grok-imagine-image", secondPage[0].ModelName)
+	assert.Equal(t, "grok-imagine-image-quality", secondPage[0].ModelName)
 }
 
 func TestGetUserLogsGrokImageCategoryAndNoCategoryCompatibility(t *testing.T) {
@@ -66,13 +67,13 @@ func TestGetUserLogsGrokImageCategoryAndNoCategoryCompatibility(t *testing.T) {
 
 	grokLogs, total, err := GetUserLogs(7, LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "", "grok_image")
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, total)
-	assert.ElementsMatch(t, []string{"grok-imagine-image", "grok-imagine-image-quality"}, []string{grokLogs[0].ModelName, grokLogs[1].ModelName})
+	assert.EqualValues(t, 3, total)
+	assert.ElementsMatch(t, []string{"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0"}, []string{grokLogs[0].ModelName, grokLogs[1].ModelName, grokLogs[2].ModelName})
 
 	allLogs, total, err := GetUserLogs(7, LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "", "")
 	require.NoError(t, err)
-	assert.EqualValues(t, 3, total)
-	assert.Len(t, allLogs, 3)
+	assert.EqualValues(t, 4, total)
+	assert.Len(t, allLogs, 4)
 }
 
 func TestFormatUserLogsPreservesGrokImageBilling(t *testing.T) {

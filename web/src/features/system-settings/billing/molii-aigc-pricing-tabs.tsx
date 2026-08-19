@@ -23,16 +23,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
 
-type AigcPricingTab = 'seedance' | 'grok-imagine'
+type AigcPricingTab = 'model-pricing' | 'seedance' | 'grok-imagine'
 
 type MoliiAigcPricingTabsProps = {
+  modelPricing: ReactNode
   seedance: ReactNode
   grokImagine: ReactNode
 }
 
 export function MoliiAigcPricingTabs(props: MoliiAigcPricingTabsProps) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<AigcPricingTab>('seedance')
+  const [activeTab, setActiveTab] = useState<AigcPricingTab>('model-pricing')
 
   return (
     <Tabs
@@ -43,17 +44,24 @@ export function MoliiAigcPricingTabs(props: MoliiAigcPricingTabsProps) {
       className='h-full min-h-0 gap-6'
     >
       <SettingsPageTitleStatusPortal>
-        <TabsList className='grid w-fit max-w-full grid-cols-2'>
+        <TabsList className='grid w-fit max-w-full grid-cols-3'>
+          <TabsTrigger value='model-pricing'>{t('General models')}</TabsTrigger>
           <TabsTrigger value='seedance'>{t('Seedance 2.0')}</TabsTrigger>
           <TabsTrigger value='grok-imagine'>{t('Grok Imagine')}</TabsTrigger>
         </TabsList>
       </SettingsPageTitleStatusPortal>
 
-      {activeTab === 'seedance' ? (
+      {activeTab === 'model-pricing' && (
+        <TabsContent value='model-pricing' className='min-h-0'>
+          {props.modelPricing}
+        </TabsContent>
+      )}
+      {activeTab === 'seedance' && (
         <TabsContent value='seedance' className='min-h-0'>
           {props.seedance}
         </TabsContent>
-      ) : (
+      )}
+      {activeTab === 'grok-imagine' && (
         <TabsContent value='grok-imagine' className='min-h-0'>
           {props.grokImagine}
         </TabsContent>

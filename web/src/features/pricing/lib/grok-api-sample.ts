@@ -38,6 +38,9 @@ function endpoint(ctx: Context): {
         ...(editing ? { image: { file_id: 'file_image_xxx' } } : {}),
         aspect_ratio: '16:9',
         resolution: '1k',
+        ...(ctx.modelName === 'grok-imagine-image-2.0'
+          ? { quality: 'medium' }
+          : {}),
         n: 1,
       },
     }

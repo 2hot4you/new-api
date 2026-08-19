@@ -42,7 +42,7 @@ describe('Grok Imagine public documentation contract', () => {
 
   test('image guide freezes models, request limits, URL-only edits, and direct billing', async () => {
     const source = await page('docs/models/grok-imagine-image.mdx');
-    for (const model of ['grok-imagine-image', 'grok-imagine-image-quality']) expect(source).toContain(model);
+    for (const model of ['grok-imagine-image', 'grok-imagine-image-quality', 'grok-imagine-image-2.0']) expect(source).toContain(model);
     for (const endpoint of ['POST /v1/images/generations', 'POST /v1/images/edits']) expect(source).toContain(endpoint);
     for (const ratio of ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '2:1', '1:2', '19.5:9', '9:19.5', '20:9', '9:20', 'auto']) {
       expect(source).toContain(ratio);
@@ -51,6 +51,9 @@ describe('Grok Imagine public documentation contract', () => {
     expect(source).toMatch(/(?:输入图|图片)[^\n]*1[–-]3|1[–-]3[^\n]*(?:输入图|图片)/);
     expect(source).toContain('1k');
     expect(source).toContain('2k');
+    expect(source).toContain('quality');
+    expect(source).toContain('low');
+    expect(source).toContain('medium');
     expect(source).toContain('data:image/');
     expect(source).toContain('| 参数 | 类型 | 必填 | 默认值 |');
     expect(source).toMatch(/输出单价[^\n]*×[^\n]*输出数量/);

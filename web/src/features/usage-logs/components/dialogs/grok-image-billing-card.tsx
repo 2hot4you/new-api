@@ -103,6 +103,13 @@ export function GrokImageBillingCard(props: {
                 value={state.billing.resolution.toUpperCase()}
                 mono
               />
+              {state.billing.quality && (
+                <BillingMetric
+                  label={t('Quality')}
+                  value={state.billing.quality.toUpperCase()}
+                  mono
+                />
+              )}
               <BillingMetric
                 label={t('Aspect Ratio')}
                 value={state.billing.aspect_ratio}

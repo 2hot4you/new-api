@@ -131,6 +131,29 @@ describe('Grok marketplace pricing matrix', () => {
     container.remove()
   })
 
+  test('shows image 2.0 quality tiers as separate pricing rows', async () => {
+    const { container, root } = await renderPricing({
+      kind: 'image',
+      output_unit: 'image',
+      output_prices: {
+        'low/1k': 0.04,
+        'low/2k': 0.06,
+        'medium/1k': 0.06,
+        'medium/2k': 0.08,
+      },
+      image_input_unit: 'image',
+      image_input_price: 0.01,
+    })
+
+    const rows = container.querySelectorAll('tbody tr')
+    assert.equal(rows.length, 4)
+    assert.match(rows[0].textContent ?? '', /Low · 1K.*¥0\.04 \/ image/)
+    assert.match(rows[3].textContent ?? '', /Medium · 2K.*¥0\.08 \/ image/)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
   test('shows three Video 1.5 output rows without a video input charge', async () => {
     const { container, root } = await renderPricing({
       kind: 'video',

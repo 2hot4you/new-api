@@ -14,6 +14,7 @@ func TestValidateImagineModelMappingRejectsIncompatibleFamilies(t *testing.T) {
 	}{
 		{name: "Seedance standard to fast", requested: "doubao-seedance-2-0-260128", billed: "doubao-seedance-2-0-fast-260128"},
 		{name: "Grok basic to quality", requested: "grok-imagine-image", billed: "grok-imagine-image-quality"},
+		{name: "Grok quality to 2.0", requested: "grok-imagine-image-quality", billed: "grok-imagine-image-2.0"},
 		{name: "Grok image to video", requested: "grok-imagine-image", billed: "grok-imagine-video"},
 		{name: "Grok legacy to 1.5", requested: "grok-imagine-video", billed: "grok-imagine-video-1.5"},
 		{name: "Grok 1.5 to retired preview", requested: "grok-imagine-video-1.5", billed: "grok-imagine-video-1.5-preview"},
@@ -36,6 +37,7 @@ func TestValidateImagineModelMappingAllowsCompatibleAndUnrelatedModels(t *testin
 	}{
 		{name: "identity", requested: "grok-imagine-image", billed: "grok-imagine-image", family: ImagineModelFamilyGrokImage},
 		{name: "Grok 1.5 identity", requested: "grok-imagine-video-1.5", billed: "grok-imagine-video-1.5", family: ImagineModelFamilyGrokVideo15},
+		{name: "Grok image 2.0 identity", requested: "grok-imagine-image-2.0", billed: "grok-imagine-image-2.0", family: ImagineModelFamilyGrokImage20},
 		{name: "ordinary channel mapping", requested: "gpt-4o", billed: "gpt-4.1", family: ImagineModelFamilyUnknown},
 	}
 
