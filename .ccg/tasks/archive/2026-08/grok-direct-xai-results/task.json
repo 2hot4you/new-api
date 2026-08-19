@@ -1,0 +1,12 @@
+{
+  "id": "grok-direct-xai-results",
+  "title": "Grok 图片视频直返 xAI 临时结果并增加预览过期提示",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交推送 develop",
+  "createdAt": "2026-08-19T20:00:00+08:00",
+  "branch": "develop"
+}
