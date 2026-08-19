@@ -13,6 +13,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
@@ -56,6 +57,7 @@ const schema = z.object({
 
 export type MoliiGrokPricingValues = z.infer<typeof schema>
 type FieldName = keyof MoliiGrokPricingValues
+type PricingMode = 'images' | 'videos' | 'tools'
 
 const fields: Array<{
   name: FieldName
@@ -66,178 +68,254 @@ const fields: Array<{
 }> = [
   {
     name: 'image_standard_input',
-    label: 'Image · Standard · Media input',
+    label: 'Image input',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_standard_input',
   },
   {
     name: 'image_standard_1k',
-    label: 'Image · Standard · 1K output',
+    label: '1K output',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_standard_1k',
   },
   {
     name: 'image_standard_2k',
-    label: 'Image · Standard · 2K output',
+    label: '2K output',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_standard_2k',
   },
   {
     name: 'image_quality_input',
-    label: 'Image · Quality · Media input',
+    label: 'Image input',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_quality_input',
   },
   {
     name: 'image_quality_1k',
-    label: 'Image · Quality · 1K output',
+    label: '1K output',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_quality_1k',
   },
   {
     name: 'image_quality_2k',
-    label: 'Image · Quality · 2K output',
+    label: '2K output',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_quality_2k',
   },
   {
     name: 'image_20_input',
-    label: 'grok-imagine-image-2.0 · Image input',
+    label: 'Image input',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_20_input',
   },
   {
     name: 'image_20_low_1k',
-    label: 'grok-imagine-image-2.0 · Low · 1K output',
+    label: 'Low · 1K output',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_20_low_1k',
   },
   {
     name: 'image_20_low_2k',
-    label: 'grok-imagine-image-2.0 · Low · 2K output',
+    label: 'Low · 2K output',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_20_low_2k',
   },
   {
     name: 'image_20_medium_1k',
-    label: 'grok-imagine-image-2.0 · Medium · 1K output',
+    label: 'Medium · 1K output',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_20_medium_1k',
   },
   {
     name: 'image_20_medium_2k',
-    label: 'grok-imagine-image-2.0 · Medium · 2K output',
+    label: 'Medium · 2K output',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'image_20_medium_2k',
   },
   {
     name: 'video_15_image_input',
-    label: 'Video 1.5 · Image input',
+    label: 'Image input',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'video_15_image_input',
   },
   {
     name: 'video_15_480p',
-    label: 'Video 1.5 · 480p output',
+    label: '480p output',
     unit: '¥ / second',
     namespace: 'molii_grok_price',
     option: 'video_15_480p',
   },
   {
     name: 'video_15_720p',
-    label: 'Video 1.5 · 720p output',
+    label: '720p output',
     unit: '¥ / second',
     namespace: 'molii_grok_price',
     option: 'video_15_720p',
   },
   {
     name: 'video_15_1080p',
-    label: 'Video 1.5 · 1080p output',
+    label: '1080p output',
     unit: '¥ / second',
     namespace: 'molii_grok_price',
     option: 'video_15_1080p',
   },
   {
     name: 'video_image_input',
-    label: 'Video · Image input',
+    label: 'Image input',
     unit: '¥ / image',
     namespace: 'molii_grok_price',
     option: 'video_image_input',
   },
   {
     name: 'video_video_input',
-    label: 'Video · Video input',
+    label: 'Video input',
     unit: '¥ / second',
     namespace: 'molii_grok_price',
     option: 'video_video_input',
   },
   {
     name: 'video_480p',
-    label: 'Video · 480p output',
+    label: '480p output',
     unit: '¥ / second',
     namespace: 'molii_grok_price',
     option: 'video_480p',
   },
   {
     name: 'video_720p',
-    label: 'Video · 720p output',
+    label: '720p output',
     unit: '¥ / second',
     namespace: 'molii_grok_price',
     option: 'video_720p',
   },
   {
     name: 'tool_web_search',
-    label: 'Tool · Web search',
+    label: 'Web search',
     unit: '¥ / 1K calls',
     namespace: 'molii_grok_tool_price',
     option: 'web_search',
   },
   {
     name: 'tool_x_search',
-    label: 'Tool · X search',
+    label: 'X search',
     unit: '¥ / 1K calls',
     namespace: 'molii_grok_tool_price',
     option: 'x_search',
   },
   {
     name: 'tool_code_execution',
-    label: 'Tool · Code execution',
+    label: 'Code execution',
     unit: '¥ / 1K calls',
     namespace: 'molii_grok_tool_price',
     option: 'code_execution',
   },
   {
     name: 'tool_attachment_search',
-    label: 'Tool · Attachment search',
+    label: 'Attachment search',
     unit: '¥ / 1K calls',
     namespace: 'molii_grok_tool_price',
     option: 'attachment_search',
   },
   {
     name: 'tool_collections_search',
-    label: 'Tool · Collections search',
+    label: 'Collections search',
     unit: '¥ / 1K calls',
     namespace: 'molii_grok_tool_price',
     option: 'collections_search',
   },
   {
     name: 'tool_image_generation',
-    label: 'Tool · Image generation',
+    label: 'Image generation',
     unit: '¥ / completed image',
     namespace: 'molii_grok_tool_price',
     option: 'image_generation',
+  },
+]
+
+const pricingModes: Array<{
+  id: PricingMode
+  label: string
+  models: Array<{ name: string; fields: FieldName[] }>
+}> = [
+  {
+    id: 'images',
+    label: 'Image generation · per image',
+    models: [
+      {
+        name: 'grok-imagine-image',
+        fields: [
+          'image_standard_input',
+          'image_standard_1k',
+          'image_standard_2k',
+        ],
+      },
+      {
+        name: 'grok-imagine-image-quality',
+        fields: ['image_quality_input', 'image_quality_1k', 'image_quality_2k'],
+      },
+      {
+        name: 'grok-imagine-image-2.0',
+        fields: [
+          'image_20_input',
+          'image_20_low_1k',
+          'image_20_low_2k',
+          'image_20_medium_1k',
+          'image_20_medium_2k',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'videos',
+    label: 'Video generation · per second',
+    models: [
+      {
+        name: 'grok-imagine-video',
+        fields: [
+          'video_image_input',
+          'video_video_input',
+          'video_480p',
+          'video_720p',
+        ],
+      },
+      {
+        name: 'grok-imagine-video-1.5',
+        fields: [
+          'video_15_image_input',
+          'video_15_480p',
+          'video_15_720p',
+          'video_15_1080p',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'tools',
+    label: 'Tool invocation · per call',
+    models: [
+      {
+        name: 'Grok tools',
+        fields: [
+          'tool_web_search',
+          'tool_x_search',
+          'tool_code_execution',
+          'tool_attachment_search',
+          'tool_collections_search',
+          'tool_image_generation',
+        ],
+      },
+    ],
   },
 ]
 
@@ -290,34 +368,71 @@ export function MoliiGrokPricingSection({
               'Direct CNY prices. Official USD catalog numbers are treated as CNY at 1:1 without exchange-rate conversion.'
             )}
           </FormDescription>
-          <SettingsFormGrid>
-            {fields.map((item) => (
-              <FormField
-                key={item.name}
-                control={form.control}
-                name={item.name}
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t(item.label)}</FormLabel>
-                    <FormControl>
-                      <PricingUnitInput
-                        type='number'
-                        min={0}
-                        step='0.001'
-                        unit={t(item.unit)}
-                        value={field.value ?? ''}
-                        onChange={onNumberChange(field.onChange)}
-                        name={field.name}
-                        onBlur={field.onBlur}
-                        ref={field.ref}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+          <Tabs defaultValue='images' className='gap-6'>
+            <TabsList className='grid h-auto w-full max-w-2xl grid-cols-3'>
+              {pricingModes.map((mode) => (
+                <TabsTrigger
+                  key={mode.id}
+                  value={mode.id}
+                  className='whitespace-normal'
+                >
+                  {t(mode.label)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            {pricingModes.map((mode) => (
+              <TabsContent key={mode.id} value={mode.id} className='space-y-6'>
+                {mode.models.map((model) => (
+                  <div
+                    key={model.name}
+                    className='bg-card space-y-4 rounded-xl border p-4'
+                  >
+                    <h3
+                      data-grok-pricing-model
+                      className='font-mono text-sm font-semibold'
+                    >
+                      {t(model.name)}
+                    </h3>
+                    <SettingsFormGrid>
+                      {model.fields.map((fieldName) => {
+                        const item = fields.find(
+                          (candidate) => candidate.name === fieldName
+                        )
+                        if (!item) return null
+                        return (
+                          <FormField
+                            key={item.name}
+                            control={form.control}
+                            name={item.name}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t(item.label)}</FormLabel>
+                                <FormControl>
+                                  <PricingUnitInput
+                                    type='number'
+                                    min={0}
+                                    step='0.001'
+                                    unit={t(item.unit)}
+                                    value={field.value ?? ''}
+                                    onChange={onNumberChange(field.onChange)}
+                                    name={field.name}
+                                    onBlur={field.onBlur}
+                                    ref={field.ref}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )
+                      })}
+                    </SettingsFormGrid>
+                  </div>
+                ))}
+              </TabsContent>
             ))}
-          </SettingsFormGrid>
+          </Tabs>
         </SettingsForm>
       </Form>
     </SettingsSection>

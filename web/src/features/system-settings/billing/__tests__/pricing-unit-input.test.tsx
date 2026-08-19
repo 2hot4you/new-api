@@ -161,77 +161,84 @@ describe('PricingUnitInput', () => {
       )
     })
 
-    const labels = [...container.querySelectorAll('label')]
+    const modeTabs = [...container.querySelectorAll('[role="tab"]')]
     assert.deepEqual(
-      labels.map((item) => item.textContent),
-      [
-        '图片 · 标准 · 素材输入',
-        '图片 · 标准 · 1K 输出',
-        '图片 · 标准 · 2K 输出',
-        '图片 · 高质量 · 素材输入',
-        '图片 · 高质量 · 1K 输出',
-        '图片 · 高质量 · 2K 输出',
-        'grok-imagine-image-2.0 · 图片输入',
-        'grok-imagine-image-2.0 · 低质量 · 1K 输出',
-        'grok-imagine-image-2.0 · 低质量 · 2K 输出',
-        'grok-imagine-image-2.0 · 中等质量 · 1K 输出',
-        'grok-imagine-image-2.0 · 中等质量 · 2K 输出',
-        '视频 1.5 · 图片输入',
-        '视频 1.5 · 480p 输出',
-        '视频 1.5 · 720p 输出',
-        '视频 1.5 · 1080p 输出',
-        '视频 · 图片输入',
-        '视频 · 视频输入',
-        '视频 · 480p 输出',
-        '视频 · 720p 输出',
-        '工具 · 网页搜索',
-        '工具 · X 搜索',
-        '工具 · 代码执行',
-        '工具 · 附件搜索',
-        '工具 · 集合搜索',
-        '工具 · 图片生成',
-      ]
-    )
-    assert.deepEqual(
-      [...container.querySelectorAll('[data-slot="input-group-addon"]')].map(
-        (item) => item.textContent
-      ),
-      [
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 张',
-        '¥ / 秒',
-        '¥ / 秒',
-        '¥ / 秒',
-        '¥ / 张',
-        '¥ / 秒',
-        '¥ / 秒',
-        '¥ / 秒',
-        '¥ / 千次调用',
-        '¥ / 千次调用',
-        '¥ / 千次调用',
-        '¥ / 千次调用',
-        '¥ / 千次调用',
-        '¥ / 张成品图',
-      ]
+      modeTabs.map((item) => item.textContent),
+      ['图片生成 · 按张', '视频生成 · 按秒', '工具调用 · 按次']
     )
 
-    const label = labels[0]
+    const visibleModelNames = () =>
+      [...container.querySelectorAll('[data-grok-pricing-model]')].map(
+        (item) => item.textContent
+      )
+    const visibleLabels = () =>
+      [...container.querySelectorAll('label')].map((item) => item.textContent)
+
+    assert.deepEqual(visibleModelNames(), [
+      'grok-imagine-image',
+      'grok-imagine-image-quality',
+      'grok-imagine-image-2.0',
+    ])
+    assert.deepEqual(visibleLabels(), [
+      '图片输入',
+      '1K 输出',
+      '2K 输出',
+      '图片输入',
+      '1K 输出',
+      '2K 输出',
+      '图片输入',
+      '低质量 · 1K 输出',
+      '低质量 · 2K 输出',
+      '中等质量 · 1K 输出',
+      '中等质量 · 2K 输出',
+    ])
+
+    const videoTab = modeTabs.find(
+      (item) => item.textContent === '视频生成 · 按秒'
+    )
+    assert.ok(videoTab)
+    await act(async () => {
+      videoTab.dispatchEvent(new Event('click', { bubbles: true }))
+    })
+    assert.deepEqual(visibleModelNames(), [
+      'grok-imagine-video',
+      'grok-imagine-video-1.5',
+    ])
+    assert.deepEqual(visibleLabels(), [
+      '图片输入',
+      '视频输入',
+      '480p 输出',
+      '720p 输出',
+      '图片输入',
+      '480p 输出',
+      '720p 输出',
+      '1080p 输出',
+    ])
+
+    const toolTab = modeTabs.find(
+      (item) => item.textContent === '工具调用 · 按次'
+    )
+    assert.ok(toolTab)
+    await act(async () => {
+      toolTab.dispatchEvent(new Event('click', { bubbles: true }))
+    })
+    assert.deepEqual(visibleModelNames(), ['Grok 工具'])
+    assert.deepEqual(visibleLabels(), [
+      '网络搜索',
+      'X 搜索',
+      '代码执行',
+      '附件搜索',
+      '集合搜索',
+      '图片生成',
+    ])
+
+    const label = container.querySelector('label')
     assert.ok(label)
     const formItem = label.closest('[data-slot="form-item"]')
     assert.ok(formItem)
     assert.equal(
       formItem.querySelector('[data-slot="input-group-addon"]')?.textContent,
-      '¥ / 张'
+      '¥ / 千次调用'
     )
     assert.equal(formItem.querySelector('[data-slot="form-description"]'), null)
 
