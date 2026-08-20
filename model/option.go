@@ -221,6 +221,9 @@ func validateOptionValue(key string, value string) error {
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
 	}
+	if key == "group_ratio_setting.group_metadata" {
+		return ratio_setting.ValidateGroupMetadataJSONString(value)
+	}
 	return nil
 }
 

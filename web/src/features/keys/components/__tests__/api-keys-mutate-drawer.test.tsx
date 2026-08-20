@@ -39,6 +39,7 @@ const domGlobals = [
   'MouseEvent',
   'FocusEvent',
   'CustomEvent',
+  'customElements',
   'MutationObserver',
   'ResizeObserver',
   'requestAnimationFrame',
@@ -52,6 +53,10 @@ for (const key of domGlobals) {
     value: domWindow[key],
   })
 }
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: domWindow.matchMedia.bind(domWindow),
+})
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -102,9 +107,21 @@ function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
           data: {
             success: true,
             data: {
-              auto: { desc: 'Automatic routing', ratio: 'auto' },
-              default: { desc: 'Standard access', ratio: 1 },
-              vip: { desc: 'Priority access', ratio: 2 },
+              auto: {
+                desc: 'Automatic routing',
+                ratio: 'auto',
+                display_order: 2,
+              },
+              default: {
+                desc: 'Standard access',
+                ratio: 1,
+                display_order: 1,
+              },
+              vip: {
+                desc: 'Priority access',
+                ratio: 2,
+                display_order: 0,
+              },
             },
           },
         }
@@ -154,7 +171,13 @@ async function waitForCondition(
   })
 }
 
-async function renderCreateDrawer(): Promise<void> {
+async function renderCreateDrawer(groupsData?: {
+  success: boolean
+  data: Record<
+    string,
+    { desc: string; ratio: number | string; display_order?: number }
+  >
+}): Promise<void> {
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -174,12 +197,24 @@ async function renderCreateDrawer(): Promise<void> {
   )
   queryClient.setQueryData(
     ['user-groups'],
-    {
+    groupsData ?? {
       success: true,
       data: {
-        auto: { desc: 'Automatic routing', ratio: 'auto' },
-        default: { desc: 'Standard access', ratio: 1 },
-        vip: { desc: 'Priority access', ratio: 2 },
+        auto: {
+          desc: 'Automatic routing',
+          ratio: 'auto',
+          display_order: 2,
+        },
+        default: {
+          desc: 'Standard access',
+          ratio: 1,
+          display_order: 1,
+        },
+        vip: {
+          desc: 'Priority access',
+          ratio: 2,
+          display_order: 0,
+        },
       },
     },
     { updatedAt: freshAt }
@@ -367,5 +402,64 @@ describe('API keys mutate drawer Auto group integration', () => {
       )
     )
     assert.deepEqual(createdPayloads[0]?.auto_groups, ['vip'])
+  })
+
+  test('sorts group choices by display order before legacy name fallback', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer()
+
+    const groupTrigger = getControlByLabel<HTMLButtonElement>('Group')
+    await act(async () => groupTrigger.click())
+
+    assert.deepEqual(
+      [...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')]
+        .map((item) => item.textContent)
+        .filter(
+          (text): text is string =>
+            text?.includes('Priority access') ||
+            text?.includes('Standard access') ||
+            text?.includes('Automatic routing')
+        )
+        .map((text) => {
+          if (text.includes('Priority access')) return 'vip'
+          if (text.includes('Standard access')) return 'default'
+          return 'auto'
+        }),
+      ['vip', 'default', 'auto']
+    )
+  })
+
+  test('uses codepoint order for legacy groups without display order', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer({
+      success: true,
+      data: {
+        auto: { desc: 'Automatic routing', ratio: 'auto', display_order: 0 },
+        z: { desc: 'Legacy Z', ratio: 1 },
+        á: { desc: 'Legacy A acute', ratio: 1 },
+      },
+    })
+
+    const groupTrigger = getControlByLabel<HTMLButtonElement>('Group')
+    await act(async () => groupTrigger.click())
+
+    assert.deepEqual(
+      [...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')]
+        .map((item) => item.textContent)
+        .filter(
+          (text): text is string =>
+            text?.includes('Automatic routing') ||
+            text?.includes('Legacy Z') ||
+            text?.includes('Legacy A acute')
+        )
+        .map((text) => {
+          if (text.includes('Automatic routing')) return 'auto'
+          if (text.includes('Legacy Z')) return 'z'
+          return 'á'
+        }),
+      ['auto', 'z', 'á']
+    )
   })
 })

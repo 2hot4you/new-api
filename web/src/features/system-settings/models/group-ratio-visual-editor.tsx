@@ -24,12 +24,14 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react'
+import { Reorder, useDragControls } from 'motion/react'
 import {
   useState,
   useMemo,
   useEffect,
   useCallback,
   memo,
+  type PointerEvent,
   type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -74,6 +76,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { safeJsonParse } from '../utils/json-parser'
 
@@ -83,6 +86,7 @@ type GroupRatioVisualEditorProps = {
   userUsableGroups: string
   groupGroupRatio: string
   autoGroups: string
+  groupMetadata: string
   maxTokenAutoGroupsField: ReactNode
   groupSpecialUsableGroup: string
   onChange: (field: string, value: string) => void
@@ -95,6 +99,14 @@ type GroupPricingRow = {
   topupRatio: string
   selectable: boolean
   description: string
+  icon: string
+  recommendation: string
+}
+
+type GroupMetadataEntry = {
+  name: string
+  icon: string
+  recommendation: number
 }
 
 type RegistryEntry = {
@@ -140,27 +152,71 @@ function parseNestedRatioMap(
   })
 }
 
+function parseGroupMetadata(value: string): GroupMetadataEntry[] {
+  const entries = safeJsonParse<unknown[]>(value, {
+    fallback: [],
+    silent: true,
+  })
+  const names = new Set<string>()
+  return entries.flatMap((entry) => {
+    if (
+      !entry ||
+      typeof entry !== 'object' ||
+      typeof (entry as GroupMetadataEntry).name !== 'string'
+    ) {
+      return []
+    }
+    const name = (entry as GroupMetadataEntry).name.trim()
+    if (!name || names.has(name)) return []
+    names.add(name)
+    const icon = (entry as GroupMetadataEntry).icon
+    const recommendation = Number((entry as GroupMetadataEntry).recommendation)
+    return [
+      {
+        name,
+        icon: typeof icon === 'string' ? icon : '',
+        recommendation:
+          Number.isInteger(recommendation) &&
+          recommendation >= 0 &&
+          recommendation <= 5
+            ? recommendation
+            : 0,
+      },
+    ]
+  })
+}
+
 function buildGroupPricingRows(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string
+  topupGroupRatio: string,
+  groupMetadata: string
 ): GroupPricingRow[] {
   const ratioMap = parseRatioMap(groupRatio)
   const usableMap = parseUsableMap(userUsableGroups)
   const topupMap = parseRatioMap(topupGroupRatio)
+  const metadata = parseGroupMetadata(groupMetadata)
+  const metadataByName = new Map(metadata.map((entry) => [entry.name, entry]))
   const names = new Set([
     ...Object.keys(ratioMap),
     ...Object.keys(usableMap),
     ...Object.keys(topupMap),
   ])
 
-  return [...names].map((name) => ({
+  const orderedNames = [
+    ...metadata.map((entry) => entry.name).filter((name) => names.has(name)),
+    ...[...names].filter((name) => !metadataByName.has(name)).sort(),
+  ]
+
+  return orderedNames.map((name) => ({
     _id: createGroupPricingId(),
     name,
     ratio: String(normalizeRatio(ratioMap[name])),
     topupRatio: Object.hasOwn(topupMap, name) ? String(topupMap[name]) : '',
     selectable: Object.hasOwn(usableMap, name),
     description: String(usableMap[name] ?? ''),
+    icon: metadataByName.get(name)?.icon ?? '',
+    recommendation: String(metadataByName.get(name)?.recommendation ?? 0),
   }))
 }
 
@@ -168,6 +224,7 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
   const groupRatio: Record<string, number> = {}
   const userUsableGroups: Record<string, string> = {}
   const topupGroupRatio: Record<string, number> = {}
+  const groupMetadata: GroupMetadataEntry[] = []
 
   for (const row of rows) {
     const name = row.name.trim()
@@ -180,12 +237,24 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     if (topup !== '' && Number.isFinite(Number(topup))) {
       topupGroupRatio[name] = Number(topup)
     }
+    const recommendation = Number(row.recommendation)
+    groupMetadata.push({
+      name,
+      icon: row.icon.trim(),
+      recommendation:
+        Number.isInteger(recommendation) &&
+        recommendation >= 0 &&
+        recommendation <= 5
+          ? recommendation
+          : 0,
+    })
   }
 
   return {
     GroupRatio: JSON.stringify(groupRatio, null, 2),
     UserUsableGroups: JSON.stringify(userUsableGroups, null, 2),
     TopupGroupRatio: JSON.stringify(topupGroupRatio, null, 2),
+    GroupMetadata: JSON.stringify(groupMetadata, null, 2),
   }
 }
 
@@ -195,18 +264,21 @@ function groupPricingSignature(rows: GroupPricingRow[]): string {
     groupRatio: parseRatioMap(serialized.GroupRatio),
     userUsableGroups: parseUsableMap(serialized.UserUsableGroups),
     topupGroupRatio: parseRatioMap(serialized.TopupGroupRatio),
+    groupMetadata: parseGroupMetadata(serialized.GroupMetadata),
   })
 }
 
 function sourceGroupPricingSignature(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string
+  topupGroupRatio: string,
+  groupMetadata: string
 ): string {
   return JSON.stringify({
     groupRatio: parseRatioMap(groupRatio),
     userUsableGroups: parseUsableMap(userUsableGroups),
     topupGroupRatio: parseRatioMap(topupGroupRatio),
+    groupMetadata: parseGroupMetadata(groupMetadata),
   })
 }
 
@@ -265,6 +337,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   userUsableGroups,
   groupGroupRatio,
   autoGroups,
+  groupMetadata,
   maxTokenAutoGroupsField,
   groupSpecialUsableGroup,
   onChange,
@@ -338,6 +411,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         groupRatio={groupRatio}
         userUsableGroups={userUsableGroups}
         topupGroupRatio={topupGroupRatio}
+        groupMetadata={groupMetadata}
         onChange={onChange}
         onShowDetail={setDetailGroup}
       />
@@ -430,27 +504,206 @@ type GroupPricingTableProps = {
   groupRatio: string
   userUsableGroups: string
   topupGroupRatio: string
+  groupMetadata: string
   onChange: (field: string, value: string) => void
   onShowDetail: (name: string) => void
+}
+
+type GroupPricingSortableRowProps = {
+  row: GroupPricingRow
+  index: number
+  count: number
+  duplicateNames: string[]
+  onUpdate: (
+    id: string,
+    field: Exclude<keyof GroupPricingRow, '_id'>,
+    value: string | number | boolean
+  ) => void
+  onMove: (id: string, direction: 'up' | 'down') => void
+  onRemove: (id: string) => void
+  onShowDetail: (name: string) => void
+}
+
+function GroupPricingSortableRow({
+  row,
+  index,
+  count,
+  duplicateNames,
+  onUpdate,
+  onMove,
+  onRemove,
+  onShowDetail,
+}: GroupPricingSortableRowProps) {
+  const { t } = useTranslation()
+  const dragControls = useDragControls()
+  const groupLabel = row.name.trim() || t('Group')
+
+  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    dragControls.start(event)
+  }
+
+  return (
+    <Reorder.Item
+      value={row}
+      drag='y'
+      dragListener={false}
+      dragControls={dragControls}
+      data-group-pricing-sortable
+      className='grid min-w-[1100px] grid-cols-[minmax(12rem,2fr)_minmax(11rem,1.5fr)_8rem_7rem_7rem_8rem_minmax(12rem,2fr)_auto] items-center gap-2 rounded-md border p-2'
+    >
+      <div className='flex min-w-0 items-center gap-1'>
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-sm'
+          className='text-muted-foreground cursor-grab touch-none active:cursor-grabbing'
+          aria-label={t('Drag to reorder group')}
+          onPointerDown={handlePointerDown}
+        >
+          <GripVertical className='h-4 w-4' />
+        </Button>
+        <Input
+          value={row.name}
+          onChange={(event) => onUpdate(row._id, 'name', event.target.value)}
+          aria-invalid={duplicateNames.includes(row.name.trim())}
+          aria-label={`${t('Group name')}: ${groupLabel}`}
+        />
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-sm'
+          disabled={index === 0}
+          aria-label={t('Move group up')}
+          onClick={() => onMove(row._id, 'up')}
+        >
+          ↑
+        </Button>
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-sm'
+          disabled={index === count - 1}
+          aria-label={t('Move group down')}
+          onClick={() => onMove(row._id, 'down')}
+        >
+          ↓
+        </Button>
+      </div>
+      <div className='flex min-w-0 items-center gap-2'>
+        <span
+          className='shrink-0'
+          data-group-pricing-icon-preview
+          data-icon-key={row.icon}
+          aria-hidden='true'
+        >
+          {getLobeIcon(row.icon, 20)}
+        </span>
+        <Input
+          value={row.icon}
+          maxLength={128}
+          placeholder='OpenAI.Color'
+          aria-label={`${t('Icon')}: ${groupLabel}`}
+          onChange={(event) => onUpdate(row._id, 'icon', event.target.value)}
+        />
+      </div>
+      <Input
+        type='text'
+        inputMode='numeric'
+        pattern='[0-5]?'
+        value={row.recommendation}
+        placeholder='0'
+        aria-label={`${t('Recommendation')}: ${groupLabel}`}
+        onChange={(event) =>
+          onUpdate(row._id, 'recommendation', event.target.value)
+        }
+      />
+      <Input
+        type='number'
+        min={0}
+        step={0.1}
+        value={row.ratio}
+        aria-label={`${t('Ratio')}: ${groupLabel}`}
+        onChange={(event) => onUpdate(row._id, 'ratio', event.target.value)}
+      />
+      <Input
+        type='number'
+        min={0}
+        step={0.1}
+        value={row.topupRatio}
+        placeholder={t('Not set')}
+        aria-label={`${t('Top-up ratio')}: ${groupLabel}`}
+        onChange={(event) =>
+          onUpdate(row._id, 'topupRatio', event.target.value)
+        }
+      />
+      <div className='flex justify-center'>
+        <Checkbox
+          checked={row.selectable}
+          onCheckedChange={(checked) =>
+            onUpdate(row._id, 'selectable', checked === true)
+          }
+          aria-label={t('User selectable')}
+        />
+      </div>
+      {row.selectable ? (
+        <Input
+          value={row.description}
+          placeholder={t('Group description')}
+          aria-label={`${t('Description')}: ${groupLabel}`}
+          onChange={(event) =>
+            onUpdate(row._id, 'description', event.target.value)
+          }
+        />
+      ) : (
+        <span className='text-muted-foreground px-3 text-sm'>-</span>
+      )}
+      <div className='flex justify-end gap-1'>
+        <Button
+          variant='ghost'
+          size='sm'
+          onClick={() => onShowDetail(row.name.trim())}
+          disabled={!row.name.trim()}
+          aria-label={t('Details')}
+        >
+          <Info className='h-4 w-4' />
+        </Button>
+        <Button
+          variant='ghost'
+          size='sm'
+          onClick={() => onRemove(row._id)}
+          aria-label={t('Delete')}
+        >
+          <Trash2 className='h-4 w-4' />
+        </Button>
+      </div>
+    </Reorder.Item>
+  )
 }
 
 function GroupPricingTable({
   groupRatio,
   userUsableGroups,
   topupGroupRatio,
+  groupMetadata,
   onChange,
   onShowDetail,
 }: GroupPricingTableProps) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<GroupPricingRow[]>(() =>
-    buildGroupPricingRows(groupRatio, userUsableGroups, topupGroupRatio)
+    buildGroupPricingRows(
+      groupRatio,
+      userUsableGroups,
+      topupGroupRatio,
+      groupMetadata
+    )
   )
 
   useEffect(() => {
     const incomingSignature = sourceGroupPricingSignature(
       groupRatio,
       userUsableGroups,
-      topupGroupRatio
+      topupGroupRatio,
+      groupMetadata
     )
     setRows((currentRows) => {
       if (groupPricingSignature(currentRows) === incomingSignature) {
@@ -459,10 +712,11 @@ function GroupPricingTable({
       return buildGroupPricingRows(
         groupRatio,
         userUsableGroups,
-        topupGroupRatio
+        topupGroupRatio,
+        groupMetadata
       )
     })
-  }, [groupRatio, userUsableGroups, topupGroupRatio])
+  }, [groupRatio, userUsableGroups, topupGroupRatio, groupMetadata])
 
   const emitRows = useCallback(
     (nextRows: GroupPricingRow[]) => {
@@ -471,6 +725,18 @@ function GroupPricingTable({
       onChange('GroupRatio', serialized.GroupRatio)
       onChange('UserUsableGroups', serialized.UserUsableGroups)
       onChange('TopupGroupRatio', serialized.TopupGroupRatio)
+      onChange('GroupMetadata', serialized.GroupMetadata)
+    },
+    [onChange]
+  )
+
+  const emitMetadataRows = useCallback(
+    (nextRows: GroupPricingRow[]) => {
+      setRows(nextRows)
+      onChange(
+        'GroupMetadata',
+        serializeGroupPricingRows(nextRows).GroupMetadata
+      )
     },
     [onChange]
   )
@@ -481,11 +747,25 @@ function GroupPricingTable({
       field: Exclude<keyof GroupPricingRow, '_id'>,
       value: string | number | boolean
     ) => {
-      emitRows(
-        rows.map((row) => (row._id === id ? { ...row, [field]: value } : row))
+      if (
+        field === 'recommendation' &&
+        typeof value === 'string' &&
+        value !== '' &&
+        !/^[0-5]$/.test(value)
+      ) {
+        return
+      }
+
+      const nextRows = rows.map((row) =>
+        row._id === id ? { ...row, [field]: value } : row
       )
+      if (field === 'icon' || field === 'recommendation') {
+        emitMetadataRows(nextRows)
+        return
+      }
+      emitRows(nextRows)
     },
-    [emitRows, rows]
+    [emitMetadataRows, emitRows, rows]
   )
 
   const addRow = useCallback(() => {
@@ -505,6 +785,8 @@ function GroupPricingTable({
         topupRatio: '',
         selectable: true,
         description: '',
+        icon: '',
+        recommendation: '0',
       },
     ])
   }, [emitRows, rows])
@@ -514,6 +796,21 @@ function GroupPricingTable({
       emitRows(rows.filter((row) => row._id !== id))
     },
     [emitRows, rows]
+  )
+
+  const moveRow = useCallback(
+    (id: string, direction: 'up' | 'down') => {
+      const index = rows.findIndex((row) => row._id === id)
+      const destination = direction === 'up' ? index - 1 : index + 1
+      if (index < 0 || destination < 0 || destination >= rows.length) return
+      const nextRows = [...rows]
+      ;[nextRows[index], nextRows[destination]] = [
+        nextRows[destination],
+        nextRows[index],
+      ]
+      emitMetadataRows(nextRows)
+    },
+    [emitMetadataRows, rows]
   )
 
   const duplicateNames = useMemo(() => {
@@ -548,123 +845,47 @@ function GroupPricingTable({
       </CardHeader>
       <CardContent>
         <div className='space-y-3'>
-          <StaticDataTable
-            data={rows}
-            getRowKey={(row) => row._id}
-            emptyClassName='text-muted-foreground h-20 text-sm'
-            emptyContent={t('No groups yet. Add a group to get started.')}
-            columns={[
-              {
-                id: 'group',
-                header: t('Group name'),
-                className: 'min-w-40',
-                cell: (row) => (
-                  <Input
-                    value={row.name}
-                    onChange={(event) =>
-                      updateRow(row._id, 'name', event.target.value)
-                    }
-                    aria-invalid={duplicateNames.includes(row.name.trim())}
-                  />
-                ),
-              },
-              {
-                id: 'ratio',
-                header: t('Ratio'),
-                className: 'w-28',
-                cell: (row) => (
-                  <Input
-                    type='number'
-                    min={0}
-                    step={0.1}
-                    value={row.ratio}
-                    onChange={(event) =>
-                      updateRow(row._id, 'ratio', event.target.value)
-                    }
-                  />
-                ),
-              },
-              {
-                id: 'topup-ratio',
-                header: t('Top-up ratio'),
-                className: 'w-28',
-                cell: (row) => (
-                  <Input
-                    type='number'
-                    min={0}
-                    step={0.1}
-                    value={row.topupRatio}
-                    placeholder={t('Not set')}
-                    onChange={(event) =>
-                      updateRow(row._id, 'topupRatio', event.target.value)
-                    }
-                  />
-                ),
-              },
-              {
-                id: 'selectable',
-                header: t('User selectable'),
-                className: 'w-28 text-center',
-                cell: (row) => (
-                  <div className='flex justify-center'>
-                    <Checkbox
-                      checked={row.selectable}
-                      onCheckedChange={(checked) =>
-                        updateRow(row._id, 'selectable', checked === true)
-                      }
-                      aria-label={t('User selectable')}
+          <div className='overflow-x-auto'>
+            <div className='min-w-[1100px]'>
+              <div className='text-muted-foreground grid grid-cols-[minmax(12rem,2fr)_minmax(11rem,1.5fr)_8rem_7rem_7rem_8rem_minmax(12rem,2fr)_auto] gap-2 px-2 pb-2 text-xs font-medium'>
+                <span>{t('Group name')}</span>
+                <span>{t('Icon')}</span>
+                <span>{t('Recommendation')}</span>
+                <span>{t('Ratio')}</span>
+                <span>{t('Top-up ratio')}</span>
+                <span className='text-center'>{t('User selectable')}</span>
+                <span>{t('Description')}</span>
+                <span>{t('Actions')}</span>
+              </div>
+              {rows.length === 0 ? (
+                <p className='text-muted-foreground h-20 p-2 text-sm'>
+                  {t('No groups yet. Add a group to get started.')}
+                </p>
+              ) : (
+                <Reorder.Group
+                  axis='y'
+                  values={rows}
+                  onReorder={emitMetadataRows}
+                  className='space-y-2'
+                  data-group-pricing-sortable-list
+                >
+                  {rows.map((row, index) => (
+                    <GroupPricingSortableRow
+                      key={row._id}
+                      row={row}
+                      index={index}
+                      count={rows.length}
+                      duplicateNames={duplicateNames}
+                      onUpdate={updateRow}
+                      onMove={moveRow}
+                      onRemove={removeRow}
+                      onShowDetail={onShowDetail}
                     />
-                  </div>
-                ),
-              },
-              {
-                id: 'description',
-                header: t('Description'),
-                className: 'min-w-56',
-                cell: (row) =>
-                  row.selectable ? (
-                    <Input
-                      value={row.description}
-                      placeholder={t('Group description')}
-                      onChange={(event) =>
-                        updateRow(row._id, 'description', event.target.value)
-                      }
-                    />
-                  ) : (
-                    <span className='text-muted-foreground px-3 text-sm'>
-                      -
-                    </span>
-                  ),
-              },
-              {
-                id: 'actions',
-                header: t('Actions'),
-                className: 'text-right',
-                cellClassName: 'text-right',
-                cell: (row) => (
-                  <div className='flex justify-end gap-1'>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      onClick={() => onShowDetail(row.name.trim())}
-                      disabled={!row.name.trim()}
-                      aria-label={t('Details')}
-                    >
-                      <Info className='h-4 w-4' />
-                    </Button>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      onClick={() => removeRow(row._id)}
-                      aria-label={t('Delete')}
-                    >
-                      <Trash2 className='h-4 w-4' />
-                    </Button>
-                  </div>
-                ),
-              },
-            ]}
-          />
+                  ))}
+                </Reorder.Group>
+              )}
+            </div>
+          </div>
 
           {duplicateNames.length > 0 && (
             <p className='text-destructive text-sm'>

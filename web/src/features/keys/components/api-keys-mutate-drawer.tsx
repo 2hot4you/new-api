@@ -95,6 +95,12 @@ type ApiKeyMutateDrawerProps = {
   currentRow?: ApiKey
 }
 
+function compareGroupNames(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
 export function ApiKeysMutateDrawer({
   open,
   onOpenChange,
@@ -157,12 +163,29 @@ export function ApiKeysMutateDrawer({
   const models = modelsData?.data || []
   const groups = useMemo<ApiKeyGroupOption[]>(
     () =>
-      Object.entries(groupsData?.data || {}).map(([key, info]) => ({
-        value: key,
-        label: key,
-        desc: info.desc || key,
-        ratio: info.ratio,
-      })),
+      Object.entries(groupsData?.data || {})
+        .sort(([leftName, left], [rightName, right]) => {
+          const leftOrder = left.display_order
+          const rightOrder = right.display_order
+          const leftConfigured = typeof leftOrder === 'number'
+          const rightConfigured = typeof rightOrder === 'number'
+          if (leftConfigured && rightConfigured) {
+            return (
+              leftOrder - rightOrder || compareGroupNames(leftName, rightName)
+            )
+          }
+          if (leftConfigured) return -1
+          if (rightConfigured) return 1
+          return compareGroupNames(leftName, rightName)
+        })
+        .map(([key, info]) => ({
+          value: key,
+          label: key,
+          desc: info.desc || key,
+          ratio: info.ratio,
+          icon: info.icon,
+          recommendation: info.recommendation,
+        })),
     [groupsData]
   )
   const backendHasAuto = groups.some((g) => g.value === 'auto')

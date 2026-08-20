@@ -131,6 +131,21 @@ const createGroupSchema = (t: Translate) =>
         parsed.every((item) => typeof item === 'string'),
       predicateMessage: 'Expected a JSON array of group identifiers',
     }),
+    GroupMetadata: createJsonStringField(t, {
+      predicate: (parsed) =>
+        Array.isArray(parsed) &&
+        parsed.every(
+          (item) =>
+            typeof item === 'object' &&
+            item !== null &&
+            typeof item.name === 'string' &&
+            typeof item.icon === 'string' &&
+            Number.isInteger(item.recommendation) &&
+            item.recommendation >= 0 &&
+            item.recommendation <= 5
+        ),
+      predicateMessage: 'Expected an array of group display metadata',
+    }),
     MaxTokenAutoGroups: positiveIntegerSchema(t('Enter a positive integer')),
     DefaultUseAutoGroup: z.boolean(),
     GroupSpecialUsableGroup: createJsonStringField(t),
@@ -147,7 +162,9 @@ type RatioTabId =
 
 type RatioSettingsCardProps = {
   modelDefaults: ModelFormValues
-  groupDefaults: GroupFormValues
+  groupDefaults: Omit<GroupFormValues, 'GroupMetadata'> & {
+    GroupMetadata?: string
+  }
   toolPricesDefault: string
   titleKey?: string
   visibleTabs?: RatioTabId[]
@@ -208,6 +225,7 @@ export function RatioSettingsCard({
     UserUsableGroups: normalizeJsonString(groupDefaults.UserUsableGroups),
     GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
     AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
+    GroupMetadata: normalizeJsonString(groupDefaults.GroupMetadata ?? '[]'),
     MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
     DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
     GroupSpecialUsableGroup: normalizeJsonString(
@@ -247,6 +265,7 @@ export function RatioSettingsCard({
       UserUsableGroups: formatJsonForTextarea(groupDefaults.UserUsableGroups),
       GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
+      GroupMetadata: formatJsonForTextarea(groupDefaults.GroupMetadata ?? '[]'),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
@@ -295,6 +314,7 @@ export function RatioSettingsCard({
       UserUsableGroups: normalizeJsonString(groupDefaults.UserUsableGroups),
       GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
       AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
+      GroupMetadata: normalizeJsonString(groupDefaults.GroupMetadata ?? '[]'),
       MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
       DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
       GroupSpecialUsableGroup: normalizeJsonString(
@@ -309,6 +329,7 @@ export function RatioSettingsCard({
       UserUsableGroups: formatJsonForTextarea(groupDefaults.UserUsableGroups),
       GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
+      GroupMetadata: formatJsonForTextarea(groupDefaults.GroupMetadata ?? '[]'),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
@@ -366,6 +387,7 @@ export function RatioSettingsCard({
         UserUsableGroups: normalizeJsonString(values.UserUsableGroups),
         GroupGroupRatio: normalizeJsonString(values.GroupGroupRatio),
         AutoGroups: normalizeJsonString(values.AutoGroups),
+        GroupMetadata: normalizeJsonString(values.GroupMetadata),
         MaxTokenAutoGroups: values.MaxTokenAutoGroups,
         DefaultUseAutoGroup: values.DefaultUseAutoGroup,
         GroupSpecialUsableGroup: normalizeJsonString(
@@ -375,6 +397,7 @@ export function RatioSettingsCard({
 
       // Map form field names to API keys (most are 1:1, except GroupSpecialUsableGroup)
       const apiKeyMap: Record<string, string> = {
+        GroupMetadata: 'group_ratio_setting.group_metadata',
         GroupSpecialUsableGroup:
           'group_ratio_setting.group_special_usable_group',
       }

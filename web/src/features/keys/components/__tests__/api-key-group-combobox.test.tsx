@@ -36,6 +36,7 @@ const domGlobals = [
   'KeyboardEvent',
   'PointerEvent',
   'CustomEvent',
+  'customElements',
   'MutationObserver',
   'ResizeObserver',
   'requestAnimationFrame',
@@ -60,6 +61,10 @@ Object.defineProperty(domWindow, 'matchMedia', {
   configurable: true,
   value: () => reducedMotionMediaQuery,
 })
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: domWindow.matchMedia,
+})
 
 function setReducedMotion(value: boolean) {
   shouldReduceMotion = value
@@ -83,6 +88,7 @@ await i18n.use(initReactI18next).init({
         'Search...': 'Search...',
         'No group found.': 'No group found.',
         'Select a group': 'Select a group',
+        'Recommended {{count}}/5': 'Recommended {{count}}/5',
       },
     },
   },
@@ -100,8 +106,28 @@ const options = [
     desc: 'Global automatic routing',
     ratio: '自动',
   },
-  { value: 'default', label: 'default', desc: 'User group', ratio: 1 },
-  { value: 'vip', label: 'vip', desc: 'Priority group', ratio: 3 },
+  {
+    value: 'default',
+    label: 'default',
+    desc: 'User group',
+    ratio: 1,
+    icon: 'OpenAI.Color',
+  },
+  {
+    value: 'vip',
+    label: 'vip',
+    desc: 'Priority group',
+    ratio: 3,
+    icon: 'DeepSeek.Color',
+    recommendation: 4,
+  },
+  {
+    value: 'broken',
+    label: 'broken',
+    desc: 'Fallback icon group',
+    ratio: 1,
+    icon: 'NotARealLobeIcon',
+  },
 ]
 
 function Harness(props: { initialValue: string }) {
@@ -290,5 +316,45 @@ describe('API key group combobox Auto effect', () => {
     await act(async () => root.unmount())
     container.remove()
     setReducedMotion(false)
+  })
+
+  test('shows configured icons and recommendation only for recommended options', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<Harness initialValue='default' />))
+
+    const trigger = getTrigger(container)
+    const selectedIcon = trigger.querySelector<HTMLElement>(
+      '[data-api-key-group-icon="selected"]'
+    )
+    assert.ok(selectedIcon)
+    assert.equal(selectedIcon.getAttribute('data-icon-key'), 'OpenAI.Color')
+    assert.equal(selectedIcon.querySelector('svg')?.getAttribute('width'), '18')
+
+    await act(async () => trigger.click())
+    const vipOption = getCommandItem('Priority group')
+    const optionIcon = vipOption.querySelector<HTMLElement>(
+      '[data-api-key-group-icon="option"]'
+    )
+    assert.ok(optionIcon)
+    assert.equal(optionIcon.getAttribute('data-icon-key'), 'DeepSeek.Color')
+    assert.equal(optionIcon.querySelector('svg')?.getAttribute('width'), '20')
+    assert.equal(vipOption.textContent?.includes('Recommended 4/5'), true)
+
+    const defaultOption = getCommandItem('User group')
+    assert.equal(defaultOption.textContent?.includes('Recommended'), false)
+
+    const fallbackOption = getCommandItem('Fallback icon group')
+    const fallbackIcon = fallbackOption.querySelector<HTMLElement>(
+      '[data-api-key-group-icon="option"]'
+    )
+    assert.ok(fallbackIcon)
+    assert.equal(fallbackIcon.getAttribute('data-icon-key'), 'NotARealLobeIcon')
+    assert.equal(fallbackIcon.textContent, 'N')
+
+    await act(async () => root.unmount())
+    container.remove()
   })
 })

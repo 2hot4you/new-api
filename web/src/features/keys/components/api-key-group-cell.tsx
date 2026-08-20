@@ -26,6 +26,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { getLobeIcon } from '@/lib/lobe-icon'
 
 import {
   AutoGroupBadge,
@@ -37,6 +38,7 @@ type ApiKeyGroupCellProps = {
   crossGroupRetry: boolean
   group: string
   ratio?: GroupRatio
+  icon?: string
   shouldReduceMotion: boolean
 }
 
@@ -51,7 +53,18 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
         tooltipContent={props.group || '-'}
         tooltipClassName='break-all'
       >
-        <GroupBadge group={props.group} ratio={ratio} />
+        <span className='flex min-w-0 items-center gap-1.5'>
+          {props.icon && (
+            <span
+              className='shrink-0'
+              data-api-key-group-icon='table'
+              data-icon-key={props.icon}
+            >
+              {getLobeIcon(props.icon, 16)}
+            </span>
+          )}
+          <GroupBadge group={props.group} ratio={ratio} />
+        </span>
       </TruncatedCell>
     )
   }

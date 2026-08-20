@@ -33,6 +33,7 @@ const domGlobals = [
   'Element',
   'Event',
   'CustomEvent',
+  'customElements',
   'MutationObserver',
   'ResizeObserver',
   'requestAnimationFrame',
@@ -46,6 +47,10 @@ for (const key of domGlobals) {
     value: domWindow[key],
   })
 }
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: domWindow.matchMedia.bind(domWindow),
+})
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -78,6 +83,7 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 function CellHarness(props: {
   group: string
   ratio?: number | string
+  icon?: string
   crossGroupRetry?: boolean
   shouldReduceMotion?: boolean
 }) {
@@ -87,6 +93,7 @@ function CellHarness(props: {
         <ApiKeyGroupCell
           group={props.group}
           ratio={props.ratio}
+          icon={props.icon}
           crossGroupRetry={props.crossGroupRetry ?? false}
           shouldReduceMotion={props.shouldReduceMotion ?? false}
         />
@@ -229,6 +236,28 @@ describe('API key group table cell', () => {
 
     assert.equal(container.textContent?.includes('3x'), true)
     assert.equal(container.querySelector('[data-auto-group-frame]'), null)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('renders a configured normal-group icon at the table size', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () =>
+      root.render(
+        <CellHarness group='vip' icon='OpenAI.Color' shouldReduceMotion />
+      )
+    )
+
+    const icon = container.querySelector<HTMLElement>(
+      '[data-api-key-group-icon="table"]'
+    )
+    assert.ok(icon)
+    assert.equal(icon.getAttribute('data-icon-key'), 'OpenAI.Color')
+    assert.equal(icon.querySelector('svg')?.getAttribute('width'), '16')
 
     await act(async () => root.unmount())
     container.remove()

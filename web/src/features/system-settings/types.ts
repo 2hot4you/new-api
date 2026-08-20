@@ -315,6 +315,7 @@ export type BillingSettings = {
   AutoGroups: string
   MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean
+  'group_ratio_setting.group_metadata': string
   'group_ratio_setting.group_special_usable_group': string
   PayAddress: string
   EpayId: string

@@ -35,6 +35,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { useMediaQuery } from '@/hooks'
+import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
 import {
@@ -48,6 +49,8 @@ export type ApiKeyGroupOption = {
   label: string
   desc?: string
   ratio?: number | string
+  icon?: string
+  recommendation?: number
 }
 
 type ApiKeyGroupComboboxProps = {
@@ -119,15 +122,26 @@ export function ApiKeyGroupCombobox({
           <AutoGroupFlowBorder shouldReduceMotion={shouldReduceMotion} />
         )}
         <span className='flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3'>
-          <span className='min-w-0'>
-            <span className='block truncate font-medium'>
-              {selectedOption?.label || placeholder || t('Select a group')}
-            </span>
-            {selectedOption?.desc && (
-              <span className='text-muted-foreground block truncate text-[11px] sm:text-xs'>
-                {selectedOption.desc}
+          <span className='flex min-w-0 items-center gap-2'>
+            {selectedOption?.icon && (
+              <span
+                className='shrink-0'
+                data-api-key-group-icon='selected'
+                data-icon-key={selectedOption.icon}
+              >
+                {getLobeIcon(selectedOption.icon, 18)}
               </span>
             )}
+            <span className='min-w-0'>
+              <span className='block truncate font-medium'>
+                {selectedOption?.label || placeholder || t('Select a group')}
+              </span>
+              {selectedOption?.desc && (
+                <span className='text-muted-foreground block truncate text-[11px] sm:text-xs'>
+                  {selectedOption.desc}
+                </span>
+              )}
+            </span>
           </span>
           <span className='hidden sm:block'>
             <GroupRatioBadge
@@ -187,6 +201,15 @@ export function ApiKeyGroupCombobox({
                         value === option.value ? 'opacity-100' : 'opacity-0'
                       )}
                     />
+                    {option.icon && (
+                      <span
+                        className='mt-0.5 shrink-0'
+                        data-api-key-group-icon='option'
+                        data-icon-key={option.icon}
+                      >
+                        {getLobeIcon(option.icon, 20)}
+                      </span>
+                    )}
                     <span className='min-w-0 flex-1'>
                       <span className='block truncate font-medium'>
                         {option.label}
@@ -202,6 +225,16 @@ export function ApiKeyGroupCombobox({
                       isAuto={isAutoOption}
                       shouldReduceMotion={shouldReduceMotion}
                     />
+                    {Number.isInteger(option.recommendation) &&
+                      option.recommendation !== undefined &&
+                      option.recommendation > 0 &&
+                      option.recommendation <= 5 && (
+                        <span className='bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium'>
+                          {t('Recommended {{count}}/5', {
+                            count: option.recommendation,
+                          })}
+                        </span>
+                      )}
                   </CommandItem>
                 )
               })}
