@@ -1,0 +1,12 @@
+{
+  "id": "group-pricing-metadata-order",
+  "title": "为分组定价增加排序、图标和推荐指数并同步到 API Key 页面",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交实现",
+  "createdAt": "2026-08-21T00:00:00Z",
+  "branch": "develop"
+}
