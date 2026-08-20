@@ -25,6 +25,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Reorder, useDragControls } from 'motion/react'
 import {
+  useRef,
   useEffect,
   useState,
   type KeyboardEvent,
@@ -41,7 +42,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 
-import { getModelOrder, getVendors, saveModelOrder } from '../api'
+import { getModelOrder, getVendorOrder, saveModelOrder } from '../api'
 import { modelsQueryKeys, vendorsQueryKeys } from '../lib'
 import type { Model, Vendor } from '../types'
 
@@ -169,6 +170,7 @@ export function ModelOrderEditor({
   const queryClient = useQueryClient()
   const [items, setItems] = useState<Model[]>([])
   const [hasInitializedItems, setHasInitializedItems] = useState(false)
+  const hasInitializedDraft = useRef(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const orderQuery = useQuery({
@@ -176,14 +178,15 @@ export function ModelOrderEditor({
     queryFn: getModelOrder,
   })
   const vendorsQuery = useQuery({
-    queryKey: vendorsQueryKeys.list({ page_size: 1000 }),
-    queryFn: () => getVendors({ page_size: 1000 }),
+    queryKey: [...vendorsQueryKeys.all, 'order'],
+    queryFn: getVendorOrder,
   })
 
   useEffect(() => {
-    if (orderQuery.data?.success) {
+    if (orderQuery.data?.success && !hasInitializedDraft.current) {
       setItems(orderQuery.data.data || [])
       setHasInitializedItems(true)
+      hasInitializedDraft.current = true
     }
   }, [orderQuery.data])
 
@@ -191,7 +194,7 @@ export function ModelOrderEditor({
     return () => onSavingChange?.(false)
   }, [onSavingChange])
 
-  const vendors = vendorsQuery.data?.data?.items || []
+  const vendors = vendorsQuery.data?.data || []
   const vendorNames = new Map(
     vendors.map((vendor: Vendor) => [vendor.id, vendor.name])
   )
@@ -229,7 +232,11 @@ export function ModelOrderEditor({
     try {
       const response = await saveModelOrder(items.map((item) => item.id))
       if (!response.success) {
-        setSaveError(response.message || t('Failed to save model order'))
+        setSaveError(
+          response.message
+            ? t(response.message)
+            : t('Failed to save model order')
+        )
         return
       }
       await Promise.all([
@@ -268,8 +275,9 @@ export function ModelOrderEditor({
   }
 
   if (orderQuery.isError || !orderQuery.data?.success) {
-    let errorMessage =
-      orderQuery.data?.message || t('Failed to load model order')
+    let errorMessage = orderQuery.data?.message
+      ? t(orderQuery.data.message)
+      : t('Failed to load model order')
     if (orderQuery.isError) {
       errorMessage =
         orderQuery.error instanceof Error

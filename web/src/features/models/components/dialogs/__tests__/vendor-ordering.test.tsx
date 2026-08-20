@@ -51,7 +51,17 @@ const { modelsQueryKeys } = await import('../../../lib')
 const { VendorManagement } = await import('../vendor-management')
 
 const i18n = createInstance()
-await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
+await i18n.use(initReactI18next).init({
+  lng: 'en',
+  resources: {
+    en: {
+      translation: {
+        'Vendor order conflict': 'Localized vendor order conflict',
+        'Vendor order unavailable': 'Localized vendor order unavailable',
+      },
+    },
+  },
+})
 
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -173,6 +183,7 @@ function visibleVendorNames(): string[] {
 async function renderManagement(props?: {
   items?: Vendor[]
   orderedItems?: Vendor[]
+  orderFailureMessage?: string
 }) {
   const items = props?.items ?? [vendorA, vendorB]
   const orderedItems = props?.orderedItems ?? items
@@ -180,6 +191,11 @@ async function renderManagement(props?: {
   apiClient.get = async (url) => {
     getCalls.push(url)
     if (url === '/api/vendors/order') {
+      if (props?.orderFailureMessage) {
+        return {
+          data: { success: false, message: props.orderFailureMessage },
+        }
+      }
       return vendorOrderResponse(orderedItems)
     }
     return vendorListResponse(items)
@@ -285,6 +301,88 @@ describe('vendor ordering', () => {
     await act(async () => rendered.root.unmount())
   })
 
+  test('localizes a business error while loading the persisted order', async () => {
+    const rendered = await renderManagement({
+      orderFailureMessage: 'Vendor order unavailable',
+    })
+
+    await click(findButton('Reorder Vendors'))
+    await waitForText('Localized vendor order unavailable')
+
+    assert.doesNotMatch(
+      document.body.textContent ?? '',
+      /Vendor order unavailable/
+    )
+    await act(async () => rendered.root.unmount())
+  })
+
+  test('cancelling a pending order load ignores its late response', async () => {
+    const request = deferred<{ data: unknown }>()
+    const rendered = await renderManagement()
+    apiClient.get = async (url) => {
+      if (url === '/api/vendors/order') return request.promise
+      return vendorListResponse([vendorA, vendorB])
+    }
+
+    await click(findButton('Reorder Vendors'))
+    assert.ok(document.querySelector('[aria-busy="true"]'))
+    assert.equal(findButton('Cancel').disabled, false)
+    await click(findButton('Cancel'))
+    await waitForText('Reorder Vendors')
+    await act(async () => {
+      request.resolve(vendorOrderResponse([vendorB, vendorA]))
+      await request.promise
+    })
+
+    assert.deepEqual(visibleVendorNames(), ['Vendor A', 'Vendor B'])
+    await act(async () => rendered.root.unmount())
+  })
+
+  test('closing and reopening during a pending order load ignores its late response', async () => {
+    const request = deferred<{ data: unknown }>()
+    const rendered = await renderManagement()
+    apiClient.get = async (url) => {
+      if (url === '/api/vendors/order') return request.promise
+      return vendorListResponse([vendorA, vendorB])
+    }
+
+    await click(findButton('Reorder Vendors'))
+    assert.ok(document.querySelector('[aria-busy="true"]'))
+    await click(findButton('Close'))
+    await click(findButton('Reopen vendor manager'))
+    await waitForText('Reorder Vendors')
+    await act(async () => {
+      request.resolve(vendorOrderResponse([vendorB, vendorA]))
+      await request.promise
+    })
+
+    assert.deepEqual(visibleVendorNames(), ['Vendor A', 'Vendor B'])
+    await act(async () => rendered.root.unmount())
+  })
+
+  test('retries a failed persisted-order load', async () => {
+    let orderRequests = 0
+    const rendered = await renderManagement()
+    apiClient.get = async (url) => {
+      if (url === '/api/vendors/order') {
+        orderRequests += 1
+        return orderRequests === 1
+          ? { data: { success: false, message: 'Vendor order unavailable' } }
+          : vendorOrderResponse([vendorB, vendorA])
+      }
+      return vendorListResponse([vendorA, vendorB])
+    }
+
+    await click(findButton('Reorder Vendors'))
+    await waitForText('Localized vendor order unavailable')
+    await click(findButton('Retry'))
+    await waitForButton('Drag Vendor B to reorder')
+
+    assert.equal(orderRequests, 2)
+    assert.deepEqual(visibleVendorNames(), ['Vendor B', 'Vendor A'])
+    await act(async () => rendered.root.unmount())
+  })
+
   test('saves the complete reordered ID sequence and invalidates marketplace queries', async () => {
     const savedOrders: unknown[] = []
     apiClient.put = async (url, data) => {
@@ -327,6 +425,23 @@ describe('vendor ordering', () => {
 
     assert.deepEqual(visibleVendorNames(), ['Vendor B', 'Vendor A'])
     assert.ok(findButton('Save order'))
+    await act(async () => rendered.root.unmount())
+  })
+
+  test('localizes a business conflict while saving the persisted order', async () => {
+    apiClient.put = async () => ({
+      data: { success: false, message: 'Vendor order conflict' },
+    })
+    const rendered = await renderManagement()
+
+    await enterOrderModeAndMoveSecondVendorFirst()
+    await click(findButton('Save order'))
+    await waitForText('Localized vendor order conflict')
+
+    assert.doesNotMatch(
+      document.body.textContent ?? '',
+      /Vendor order conflict/
+    )
     await act(async () => rendered.root.unmount())
   })
 

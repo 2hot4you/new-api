@@ -36,6 +36,8 @@ import type {
   SaveMarketplaceOrderResponse,
 } from './types'
 
+const marketplaceOrderRequestConfig = { skipBusinessError: true }
+
 // ============================================================================
 // Model CRUD Operations
 // ============================================================================
@@ -113,7 +115,7 @@ export async function deleteModel(
  * Get the complete administrator-managed model display order.
  */
 export async function getModelOrder(): Promise<GetModelOrderResponse> {
-  const res = await api.get('/api/models/order')
+  const res = await api.get('/api/models/order', marketplaceOrderRequestConfig)
   return res.data
 }
 
@@ -123,7 +125,11 @@ export async function getModelOrder(): Promise<GetModelOrderResponse> {
 export async function saveModelOrder(
   orderedIDs: number[]
 ): Promise<SaveMarketplaceOrderResponse> {
-  const res = await api.put('/api/models/order', { ordered_ids: orderedIDs })
+  const res = await api.put(
+    '/api/models/order',
+    { ordered_ids: orderedIDs },
+    marketplaceOrderRequestConfig
+  )
   return res.data
 }
 
@@ -198,7 +204,7 @@ export async function deleteVendor(
  * Get the complete administrator-managed vendor display order.
  */
 export async function getVendorOrder(): Promise<GetVendorOrderResponse> {
-  const res = await api.get('/api/vendors/order')
+  const res = await api.get('/api/vendors/order', marketplaceOrderRequestConfig)
   return res.data
 }
 
@@ -208,7 +214,11 @@ export async function getVendorOrder(): Promise<GetVendorOrderResponse> {
 export async function saveVendorOrder(
   orderedIDs: number[]
 ): Promise<SaveMarketplaceOrderResponse> {
-  const res = await api.put('/api/vendors/order', { ordered_ids: orderedIDs })
+  const res = await api.put(
+    '/api/vendors/order',
+    { ordered_ids: orderedIDs },
+    marketplaceOrderRequestConfig
+  )
   return res.data
 }
 

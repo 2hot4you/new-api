@@ -31,6 +31,7 @@ import {
 import { Reorder, useDragControls } from 'motion/react'
 import {
   useEffect,
+  useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent,
@@ -171,6 +172,7 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
   const [isLoadingOrder, setIsLoadingOrder] = useState(false)
   const [isSavingOrder, setIsSavingOrder] = useState(false)
   const [orderError, setOrderError] = useState('')
+  const orderRequestGeneration = useRef(0)
 
   const vendorsQuery = useQuery({
     queryKey: vendorsQueryKeys.list({ page_size: 1000 }),
@@ -191,8 +193,10 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
   }
 
   const discardOrder = () => {
+    orderRequestGeneration.current += 1
     setMode('list')
     setOrderDraft([])
+    setIsLoadingOrder(false)
     setOrderError('')
   }
 
@@ -203,26 +207,40 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
     }
   }, [props.open])
 
-  const handleEnterOrderMode = async () => {
-    if (!vendorsQuery.data?.length || isLoadingOrder) return
-    setMode('order')
+  const loadVendorOrder = async () => {
+    const generation = orderRequestGeneration.current + 1
+    orderRequestGeneration.current = generation
     setIsLoadingOrder(true)
     setOrderDraft([])
     setOrderError('')
     try {
       const response = await getVendorOrder()
+      if (generation !== orderRequestGeneration.current) return
       if (!response.success) {
-        setOrderError(response.message || t('Unable to load vendor order'))
+        setOrderError(
+          response.message
+            ? t(response.message)
+            : t('Unable to load vendor order')
+        )
         return
       }
       setOrderDraft(response.data ?? [])
     } catch (error: unknown) {
+      if (generation !== orderRequestGeneration.current) return
       setOrderError(
         (error as Error)?.message || t('Unable to load vendor order')
       )
     } finally {
-      setIsLoadingOrder(false)
+      if (generation === orderRequestGeneration.current) {
+        setIsLoadingOrder(false)
+      }
     }
+  }
+
+  const handleEnterOrderMode = () => {
+    if (!vendorsQuery.data?.length || isLoadingOrder) return
+    setMode('order')
+    void loadVendorOrder()
   }
 
   const handleMoveOrderItem = (index: number, direction: 'up' | 'down') => {
@@ -245,7 +263,11 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
         orderDraft.map((vendor) => vendor.id)
       )
       if (!response.success) {
-        setOrderError(response.message || t('Failed to save vendor order'))
+        setOrderError(
+          response.message
+            ? t(response.message)
+            : t('Failed to save vendor order')
+        )
         return
       }
       await Promise.all([
@@ -350,7 +372,18 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
             {orderError ? (
               <Alert variant='destructive'>
                 <AlertTitle>{t('Operation failed')}</AlertTitle>
-                <AlertDescription>{orderError}</AlertDescription>
+                <AlertDescription className='space-y-3'>
+                  <p>{orderError}</p>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => void loadVendorOrder()}
+                  >
+                    <RefreshCcw className='size-4' aria-hidden='true' />
+                    {t('Retry')}
+                  </Button>
+                </AlertDescription>
               </Alert>
             ) : null}
             <Reorder.Group
@@ -451,7 +484,7 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
       <Dialog
         open={props.open}
         onOpenChange={(open) => {
-          if (!open && (isSavingOrder || isLoadingOrder)) return
+          if (!open && isSavingOrder) return
           if (!open) discardOrder()
           props.onOpenChange(open)
         }}
@@ -467,7 +500,7 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
               <Button
                 type='button'
                 variant='outline'
-                disabled={isSavingOrder || isLoadingOrder}
+                disabled={isSavingOrder}
                 onClick={discardOrder}
               >
                 {t('Cancel')}

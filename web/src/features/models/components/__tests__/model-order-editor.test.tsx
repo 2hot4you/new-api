@@ -133,7 +133,17 @@ const { ModelsProvider, useModels } = await import('../models-provider')
 const { Models } = await import('../../index')
 
 const i18n = createInstance()
-await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
+await i18n.use(initReactI18next).init({
+  lng: 'en',
+  resources: {
+    en: {
+      translation: {
+        'Order conflict': 'Localized order conflict',
+        'Order unavailable': 'Localized order unavailable',
+      },
+    },
+  },
+})
 
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -323,9 +333,7 @@ after(() => domWindow.close())
 describe('model order editor', () => {
   test('edit order enables row handles while normal mode has none', async () => {
     apiClient.get = async (url) =>
-      url === '/api/models/order'
-        ? response(models)
-        : response({ items: vendors, total: vendors.length })
+      url === '/api/models/order' ? response(models) : response(vendors)
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -357,7 +365,7 @@ describe('model order editor', () => {
   test('loads the full order and supports ArrowUp and ArrowDown movement', async () => {
     apiClient.get = async (url) => {
       if (url === '/api/models/order') return response(models)
-      return response({ items: vendors, total: vendors.length })
+      return response(vendors)
     }
     const rendered = await renderEditor()
     await waitForText('model-a')
@@ -399,11 +407,83 @@ describe('model order editor', () => {
     await act(async () => rendered.root.unmount())
   })
 
+  test('keeps a dirty local draft when the order query refetches', async () => {
+    let orderFetches = 0
+    apiClient.get = async (url) => {
+      if (url === '/api/models/order') {
+        orderFetches += 1
+        return response(
+          orderFetches === 1
+            ? models
+            : models.map((model, index) => ({
+                ...model,
+                display_order: index + 100,
+              }))
+        )
+      }
+      return response(vendors)
+    }
+    const rendered = await renderEditor()
+    await waitForText('model-a')
+    await click(findButton('Move model-a down'))
+    assert.equal(
+      rendered.container
+        .querySelector('[data-model-order-item]')
+        ?.getAttribute('data-model-id'),
+      '2'
+    )
+
+    await act(async () => {
+      await rendered.queryClient.refetchQueries({
+        queryKey: [...modelsQueryKeys.all, 'order'],
+      })
+    })
+    assert.equal(orderFetches, 2)
+    assert.equal(
+      rendered.container
+        .querySelector('[data-model-order-item]')
+        ?.getAttribute('data-model-id'),
+      '2'
+    )
+    await act(async () => rendered.root.unmount())
+  })
+
+  test('uses the complete vendor order for models beyond the paginated vendor list', async () => {
+    const laterVendor: Vendor = {
+      id: 101,
+      name: 'Vendor 101',
+      status: 1,
+      created_time: 1,
+      updated_time: 1,
+    }
+    const completeVendors = [
+      ...Array.from({ length: 100 }, (_, index) => ({
+        id: index + 1,
+        name: `Vendor ${index + 1}`,
+        status: 1,
+        created_time: 1,
+        updated_time: 1,
+      })),
+      laterVendor,
+    ]
+    let requestedPaginatedVendors = false
+    apiClient.get = async (url) => {
+      if (url === '/api/models/order') {
+        return response([{ ...models[0], vendor_id: laterVendor.id }])
+      }
+      if (url === '/api/vendors/order') return response(completeVendors)
+      requestedPaginatedVendors = true
+      return response({ items: vendors, total: vendors.length })
+    }
+    const rendered = await renderEditor()
+    await waitForText('Vendor 101')
+    assert.equal(requestedPaginatedVendors, false)
+    await act(async () => rendered.root.unmount())
+  })
+
   test('starts pointer dragging through Motion controls and reorders vertically', async () => {
     apiClient.get = async (url) =>
-      url === '/api/models/order'
-        ? response(models)
-        : response({ items: vendors, total: vendors.length })
+      url === '/api/models/order' ? response(models) : response(vendors)
     const rendered = await renderEditor()
     await waitForText('model-a')
 
@@ -445,6 +525,7 @@ describe('model order editor', () => {
           page_size: 20,
         })
       }
+      if (url === '/api/vendors/order') return response(vendors)
       return response({ items: vendors, total: vendors.length, page: 1 })
     }
     const rendered = await renderModelsPage()
@@ -495,9 +576,7 @@ describe('model order editor', () => {
     const saved: unknown[] = []
     let savedCount = 0
     apiClient.get = async (url) =>
-      url === '/api/models/order'
-        ? response(models)
-        : response({ items: vendors, total: vendors.length })
+      url === '/api/models/order' ? response(models) : response(vendors)
     apiClient.put = async (_url, data) => {
       saved.push(data)
       return { data: { success: true } }
@@ -532,9 +611,7 @@ describe('model order editor', () => {
   test('cancel does not request a save', async () => {
     let saveCount = 0
     apiClient.get = async (url) =>
-      url === '/api/models/order'
-        ? response(models)
-        : response({ items: vendors, total: vendors.length })
+      url === '/api/models/order' ? response(models) : response(vendors)
     apiClient.put = async () => {
       saveCount += 1
       return { data: { success: true } }
@@ -558,9 +635,7 @@ describe('model order editor', () => {
     let cancelCount = 0
     let savedCount = 0
     apiClient.get = async (url) =>
-      url === '/api/models/order'
-        ? response(models)
-        : response({ items: vendors, total: vendors.length })
+      url === '/api/models/order' ? response(models) : response(vendors)
     apiClient.put = async () => saveRequest.promise
     const rendered = await renderEditor({
       onSaved: () => {
@@ -606,17 +681,15 @@ describe('model order editor', () => {
 
   test('retains the draft and shows an error when saving fails', async () => {
     apiClient.get = async (url) =>
-      url === '/api/models/order'
-        ? response(models)
-        : response({ items: vendors, total: vendors.length })
+      url === '/api/models/order' ? response(models) : response(vendors)
     apiClient.put = async () => ({
-      data: { success: false, message: 'Unable to save order' },
+      data: { success: false, message: 'Order conflict' },
     })
     const rendered = await renderEditor()
     await waitForText('model-a')
     await click(findButton('Move model-a down'))
     await click(findButton('Save'))
-    await waitForText('Unable to save order')
+    await waitForText('Localized order conflict')
     const orderedRows = [
       ...rendered.container.querySelectorAll('[data-model-order-item]'),
     ]
@@ -624,11 +697,23 @@ describe('model order editor', () => {
     await act(async () => rendered.root.unmount())
   })
 
+  test('localizes a backend message when loading the order fails', async () => {
+    apiClient.get = async (url) => {
+      if (url === '/api/models/order') {
+        return { data: { success: false, message: 'Order unavailable' } }
+      }
+      return response(vendors)
+    }
+    const rendered = await renderEditor()
+    await waitForText('Localized order unavailable')
+    await act(async () => rendered.root.unmount())
+  })
+
   test('renders loading, empty, and retryable error states', async () => {
     const request = deferred<ReturnType<typeof response>>()
     apiClient.get = async (url) => {
       if (url === '/api/models/order') return request.promise
-      return response({ items: vendors, total: vendors.length })
+      return response(vendors)
     }
     const rendered = await renderEditor()
     assert.ok(rendered.container.querySelector('[aria-busy="true"]'))
@@ -653,7 +738,7 @@ describe('model order editor', () => {
 
     apiClient.get = async (url) => {
       if (url === '/api/models/order') return response([])
-      return response({ items: vendors, total: vendors.length })
+      return response(vendors)
     }
     const empty = await renderEditor()
     await waitForText('No models available to order')
@@ -661,7 +746,7 @@ describe('model order editor', () => {
 
     let attempts = 0
     apiClient.get = async (url) => {
-      if (url !== '/api/models/order') return response({ items: vendors })
+      if (url !== '/api/models/order') return response(vendors)
       attempts += 1
       if (attempts === 1) throw new Error('Order service unavailable')
       return response([])
