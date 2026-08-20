@@ -1,0 +1,12 @@
+{
+  "id": "pricing-show-all-models",
+  "title": "模型广场取消前端分页并连续展示全部模型",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交变更",
+  "createdAt": "2026-08-20T14:11:36Z",
+  "branch": "develop"
+}

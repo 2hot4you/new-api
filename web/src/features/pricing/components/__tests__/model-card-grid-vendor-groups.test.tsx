@@ -127,4 +127,33 @@ describe('high-density model directory grid', () => {
     queryClient.clear()
     container.remove()
   })
+
+  test('renders every model without client-side pagination', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { enabled: false } },
+    })
+    const models = Array.from({ length: 25 }, (_, index) =>
+      model(index + 1, `model-${index + 1}`, 'DeepSeek', '2026-08-13')
+    )
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <I18nextProvider i18n={i18n}>
+            <ModelCardGrid models={models} onModelClick={() => undefined} />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+    })
+
+    assert.equal(container.querySelectorAll('[data-model-card]').length, 25)
+    assert.doesNotMatch(container.textContent ?? '', /Previous page|Next page/)
+
+    await act(async () => root.unmount())
+    queryClient.clear()
+    container.remove()
+  })
 })
