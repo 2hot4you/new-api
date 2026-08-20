@@ -258,36 +258,31 @@ func TestPricingUsesPersistedMetadataAndReferencedVendorsOnly(t *testing.T) {
 
 func TestPricingModelsDisplayOrder(t *testing.T) {
 	resetPricingEndpointTestTables(t)
+	require.NoError(t, DB.AutoMigrate(&marketplaceOrderLock{}))
 	insertPricingEndpointChannel(t, 806, constant.ChannelTypeOpenAI, dtoChannelSettingsEmpty())
 
 	vendorA := Vendor{Name: "Vendor A", Status: 1}
 	require.NoError(t, vendorA.Insert())
-	vendorA.DisplayOrder = 20
-	require.NoError(t, vendorA.Update())
 	vendorB := Vendor{Name: "Vendor B", Status: 1}
 	require.NoError(t, vendorB.Insert())
-	vendorB.DisplayOrder = 10
-	require.NoError(t, vendorB.Update())
+	require.NoError(t, ReorderVendors([]int{vendorB.Id, vendorA.Id}))
 
 	manualFirst := completePublishedLLM()
 	manualFirst.ModelName = "manual-first"
 	manualFirst.VendorID = vendorB.Id
 	manualFirst.ReleaseDate = "2026-01-01"
-	require.NoError(t, manualFirst.Insert())
-	manualFirst.DisplayOrder = 1
-	require.NoError(t, manualFirst.Update())
-	configureMarketplaceModelPrice(t, manualFirst.ModelName)
-	insertPricingEndpointAbility(t, 806, manualFirst.ModelName)
 
 	manualSecond := completePublishedLLM()
 	manualSecond.ModelName = "manual-second"
 	manualSecond.VendorID = vendorA.Id
 	manualSecond.ReleaseDate = "2026-12-31"
 	require.NoError(t, manualSecond.Insert())
-	manualSecond.DisplayOrder = 2
-	require.NoError(t, manualSecond.Update())
 	configureMarketplaceModelPrice(t, manualSecond.ModelName)
 	insertPricingEndpointAbility(t, 806, manualSecond.ModelName)
+	require.NoError(t, manualFirst.Insert())
+	configureMarketplaceModelPrice(t, manualFirst.ModelName)
+	insertPricingEndpointAbility(t, 806, manualFirst.ModelName)
+	require.NoError(t, ReorderModels([]int{manualFirst.Id, manualSecond.Id}))
 
 	RefreshPricing()
 	assert.Equal(t,
@@ -301,8 +296,8 @@ func TestPricingModelsDisplayOrder(t *testing.T) {
 
 	first := findPricingModel(GetPricing(), manualFirst.ModelName)
 	require.NotNil(t, first)
-	assert.Equal(t, manualFirst.DisplayOrder, first.DisplayOrder)
-	assert.Equal(t, vendorB.DisplayOrder, GetVendors()[0].DisplayOrder)
+	assert.Equal(t, 1, first.DisplayOrder)
+	assert.Equal(t, 1, GetVendors()[0].DisplayOrder)
 }
 
 func TestPricingExcludesDisabledModelAndVendor(t *testing.T) {
