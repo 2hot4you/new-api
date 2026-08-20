@@ -1,0 +1,12 @@
+{
+  "id": "revert-pricing-grid-separators",
+  "title": "撤销模型广场连续网格分隔样式",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档撤销任务并提交",
+  "createdAt": "2026-08-20T14:37:06Z",
+  "branch": "develop"
+}

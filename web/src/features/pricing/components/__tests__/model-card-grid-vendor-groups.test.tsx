@@ -109,17 +109,11 @@ describe('high-density model directory grid', () => {
     assert.match(grid.className, /grid-cols-1/)
     assert.match(grid.className, /md:grid-cols-2/)
     assert.match(grid.className, /xl:grid-cols-3/)
-    assert.match(grid.className, /gap-px/)
-    assert.match(grid.className, /bg-border/)
     assert.equal(
       container.querySelectorAll('[data-model-vendor-section]').length,
       0
     )
     assert.equal(container.querySelectorAll('[data-model-card]').length, 2)
-    const firstCard = container.querySelector('[data-model-card]')
-    assert.ok(firstCard)
-    assert.doesNotMatch(firstCard.className, /border-r|border-b/)
-    assert.match(firstCard.className, /hover:bg-muted\/40/)
     assert.match(container.textContent ?? '', /DeepSeek/)
     assert.match(container.textContent ?? '', /new-model display/)
     assert.match(container.textContent ?? '', /new-model/)
