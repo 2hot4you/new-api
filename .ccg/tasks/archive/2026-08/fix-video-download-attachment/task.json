@@ -1,0 +1,12 @@
+{
+  "id": "fix-video-download-attachment",
+  "title": "让视频下载按钮触发浏览器附件下载",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-20T14:35:00+08:00",
+  "branch": "develop"
+}
