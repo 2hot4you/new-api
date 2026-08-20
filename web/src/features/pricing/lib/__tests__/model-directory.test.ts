@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { SORT_OPTIONS } from '../../constants'
+import {
+  normalizeSortOption,
+  serializeSortOption,
+} from '../../hooks/use-filters'
 import type { PricingModel } from '../../types'
 import { filterByQuotaType, sortModels } from '../filters'
 import {
@@ -56,20 +60,26 @@ describe('model directory release ordering', () => {
     )
   })
 
-  test('exposes release ordering through the marketplace sort option', () => {
-    const sorted = sortModels(
-      [
-        model('undated'),
-        model('newer', { release_date: '2026-08-13' }),
-        model('older', { release_date: '2026-07-01' }),
-      ],
-      SORT_OPTIONS.RELEASE_DATE
-    )
+  test('recommended keeps backend display order', () => {
+    const models = [
+      model('manual-first', { release_date: '2026-01-01' }),
+      model('manual-second', { release_date: '2026-12-31' }),
+    ]
+
+    const sorted = sortModels(models, SORT_OPTIONS.RECOMMENDED)
 
     assert.deepEqual(
       sorted.map((item) => item.model_name),
-      ['newer', 'older', 'undated']
+      ['manual-first', 'manual-second']
     )
+  })
+
+  test('normalizes legacy and unknown URL sorts to recommended', () => {
+    assert.equal(normalizeSortOption('release-date'), SORT_OPTIONS.RECOMMENDED)
+    assert.equal(normalizeSortOption('unknown-sort'), SORT_OPTIONS.RECOMMENDED)
+    assert.equal(serializeSortOption('release-date'), undefined)
+    assert.equal(serializeSortOption('unknown-sort'), undefined)
+    assert.equal(serializeSortOption(SORT_OPTIONS.NAME), SORT_OPTIONS.NAME)
   })
 })
 

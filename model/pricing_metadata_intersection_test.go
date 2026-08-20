@@ -83,6 +83,22 @@ func pricingModelIDs() []string {
 	return ids
 }
 
+func pricingModelNames(items []Pricing) []string {
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, item.ModelName)
+	}
+	return names
+}
+
+func pricingVendorNames(items []PricingVendor) []string {
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, item.Name)
+	}
+	return names
+}
+
 func configureMarketplaceModelPrice(t *testing.T, modelName string) {
 	t.Helper()
 	originalPrices := ratio_setting.GetModelPriceCopy()
@@ -238,6 +254,55 @@ func TestPricingUsesPersistedMetadataAndReferencedVendorsOnly(t *testing.T) {
 	require.Len(t, vendors, 1)
 	assert.Equal(t, vendor.Id, vendors[0].ID)
 	assert.Equal(t, "Published introduction", vendors[0].Description)
+}
+
+func TestPricingModelsDisplayOrder(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	insertPricingEndpointChannel(t, 806, constant.ChannelTypeOpenAI, dtoChannelSettingsEmpty())
+
+	vendorA := Vendor{Name: "Vendor A", Status: 1}
+	require.NoError(t, vendorA.Insert())
+	vendorA.DisplayOrder = 20
+	require.NoError(t, vendorA.Update())
+	vendorB := Vendor{Name: "Vendor B", Status: 1}
+	require.NoError(t, vendorB.Insert())
+	vendorB.DisplayOrder = 10
+	require.NoError(t, vendorB.Update())
+
+	manualFirst := completePublishedLLM()
+	manualFirst.ModelName = "manual-first"
+	manualFirst.VendorID = vendorB.Id
+	manualFirst.ReleaseDate = "2026-01-01"
+	require.NoError(t, manualFirst.Insert())
+	manualFirst.DisplayOrder = 1
+	require.NoError(t, manualFirst.Update())
+	configureMarketplaceModelPrice(t, manualFirst.ModelName)
+	insertPricingEndpointAbility(t, 806, manualFirst.ModelName)
+
+	manualSecond := completePublishedLLM()
+	manualSecond.ModelName = "manual-second"
+	manualSecond.VendorID = vendorA.Id
+	manualSecond.ReleaseDate = "2026-12-31"
+	require.NoError(t, manualSecond.Insert())
+	manualSecond.DisplayOrder = 2
+	require.NoError(t, manualSecond.Update())
+	configureMarketplaceModelPrice(t, manualSecond.ModelName)
+	insertPricingEndpointAbility(t, 806, manualSecond.ModelName)
+
+	RefreshPricing()
+	assert.Equal(t,
+		[]string{"manual-first", "manual-second"},
+		pricingModelNames(GetPricing()),
+	)
+	assert.Equal(t,
+		[]string{"Vendor B", "Vendor A"},
+		pricingVendorNames(GetVendors()),
+	)
+
+	first := findPricingModel(GetPricing(), manualFirst.ModelName)
+	require.NotNil(t, first)
+	assert.Equal(t, manualFirst.DisplayOrder, first.DisplayOrder)
+	assert.Equal(t, vendorB.DisplayOrder, GetVendors()[0].DisplayOrder)
 }
 
 func TestPricingExcludesDisabledModelAndVendor(t *testing.T) {

@@ -26,7 +26,6 @@ import {
 import type { Modality, ModelCapability, PricingModel } from '../types'
 import {
   filterModelsByDirectory,
-  sortModelsByReleaseDate,
   type ContextBucketId,
   type ModelCategoryId,
 } from './model-directory'
@@ -128,8 +127,8 @@ export function sortModels(
   const sorted = [...models]
 
   switch (sortBy) {
-    case SORT_OPTIONS.RELEASE_DATE:
-      return sortModelsByReleaseDate(sorted)
+    case SORT_OPTIONS.RECOMMENDED:
+      return sorted
     case SORT_OPTIONS.NAME:
       sorted.sort((a, b) =>
         (a.model_name || '').localeCompare(b.model_name || '')

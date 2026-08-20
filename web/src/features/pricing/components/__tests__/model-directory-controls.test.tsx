@@ -3,6 +3,7 @@ import { after, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { SORT_OPTIONS } from '../../constants'
 import { getModelCategories } from '../../lib/model-directory'
 import type { PricingModel } from '../../types'
 
@@ -42,6 +43,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { ModelCategoryBar } = await import('../model-category-bar')
 const { PricingSidebar } = await import('../pricing-sidebar')
+const { PricingToolbar } = await import('../pricing-toolbar')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en' })
@@ -200,6 +202,72 @@ describe('model directory category and filter controls', () => {
     assert.match(container.textContent ?? '', /DeepSeek/)
     assert.match(container.textContent ?? '', /Reasoning/)
     assert.match(container.textContent ?? '', /1M/)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('offers recommended, name, and price sorting without newest', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const noop = () => undefined
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <PricingToolbar
+            filteredCount={models.length}
+            totalCount={models.length}
+            sortBy={SORT_OPTIONS.RECOMMENDED}
+            onSortChange={noop}
+            tokenUnit='M'
+            onTokenUnitChange={noop}
+            showRechargePrice={false}
+            onRechargePriceChange={noop}
+            quotaTypeFilter='all'
+            endpointTypeFilter='all'
+            vendorFilter='all'
+            groupFilter='all'
+            tagFilter='all'
+            onQuotaTypeChange={noop}
+            onEndpointTypeChange={noop}
+            onVendorChange={noop}
+            onGroupChange={noop}
+            onTagChange={noop}
+            inputModalityFilter='all'
+            contextFilter='all'
+            capabilityFilter='all'
+            onInputModalityChange={noop}
+            onContextChange={noop}
+            onCapabilityChange={noop}
+            searchValue=''
+            onSearchChange={noop}
+            onClearSearch={noop}
+            vendors={[]}
+            groups={[]}
+            tags={[]}
+            models={models}
+            hasActiveFilters={false}
+            activeFilterCount={0}
+            onClearFilters={noop}
+          />
+        </I18nextProvider>
+      )
+    })
+
+    await act(async () => {
+      const sortButton = [...container.querySelectorAll('button')].find(
+        (button) => button.textContent?.includes('Recommended')
+      )
+      sortButton?.click()
+    })
+
+    assert.match(document.body.textContent ?? '', /Recommended/)
+    assert.match(document.body.textContent ?? '', /Name/)
+    assert.match(document.body.textContent ?? '', /Price: Low to High/)
+    assert.match(document.body.textContent ?? '', /Price: High to Low/)
+    assert.doesNotMatch(document.body.textContent ?? '', /Newest/)
 
     await act(async () => root.unmount())
     container.remove()

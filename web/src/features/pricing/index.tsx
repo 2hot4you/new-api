@@ -37,9 +37,8 @@ import {
   EXCLUDED_GROUPS,
   FILTER_ALL,
   QUOTA_TYPES,
-  SORT_OPTIONS,
 } from './constants'
-import { useFilters } from './hooks/use-filters'
+import { serializeSortOption, useFilters } from './hooks/use-filters'
 import { usePricingData } from './hooks/use-pricing-data'
 import { getModelCategories } from './lib/model-directory'
 
@@ -95,7 +94,7 @@ export function Pricing() {
   const directorySearch = useMemo(
     () => ({
       search: searchInput || undefined,
-      sort: sortBy === SORT_OPTIONS.RELEASE_DATE ? undefined : sortBy,
+      sort: serializeSortOption(sortBy),
       vendor: vendorFilter === FILTER_ALL ? undefined : vendorFilter,
       group: groupFilter === FILTER_ALL ? undefined : groupFilter,
       quotaType:

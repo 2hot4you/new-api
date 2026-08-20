@@ -24,6 +24,7 @@ type Pricing struct {
 	Icon                   string                                 `json:"icon,omitempty"`
 	Tags                   string                                 `json:"tags,omitempty"`
 	VendorID               int                                    `json:"vendor_id,omitempty"`
+	DisplayOrder           int                                    `json:"display_order"`
 	QuotaType              int                                    `json:"quota_type"`
 	ModelRatio             float64                                `json:"model_ratio"`
 	ModelPrice             float64                                `json:"model_price"`
@@ -61,10 +62,11 @@ type Pricing struct {
 }
 
 type PricingVendor struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Icon        string `json:"icon,omitempty"`
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	DisplayOrder int    `json:"display_order"`
+	Description  string `json:"description,omitempty"`
+	Icon         string `json:"icon,omitempty"`
 }
 
 var (
@@ -416,6 +418,7 @@ func updatePricing() {
 		pricing.Icon = meta.Icon
 		pricing.Tags = meta.Tags
 		pricing.VendorID = meta.VendorID
+		pricing.DisplayOrder = meta.DisplayOrder
 		pricing.ContextLength = meta.ContextLength
 		pricing.MaxOutputTokens = meta.MaxOutputTokens
 		pricing.KnowledgeCutoff = meta.KnowledgeCutoff
@@ -471,19 +474,26 @@ func updatePricing() {
 		}
 		pricingMap = append(pricingMap, pricing)
 	}
+	sort.Slice(pricingMap, func(i, j int) bool {
+		if pricingMap[i].DisplayOrder != pricingMap[j].DisplayOrder {
+			return pricingMap[i].DisplayOrder < pricingMap[j].DisplayOrder
+		}
+		return pricingMap[i].ModelName < pricingMap[j].ModelName
+	})
 
 	vendorsList = make([]PricingVendor, 0, len(referencedVendorIDs))
-	vendorIDs := make([]int, 0, len(referencedVendorIDs))
 	for vendorID := range referencedVendorIDs {
-		vendorIDs = append(vendorIDs, vendorID)
-	}
-	sort.Ints(vendorIDs)
-	for _, vendorID := range vendorIDs {
 		vendor := vendorMap[vendorID]
 		vendorsList = append(vendorsList, PricingVendor{
-			ID: vendor.Id, Name: vendor.Name, Description: vendor.Description, Icon: vendor.Icon,
+			ID: vendor.Id, Name: vendor.Name, DisplayOrder: vendor.DisplayOrder, Description: vendor.Description, Icon: vendor.Icon,
 		})
 	}
+	sort.Slice(vendorsList, func(i, j int) bool {
+		if vendorsList[i].DisplayOrder != vendorsList[j].DisplayOrder {
+			return vendorsList[i].DisplayOrder < vendorsList[j].DisplayOrder
+		}
+		return vendorsList[i].Name < vendorsList[j].Name
+	})
 
 	// 防止大更新后数据不通用
 	if len(pricingMap) > 0 {

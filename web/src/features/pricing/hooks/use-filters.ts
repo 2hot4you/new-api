@@ -26,6 +26,7 @@ import {
   ENDPOINT_TYPES,
   DEFAULT_TOKEN_UNIT,
   VIEW_MODES,
+  type SortOption,
   type ViewMode,
 } from '../constants'
 import { filterAndSortModels, extractAllTags } from '../lib/filters'
@@ -61,6 +62,22 @@ function normalizeViewMode(value: unknown): ViewMode {
   return VIEW_MODES.CARD
 }
 
+export function normalizeSortOption(value: unknown): SortOption {
+  if (
+    value === SORT_OPTIONS.NAME ||
+    value === SORT_OPTIONS.PRICE_LOW ||
+    value === SORT_OPTIONS.PRICE_HIGH
+  ) {
+    return value
+  }
+  return SORT_OPTIONS.RECOMMENDED
+}
+
+export function serializeSortOption(value: unknown): SortOption | undefined {
+  const sort = normalizeSortOption(value)
+  return sort === SORT_OPTIONS.RECOMMENDED ? undefined : sort
+}
+
 export function useFilters(models: PricingModel[]) {
   const search = useSearch({ from: '/pricing/' })
   const [filterState, setFilterState] = useState<FilterState>(() => ({
@@ -81,7 +98,7 @@ export function useFilters(models: PricingModel[]) {
   }))
 
   const searchInput = filterState.search || ''
-  const sortBy = filterState.sort || SORT_OPTIONS.RELEASE_DATE
+  const sortBy = normalizeSortOption(filterState.sort)
   const vendorFilter = filterState.vendor || FILTER_ALL
   const groupFilter = filterState.group || FILTER_ALL
   const quotaTypeFilter = filterState.quotaType || QUOTA_TYPES.ALL
@@ -113,10 +130,7 @@ export function useFilters(models: PricingModel[]) {
     [updateFilters]
   )
   const setSortBy = useCallback(
-    (v: string) =>
-      updateFilters({
-        sort: v === SORT_OPTIONS.RELEASE_DATE ? undefined : v,
-      }),
+    (v: string) => updateFilters({ sort: serializeSortOption(v) }),
     [updateFilters]
   )
   const setVendorFilter = useCallback(

@@ -23,6 +23,7 @@ For commercial licensing, please contact support@quantumnous.com
 export type PricingVendor = {
   id: number
   name: string
+  display_order?: number
   icon?: string
   description?: string
 }
@@ -54,6 +55,7 @@ export type MoliiGrokPricing = {
 export type PricingModel = {
   id: number
   model_name: string
+  display_order?: number
   display_name?: string
   description?: string
   description_en?: string
