@@ -1,12 +1,12 @@
 {
   "id": "manual-marketplace-ordering",
   "title": "由模型元数据与供应商管理控制模型广场展示顺序",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "按实施计划执行数据库、API、前端排序与验证任务",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地化与审查记录",
   "createdAt": "2026-08-20T00:00:00Z",
   "branch": "develop"
 }
