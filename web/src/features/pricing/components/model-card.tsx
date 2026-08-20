@@ -247,8 +247,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       onClick={props.onClick}
       onKeyDown={handleKeyDown}
       className={cn(
-        'group bg-background relative flex min-h-[330px] cursor-pointer flex-col border-r border-b p-4 outline-none transition-colors sm:p-5',
-        'hover:bg-muted/25 focus-visible:ring-ring focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset'
+        'group bg-background relative flex min-h-[330px] cursor-pointer flex-col p-4 outline-none transition-colors sm:p-5',
+        'hover:bg-muted/40 focus-visible:ring-ring focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset'
       )}
     >
       <header className='flex items-start justify-between gap-3'>

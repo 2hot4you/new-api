@@ -61,7 +61,7 @@ export function ModelCardGrid(props: ModelCardGridProps) {
   return (
     <div>
       <div
-        className='grid grid-cols-1 border-t border-l md:grid-cols-2 xl:grid-cols-3'
+        className='bg-border/70 grid grid-cols-1 gap-px border md:grid-cols-2 xl:grid-cols-3'
         data-model-directory-grid='true'
       >
         {props.models.map((model) => (
