@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "planning",
-  "nextAction": "等待用户审阅已确认并固化的设计文档",
+  "nextAction": "按实施计划执行数据库、API、前端排序与验证任务",
   "createdAt": "2026-08-20T00:00:00Z",
   "branch": "develop"
 }
