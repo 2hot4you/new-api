@@ -55,7 +55,7 @@ export function ModelsPrimaryButtons() {
   }
 
   const handleManageVendors = () => {
-    setOpen('create-vendor') // Will be a separate vendors management dialog
+    setOpen('manage-vendors')
   }
 
   return (

@@ -5807,6 +5807,20 @@
     "The exact ID clients use in API requests.": "The exact ID clients use in API requests.",
     "The model ID cannot be changed after creation.": "The model ID cannot be changed after creation.",
     "The saved metadata became incomplete, so the model was automatically withdrawn from the marketplace.": "The saved metadata became incomplete, so the model was automatically withdrawn from the marketplace.",
-    "These fields are the source of truth for the public model page.": "These fields are the source of truth for the public model page."
+    "These fields are the source of truth for the public model page.": "These fields are the source of truth for the public model page.",
+    "Add Vendor": "Добавить поставщика",
+    "Add a vendor to start organizing marketplace models.": "Добавьте поставщика, чтобы начать упорядочивать модели каталога.",
+    "Are you sure you want to delete vendor \"{{name}}\"? This action cannot be undone.": "Удалить поставщика «{{name}}»? Это действие нельзя отменить.",
+    "Delete Vendor": "Удалить поставщика",
+    "Delete vendor {{name}}": "Удалить поставщика {{name}}",
+    "Edit vendor {{name}}": "Изменить поставщика {{name}}",
+    "Icon preview": "Предпросмотр значка",
+    "Manage vendor names, descriptions, and LobeHub icon variants.": "Управляйте названиями, описаниями и вариантами значков LobeHub для поставщиков.",
+    "No vendors found": "Поставщики не найдены",
+    "Unable to load vendors": "Не удалось загрузить поставщиков",
+    "Use an @lobehub/icons key name. Color examples: OpenAI.Color, DeepSeek.Color, Claude.Color.": "Используйте имя ключа @lobehub/icons. Примеры цветных значков: OpenAI.Color, DeepSeek.Color, Claude.Color.",
+    "Vendor created successfully": "Поставщик успешно создан",
+    "Vendor logo": "Логотип поставщика",
+    "Vendor updated successfully": "Поставщик успешно обновлён"
   }
 }

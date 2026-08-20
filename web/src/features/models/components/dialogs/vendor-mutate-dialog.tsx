@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { createVendor, updateVendor } from '../../api'
 import { vendorsQueryKeys, modelsQueryKeys } from '../../lib'
@@ -69,6 +70,8 @@ export function VendorMutateDialog({
       status: 1,
     },
   })
+  const iconValue = form.watch('icon')
+  const nameValue = form.watch('name')
 
   // Load vendor data for editing
   useEffect(() => {
@@ -78,7 +81,7 @@ export function VendorMutateDialog({
         name: currentVendor.name,
         description: currentVendor.description || '',
         icon: currentVendor.icon || '',
-        status: currentVendor.status || 1,
+        status: currentVendor.status ?? 1,
       })
     } else if (open && !isEdit) {
       form.reset({
@@ -93,25 +96,35 @@ export function VendorMutateDialog({
   const onSubmit = async (values: Record<string, unknown>) => {
     setIsSaving(true)
     try {
-      const response = isEdit
-        ? await updateVendor({ ...values, id: currentVendor!.id })
-        : await createVendor(values)
+      const response =
+        isEdit && currentVendor
+          ? await updateVendor({ ...values, id: currentVendor.id })
+          : await createVendor(values)
 
       if (response.success) {
         toast.success(
-          isEdit ? 'Vendor updated successfully' : 'Vendor created successfully'
+          isEdit
+            ? t('Vendor updated successfully')
+            : t('Vendor created successfully')
         )
         queryClient.invalidateQueries({ queryKey: vendorsQueryKeys.lists() })
         queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
         onOpenChange(false)
       } else {
-        toast.error(response.message || 'Operation failed')
+        toast.error(response.message || t('Operation failed'))
       }
     } catch (error: unknown) {
-      toast.error((error as Error)?.message || 'Operation failed')
+      toast.error((error as Error)?.message || t('Operation failed'))
     } finally {
       setIsSaving(false)
     }
+  }
+
+  let submitLabel = t('Create')
+  if (isSaving) {
+    submitLabel = t('Saving...')
+  } else if (isEdit) {
+    submitLabel = t('Update')
   }
 
   return (
@@ -146,7 +159,7 @@ export function VendorMutateDialog({
             {isSaving ? (
               <Loader2 className='mr-2 h-4 w-4 animate-spin' />
             ) : null}
-            {isSaving ? t('Saving...') : isEdit ? t('Update') : t('Create')}
+            {submitLabel}
           </Button>
         </>
       }
@@ -201,14 +214,25 @@ export function VendorMutateDialog({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>{t('Icon')}</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder={t('OpenAI, Anthropic, Google, etc.')}
-                    {...field}
-                  />
-                </FormControl>
+                <div className='flex items-center gap-3'>
+                  <div
+                    className='bg-muted/50 flex size-11 shrink-0 items-center justify-center rounded-lg border'
+                    data-vendor-icon-preview={iconValue}
+                    aria-label={t('Icon preview')}
+                  >
+                    {getLobeIcon(iconValue || nameValue, 32)}
+                  </div>
+                  <FormControl>
+                    <Input
+                      placeholder={t('OpenAI, Anthropic, Google, etc.')}
+                      {...field}
+                    />
+                  </FormControl>
+                </div>
                 <FormDescription>
-                  {t('@lobehub/icons key name')}
+                  {t(
+                    'Use an @lobehub/icons key name. Color examples: OpenAI.Color, DeepSeek.Color, Claude.Color.'
+                  )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

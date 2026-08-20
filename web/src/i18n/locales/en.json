@@ -5807,6 +5807,20 @@
     "The exact ID clients use in API requests.": "The exact ID clients use in API requests.",
     "The model ID cannot be changed after creation.": "The model ID cannot be changed after creation.",
     "The saved metadata became incomplete, so the model was automatically withdrawn from the marketplace.": "The saved metadata became incomplete, so the model was automatically withdrawn from the marketplace.",
-    "These fields are the source of truth for the public model page.": "These fields are the source of truth for the public model page."
+    "These fields are the source of truth for the public model page.": "These fields are the source of truth for the public model page.",
+    "Add Vendor": "Add Vendor",
+    "Add a vendor to start organizing marketplace models.": "Add a vendor to start organizing marketplace models.",
+    "Are you sure you want to delete vendor \"{{name}}\"? This action cannot be undone.": "Are you sure you want to delete vendor \"{{name}}\"? This action cannot be undone.",
+    "Delete Vendor": "Delete Vendor",
+    "Delete vendor {{name}}": "Delete vendor {{name}}",
+    "Edit vendor {{name}}": "Edit vendor {{name}}",
+    "Icon preview": "Icon preview",
+    "Manage vendor names, descriptions, and LobeHub icon variants.": "Manage vendor names, descriptions, and LobeHub icon variants.",
+    "No vendors found": "No vendors found",
+    "Unable to load vendors": "Unable to load vendors",
+    "Use an @lobehub/icons key name. Color examples: OpenAI.Color, DeepSeek.Color, Claude.Color.": "Use an @lobehub/icons key name. Color examples: OpenAI.Color, DeepSeek.Color, Claude.Color.",
+    "Vendor created successfully": "Vendor created successfully",
+    "Vendor logo": "Vendor logo",
+    "Vendor updated successfully": "Vendor updated successfully"
   }
 }

@@ -5807,6 +5807,20 @@
     "The exact ID clients use in API requests.": "用戶端在 API 請求中使用的準確模型 ID。",
     "The model ID cannot be changed after creation.": "模型 ID 建立後不可修改。",
     "The saved metadata became incomplete, so the model was automatically withdrawn from the marketplace.": "儲存後的後設資料不再完整，模型已自動從模型廣場撤下。",
-    "These fields are the source of truth for the public model page.": "以下欄位是公開模型頁面的唯一資料來源。"
+    "These fields are the source of truth for the public model page.": "以下欄位是公開模型頁面的唯一資料來源。",
+    "Add Vendor": "新增供應商",
+    "Add a vendor to start organizing marketplace models.": "新增供應商以開始整理模型廣場中的模型。",
+    "Are you sure you want to delete vendor \"{{name}}\"? This action cannot be undone.": "確定要刪除供應商「{{name}}」嗎？此操作無法復原。",
+    "Delete Vendor": "刪除供應商",
+    "Delete vendor {{name}}": "刪除供應商 {{name}}",
+    "Edit vendor {{name}}": "編輯供應商 {{name}}",
+    "Icon preview": "圖示預覽",
+    "Manage vendor names, descriptions, and LobeHub icon variants.": "管理供應商名稱、描述與 LobeHub 圖示版本。",
+    "No vendors found": "找不到供應商",
+    "Unable to load vendors": "無法載入供應商",
+    "Use an @lobehub/icons key name. Color examples: OpenAI.Color, DeepSeek.Color, Claude.Color.": "使用 @lobehub/icons 鍵名。彩色範例：OpenAI.Color、DeepSeek.Color、Claude.Color。",
+    "Vendor created successfully": "供應商建立成功",
+    "Vendor logo": "供應商 Logo",
+    "Vendor updated successfully": "供應商更新成功"
   }
 }

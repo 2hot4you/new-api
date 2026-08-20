@@ -5807,6 +5807,20 @@
     "The exact ID clients use in API requests.": "The exact ID clients use in API requests.",
     "The model ID cannot be changed after creation.": "The model ID cannot be changed after creation.",
     "The saved metadata became incomplete, so the model was automatically withdrawn from the marketplace.": "The saved metadata became incomplete, so the model was automatically withdrawn from the marketplace.",
-    "These fields are the source of truth for the public model page.": "These fields are the source of truth for the public model page."
+    "These fields are the source of truth for the public model page.": "These fields are the source of truth for the public model page.",
+    "Add Vendor": "ベンダーを追加",
+    "Add a vendor to start organizing marketplace models.": "ベンダーを追加して、モデル広場のモデルを整理します。",
+    "Are you sure you want to delete vendor \"{{name}}\"? This action cannot be undone.": "ベンダー「{{name}}」を削除しますか？この操作は元に戻せません。",
+    "Delete Vendor": "ベンダーを削除",
+    "Delete vendor {{name}}": "ベンダー {{name}} を削除",
+    "Edit vendor {{name}}": "ベンダー {{name}} を編集",
+    "Icon preview": "アイコンのプレビュー",
+    "Manage vendor names, descriptions, and LobeHub icon variants.": "ベンダー名、説明、LobeHub アイコンのバリエーションを管理します。",
+    "No vendors found": "ベンダーが見つかりません",
+    "Unable to load vendors": "ベンダーを読み込めません",
+    "Use an @lobehub/icons key name. Color examples: OpenAI.Color, DeepSeek.Color, Claude.Color.": "@lobehub/icons のキー名を使用してください。カラー例：OpenAI.Color、DeepSeek.Color、Claude.Color。",
+    "Vendor created successfully": "ベンダーを作成しました",
+    "Vendor logo": "ベンダーのロゴ",
+    "Vendor updated successfully": "ベンダーを更新しました"
   }
 }

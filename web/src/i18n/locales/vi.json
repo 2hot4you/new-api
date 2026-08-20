@@ -5807,6 +5807,20 @@
     "The exact ID clients use in API requests.": "The exact ID clients use in API requests.",
     "The model ID cannot be changed after creation.": "The model ID cannot be changed after creation.",
     "The saved metadata became incomplete, so the model was automatically withdrawn from the marketplace.": "The saved metadata became incomplete, so the model was automatically withdrawn from the marketplace.",
-    "These fields are the source of truth for the public model page.": "These fields are the source of truth for the public model page."
+    "These fields are the source of truth for the public model page.": "These fields are the source of truth for the public model page.",
+    "Add Vendor": "Thêm nhà cung cấp",
+    "Add a vendor to start organizing marketplace models.": "Thêm nhà cung cấp để bắt đầu sắp xếp các mô hình trên chợ mô hình.",
+    "Are you sure you want to delete vendor \"{{name}}\"? This action cannot be undone.": "Bạn có chắc muốn xóa nhà cung cấp “{{name}}” không? Thao tác này không thể hoàn tác.",
+    "Delete Vendor": "Xóa nhà cung cấp",
+    "Delete vendor {{name}}": "Xóa nhà cung cấp {{name}}",
+    "Edit vendor {{name}}": "Chỉnh sửa nhà cung cấp {{name}}",
+    "Icon preview": "Xem trước biểu tượng",
+    "Manage vendor names, descriptions, and LobeHub icon variants.": "Quản lý tên, mô tả và các biến thể biểu tượng LobeHub của nhà cung cấp.",
+    "No vendors found": "Không tìm thấy nhà cung cấp",
+    "Unable to load vendors": "Không thể tải danh sách nhà cung cấp",
+    "Use an @lobehub/icons key name. Color examples: OpenAI.Color, DeepSeek.Color, Claude.Color.": "Sử dụng tên khóa @lobehub/icons. Ví dụ màu: OpenAI.Color, DeepSeek.Color, Claude.Color.",
+    "Vendor created successfully": "Đã tạo nhà cung cấp",
+    "Vendor logo": "Logo nhà cung cấp",
+    "Vendor updated successfully": "Đã cập nhật nhà cung cấp"
   }
 }
