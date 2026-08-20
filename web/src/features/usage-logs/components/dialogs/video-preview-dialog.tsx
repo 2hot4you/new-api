@@ -115,6 +115,8 @@ export function VideoPreviewDialog({
     ? formatTaskBillingFormula(log.billing)
     : null
   const downloadHref = log.result_url
+    ? `${log.result_url}${log.result_url.includes('?') ? '&' : '?'}download=1`
+    : ''
 
   return (
     <Dialog
@@ -254,7 +256,6 @@ export function VideoPreviewDialog({
               <a
                 href={downloadHref}
                 download
-                target='_blank'
                 rel='noopener noreferrer'
                 referrerPolicy='no-referrer'
                 data-grok-video-download

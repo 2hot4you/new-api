@@ -42,12 +42,19 @@ func videoProxyCodedError(c *gin.Context, status int, code, message string) {
 }
 
 type storedVideoFetcher func(context.Context, string, string, string) (*http.Response, error)
+type remoteVideoFetcher func(*http.Client, *http.Request) (*http.Response, error)
 
 func VideoProxy(c *gin.Context) {
 	videoProxyWithStoredFetcher(c, service.FetchCOSObject)
 }
 
 func videoProxyWithStoredFetcher(c *gin.Context, fetchStored storedVideoFetcher) {
+	videoProxyWithFetchers(c, fetchStored, func(client *http.Client, request *http.Request) (*http.Response, error) {
+		return client.Do(request)
+	})
+}
+
+func videoProxyWithFetchers(c *gin.Context, fetchStored storedVideoFetcher, fetchRemote remoteVideoFetcher) {
 	taskID := c.Param("task_id")
 	if taskID == "" {
 		videoProxyError(c, http.StatusBadRequest, "invalid_request_error", "task_id is required")
@@ -101,13 +108,15 @@ func videoProxyWithStoredFetcher(c *gin.Context, fetchStored storedVideoFetcher)
 			videoProxyCodedError(c, http.StatusBadGateway, "upstream_invalid_result_url", "Molii Grok Imagine API video result must use a trusted HTTPS URL")
 			return
 		}
-		c.Header("Cache-Control", "private, no-store")
-		c.Header("Referrer-Policy", "no-referrer")
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("Location", resultURL)
-		c.Status(http.StatusTemporaryRedirect)
-		c.Writer.WriteHeaderNow()
-		return
+		if c.Query("download") != "1" {
+			c.Header("Cache-Control", "private, no-store")
+			c.Header("Referrer-Policy", "no-referrer")
+			c.Header("X-Content-Type-Options", "nosniff")
+			c.Header("Location", resultURL)
+			c.Status(http.StatusTemporaryRedirect)
+			c.Writer.WriteHeaderNow()
+			return
+		}
 	}
 	baseURL := channel.GetBaseURL()
 	if baseURL == "" {
@@ -207,6 +216,9 @@ func videoProxyWithStoredFetcher(c *gin.Context, fetchStored storedVideoFetcher)
 		// DNS modes (198.18.0.0/15) do not trip the protected dialer's rejection.
 		client = service.GetHttpClient()
 	}
+	if trustedMoliiGrokVideoURL {
+		client = restrictMoliiGrokVideoRedirects(client)
+	}
 	var validateErr error
 	if !trustedSignedStarAITOSURL && !trustedMoliiGrokVideoURL {
 		if proxy == "" {
@@ -244,7 +256,7 @@ func videoProxyWithStoredFetcher(c *gin.Context, fetchStored storedVideoFetcher)
 		req.Header.Set("If-Range", ifRangeHeader)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := fetchRemote(client, req)
 	if err != nil {
 		if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch Molii Grok Imagine API video for public task %s", taskID))
@@ -276,13 +288,17 @@ func videoProxyWithStoredFetcher(c *gin.Context, fetchStored storedVideoFetcher)
 		}
 	}
 	if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
-		applyMoliiGrokVideoResponseHeaders(c.Writer.Header())
+		applyMoliiGrokVideoResponseHeaders(c.Writer.Header(), c.Query("download") == "1")
 	}
 	if strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "video/") {
-		c.Writer.Header().Set("Content-Disposition", "inline")
+		applyVideoContentDisposition(c.Writer.Header(), c.Query("download") == "1")
 	}
 
-	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
+	if channel.Type == constant.ChannelTypeMoliiGrokAIGC && c.Query("download") == "1" {
+		c.Writer.Header().Set("Cache-Control", "private, no-store")
+	} else {
+		c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
+	}
 	c.Writer.WriteHeader(resp.StatusCode)
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
@@ -338,7 +354,7 @@ func serveStoredGrokVideo(c *gin.Context, task *model.Task, fetchStored storedVi
 			c.Writer.Header().Add(key, value)
 		}
 	}
-	applyMoliiGrokVideoResponseHeaders(c.Writer.Header())
+	applyMoliiGrokVideoResponseHeaders(c.Writer.Header(), c.Query("download") == "1")
 	c.Writer.WriteHeader(response.StatusCode)
 	if response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 		c.Writer.WriteHeaderNow()
@@ -359,9 +375,34 @@ func isMoliiGrokVideoResponseHeaderAllowed(key string) bool {
 	}
 }
 
-func applyMoliiGrokVideoResponseHeaders(header http.Header) {
+func applyMoliiGrokVideoResponseHeaders(header http.Header, download bool) {
 	header.Set("Content-Type", "video/mp4")
+	applyVideoContentDisposition(header, download)
+}
+
+func applyVideoContentDisposition(header http.Header, download bool) {
+	if download {
+		header.Set("Content-Disposition", `attachment; filename="molii-video.mp4"`)
+		return
+	}
 	header.Set("Content-Disposition", "inline")
+}
+
+func restrictMoliiGrokVideoRedirects(client *http.Client) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	restricted := *client
+	restricted.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if request.URL == nil || !service.IsTrustedMoliiGrokVideoURL(request.URL.String()) {
+			return http.ErrUseLastResponse
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &restricted
 }
 
 func writeVideoDataURL(c *gin.Context, dataURL string) error {
@@ -391,6 +432,7 @@ func writeVideoDataURL(c *gin.Context, dataURL string) error {
 	}
 
 	c.Writer.Header().Set("Content-Type", mimeType)
+	applyVideoContentDisposition(c.Writer.Header(), c.Query("download") == "1")
 	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
 	c.Writer.WriteHeader(http.StatusOK)
 	_, err = c.Writer.Write(videoBytes)

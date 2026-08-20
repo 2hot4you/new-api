@@ -16,6 +16,9 @@ func TestVideoProxyAuthAcceptsSignedPlaybackURLWithoutAuthorizationHeader(t *tes
 	gin.SetMode(gin.TestMode)
 	playbackURL, err := url.Parse(service.BuildSignedVideoProxyURL("task_public", 42))
 	require.NoError(t, err)
+	query := playbackURL.Query()
+	query.Set("download", "1")
+	playbackURL.RawQuery = query.Encode()
 
 	router := gin.New()
 	router.GET("/v1/videos/:task_id/content", VideoProxyAuth(), func(c *gin.Context) {

@@ -244,9 +244,9 @@ describe('task video preview', () => {
 
     assert.equal(
       download?.getAttribute('href'),
-      '/v1/videos/task_public_preview/content?signature=test'
+      '/v1/videos/task_public_preview/content?signature=test&download=1'
     )
-    assert.equal(download?.getAttribute('target'), '_blank')
+    assert.equal(download?.getAttribute('target'), null)
     assert.equal(download?.getAttribute('referrerpolicy'), 'no-referrer')
     for (const expected of ['720p', '16:9', '6 seconds', 'Billing Formula']) {
       assert.equal(text.includes(expected), true, expected)

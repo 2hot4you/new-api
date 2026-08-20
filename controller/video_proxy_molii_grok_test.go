@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -70,6 +71,129 @@ func TestVideoProxyRedirectsOwnedSuccessfulGrokResultWithoutServerFetch(t *testi
 	assert.Equal(t, "private, no-store", recorder.Header().Get("Cache-Control"))
 	assert.Equal(t, "no-referrer", recorder.Header().Get("Referrer-Policy"))
 	assert.Equal(t, "nosniff", recorder.Header().Get("X-Content-Type-Options"))
+}
+
+func TestVideoProxyDownloadModeStreamsOwnedGrokResultAsAttachment(t *testing.T) {
+	previousDB := model.DB
+	previousMemoryCacheEnabled := common.MemoryCacheEnabled
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Task{}))
+	model.DB = db
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.MemoryCacheEnabled = previousMemoryCacheEnabled
+	})
+
+	const userID, channelID = 851, 852
+	const publicTaskID = "task_public_grok_download"
+	require.NoError(t, db.Create(&model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}).Error)
+	require.NoError(t, db.Create(&model.Task{
+		TaskID: publicTaskID, UserId: userID, ChannelId: channelID,
+		Platform: constant.TaskPlatform("62"), Status: model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			ResultURL: "https://vidgen.x.ai/result.mp4?token=signed",
+		},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/"+publicTaskID+"/content?download=1", nil)
+	c.Request.Header.Set("Authorization", "Bearer caller-secret-must-not-be-forwarded")
+	c.Params = gin.Params{{Key: "task_id", Value: publicTaskID}}
+	c.Set("id", userID)
+	var fetches atomic.Int32
+	videoProxyWithFetchers(
+		c,
+		func(context.Context, string, string, string) (*http.Response, error) {
+			return nil, errors.New("stored fetch must not be called")
+		},
+		func(_ *http.Client, request *http.Request) (*http.Response, error) {
+			fetches.Add(1)
+			assert.Equal(t, "vidgen.x.ai", request.URL.Hostname())
+			assert.Empty(t, request.Header.Get("Authorization"))
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"video/mp4"}},
+				Body:       io.NopCloser(strings.NewReader("video")),
+			}, nil
+		},
+	)
+
+	assert.EqualValues(t, 1, fetches.Load())
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Empty(t, recorder.Header().Get("Location"))
+	assert.Equal(t, "attachment; filename=\"molii-video.mp4\"", recorder.Header().Get("Content-Disposition"))
+	assert.Equal(t, "video/mp4", recorder.Header().Get("Content-Type"))
+	assert.Equal(t, "private, no-store", recorder.Header().Get("Cache-Control"))
+	assert.Equal(t, "video", recorder.Body.String())
+}
+
+func TestVideoProxyDownloadRejectsUntrustedGrokHTTPSResultBeforeFetch(t *testing.T) {
+	previousDB := model.DB
+	previousMemoryCacheEnabled := common.MemoryCacheEnabled
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Task{}))
+	model.DB = db
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.MemoryCacheEnabled = previousMemoryCacheEnabled
+	})
+
+	const userID, channelID = 861, 862
+	const publicTaskID = "task_public_grok_untrusted_download"
+	require.NoError(t, db.Create(&model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}).Error)
+	require.NoError(t, db.Create(&model.Task{
+		TaskID: publicTaskID, UserId: userID, ChannelId: channelID,
+		Platform: constant.TaskPlatform("62"), Status: model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{ResultURL: "https://example.com/result.mp4?token=must-not-leak"},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/"+publicTaskID+"/content?download=1", nil)
+	c.Params = gin.Params{{Key: "task_id", Value: publicTaskID}}
+	c.Set("id", userID)
+	var fetches atomic.Int32
+	videoProxyWithFetchers(
+		c,
+		func(context.Context, string, string, string) (*http.Response, error) {
+			return nil, errors.New("stored fetch must not be called")
+		},
+		func(*http.Client, *http.Request) (*http.Response, error) {
+			fetches.Add(1)
+			return nil, errors.New("remote fetch must not be called")
+		},
+	)
+
+	assert.Zero(t, fetches.Load())
+	assert.Equal(t, http.StatusBadGateway, recorder.Code)
+	assert.Empty(t, recorder.Header().Get("Location"))
+	assert.NotContains(t, recorder.Body.String(), "example.com")
+	assert.NotContains(t, recorder.Body.String(), "must-not-leak")
+}
+
+func TestMoliiGrokVideoClientRejectsRedirectOutsideTrustedHost(t *testing.T) {
+	originalCalled := false
+	client := restrictMoliiGrokVideoRedirects(&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		originalCalled = true
+		return errors.New("generic redirect policy must not run for trusted Grok video hosts")
+	}})
+	require.NotNil(t, client.CheckRedirect)
+
+	trustedURL, err := url.Parse("https://vidgen.x.ai/next.mp4?token=signed")
+	require.NoError(t, err)
+	trustedRequest := &http.Request{URL: trustedURL}
+	assert.NoError(t, client.CheckRedirect(trustedRequest, nil))
+	assert.False(t, originalCalled)
+
+	untrustedURL, err := url.Parse("https://example.com/next.mp4?token=must-not-leak")
+	require.NoError(t, err)
+	untrustedRequest := &http.Request{URL: untrustedURL}
+	assert.Error(t, client.CheckRedirect(untrustedRequest, nil))
 }
 
 func TestVideoProxyRejectsDifferentAuthenticatedUserBeforeAnyGrokResultFetch(t *testing.T) {
@@ -197,7 +321,7 @@ func TestVideoProxyKeepsNonGrokStoredResultBeforeChannelLookup(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/"+publicTaskID+"/content", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/"+publicTaskID+"/content?download=1", nil)
 	c.Params = gin.Params{{Key: "task_id", Value: publicTaskID}}
 	c.Set("id", userID)
 	videoProxyWithStoredFetcher(c, func(_ context.Context, key, _, _ string) (*http.Response, error) {
@@ -210,6 +334,7 @@ func TestVideoProxyKeepsNonGrokStoredResultBeforeChannelLookup(t *testing.T) {
 	})
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, `attachment; filename="molii-video.mp4"`, recorder.Header().Get("Content-Disposition"))
 	assert.Equal(t, "video", recorder.Body.String())
 }
 
@@ -379,9 +504,24 @@ func TestMoliiGrokVideoResponseHeadersForceMP4(t *testing.T) {
 	header := make(http.Header)
 	header.Set("Content-Type", "application/octet-stream")
 	header.Set("Content-Disposition", "attachment")
-	applyMoliiGrokVideoResponseHeaders(header)
+	applyMoliiGrokVideoResponseHeaders(header, false)
 	assert.Equal(t, "video/mp4", header.Get("Content-Type"))
 	assert.Equal(t, "inline", header.Get("Content-Disposition"))
+
+	applyMoliiGrokVideoResponseHeaders(header, true)
+	assert.Equal(t, "attachment; filename=\"molii-video.mp4\"", header.Get("Content-Disposition"))
+}
+
+func TestWriteVideoDataURLDownloadModeUsesAttachment(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task/content?download=1", nil)
+
+	require.NoError(t, writeVideoDataURL(c, "data:video/mp4;base64,dmlkZW8="))
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, `attachment; filename="molii-video.mp4"`, recorder.Header().Get("Content-Disposition"))
+	assert.Equal(t, "video", recorder.Body.String())
 }
 
 func TestMoliiGrokVideoResponseHeaderAllowlist(t *testing.T) {

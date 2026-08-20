@@ -156,4 +156,17 @@ func TestVideoProxyAllowsSignedStarAIPrivateTOSURLWithoutBearer(t *testing.T) {
 	assert.Equal(t, "bytes 0-4/12", recorder.Header().Get("Content-Range"))
 	assert.Equal(t, "inline", recorder.Header().Get("Content-Disposition"))
 	assert.Equal(t, "stara", recorder.Body.String())
+
+	downloadRecorder := httptest.NewRecorder()
+	downloadContext, _ := gin.CreateTestContext(downloadRecorder)
+	downloadContext.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/"+publicTaskID+"/content?download=1", nil)
+	downloadContext.Request.Header.Set("Range", "bytes=0-4")
+	downloadContext.Params = gin.Params{{Key: "task_id", Value: publicTaskID}}
+	downloadContext.Set("id", userID)
+
+	VideoProxy(downloadContext)
+
+	assert.Equal(t, http.StatusPartialContent, downloadRecorder.Code)
+	assert.Equal(t, `attachment; filename="molii-video.mp4"`, downloadRecorder.Header().Get("Content-Disposition"))
+	assert.Equal(t, "stara", downloadRecorder.Body.String())
 }
