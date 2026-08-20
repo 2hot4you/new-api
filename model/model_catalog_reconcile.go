@@ -37,7 +37,7 @@ func newCatalogModel(modelName string) Model {
 
 func ReconcileEnabledModelMetadata() (CatalogReconcileSummary, error) {
 	summary := CatalogReconcileSummary{}
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := withMarketplaceOrderTransaction(DB, func(tx *gorm.DB) error {
 		modelNames, err := enabledCatalogModelNames(tx)
 		if err != nil {
 			return err
@@ -59,7 +59,7 @@ func ReconcileEnabledModelMetadata() (CatalogReconcileSummary, error) {
 
 			if errors.Is(entryErr, gorm.ErrRecordNotFound) {
 				entry = newCatalogModel(modelName)
-				if err := tx.Create(&entry).Error; err != nil {
+				if err := createModelWithNextDisplayOrder(tx, &entry); err != nil {
 					return err
 				}
 				summary.CreatedModels++

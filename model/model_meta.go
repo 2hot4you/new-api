@@ -57,6 +57,7 @@ type Model struct {
 	MetadataSource        string         `json:"metadata_source,omitempty" gorm:"type:varchar(128)"`
 	MetadataVerifiedAt    string         `json:"metadata_verified_at,omitempty" gorm:"type:varchar(32)"`
 	MarketplaceEnabled    bool           `json:"marketplace_enabled" gorm:"not null;default:false"`
+	DisplayOrder          int            `json:"display_order" gorm:"not null;default:0;index"`
 	SupportedParameters   []string       `json:"supported_parameters,omitempty" gorm:"serializer:json;type:text;not null;default:'[]'"`
 	SupportedResolutions  []string       `json:"supported_resolutions,omitempty" gorm:"serializer:json;type:text;not null;default:'[]'"`
 	SupportedAspectRatios []string       `json:"supported_aspect_ratios,omitempty" gorm:"serializer:json;type:text;not null;default:'[]'"`
@@ -86,6 +87,10 @@ type Model struct {
 }
 
 func (mi *Model) Insert() error {
+	return insertModel(DB, mi)
+}
+
+func insertModel(db *gorm.DB, mi *Model) error {
 	now := common.GetTimestamp()
 	mi.CreatedTime = now
 	mi.UpdatedTime = now
@@ -94,16 +99,27 @@ func (mi *Model) Insert() error {
 	originalStatus := mi.Status
 	originalSyncOfficial := mi.SyncOfficial
 
-	// 先创建记录（GORM 会对零值字段应用默认值）
-	if err := DB.Create(mi).Error; err != nil {
+	return withMarketplaceOrderTransaction(db, func(tx *gorm.DB) error {
+		// 先创建记录（GORM 会对零值字段应用默认值）
+		if err := createModelWithNextDisplayOrder(tx, mi); err != nil {
+			return err
+		}
+
+		// 使用保存的原始值进行更新，确保零值能正确保存
+		return tx.Model(&Model{}).Where("id = ?", mi.Id).Updates(map[string]interface{}{
+			"status":        originalStatus,
+			"sync_official": originalSyncOfficial,
+		}).Error
+	})
+}
+
+func createModelWithNextDisplayOrder(tx *gorm.DB, entry *Model) error {
+	displayOrder, err := nextMarketplaceDisplayOrder(tx, &Model{})
+	if err != nil {
 		return err
 	}
-
-	// 使用保存的原始值进行更新，确保零值能正确保存
-	return DB.Model(&Model{}).Where("id = ?", mi.Id).Updates(map[string]interface{}{
-		"status":        originalStatus,
-		"sync_official": originalSyncOfficial,
-	}).Error
+	entry.DisplayOrder = displayOrder
+	return tx.Create(entry).Error
 }
 
 func IsModelNameDuplicated(id int, name string) (bool, error) {
@@ -122,9 +138,10 @@ func (mi *Model) Update() error {
 // UpdateTx persists a complete model metadata edit on the supplied transaction.
 func (mi *Model) UpdateTx(tx *gorm.DB) error {
 	mi.UpdatedTime = common.GetTimestamp()
+	columns := []string{"model_name", "display_name", "description", "description_en", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "context_length", "max_output_tokens", "knowledge_cutoff", "release_date", "input_modalities", "output_modalities", "capabilities", "metadata_source", "metadata_verified_at", "marketplace_enabled", "supported_parameters", "supported_resolutions", "supported_aspect_ratios", "max_input_images", "output_formats", "min_duration", "max_duration", "reference_modalities", "updated_time"}
 	// 使用 Select 强制更新所有字段，包括零值
 	return tx.Model(&Model{}).Where("id = ?", mi.Id).
-		Select("model_name", "display_name", "description", "description_en", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "context_length", "max_output_tokens", "knowledge_cutoff", "release_date", "input_modalities", "output_modalities", "capabilities", "metadata_source", "metadata_verified_at", "marketplace_enabled", "supported_parameters", "supported_resolutions", "supported_aspect_ratios", "max_input_images", "output_formats", "min_duration", "max_duration", "reference_modalities", "updated_time").
+		Select(columns).
 		Updates(mi).Error
 }
 
@@ -187,6 +204,10 @@ func (mi *Model) NormalizeCatalogMetadata() error {
 
 func (mi *Model) Delete() error {
 	return DB.Delete(mi).Error
+}
+
+func (mi *Model) BeforeDelete(tx *gorm.DB) error {
+	return acquireMarketplaceOrderLock(tx)
 }
 
 func GetVendorModelCounts() (map[int64]int64, error) {

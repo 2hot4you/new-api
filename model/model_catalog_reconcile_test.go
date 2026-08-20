@@ -1,8 +1,11 @@
 package model
 
 import (
+	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/glebarez/sqlite"
@@ -167,5 +170,103 @@ func TestReconcileEnabledModelMetadataIgnoresDisabledChannels(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("disabled channel model was reconciled")
+	}
+}
+
+func TestReconcileEnabledModelMetadataAppendsMarketplaceDisplayOrder(t *testing.T) {
+	setupModelCatalogReconcileTestDB(t)
+	first := &Model{ModelName: "existing-one"}
+	second := &Model{ModelName: "existing-two"}
+	if err := first.Insert(); err != nil {
+		t.Fatalf("insert first existing model: %v", err)
+	}
+	if err := second.Insert(); err != nil {
+		t.Fatalf("insert second existing model: %v", err)
+	}
+	addEnabledCatalogAbility(t, "reconciled-three")
+
+	summary, err := ReconcileEnabledModelMetadata()
+	if err != nil {
+		t.Fatalf("reconcile enabled model metadata: %v", err)
+	}
+	if summary.CreatedModels != 1 {
+		t.Fatalf("expected one reconciled model, got %+v", summary)
+	}
+	var reconciled Model
+	if err := DB.Where("model_name = ?", "reconciled-three").First(&reconciled).Error; err != nil {
+		t.Fatalf("load reconciled model: %v", err)
+	}
+	if reconciled.DisplayOrder != 3 {
+		t.Fatalf("reconciled display order = %d, want 3", reconciled.DisplayOrder)
+	}
+
+	if err := ReorderModels([]int{reconciled.Id, second.Id, first.Id}); err != nil {
+		t.Fatalf("reorder including reconciled model: %v", err)
+	}
+	ordered := orderedModelIDs(t, DB)
+	want := []int{reconciled.Id, second.Id, first.Id}
+	if len(ordered) != len(want) {
+		t.Fatalf("ordered model count = %d, want %d", len(ordered), len(want))
+	}
+	for index := range want {
+		if ordered[index] != want[index] {
+			t.Fatalf("ordered model ids = %v, want %v", ordered, want)
+		}
+	}
+}
+
+func TestReconcileEnabledModelMetadataSerializesWithReorder(t *testing.T) {
+	setupModelCatalogReconcileTestDB(t)
+	first := &Model{ModelName: "existing-one"}
+	second := &Model{ModelName: "existing-two"}
+	if err := first.Insert(); err != nil {
+		t.Fatalf("insert first existing model: %v", err)
+	}
+	if err := second.Insert(); err != nil {
+		t.Fatalf("insert second existing model: %v", err)
+	}
+	addEnabledCatalogAbility(t, "reconciled-three")
+
+	createReached := make(chan struct{})
+	releaseCreate := make(chan struct{})
+	var pauseOnce sync.Once
+	callbackName := "test:pause_reconciled_model_create"
+	if err := DB.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Table == "models" {
+			pauseOnce.Do(func() {
+				close(createReached)
+				<-releaseCreate
+			})
+		}
+	}); err != nil {
+		t.Fatalf("register create callback: %v", err)
+	}
+	t.Cleanup(func() { _ = DB.Callback().Create().Remove(callbackName) })
+
+	reconcileResult := make(chan error, 1)
+	go func() {
+		_, err := ReconcileEnabledModelMetadata()
+		reconcileResult <- err
+	}()
+	select {
+	case <-createReached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reconciled create did not reach pause")
+	}
+
+	reorderResult := make(chan error, 1)
+	go func() { reorderResult <- ReorderModels([]int{second.Id, first.Id}) }()
+	select {
+	case err := <-reorderResult:
+		close(releaseCreate)
+		t.Fatalf("reorder returned before reconciled create committed: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(releaseCreate)
+	if err := <-reconcileResult; err != nil {
+		t.Fatalf("reconcile enabled model metadata: %v", err)
+	}
+	if err := <-reorderResult; !errors.Is(err, ErrMarketplaceOrderConflict) {
+		t.Fatalf("reorder error = %v, want conflict", err)
 	}
 }

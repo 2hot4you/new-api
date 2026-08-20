@@ -13,22 +13,34 @@ import (
 // 本表同样遵循 3NF 设计范式
 
 type Vendor struct {
-	Id          int            `json:"id"`
-	Name        string         `json:"name" gorm:"size:128;not null;uniqueIndex:uk_vendor_name_delete_at,priority:1"`
-	Description string         `json:"description,omitempty" gorm:"type:text"`
-	Icon        string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
-	Status      int            `json:"status" gorm:"default:1"`
-	CreatedTime int64          `json:"created_time" gorm:"bigint"`
-	UpdatedTime int64          `json:"updated_time" gorm:"bigint"`
-	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_vendor_name_delete_at,priority:2"`
+	Id           int            `json:"id"`
+	Name         string         `json:"name" gorm:"size:128;not null;uniqueIndex:uk_vendor_name_delete_at,priority:1"`
+	Description  string         `json:"description,omitempty" gorm:"type:text"`
+	Icon         string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
+	Status       int            `json:"status" gorm:"default:1"`
+	DisplayOrder int            `json:"display_order" gorm:"not null;default:0;index"`
+	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
+	UpdatedTime  int64          `json:"updated_time" gorm:"bigint"`
+	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_vendor_name_delete_at,priority:2"`
 }
 
 // Insert 创建新的供应商记录
 func (v *Vendor) Insert() error {
+	return insertVendor(DB, v)
+}
+
+func insertVendor(db *gorm.DB, v *Vendor) error {
 	now := common.GetTimestamp()
 	v.CreatedTime = now
 	v.UpdatedTime = now
-	return DB.Create(v).Error
+	return withMarketplaceOrderTransaction(db, func(tx *gorm.DB) error {
+		displayOrder, err := nextMarketplaceDisplayOrder(tx, &Vendor{})
+		if err != nil {
+			return err
+		}
+		v.DisplayOrder = displayOrder
+		return tx.Create(v).Error
+	})
 }
 
 // IsVendorNameDuplicated 检查供应商名称是否重复（排除自身 ID）
@@ -44,12 +56,17 @@ func IsVendorNameDuplicated(id int, name string) (bool, error) {
 // Update 更新供应商记录
 func (v *Vendor) Update() error {
 	v.UpdatedTime = common.GetTimestamp()
-	return DB.Save(v).Error
+	columns := []string{"name", "description", "icon", "status", "updated_time"}
+	return DB.Model(&Vendor{}).Where("id = ?", v.Id).Select(columns).Updates(v).Error
 }
 
 // Delete 软删除供应商
 func (v *Vendor) Delete() error {
 	return DB.Delete(v).Error
+}
+
+func (v *Vendor) BeforeDelete(tx *gorm.DB) error {
+	return acquireMarketplaceOrderLock(tx)
 }
 
 // GetVendorByID 根据 ID 获取供应商

@@ -259,6 +259,7 @@ func migrateDB() error {
 	}
 
 	err := DB.AutoMigrate(
+		&marketplaceOrderLock{},
 		&Channel{},
 		&Token{},
 		&User{},
@@ -298,6 +299,9 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
+	if err := InitializeMarketplaceDisplayOrders(DB); err != nil {
+		return err
+	}
 	if err := ensureModelMarketplaceMetadataSchema(DB); err != nil {
 		return err
 	}
@@ -330,6 +334,7 @@ func migrateDBFast() error {
 		model interface{}
 		name  string
 	}{
+		{&marketplaceOrderLock{}, "MarketplaceOrderLock"},
 		{&Channel{}, "Channel"},
 		{&Token{}, "Token"},
 		{&User{}, "User"},
@@ -386,6 +391,9 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := InitializeMarketplaceDisplayOrders(DB); err != nil {
+		return err
 	}
 	if err := ensureModelMarketplaceMetadataSchema(DB); err != nil {
 		return err
