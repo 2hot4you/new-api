@@ -359,6 +359,8 @@ func SetApiRouter(router *gin.Engine) {
 		vendorRoute := apiRouter.Group("/vendors")
 		vendorRoute.Use(middleware.AdminAuth())
 		{
+			vendorRoute.GET("/order", controller.GetVendorOrder)
+			vendorRoute.PUT("/order", controller.UpdateVendorOrder)
 			vendorRoute.GET("/", controller.GetAllVendors)
 			vendorRoute.GET("/search", controller.SearchVendors)
 			vendorRoute.GET("/:id", controller.GetVendorMeta)
@@ -371,6 +373,8 @@ func SetApiRouter(router *gin.Engine) {
 		modelsRoute.Use(middleware.AdminAuth())
 		{
 			modelsRoute.GET("/missing", controller.GetMissingModels)
+			modelsRoute.GET("/order", controller.GetModelOrder)
+			modelsRoute.PUT("/order", controller.UpdateModelOrder)
 			modelsRoute.GET("/", controller.GetAllModelsMeta)
 			modelsRoute.GET("/search", controller.SearchModelsMeta)
 			modelsRoute.GET("/:id", controller.GetModelMeta)

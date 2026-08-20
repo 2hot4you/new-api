@@ -22,8 +22,10 @@ import type {
   GetModelsParams,
   GetModelsResponse,
   GetModelResponse,
+  GetModelOrderResponse,
   GetVendorsResponse,
   GetVendorResponse,
+  GetVendorOrderResponse,
   Model,
   Vendor,
   SearchModelsParams,
@@ -31,6 +33,7 @@ import type {
   PrefillGroupsResponse,
   DeploymentSettingsResponse,
   ListDeploymentsResponse,
+  SaveMarketplaceOrderResponse,
 } from './types'
 
 // ============================================================================
@@ -106,6 +109,24 @@ export async function deleteModel(
   return res.data
 }
 
+/**
+ * Get the complete administrator-managed model display order.
+ */
+export async function getModelOrder(): Promise<GetModelOrderResponse> {
+  const res = await api.get('/api/models/order')
+  return res.data
+}
+
+/**
+ * Save the complete administrator-managed model display order.
+ */
+export async function saveModelOrder(
+  orderedIDs: number[]
+): Promise<SaveMarketplaceOrderResponse> {
+  const res = await api.put('/api/models/order', { ordered_ids: orderedIDs })
+  return res.data
+}
+
 // ============================================================================
 // Vendor Management
 // ============================================================================
@@ -170,6 +191,24 @@ export async function deleteVendor(
   id: number
 ): Promise<{ success: boolean; message?: string }> {
   const res = await api.delete(`/api/vendors/${id}`)
+  return res.data
+}
+
+/**
+ * Get the complete administrator-managed vendor display order.
+ */
+export async function getVendorOrder(): Promise<GetVendorOrderResponse> {
+  const res = await api.get('/api/vendors/order')
+  return res.data
+}
+
+/**
+ * Save the complete administrator-managed vendor display order.
+ */
+export async function saveVendorOrder(
+  orderedIDs: number[]
+): Promise<SaveMarketplaceOrderResponse> {
+  const res = await api.put('/api/vendors/order', { ordered_ids: orderedIDs })
   return res.data
 }
 

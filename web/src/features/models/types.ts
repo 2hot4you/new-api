@@ -56,6 +56,7 @@ export interface BoundChannel {
  */
 export interface Model {
   id: number
+  display_order?: number
   model_name: string
   display_name?: string
   description?: string
@@ -105,6 +106,7 @@ export interface Model {
  */
 export interface Vendor {
   id: number
+  display_order?: number
   name: string
   description?: string
   icon?: string
@@ -194,6 +196,32 @@ export interface GetVendorResponse {
   success: boolean
   message?: string
   data?: Vendor
+}
+
+/**
+ * Ordered marketplace records returned to administrators.
+ */
+export interface GetModelOrderResponse {
+  success: boolean
+  message?: string
+  data?: Model[]
+}
+
+/**
+ * Ordered marketplace vendors returned to administrators.
+ */
+export interface GetVendorOrderResponse {
+  success: boolean
+  message?: string
+  data?: Vendor[]
+}
+
+/**
+ * Response from saving a complete marketplace order.
+ */
+export interface SaveMarketplaceOrderResponse {
+  success: boolean
+  message?: string
 }
 
 /**
