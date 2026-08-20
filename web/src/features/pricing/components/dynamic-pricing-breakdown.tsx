@@ -43,6 +43,10 @@ import {
   type RequestRuleGroup,
   type TierCondition,
 } from '../lib/billing-expr'
+import {
+  getDynamicPricingStrategy,
+  type DynamicPricingStrategy,
+} from '../lib/dynamic-price'
 
 type DynamicPricingBreakdownProps = {
   billingExpr: string | null | undefined
@@ -69,7 +73,7 @@ type DynamicPricingBreakdownProps = {
 const VAR_LABELS: Record<string, string> = {
   p: 'Input',
   c: 'Output',
-  len: 'Length',
+  len: 'Complete input Tokens',
 }
 const OP_LABELS: Record<string, string> = {
   '<': '<',
@@ -153,6 +157,49 @@ function describeGroup(
     .join(' && ')
 }
 
+function pricingStrategyTitle(strategy: DynamicPricingStrategy): string {
+  if (strategy.kind === 'input_length') {
+    return 'Tiered by per-request input Tokens'
+  }
+  if (strategy.kind === 'time_window') return 'Priced by request time'
+  if (strategy.kind === 'input_length_and_time') {
+    return 'Priced by input Tokens and request time'
+  }
+  return 'Dynamic Pricing'
+}
+
+function pricingStrategyDescription(strategy: DynamicPricingStrategy): string {
+  if (strategy.kind === 'input_length') {
+    return 'The tier is selected from this request’s complete input Token count, including cached Tokens; it is not cumulative usage.'
+  }
+  if (strategy.kind === 'time_window') {
+    return 'The price is determined by the request arrival time shown below.'
+  }
+  if (strategy.kind === 'input_length_and_time') {
+    return 'The price is determined by this request’s complete input Token count and arrival time.'
+  }
+  return 'Prices vary by usage tier and request conditions'
+}
+
+function usesInputLengthTiers(strategy: DynamicPricingStrategy): boolean {
+  return (
+    strategy.kind === 'input_length' ||
+    strategy.kind === 'input_length_and_time'
+  )
+}
+
+function usesReadableTimeRules(
+  strategy: DynamicPricingStrategy,
+  groupCount: number
+): boolean {
+  return (
+    (strategy.kind === 'time_window' ||
+      strategy.kind === 'input_length_and_time') &&
+    strategy.timeRules.length === groupCount &&
+    groupCount > 0
+  )
+}
+
 export function DynamicPricingBreakdown({
   billingExpr,
   matchedTierLabel,
@@ -176,18 +223,23 @@ export function DynamicPricingBreakdown({
     return { symbol: '$', rate: 1 }
   }, [currency])
 
-  const { tiers, ruleGroups } = useMemo(() => {
+  const { tiers, ruleGroups, strategy } = useMemo(() => {
     const split = splitBillingExprAndRequestRules(expr)
     const parsedTiers = parseTiersFromExpr(split.billingExpr)
     const parsedRules = tryParseRequestRuleExpr(split.requestRuleExpr || '')
     return {
       tiers: parsedTiers,
       ruleGroups: parsedRules || [],
+      strategy: getDynamicPricingStrategy(expr),
     }
   }, [expr])
 
   const hasTiers = tiers.length > 0
   const hasRules = ruleGroups.length > 0
+  const hasReadableTimeRules = usesReadableTimeRules(
+    strategy,
+    ruleGroups.length
+  )
   const normalizedMatchedTierLabel = normalizeTierLabel(
     matchedTierLabel ?? undefined
   )
@@ -239,10 +291,10 @@ export function DynamicPricingBreakdown({
           </span>
           <div>
             <div className='text-foreground text-base font-medium'>
-              {t('Dynamic Pricing')}
+              {t(pricingStrategyTitle(strategy))}
             </div>
             <div className='text-muted-foreground text-xs'>
-              {t('Prices vary by usage tier and request conditions')}
+              {t(pricingStrategyDescription(strategy))}
             </div>
           </div>
         </div>
@@ -257,18 +309,24 @@ export function DynamicPricingBreakdown({
                 : 'text-foreground mb-2 text-sm font-semibold'
             }
           >
-            {t('Tiered price table')}
+            {t(
+              usesInputLengthTiers(strategy)
+                ? 'Per-request input Token tiers'
+                : 'Tiered price table'
+            )}
           </div>
           <div className='space-y-1.5 sm:hidden'>
             {tiers.map((tier, i) => {
-              const condSummary = formatConditionSummary(tier.conditions, t)
+              const condSummary =
+                strategy.tierRanges[i] ||
+                formatConditionSummary(tier.conditions, t)
               const isMatched =
                 matchedTierLabel != null &&
                 matchedTierLabel !== '' &&
                 tier.label === matchedTierLabel
               return (
                 <div
-                  key={`tier-mobile-${i}`}
+                  key={`${tier.label}-${condSummary}`}
                   className={cn(
                     'rounded-md border p-2',
                     isMatched && 'border-emerald-500/40 bg-emerald-500/10'
@@ -351,8 +409,10 @@ export function DynamicPricingBreakdown({
                   compact && 'h-8'
                 ),
                 cellClassName: cn('align-top', compact ? 'py-2' : 'py-2.5'),
-                cell: (tier) => {
-                  const condSummary = formatConditionSummary(tier.conditions, t)
+                cell: (tier, index) => {
+                  const condSummary =
+                    strategy.tierRanges[index] ||
+                    formatConditionSummary(tier.conditions, t)
                   const isMatched =
                     normalizedMatchedTierLabel !== '' &&
                     normalizeTierLabel(tier.label) ===
@@ -422,12 +482,16 @@ export function DynamicPricingBreakdown({
                 : 'text-foreground mb-2 text-sm font-semibold'
             }
           >
-            {t('Conditional multipliers')}
+            {t(
+              hasReadableTimeRules
+                ? 'Time-based price rules'
+                : 'Conditional multipliers'
+            )}
           </div>
           <ul className='space-y-1.5'>
             {ruleGroups.map((group, gi) => (
               <li
-                key={`group-${gi}`}
+                key={`${describeGroup(group, t)}-${group.multiplier}`}
                 className='bg-muted/50 flex items-center justify-between gap-3 rounded-md px-3 py-2'
               >
                 <span
@@ -436,7 +500,9 @@ export function DynamicPricingBreakdown({
                     compact ? 'text-xs' : 'text-sm'
                   )}
                 >
-                  {describeGroup(group, t)}
+                  {hasReadableTimeRules
+                    ? `${strategy.timeRules[gi].label} (${strategy.timeRules[gi].timezone})`
+                    : describeGroup(group, t)}
                 </span>
                 <Badge
                   variant='secondary'
@@ -446,6 +512,21 @@ export function DynamicPricingBreakdown({
                 </Badge>
               </li>
             ))}
+            {hasReadableTimeRules && (
+              <li className='bg-muted/50 flex items-center justify-between gap-3 rounded-md px-3 py-2'>
+                <span
+                  className={cn(
+                    'text-foreground',
+                    compact ? 'text-xs' : 'text-sm'
+                  )}
+                >
+                  {t('Other times use the base price')}
+                </span>
+                <Badge variant='secondary' className='shrink-0'>
+                  1x
+                </Badge>
+              </li>
+            )}
           </ul>
         </div>
       )}

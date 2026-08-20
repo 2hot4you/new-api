@@ -1,0 +1,12 @@
+{
+  "id": "home-search-pricing-strategy",
+  "title": "同步首页厂商排序、修复精确搜索并明确分档计价文案",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务，等待用户决定是否提交和推送",
+  "createdAt": "2026-08-20T00:00:00Z",
+  "branch": "develop"
+}

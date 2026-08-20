@@ -184,11 +184,16 @@ function CompactPricing(props: { summary: CompactPricingSummary }) {
 
   return (
     <div className='flex items-end justify-between gap-3'>
-      <div>
+      <div className='min-w-0'>
         <div className='text-muted-foreground text-xs'>{t(summary.label)}</div>
         <div className='text-muted-foreground/50 mt-0.5 text-[10px]'>
-          {t('Full pricing is available on the details page')}
+          {summary.detail || t('Full pricing is available on the details page')}
         </div>
+        {summary.noteKey && (
+          <div className='text-muted-foreground/50 mt-0.5 text-[10px]'>
+            {t(summary.noteKey)}
+          </div>
+        )}
       </div>
       {summary.from && (
         <div className='shrink-0 text-right'>

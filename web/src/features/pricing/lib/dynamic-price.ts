@@ -27,6 +27,8 @@ import {
   tryParseRequestRuleExpr,
   type BillingVar,
   type ParsedTier,
+  type RequestRuleGroup,
+  type TierCondition,
 } from './billing-expr'
 import { getDisplayGroupRatio } from './model-helpers'
 
@@ -59,6 +61,25 @@ export type DynamicPricingSummary = {
   entries: DynamicPriceEntry[]
   primaryEntries: DynamicPriceEntry[]
   secondaryEntries: DynamicPriceEntry[]
+}
+
+export type DynamicPricingStrategyKind =
+  | 'generic'
+  | 'input_length'
+  | 'time_window'
+  | 'input_length_and_time'
+  | 'request_conditions'
+
+export type DynamicPricingTimeRule = {
+  label: string
+  timezone: string
+  multiplier: string
+}
+
+export type DynamicPricingStrategy = {
+  kind: DynamicPricingStrategyKind
+  tierRanges: string[]
+  timeRules: DynamicPricingTimeRule[]
 }
 
 export type TextModelCardPricingRow = {
@@ -151,6 +172,145 @@ export function formatDynamicUnitPrice(
 function formatCNYPrice(value: number): string {
   const digits = Math.abs(value) >= 1 ? 4 : 6
   return String(Number(value.toFixed(digits)))
+}
+
+function formatTokenBoundary(value: number): string {
+  if (value >= 1_000_000) {
+    return `${Number((value / 1_000_000).toFixed(1))}M`
+  }
+  if (value >= 1000) return `${Number((value / 1000).toFixed(1))}K`
+  return String(value)
+}
+
+function upperLengthCondition(
+  conditions: TierCondition[]
+): TierCondition | undefined {
+  return conditions.find(
+    (condition) =>
+      condition.var === 'len' && (condition.op === '<' || condition.op === '<=')
+  )
+}
+
+function lowerLengthCondition(
+  conditions: TierCondition[]
+): TierCondition | undefined {
+  return conditions.find(
+    (condition) =>
+      condition.var === 'len' && (condition.op === '>' || condition.op === '>=')
+  )
+}
+
+function formatLengthTierRanges(tiers: ParsedTier[]): string[] {
+  let previousUpper: TierCondition | undefined
+
+  return tiers.map((tier) => {
+    const lower = lowerLengthCondition(tier.conditions)
+    const upper = upperLengthCondition(tier.conditions)
+    let label = tier.label
+
+    if (lower && upper) {
+      label = `${formatTokenBoundary(lower.value)}–${formatTokenBoundary(upper.value)}`
+    } else if (upper && previousUpper) {
+      label = `${formatTokenBoundary(previousUpper.value)}–${formatTokenBoundary(upper.value)}`
+    } else if (upper) {
+      label = `${upper.op === '<=' ? '≤' : '<'} ${formatTokenBoundary(upper.value)}`
+    } else if (lower) {
+      label = `${lower.op === '>=' ? '≥' : '>'} ${formatTokenBoundary(lower.value)}`
+    } else if (previousUpper) {
+      label = `${previousUpper.op === '<=' ? '>' : '≥'} ${formatTokenBoundary(previousUpper.value)}`
+    }
+
+    if (upper) previousUpper = upper
+    return label
+  })
+}
+
+function padHour(value: string): string {
+  const hour = Number(value)
+  if (!Number.isInteger(hour) || hour < 0 || hour > 24) return value
+  return String(hour).padStart(2, '0')
+}
+
+function parseTimeRule(group: RequestRuleGroup): DynamicPricingTimeRule | null {
+  if (group.conditions.length === 0) return null
+  if (group.conditions.some((condition) => condition.source !== 'time')) {
+    return null
+  }
+
+  const conditions = group.conditions.filter(
+    (condition) => condition.source === 'time'
+  )
+  const first = conditions[0]
+  if (!first || first.timeFunc !== 'hour') return null
+  if (
+    conditions.some(
+      (condition) =>
+        condition.timeFunc !== 'hour' || condition.timezone !== first.timezone
+    )
+  ) {
+    return null
+  }
+
+  const range = conditions.find((condition) => condition.mode === 'range')
+  if (range) {
+    return {
+      label: `${padHour(range.rangeStart)}:00–${padHour(range.rangeEnd)}:00`,
+      timezone: range.timezone || 'UTC',
+      multiplier: group.multiplier,
+    }
+  }
+
+  const start = conditions.find(
+    (condition) => condition.mode === 'gte' || condition.mode === 'gt'
+  )
+  const end = conditions.find(
+    (condition) => condition.mode === 'lt' || condition.mode === 'lte'
+  )
+  if (!start || !end) return null
+
+  return {
+    label: `${padHour(start.value)}:00–${padHour(end.value)}:00`,
+    timezone: first.timezone || 'UTC',
+    multiplier: group.multiplier,
+  }
+}
+
+export function getDynamicPricingStrategy(
+  expression: string
+): DynamicPricingStrategy {
+  const split = splitBillingExprAndRequestRules(expression || '')
+  const tiers = parseTiersFromExpr(split.billingExpr)
+  const ruleGroups = tryParseRequestRuleExpr(split.requestRuleExpr || '') || []
+  const hasInputLength = tiers.some((tier) =>
+    tier.conditions.some((condition) => condition.var === 'len')
+  )
+  const hasTimeRules = ruleGroups.some((group) =>
+    group.conditions.some((condition) => condition.source === 'time')
+  )
+  const hasOtherRequestRules = ruleGroups.some((group) =>
+    group.conditions.some((condition) => condition.source !== 'time')
+  )
+  const timeRules = ruleGroups.flatMap((group) => {
+    const rule = parseTimeRule(group)
+    return rule ? [rule] : []
+  })
+
+  let kind: DynamicPricingStrategyKind = 'generic'
+  if (hasInputLength && hasTimeRules && !hasOtherRequestRules) {
+    kind = 'input_length_and_time'
+  } else if (hasInputLength && ruleGroups.length === 0) {
+    kind = 'input_length'
+  } else if (hasTimeRules && !hasOtherRequestRules) {
+    kind = 'time_window'
+  } else if (ruleGroups.length > 0) {
+    kind = 'request_conditions'
+  }
+
+  return {
+    kind,
+    tierRanges: hasInputLength ? formatLengthTierRanges(tiers) : [],
+    timeRules,
+  }
 }
 
 export function getDynamicPricingTiers(model: PricingModel): ParsedTier[] {

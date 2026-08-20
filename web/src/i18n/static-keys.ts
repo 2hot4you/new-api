@@ -87,6 +87,15 @@ export const STATIC_I18N_KEYS = [
   'Supported Capabilities',
   'Supported Protocols',
   'Dynamic Tiered',
+  'Tiered by per-request input Tokens',
+  'Priced by request time',
+  'Priced by input Tokens and request time',
+  'Complete input Tokens',
+  'Per-request input Token tiers',
+  'Time-based price rules',
+  'The tier is selected from this request’s complete input Token count, including cached Tokens; it is not cumulative usage.',
+  'The price is determined by the request arrival time shown below.',
+  'The price is determined by this request’s complete input Token count and arrival time.',
 
   // Curated model descriptions. English descriptions are stable keys;
   // Chinese translations are reviewed and maintained locally.

@@ -48,7 +48,7 @@ export function ModelSearch(props: ModelSearchProps) {
     !isFocused && query.length === 0
   )
   const results = useMemo(
-    () => searchHomeModels(props.models, query, 6),
+    () => searchHomeModels(props.models, query),
     [props.models, query]
   )
   const showResults = isFocused && query.trim().length > 0
@@ -191,7 +191,8 @@ export function ModelSearch(props: ModelSearchProps) {
         <div
           id={listboxId}
           role='listbox'
-          className='border-border/70 bg-popover absolute top-[calc(100%+0.6rem)] right-0 left-0 z-30 overflow-hidden rounded-2xl border p-2 shadow-2xl'
+          data-scrollable='true'
+          className='border-border/70 bg-popover absolute top-[calc(100%+0.6rem)] right-0 left-0 z-30 max-h-[min(60vh,32rem)] overflow-y-auto overscroll-contain rounded-2xl border p-2 shadow-2xl'
         >
           {suggestions}
         </div>

@@ -189,4 +189,36 @@ describe('home model search', () => {
     await act(async () => root.unmount())
     container.remove()
   })
+
+  test('renders every matching result in an internally scrollable list', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const models = Array.from({ length: 8 }, (_, index) =>
+      model(`qwen-model-${index}`, 'Qwen')
+    )
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ModelSearch models={models} />
+        </I18nextProvider>
+      )
+    })
+
+    const input = container.querySelector<HTMLInputElement>('input')
+    assert.ok(input)
+    await act(async () => {
+      input.focus()
+      setInputValue(input, 'q')
+    })
+
+    const listbox = container.querySelector('[role="listbox"]')
+    assert.ok(listbox)
+    assert.equal(listbox.querySelectorAll('[role="option"]').length, 8)
+    assert.equal(listbox.getAttribute('data-scrollable'), 'true')
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
 })

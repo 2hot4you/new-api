@@ -149,6 +149,12 @@ describe('Molii home sections', () => {
       assert.equal(sequences[1].querySelectorAll('a').length, 8)
       assert.match(sequences[0].textContent ?? '', /DeepSeek/)
       assert.match(sequences[0].textContent ?? '', /Qwen/)
+      assert.deepEqual(
+        [...sequences[0].querySelectorAll('a')]
+          .slice(0, 2)
+          .map((link) => link.getAttribute('href')),
+        ['/pricing?vendor=DeepSeek', '/pricing?vendor=Qwen']
+      )
     }
 
     assert.equal(

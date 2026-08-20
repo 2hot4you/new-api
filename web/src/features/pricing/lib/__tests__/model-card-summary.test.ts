@@ -53,8 +53,30 @@ describe('compact model directory pricing summary', () => {
 
     assert.deepEqual(summary, {
       kind: 'tiered',
-      label: 'Tiered pricing',
+      label: 'Tiered by per-request input Tokens',
+      detail: '≤ 128K / > 128K',
       from: '¥0.2',
+      unit: '1,000,000 Token',
+    })
+  })
+
+  test('describes time-window pricing from the expression instead of the model ID', () => {
+    const summary = getCompactPricingSummary(
+      model({
+        model_name: 'deepseek-custom-name',
+        billing_mode: 'tiered_expr',
+        billing_expr:
+          '(tier("base", p * 1.5 + c * 4.5 + cr * 0.05)) * (hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 12 ? 2 : 1) * (hour("Asia/Shanghai") >= 14 && hour("Asia/Shanghai") < 18 ? 2 : 1)',
+      }),
+      options
+    )
+
+    assert.deepEqual(summary, {
+      kind: 'tiered',
+      label: 'Priced by request time',
+      detail: '09:00–12:00, 14:00–18:00 (Asia/Shanghai) ×2',
+      noteKey: 'Other times use the base price',
+      from: '$1.5',
       unit: '1,000,000 Token',
     })
   })

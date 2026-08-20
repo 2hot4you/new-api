@@ -21,8 +21,20 @@ function model(
 }
 
 const vendors: PricingVendor[] = [
-  { id: 1, name: 'DeepSeek', icon: 'DeepSeek', description: 'LLM vendor' },
-  { id: 2, name: 'xAI', icon: 'Grok', description: 'Imagine models' },
+  {
+    id: 1,
+    name: 'DeepSeek',
+    display_order: 20,
+    icon: 'DeepSeek',
+    description: 'LLM vendor',
+  },
+  {
+    id: 2,
+    name: 'xAI',
+    display_order: 10,
+    icon: 'Grok',
+    description: 'Imagine models',
+  },
   { id: 3, name: 'Unused', icon: 'OpenAI' },
 ]
 
@@ -57,7 +69,7 @@ describe('home model catalog', () => {
     assert.equal(catalog.capabilityCategoryCount, 3)
     assert.deepEqual(
       catalog.vendors.map((vendor) => vendor.name),
-      ['DeepSeek', 'xAI']
+      ['xAI', 'DeepSeek']
     )
   })
 
@@ -130,28 +142,23 @@ describe('home model search', () => {
     }),
   ]
 
-  test('matches model id, vendor, description, capability, and modalities', () => {
+  test('matches only model IDs and vendor names', () => {
     assert.deepEqual(
       searchHomeModels(models, 'DEEPSEEK').map((item) => item.model_name),
       ['deepseek-v4-pro']
     )
-    assert.deepEqual(
-      searchHomeModels(models, '视频生成').map((item) => item.model_name),
-      ['doubao-seedance-2-0']
-    )
-    assert.deepEqual(
-      searchHomeModels(models, 'image_generation').map(
-        (item) => item.model_name
-      ),
-      ['grok-imagine-image']
-    )
+    assert.deepEqual(searchHomeModels(models, 'xai'), [models[2]])
+    assert.deepEqual(searchHomeModels(models, '视频生成'), [])
+    assert.deepEqual(searchHomeModels(models, 'image_generation'), [])
   })
 
-  test('normalizes whitespace and respects the result limit', () => {
+  test('allows one-character matches and returns all matches by default', () => {
     const repeated = Array.from({ length: 8 }, (_, index) =>
       model(`qwen-model-${index}`, { vendor_name: 'Qwen' })
     )
 
+    assert.equal(searchHomeModels(repeated, 'q').length, 8)
+    assert.equal(searchHomeModels(repeated, '0').length, 1)
     assert.equal(searchHomeModels(repeated, '  qWen  ', 5).length, 5)
     assert.deepEqual(searchHomeModels(models, '   '), [])
   })

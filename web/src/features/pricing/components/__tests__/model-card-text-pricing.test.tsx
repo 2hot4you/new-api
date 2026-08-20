@@ -109,7 +109,7 @@ describe('selected text-model marketplace card pricing', () => {
     container.remove()
   })
 
-  test('renders only the starting dynamic tier and links pricing detail conceptually', async () => {
+  test('renders the input-length strategy and only the starting dynamic price', async () => {
     const model = baseModel('qwen3.5-flash')
     model.billing_mode = 'tiered_expr'
     model.billing_currency = 'CNY'
@@ -119,10 +119,14 @@ describe('selected text-model marketplace card pricing', () => {
 
     const summary = container.querySelector('[data-model-card-pricing]')
     assert.ok(summary)
-    assert.match(summary.textContent ?? '', /Tiered pricing/)
+    assert.match(
+      summary.textContent ?? '',
+      /Tiered by per-request input Tokens/
+    )
+    assert.match(summary.textContent ?? '', /≤ 128K \/ 128K–256K \/ > 256K/)
     assert.match(summary.textContent ?? '', /¥0\.2/)
     assert.match(summary.textContent ?? '', /1,000,000 Token/)
-    assert.doesNotMatch(summary.textContent ?? '', /128K–256K|256K–1M/)
+    assert.doesNotMatch(summary.textContent ?? '', /¥0\.8|¥1\.2/)
 
     await act(async () => root.unmount())
     container.remove()

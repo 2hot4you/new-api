@@ -131,7 +131,7 @@ export function VendorMarquee(props: VendorMarqueeProps) {
   return (
     <div className='home-marquee border-border/40 overflow-hidden border-y py-4'>
       <MarqueeRow vendors={props.vendors} direction='forward' />
-      <MarqueeRow vendors={[...props.vendors].reverse()} direction='reverse' />
+      <MarqueeRow vendors={props.vendors} direction='reverse' />
     </div>
   )
 }

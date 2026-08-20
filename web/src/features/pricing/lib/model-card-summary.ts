@@ -20,6 +20,8 @@ import type { PricingModel, TokenUnit } from '../types'
 import {
   getDynamicDisplayGroupRatio,
   getDynamicPricingSummary,
+  getDynamicPricingStrategy,
+  type DynamicPricingStrategy,
 } from './dynamic-price'
 import { formatPrice, formatRequestPrice } from './price'
 import { formatVideoPrice } from './video-pricing'
@@ -45,7 +47,13 @@ export type CompactPricingSummary =
     }
   | {
       kind: 'tiered'
-      label: 'Tiered pricing'
+      label:
+        | 'Tiered pricing'
+        | 'Tiered by per-request input Tokens'
+        | 'Priced by request time'
+        | 'Priced by input Tokens and request time'
+      detail?: string
+      noteKey?: 'Other times use the base price'
       from?: string
       unit: '1,000,000 Token' | '1,000 Token' | 'image' | 'second'
     }
@@ -53,6 +61,44 @@ export type CompactPricingSummary =
 function formatDirectCNY(value: number): string {
   const digits = Math.abs(value) >= 1 ? 4 : 6
   return `¥${Number(value.toFixed(digits))}`
+}
+
+function pricingStrategyLabel(
+  strategy: DynamicPricingStrategy
+): Extract<CompactPricingSummary, { kind: 'tiered' }>['label'] {
+  if (strategy.kind === 'input_length') {
+    return 'Tiered by per-request input Tokens'
+  }
+  if (strategy.kind === 'time_window') return 'Priced by request time'
+  if (strategy.kind === 'input_length_and_time') {
+    return 'Priced by input Tokens and request time'
+  }
+  return 'Tiered pricing'
+}
+
+function formatTimeRuleDetail(strategy: DynamicPricingStrategy): string {
+  if (strategy.timeRules.length === 0) return ''
+  const first = strategy.timeRules[0]
+  const sameRuleBasis = strategy.timeRules.every(
+    (rule) =>
+      rule.timezone === first.timezone && rule.multiplier === first.multiplier
+  )
+  if (sameRuleBasis) {
+    return `${strategy.timeRules.map((rule) => rule.label).join(', ')} (${first.timezone}) ×${first.multiplier}`
+  }
+  return strategy.timeRules
+    .map((rule) => `${rule.label} (${rule.timezone}) ×${rule.multiplier}`)
+    .join('; ')
+}
+
+function pricingStrategyDetail(strategy: DynamicPricingStrategy): string {
+  const parts: string[] = []
+  if (strategy.tierRanges.length > 0) {
+    parts.push(strategy.tierRanges.join(' / '))
+  }
+  const timeDetail = formatTimeRuleDetail(strategy)
+  if (timeDetail) parts.push(timeDetail)
+  return parts.join(' · ')
 }
 
 export function getCompactPricingSummary(
@@ -105,9 +151,15 @@ export function getCompactPricingSummary(
     ),
   })
   if (dynamic) {
+    const strategy = getDynamicPricingStrategy(dynamic.rawExpression)
+    const detail = pricingStrategyDetail(strategy)
     return {
       kind: 'tiered',
-      label: 'Tiered pricing',
+      label: pricingStrategyLabel(strategy),
+      ...(detail ? { detail } : {}),
+      ...(strategy.timeRules.length > 0
+        ? { noteKey: 'Other times use the base price' as const }
+        : {}),
       ...(dynamic.primaryEntries[0]?.formatted
         ? { from: dynamic.primaryEntries[0].formatted }
         : {}),
