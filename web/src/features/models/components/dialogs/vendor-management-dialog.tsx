@@ -18,14 +18,23 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ArrowDown,
+  ArrowUp,
   Building2,
+  GripVertical,
   Loader2,
   Pencil,
   Plus,
   RefreshCcw,
   Trash2,
 } from 'lucide-react'
-import { useState } from 'react'
+import { Reorder, useDragControls } from 'motion/react'
+import {
+  useEffect,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -42,7 +51,12 @@ import {
 } from '@/components/ui/empty'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
-import { deleteVendor, getVendors } from '../../api'
+import {
+  deleteVendor,
+  getVendorOrder,
+  getVendors,
+  saveVendorOrder,
+} from '../../api'
 import { modelsQueryKeys, vendorsQueryKeys } from '../../lib'
 import type { Vendor } from '../../types'
 
@@ -53,12 +67,110 @@ type VendorManagementDialogProps = {
   onEditVendor: (vendor: Vendor) => void
 }
 
+type VendorManagementMode = 'list' | 'order'
+
+type VendorOrderItemProps = {
+  vendor: Vendor
+  index: number
+  count: number
+  disabled: boolean
+  onMove: (index: number, direction: 'up' | 'down') => void
+}
+
+function VendorOrderItem(props: VendorOrderItemProps) {
+  const { t } = useTranslation()
+  const dragControls = useDragControls()
+  const iconKey = props.vendor.icon || props.vendor.name
+
+  const handleDragStart = (event: PointerEvent<HTMLButtonElement>) => {
+    if (props.disabled) return
+    dragControls.start(event)
+  }
+
+  const handleDragKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (props.disabled) return
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      props.onMove(props.index, 'up')
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      props.onMove(props.index, 'down')
+    }
+  }
+
+  return (
+    <Reorder.Item
+      value={props.vendor}
+      dragListener={false}
+      dragControls={dragControls}
+      drag={props.disabled ? false : 'y'}
+      className='bg-background flex min-w-0 items-start gap-2 rounded-lg border p-2 sm:items-center sm:gap-3 sm:p-4'
+    >
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        disabled={props.disabled}
+        className='text-muted-foreground cursor-grab touch-none active:cursor-grabbing'
+        aria-label={t('Drag {{name}} to reorder', { name: props.vendor.name })}
+        onPointerDown={handleDragStart}
+        onKeyDown={handleDragKeyDown}
+      >
+        <GripVertical className='size-4' aria-hidden='true' />
+      </Button>
+      <div
+        className='bg-muted/50 flex size-9 shrink-0 items-center justify-center rounded-lg border sm:size-10'
+        data-vendor-logo={iconKey}
+        aria-label={t('Vendor logo')}
+      >
+        {getLobeIcon(iconKey, 28)}
+      </div>
+      <div className='min-w-0 flex-1'>
+        <div data-vendor-name className='truncate text-sm font-semibold'>
+          {props.vendor.name}
+        </div>
+        <code className='text-muted-foreground hidden truncate text-xs sm:block'>
+          {props.vendor.icon || '—'}
+        </code>
+      </div>
+      <div className='flex shrink-0'>
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-sm'
+          disabled={props.disabled || props.index === 0}
+          aria-label={t('Move {{name}} up', { name: props.vendor.name })}
+          onClick={() => props.onMove(props.index, 'up')}
+        >
+          <ArrowUp className='size-4' aria-hidden='true' />
+        </Button>
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-sm'
+          disabled={props.disabled || props.index === props.count - 1}
+          aria-label={t('Move {{name}} down', { name: props.vendor.name })}
+          onClick={() => props.onMove(props.index, 'down')}
+        >
+          <ArrowDown className='size-4' aria-hidden='true' />
+        </Button>
+      </div>
+    </Reorder.Item>
+  )
+}
+
 export function VendorManagementDialog(props: VendorManagementDialogProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [vendorToDelete, setVendorToDelete] = useState<Vendor | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [mode, setMode] = useState<VendorManagementMode>('list')
+  const [orderDraft, setOrderDraft] = useState<Vendor[]>([])
+  const [isLoadingOrder, setIsLoadingOrder] = useState(false)
+  const [isSavingOrder, setIsSavingOrder] = useState(false)
+  const [orderError, setOrderError] = useState('')
 
   const vendorsQuery = useQuery({
     queryKey: vendorsQueryKeys.list({ page_size: 1000 }),
@@ -76,6 +188,80 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
     if (isDeleting) return
     setVendorToDelete(open ? vendorToDelete : null)
     setDeleteError('')
+  }
+
+  const discardOrder = () => {
+    setMode('list')
+    setOrderDraft([])
+    setOrderError('')
+  }
+
+  useEffect(() => {
+    if (!props.open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      discardOrder()
+    }
+  }, [props.open])
+
+  const handleEnterOrderMode = async () => {
+    if (!vendorsQuery.data?.length || isLoadingOrder) return
+    setMode('order')
+    setIsLoadingOrder(true)
+    setOrderDraft([])
+    setOrderError('')
+    try {
+      const response = await getVendorOrder()
+      if (!response.success) {
+        setOrderError(response.message || t('Unable to load vendor order'))
+        return
+      }
+      setOrderDraft(response.data ?? [])
+    } catch (error: unknown) {
+      setOrderError(
+        (error as Error)?.message || t('Unable to load vendor order')
+      )
+    } finally {
+      setIsLoadingOrder(false)
+    }
+  }
+
+  const handleMoveOrderItem = (index: number, direction: 'up' | 'down') => {
+    if (isSavingOrder || isLoadingOrder) return
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= orderDraft.length) return
+    setOrderDraft((current) => {
+      const next = [...current]
+      ;[next[index], next[targetIndex]] = [next[targetIndex], next[index]]
+      return next
+    })
+  }
+
+  const handleSaveOrder = async () => {
+    if (isSavingOrder) return
+    setIsSavingOrder(true)
+    setOrderError('')
+    try {
+      const response = await saveVendorOrder(
+        orderDraft.map((vendor) => vendor.id)
+      )
+      if (!response.success) {
+        setOrderError(response.message || t('Failed to save vendor order'))
+        return
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: vendorsQueryKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: ['pricing'] }),
+      ])
+      toast.success(t('Vendor order saved successfully'))
+      discardOrder()
+    } catch (error: unknown) {
+      setOrderError(
+        (error as Error)?.message || t('Failed to save vendor order')
+      )
+    } finally {
+      setIsSavingOrder(false)
+    }
   }
 
   const handleDelete = async () => {
@@ -148,6 +334,48 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
         </Button>
       </Empty>
     )
+  } else if (mode === 'order') {
+    content = (
+      <div className='space-y-3'>
+        {isLoadingOrder ? (
+          <div
+            className='text-muted-foreground flex min-h-56 items-center justify-center gap-2 text-sm'
+            aria-busy='true'
+          >
+            <Loader2 className='size-4 animate-spin' aria-hidden='true' />
+            {t('Loading...')}
+          </div>
+        ) : (
+          <>
+            {orderError ? (
+              <Alert variant='destructive'>
+                <AlertTitle>{t('Operation failed')}</AlertTitle>
+                <AlertDescription>{orderError}</AlertDescription>
+              </Alert>
+            ) : null}
+            <Reorder.Group
+              axis='y'
+              values={orderDraft}
+              onReorder={(vendors) => {
+                if (!isSavingOrder) setOrderDraft(vendors)
+              }}
+              className='flex flex-col gap-2'
+            >
+              {orderDraft.map((vendor, index) => (
+                <VendorOrderItem
+                  key={vendor.id}
+                  vendor={vendor}
+                  index={index}
+                  count={orderDraft.length}
+                  disabled={isSavingOrder}
+                  onMove={handleMoveOrderItem}
+                />
+              ))}
+            </Reorder.Group>
+          </>
+        )}
+      </div>
+    )
   } else {
     content = (
       <div className='divide-y rounded-lg border'>
@@ -166,7 +394,10 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
                 {getLobeIcon(iconKey, 28)}
               </div>
               <div className='min-w-0 flex-1'>
-                <div className='truncate text-sm font-semibold'>
+                <div
+                  data-vendor-name
+                  className='truncate text-sm font-semibold'
+                >
                   {vendor.name}
                 </div>
                 <code className='text-muted-foreground block truncate text-xs'>
@@ -219,7 +450,11 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
     <>
       <Dialog
         open={props.open}
-        onOpenChange={props.onOpenChange}
+        onOpenChange={(open) => {
+          if (!open && (isSavingOrder || isLoadingOrder)) return
+          if (!open) discardOrder()
+          props.onOpenChange(open)
+        }}
         title={t('Manage Vendors')}
         description={t(
           'Manage vendor names, descriptions, and LobeHub icon variants.'
@@ -227,10 +462,45 @@ export function VendorManagementDialog(props: VendorManagementDialogProps) {
         contentHeight='min(34rem, calc(100vh - 14rem))'
         contentClassName='sm:max-w-3xl'
         footer={
-          <Button type='button' onClick={props.onCreateVendor}>
-            <Plus className='size-4' aria-hidden='true' />
-            {t('Add Vendor')}
-          </Button>
+          mode === 'order' ? (
+            <>
+              <Button
+                type='button'
+                variant='outline'
+                disabled={isSavingOrder || isLoadingOrder}
+                onClick={discardOrder}
+              >
+                {t('Cancel')}
+              </Button>
+              <Button
+                type='button'
+                disabled={isSavingOrder || isLoadingOrder || !orderDraft.length}
+                onClick={handleSaveOrder}
+              >
+                {isSavingOrder ? t('Saving...') : t('Save order')}
+              </Button>
+              <Button type='button' disabled>
+                <Plus className='size-4' aria-hidden='true' />
+                {t('Add Vendor')}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type='button'
+                variant='outline'
+                disabled={!vendorsQuery.data?.length}
+                onClick={handleEnterOrderMode}
+              >
+                <GripVertical className='size-4' aria-hidden='true' />
+                {t('Reorder Vendors')}
+              </Button>
+              <Button type='button' onClick={props.onCreateVendor}>
+                <Plus className='size-4' aria-hidden='true' />
+                {t('Add Vendor')}
+              </Button>
+            </>
+          )
         }
       >
         {content}
