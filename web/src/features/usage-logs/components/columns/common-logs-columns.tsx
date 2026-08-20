@@ -35,6 +35,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { formatDynamicPricingTierLabel } from '@/features/pricing/lib/dynamic-price'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
@@ -218,7 +219,12 @@ function buildTypeDetailSegments(
         .filter((entry) => ['inputPrice', 'outputPrice'].includes(entry.field))
         .map((entry) => formatPriceCompact(entry.price))
       if (baseEntries.length > 0) {
-        const tierLabel = tieredSummary.tier.label || t('Default')
+        const tierLabel = formatDynamicPricingTierLabel(
+          tieredSummary.expression,
+          tieredSummary.tier,
+          tieredSummary.tierIndex,
+          t
+        )
         segments.push({
           text: `${tierLabel} · ${formatPriceList(baseEntries, true)}`,
         })

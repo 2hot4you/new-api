@@ -39,6 +39,18 @@ describe('dynamic pricing breakdown language', () => {
     assert.match(html, /09:00–12:00 \(Asia\/Shanghai\)/)
     assert.match(html, /14:00–18:00 \(Asia\/Shanghai\)/)
     assert.match(html, /Other times use the base price/)
+    assert.match(html, /Base-period price/)
+    assert.doesNotMatch(html, />base</)
     assert.doesNotMatch(html, /Conditional multipliers/)
+  })
+
+  test('shows input ranges instead of internal context tier identifiers', () => {
+    const html = render(
+      'len <= 128000 ? tier("short_context", p * 1 + c * 2) : tier("long_context", p * 2 + c * 4)'
+    )
+
+    assert.match(html, /Single-request input ≤ 128K Tokens/)
+    assert.match(html, /Single-request input &gt; 128K Tokens/)
+    assert.doesNotMatch(html, /short_context|long_context/)
   })
 })

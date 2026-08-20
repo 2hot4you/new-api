@@ -82,6 +82,20 @@ export type DynamicPricingStrategy = {
   timeRules: DynamicPricingTimeRule[]
 }
 
+export type DynamicPricingTierPresentation =
+  | { kind: 'input_length'; range: string }
+  | { kind: 'base_period' }
+  | { kind: 'default_price' }
+  | { kind: 'custom'; label: string }
+
+type TierLabelTranslator = (
+  key: string,
+  options?: {
+    range: string
+    interpolation?: { escapeValue: boolean }
+  }
+) => string
+
 export type TextModelCardPricingRow = {
   label: string
   input: string
@@ -311,6 +325,51 @@ export function getDynamicPricingStrategy(
     tierRanges: hasInputLength ? formatLengthTierRanges(tiers) : [],
     timeRules,
   }
+}
+
+export function getDynamicPricingTierPresentation(
+  expression: string,
+  tier: Pick<ParsedTier, 'label'>,
+  tierIndex: number
+): DynamicPricingTierPresentation {
+  const strategy = getDynamicPricingStrategy(expression)
+  const range = strategy.tierRanges[tierIndex]
+  if (range) return { kind: 'input_length', range }
+
+  const internalLabel = tier.label.trim().toLocaleLowerCase()
+  if (
+    !internalLabel ||
+    internalLabel === 'base' ||
+    internalLabel === 'default'
+  ) {
+    return strategy.timeRules.length > 0
+      ? { kind: 'base_period' }
+      : { kind: 'default_price' }
+  }
+
+  return { kind: 'custom', label: tier.label }
+}
+
+export function formatDynamicPricingTierLabel(
+  expression: string,
+  tier: Pick<ParsedTier, 'label'>,
+  tierIndex: number,
+  t: TierLabelTranslator
+): string {
+  const presentation = getDynamicPricingTierPresentation(
+    expression,
+    tier,
+    tierIndex
+  )
+  if (presentation.kind === 'input_length') {
+    return t('Single-request input {{range}} Tokens', {
+      range: presentation.range,
+      interpolation: { escapeValue: false },
+    })
+  }
+  if (presentation.kind === 'base_period') return t('Base-period price')
+  if (presentation.kind === 'default_price') return t('Default price')
+  return presentation.label
 }
 
 export function getDynamicPricingTiers(model: PricingModel): ParsedTier[] {

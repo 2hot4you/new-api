@@ -295,8 +295,10 @@ export function resolveMatchedTier(
  * billing log or the expression failed to parse.
  */
 export interface TieredBillingSummary {
+  expression: string
   tiers: ParsedTier[]
   tier: ParsedTier
+  tierIndex: number
   priceEntries: Array<{ field: string; shortLabel: string; price: number }>
 }
 
@@ -326,6 +328,7 @@ export function getTieredBillingSummary(
   const tiers = parseTiersFromExpr(exprStr)
   const tier = resolveMatchedTier(tiers, other.matched_tier)
   if (!tier) return null
+  const tierIndex = tiers.indexOf(tier)
 
   const cacheTokensPresent = hasAnyCacheTokens(other)
 
@@ -343,7 +346,7 @@ export function getTieredBillingSummary(
       })
     }
   }
-  return { tiers, tier, priceEntries }
+  return { expression: exprStr, tiers, tier, tierIndex, priceEntries }
 }
 
 /**

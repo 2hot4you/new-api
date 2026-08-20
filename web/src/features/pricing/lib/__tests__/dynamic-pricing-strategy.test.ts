@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { getDynamicPricingStrategy } from '../dynamic-price'
+import { parseTiersFromExpr } from '../billing-expr'
+import {
+  getDynamicPricingStrategy,
+  getDynamicPricingTierPresentation,
+} from '../dynamic-price'
 
 describe('dynamic pricing strategy', () => {
   test('derives per-request complete-input ranges from len tier conditions', () => {
@@ -45,5 +49,37 @@ describe('dynamic pricing strategy', () => {
     )
 
     assert.equal(strategy.kind, 'request_conditions')
+  })
+
+  test('replaces internal context tier names with their real input ranges', () => {
+    const expression =
+      'len <= 128000 ? tier("short_context", p * 1 + c * 2) : tier("long_context", p * 2 + c * 4)'
+    const tiers = parseTiersFromExpr(expression)
+
+    assert.deepEqual(
+      getDynamicPricingTierPresentation(expression, tiers[0], 0),
+      { kind: 'input_length', range: '≤ 128K' }
+    )
+    assert.deepEqual(
+      getDynamicPricingTierPresentation(expression, tiers[1], 1),
+      { kind: 'input_length', range: '> 128K' }
+    )
+  })
+
+  test('describes base as a time baseline only when time rules exist', () => {
+    const timedExpression =
+      '(tier("base", p * 1.5 + c * 4.5)) * (hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 12 ? 2 : 1)'
+    const timedTier = parseTiersFromExpr(timedExpression)[0]
+    const defaultExpression = 'tier("base", p * 1.5 + c * 4.5)'
+    const defaultTier = parseTiersFromExpr(defaultExpression)[0]
+
+    assert.deepEqual(
+      getDynamicPricingTierPresentation(timedExpression, timedTier, 0),
+      { kind: 'base_period' }
+    )
+    assert.deepEqual(
+      getDynamicPricingTierPresentation(defaultExpression, defaultTier, 0),
+      { kind: 'default_price' }
+    )
   })
 })

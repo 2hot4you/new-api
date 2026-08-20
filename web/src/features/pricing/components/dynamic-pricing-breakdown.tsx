@@ -44,7 +44,9 @@ import {
   type TierCondition,
 } from '../lib/billing-expr'
 import {
+  formatDynamicPricingTierLabel,
   getDynamicPricingStrategy,
+  getDynamicPricingTierPresentation,
   type DynamicPricingStrategy,
 } from '../lib/dynamic-price'
 
@@ -317,9 +319,21 @@ export function DynamicPricingBreakdown({
           </div>
           <div className='space-y-1.5 sm:hidden'>
             {tiers.map((tier, i) => {
+              const presentation = getDynamicPricingTierPresentation(
+                expr,
+                tier,
+                i
+              )
+              const displayLabel = formatDynamicPricingTierLabel(
+                expr,
+                tier,
+                i,
+                t
+              )
               const condSummary =
-                strategy.tierRanges[i] ||
-                formatConditionSummary(tier.conditions, t)
+                presentation.kind === 'input_length'
+                  ? ''
+                  : formatConditionSummary(tier.conditions, t)
               const isMatched =
                 matchedTierLabel != null &&
                 matchedTierLabel !== '' &&
@@ -337,7 +351,7 @@ export function DynamicPricingBreakdown({
                       variant='secondary'
                       className='bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
                     >
-                      {tier.label || t('Default')}
+                      {displayLabel}
                     </Badge>
                     {isMatched && (
                       <Badge
@@ -410,9 +424,21 @@ export function DynamicPricingBreakdown({
                 ),
                 cellClassName: cn('align-top', compact ? 'py-2' : 'py-2.5'),
                 cell: (tier, index) => {
+                  const presentation = getDynamicPricingTierPresentation(
+                    expr,
+                    tier,
+                    index
+                  )
+                  const displayLabel = formatDynamicPricingTierLabel(
+                    expr,
+                    tier,
+                    index,
+                    t
+                  )
                   const condSummary =
-                    strategy.tierRanges[index] ||
-                    formatConditionSummary(tier.conditions, t)
+                    presentation.kind === 'input_length'
+                      ? ''
+                      : formatConditionSummary(tier.conditions, t)
                   const isMatched =
                     normalizedMatchedTierLabel !== '' &&
                     normalizeTierLabel(tier.label) ===
@@ -424,7 +450,7 @@ export function DynamicPricingBreakdown({
                           variant='secondary'
                           className='bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
                         >
-                          {tier.label || t('Default')}
+                          {displayLabel}
                         </Badge>
                         {isMatched && (
                           <Badge

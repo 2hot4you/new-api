@@ -1,0 +1,12 @@
+{
+  "id": "semantic-pricing-tier-labels",
+  "title": "将动态计费内部档位名转换为用户可理解的展示文案",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并推送 develop",
+  "createdAt": "2026-08-20T15:30:00Z",
+  "branch": "develop"
+}
