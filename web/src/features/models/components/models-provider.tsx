@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useCallback, useContext, useState } from 'react'
 
 import type { Model, ModelTabCategory } from '../types'
 
@@ -47,6 +47,9 @@ type ModelsContextType = {
   ) => void
   tabCategory: ModelTabCategory
   setTabCategory: (category: ModelTabCategory) => void
+  isOrderingModels: boolean
+  startModelOrdering: () => void
+  stopModelOrdering: () => void
 }
 
 // ============================================================================
@@ -68,6 +71,9 @@ export function ModelsProvider({ children }: { children: React.ReactNode }) {
     description: string
   } | null>(null)
   const [tabCategory, setTabCategory] = useState<ModelTabCategory>('metadata')
+  const [isOrderingModels, setIsOrderingModels] = useState(false)
+  const startModelOrdering = useCallback(() => setIsOrderingModels(true), [])
+  const stopModelOrdering = useCallback(() => setIsOrderingModels(false), [])
 
   return (
     <ModelsContext.Provider
@@ -82,6 +88,9 @@ export function ModelsProvider({ children }: { children: React.ReactNode }) {
         setDescriptionData,
         tabCategory,
         setTabCategory,
+        isOrderingModels,
+        startModelOrdering,
+        stopModelOrdering,
       }}
     >
       {children}

@@ -195,9 +195,7 @@ describe('vendor management', () => {
       )
     })
 
-    const buttons = container.querySelectorAll('button')
-    assert.equal(buttons.length >= 2, true)
-    await click(buttons[1])
+    await click(findButton('More model actions'))
     await waitForText('Manage Vendors')
     await click(findMenuItem('Manage Vendors'))
     await waitForText('No vendors found')

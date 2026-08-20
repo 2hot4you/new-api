@@ -22,6 +22,7 @@ import {
   List,
   Building2,
   AlertCircle,
+  ArrowDownUp,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -39,7 +40,8 @@ import { useModels } from './models-provider'
 
 export function ModelsPrimaryButtons() {
   const { t } = useTranslation()
-  const { setOpen, setCurrentRow } = useModels()
+  const { setOpen, setCurrentRow, startModelOrdering, isOrderingModels } =
+    useModels()
 
   const handleCreateModel = () => {
     setCurrentRow(null)
@@ -66,9 +68,28 @@ export function ModelsPrimaryButtons() {
         {t('Add Model')}
       </Button>
 
+      <Button
+        type='button'
+        variant='outline'
+        size='sm'
+        disabled={isOrderingModels}
+        onClick={startModelOrdering}
+      >
+        <ArrowDownUp className='h-4 w-4' />
+        {t('Edit order')}
+      </Button>
+
       {/* More Actions */}
       <DropdownMenu>
-        <DropdownMenuTrigger render={<Button variant='outline' size='sm' />}>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant='outline'
+              size='sm'
+              aria-label={t('More model actions')}
+            />
+          }
+        >
           <MoreHorizontal className='h-4 w-4' />
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-56'>

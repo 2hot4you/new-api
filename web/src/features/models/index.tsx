@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -30,6 +30,7 @@ import { listDeployments } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
 import { DeploymentsTable } from './components/deployments-table'
 import { CreateDeploymentDrawer } from './components/dialogs/create-deployment-drawer'
+import { ModelOrderEditor } from './components/model-order-editor'
 import { ModelsDialogs } from './components/models-dialogs'
 import { ModelsPrimaryButtons } from './components/models-primary-buttons'
 import { ModelsProvider, useModels } from './components/models-provider'
@@ -56,65 +57,82 @@ const SECTION_META: Record<ModelsSectionId, { titleKey: string }> = {
 function ModelsContent() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { tabCategory, setTabCategory } = useModels()
+  const { tabCategory, setTabCategory, isOrderingModels, stopModelOrdering } =
+    useModels()
   const params = route.useParams()
   const activeSection = (params.section ??
     MODELS_DEFAULT_SECTION) as ModelsSectionId
 
   // Deployment create dialog state
   const [createDeploymentOpen, setCreateDeploymentOpen] = useState(false)
+  const [isSavingModelOrder, setIsSavingModelOrder] = useState(false)
 
   // keep context state in sync (for components that rely on it)
   useEffect(() => {
     if (tabCategory !== activeSection) {
       setTabCategory(activeSection)
     }
-  }, [activeSection, setTabCategory, tabCategory])
+    if (activeSection !== 'metadata') {
+      stopModelOrdering()
+    }
+  }, [activeSection, setTabCategory, stopModelOrdering, tabCategory])
 
   const handleSectionChange = useCallback(
     (section: string) => {
+      if (isSavingModelOrder) return
       void navigate({
         to: '/models/$section',
         params: { section: section as ModelsSectionId },
       })
     },
-    [navigate]
+    [isSavingModelOrder, navigate]
   )
 
   const meta = SECTION_META[activeSection] ?? SECTION_META.metadata
+  let pageActions: ReactNode = (
+    <Button onClick={() => setCreateDeploymentOpen(true)} size='sm'>
+      <Plus className='h-4 w-4' />
+      {t('Create deployment')}
+    </Button>
+  )
+  if (activeSection === 'metadata') {
+    pageActions = isOrderingModels ? null : <ModelsPrimaryButtons />
+  }
+
+  let sectionContent = <DeploymentsSection />
+  if (activeSection === 'metadata') {
+    sectionContent = isOrderingModels ? (
+      <ModelOrderEditor
+        onSaved={stopModelOrdering}
+        onCancel={stopModelOrdering}
+        onSavingChange={setIsSavingModelOrder}
+      />
+    ) : (
+      <ModelsTable />
+    )
+  }
 
   return (
     <>
       <SectionPageLayout fixedContent>
         <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
-        <SectionPageLayout.Actions>
-          {activeSection === 'metadata' ? (
-            <ModelsPrimaryButtons />
-          ) : (
-            <Button onClick={() => setCreateDeploymentOpen(true)} size='sm'>
-              <Plus className='h-4 w-4' />
-              {t('Create deployment')}
-            </Button>
-          )}
-        </SectionPageLayout.Actions>
+        <SectionPageLayout.Actions>{pageActions}</SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='flex h-full min-h-0 flex-col gap-4'>
             <Tabs value={activeSection} onValueChange={handleSectionChange}>
               <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
                 {MODELS_SECTION_IDS.map((section) => (
-                  <TabsTrigger key={section} value={section}>
+                  <TabsTrigger
+                    key={section}
+                    value={section}
+                    disabled={isSavingModelOrder}
+                  >
                     {t(SECTION_META[section].titleKey)}
                   </TabsTrigger>
                 ))}
               </TabsList>
             </Tabs>
-            <div className='min-h-0 flex-1'>
-              {activeSection === 'metadata' ? (
-                <ModelsTable />
-              ) : (
-                <DeploymentsSection />
-              )}
-            </div>
+            <div className='min-h-0 flex-1'>{sectionContent}</div>
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
