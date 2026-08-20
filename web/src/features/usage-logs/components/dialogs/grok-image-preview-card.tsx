@@ -45,7 +45,7 @@ export function GrokImagePreviewCard(props: GrokImagePreviewCardProps) {
 
 function ParameterMetric(props: { label: string; value: string }) {
   return (
-    <div className='bg-background min-w-0 rounded-md border px-2.5 py-2'>
+    <div className='bg-background min-w-0 rounded-md border px-2.5 py-1.5'>
       <div className='text-muted-foreground truncate text-[11px]'>
         {props.label}
       </div>
@@ -116,10 +116,10 @@ function GrokImagePreviewContent(props: GrokImagePreviewCardProps) {
 
   return (
     <section
-      className='grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]'
+      className='grid min-w-0 gap-3 lg:min-h-0 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]'
       data-grok-image-layout
     >
-      <div className='bg-muted/30 min-w-0 space-y-3 rounded-xl border p-3'>
+      <div className='bg-muted/30 min-w-0 space-y-2 rounded-xl border p-2.5'>
         <div className='flex items-center gap-1.5 text-xs font-semibold'>
           <ImageIcon className='size-3.5' aria-hidden='true' />
           {t('Grok Image Preview')}
@@ -153,7 +153,7 @@ function GrokImagePreviewContent(props: GrokImagePreviewCardProps) {
             <img
               src={activeURL}
               alt={t('Generated image')}
-              className='max-h-[52vh] min-h-64 w-full object-contain'
+              className='max-h-[52vh] w-full object-contain lg:h-[clamp(14rem,36dvh,22rem)] lg:max-h-none'
               loading='lazy'
               referrerPolicy='no-referrer'
               data-grok-image-main

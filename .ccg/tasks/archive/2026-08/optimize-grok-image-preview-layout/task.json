@@ -1,0 +1,12 @@
+{
+  "id": "optimize-grok-image-preview-layout",
+  "title": "优化 Grok 图片日志弹窗为桌面端无内部滚动布局",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交推送 develop",
+  "createdAt": "2026-08-20T02:42:13Z",
+  "branch": "develop"
+}

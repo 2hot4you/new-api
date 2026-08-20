@@ -746,7 +746,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   if (isTieredBilling) {
     dialogWidthClass = 'sm:max-w-4xl lg:max-w-5xl'
   } else if (isGrokImage) {
-    dialogWidthClass = 'sm:max-w-5xl'
+    dialogWidthClass = 'sm:max-w-6xl'
   } else if (isStarAIVideoLog || isGrokVideo) {
     dialogWidthClass = 'sm:max-w-2xl'
   }
@@ -775,10 +775,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
       headerClassName='max-sm:gap-1'
       titleClassName='flex items-center gap-2 text-base'
       descriptionClassName='sr-only'
-      contentHeight='min(72dvh, 720px)'
+      contentHeight={isGrokImage ? 'min(82dvh, 760px)' : 'min(72dvh, 720px)'}
+      bodyViewportClassName={cn(isGrokImage && 'lg:max-h-[calc(100dvh-8rem)]')}
       bodyClassName='pr-2 sm:pr-4'
     >
-      <div className='w-full max-w-full min-w-0 space-y-2.5 overflow-x-hidden py-1 sm:space-y-3'>
+      <div
+        className={cn(
+          'w-full max-w-full min-w-0 space-y-2.5 overflow-x-hidden py-1 sm:space-y-3',
+          isGrokImage && 'sm:min-h-0'
+        )}
+      >
         {/* Overview section - key identifiers */}
         <div className='min-w-0 space-y-1'>
           {props.log.request_id && (

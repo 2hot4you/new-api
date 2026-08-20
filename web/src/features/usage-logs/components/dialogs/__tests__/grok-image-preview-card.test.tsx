@@ -59,6 +59,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { getGrokImagePreview } = await import('../../../api')
+const { DetailsDialog } = await import('../details-dialog')
 const { ImageDialog } = await import('../image-dialog')
 const { GrokImagePreviewCard } = await import('../grok-image-preview-card')
 
@@ -165,6 +166,32 @@ async function renderImageDialog() {
           onOpenChange={() => undefined}
         />
       </I18nextProvider>
+    )
+  })
+  return { container, root }
+}
+
+async function renderDetailsDialog(log: UsageLog) {
+  const container = testDocument.createElement('div')
+  testDocument.body.append(container)
+  const root = createRoot(
+    container as unknown as Parameters<typeof createRoot>[0]
+  )
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  await act(async () => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <DetailsDialog
+            log={log}
+            isAdmin={false}
+            open
+            onOpenChange={() => undefined}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
     )
   })
   return { container, root }
@@ -354,6 +381,67 @@ describe('Grok image preview card', () => {
     ]) {
       assert.equal(text.includes(expected), true, expected)
     }
+
+    await act(async () => rendered.root.unmount())
+    rendered.container.remove()
+  })
+
+  test('fits the standard desktop preview while preserving overflow fallback for constrained viewports', async () => {
+    apiClient.get = async () => ({
+      data: {
+        success: true,
+        data: { urls: ['https://imgen.x.ai/layout-result'] },
+      },
+    })
+    const rendered = await renderDetailsDialog({
+      ...baseLog,
+      other: JSON.stringify({
+        grok_image_preview_available: true,
+        grok_image_billing: {
+          version: 1,
+          model: 'grok-imagine-image-2.0',
+          operation: 'generation',
+          resolution: '2k',
+          quality: 'medium',
+          aspect_ratio: '16:9',
+          requested_output_count: 1,
+          output_count: 1,
+          input_image_count: 0,
+          output_unit_price: 0.06,
+          input_unit_price: 0,
+          output_cost: 0.06,
+          input_cost: 0,
+          subtotal: 0.06,
+          group_ratio: 1,
+          final_cost: 0.06,
+        },
+      }),
+    })
+    await waitForCondition(
+      () => testDocument.querySelector('[data-grok-image-main]') !== null,
+      'Expected the Grok image details preview'
+    )
+
+    const dialog = testDocument.querySelector('[data-slot="dialog-content"]')
+    const viewport = testDocument.querySelector(
+      '[data-slot="dialog-body-viewport"]'
+    )
+    const layout = testDocument.querySelector('[data-grok-image-layout]')
+    const image = testDocument.querySelector('[data-grok-image-main]')
+    assert.ok(dialog)
+    assert.ok(viewport)
+    assert.ok(layout)
+    assert.ok(image)
+    assert.equal(dialog.className.includes('sm:max-w-6xl'), true)
+    assert.equal(viewport.className.includes('overflow-y-auto'), true)
+    assert.equal(viewport.className.includes('overflow-y-hidden'), false)
+    assert.equal(
+      viewport.className.includes('lg:max-h-[calc(100dvh-8rem)]'),
+      true
+    )
+    assert.equal(layout.className.includes('lg:min-h-0'), true)
+    assert.equal(image.className.includes('lg:h-[clamp('), true)
+    assert.equal(image.className.includes('min-h-64'), false)
 
     await act(async () => rendered.root.unmount())
     rendered.container.remove()
