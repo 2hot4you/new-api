@@ -48,13 +48,16 @@ xAI 当前旗舰，强化编码、Agent 与知识工作，可配置推理强度�
 
 ### OpenAI Chat Completions
 
-**POST /v1/chat/completions**
+**[POST /v1/chat/completions](/api-reference/chat-completions)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 60 \
   --request POST \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --url "${MOLII_API_BASE_URL%/}/v1/chat/completions" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
   --data '{"model":"grok-4.6","messages":[{"role":"user","content":"你好"}]}'
@@ -62,13 +65,16 @@ curl --fail-with-body --silent --show-error \
 
 ### OpenAI Responses
 
-**POST /v1/responses**
+**[POST /v1/responses](/api-reference/responses)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 60 \
   --request POST \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/responses" \
+  --url "${MOLII_API_BASE_URL%/}/v1/responses" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
   --data '{"model":"grok-4.6","input":"你好"}'

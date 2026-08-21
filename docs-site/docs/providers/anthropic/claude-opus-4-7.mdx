@@ -47,13 +47,16 @@ Anthropic Opus 前一代，仍可用的强编码与视觉模型。
 
 ### Anthropic Messages
 
-**POST /v1/messages**
+**[POST /v1/messages](/api-reference/anthropic-messages)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 60 \
   --request POST \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/messages" \
+  --url "${MOLII_API_BASE_URL%/}/v1/messages" \
   --header "x-api-key: $MOLII_API_KEY" \
   --header "anthropic-version: 2023-06-01" \
   --header "Content-Type: application/json" \
@@ -62,13 +65,16 @@ curl --fail-with-body --silent --show-error \
 
 ### OpenAI Chat Completions
 
-**POST /v1/chat/completions**
+**[POST /v1/chat/completions](/api-reference/chat-completions)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 60 \
   --request POST \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --url "${MOLII_API_BASE_URL%/}/v1/chat/completions" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
   --data '{"model":"claude-opus-4-7","messages":[{"role":"user","content":"你好"}]}'

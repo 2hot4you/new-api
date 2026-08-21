@@ -36,13 +36,16 @@ Seedance 2.0 加速版，支持文本、图片和视频参考及同步音频生�
 
 ### OpenAI Video
 
-**POST /v1/videos**
+**[POST /v1/videos](/api-reference/videos)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 60 \
   --request POST \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/videos" \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
   --data '{"model":"doubao-seedance-2-0-fast-260128","prompt":"描述所需视频"}'
@@ -54,26 +57,32 @@ curl --fail-with-body --silent --show-error \
 TASK_ID='task_public_123'
 ```
 
-**GET /v1/videos/\{task_id\}**
+**[GET /v1/videos/\{task_id\}](/api-reference/videos)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 30 \
   --max-redirs 0 \
   --request GET \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/videos/$TASK_ID" \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/$TASK_ID" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Accept: application/json"
 ```
 
-**GET /v1/videos/\{task_id\}/content**
+**[GET /v1/videos/\{task_id\}/content](/api-reference/videos)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 300 \
   --max-redirs 0 \
   --request GET \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/videos/$TASK_ID/content" \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/$TASK_ID/content" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --dump-header ./video-content.headers \
   --output ./video-content.bin \

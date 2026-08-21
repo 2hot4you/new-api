@@ -3,10 +3,19 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { sanitizeCatalogResponse } from './model-catalog.mjs';
+import { sanitizeCatalogResponse, slugify } from './model-catalog.mjs';
 import { generateCatalogDocs } from './generate-model-docs.mjs';
 
 const temporaryDirectories: string[] = [];
+
+const endpointReferences = {
+  openai: '/api-reference/chat-completions',
+  'openai-response': '/api-reference/responses',
+  anthropic: '/api-reference/anthropic-messages',
+  gemini: '/api-reference/gemini-generate-content',
+  'image-generation': '/api-reference/images',
+  'openai-video': '/api-reference/videos',
+} as const;
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
@@ -74,6 +83,10 @@ describe('model catalog', () => {
     const multilineDescription = rawCatalog();
     multilineDescription.data[0].description = 'Injected\n# Heading';
     expect(() => sanitizeCatalogResponse(multilineDescription)).toThrow('control characters');
+
+    const reservedModelSlug = rawCatalog();
+    reservedModelSlug.data[0].model_name = 'INDEX';
+    expect(() => sanitizeCatalogResponse(reservedModelSlug)).toThrow('reserved model slug: index');
   });
 
   test('orders Providers with tied positions by numeric id', () => {
@@ -135,6 +148,57 @@ describe('model catalog', () => {
     expect(video).toContain('- **视频时长范围：** 1–15 秒');
     expect(video).toContain('客户端。\n\n### OpenAI Video');
     expect(video).not.toContain('fetch(');
+
+    const generatedExamples = [claude, gemini, grok, image, video].join('\n');
+    expect(generatedExamples).toContain(': "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"');
+    expect(generatedExamples).toContain('--url "${MOLII_API_BASE_URL%/}/v1/chat/completions"');
+    expect(generatedExamples).not.toContain('${MOLII_BASE_URL');
+    expect(generatedExamples).not.toContain('https://api.molii.co');
+
+    expect(claude).toContain('**[POST /v1/messages](/api-reference/anthropic-messages)**');
+    expect(gemini).toContain('](/api-reference/gemini-generate-content)**');
+    expect(grok).toContain('**[POST /v1/chat/completions](/api-reference/chat-completions)**');
+    expect(grok).toContain('**[POST /v1/responses](/api-reference/responses)**');
+    expect(image).toContain('**[POST /v1/images/generations](/api-reference/images)**');
+    expect(image).toContain('**[POST /v1/images/edits](/api-reference/images)**');
+    expect(video).toContain('**[POST /v1/videos](/api-reference/videos)**');
+    expect(video).toContain('**[GET /v1/videos/\\{task_id\\}](/api-reference/videos)**');
+    expect(video).toContain('**[GET /v1/videos/\\{task_id\\}/content](/api-reference/videos)**');
+  });
+
+  test('links all 52 snapshot endpoint declarations to their protocol references', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'molii-catalog-references-'));
+    temporaryDirectories.push(outputRoot);
+    const catalog = JSON.parse(await readFile(new URL('../data/development-model-catalog.json', import.meta.url), 'utf8'));
+
+    await generateCatalogDocs({ catalog, outputRoot });
+
+    let coveredEndpointDeclarations = 0;
+    for (const model of catalog.models) {
+      const provider = catalog.vendors.find((candidate: { id: number }) => candidate.id === model.vendor_id);
+      expect(provider).toBeDefined();
+      const page = await readFile(join(outputRoot, 'providers', slugify(provider.name), `${slugify(model.id)}.mdx`), 'utf8');
+      for (const endpointType of model.supported_endpoint_types as Array<keyof typeof endpointReferences>) {
+        expect(page).toContain(`](${endpointReferences[endpointType]})**`);
+        coveredEndpointDeclarations += 1;
+      }
+    }
+
+    expect(coveredEndpointDeclarations).toBe(52);
+  });
+
+  test('rejects a reserved model route before it can overwrite a Provider overview', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'molii-catalog-reserved-route-'));
+    temporaryDirectories.push(outputRoot);
+    const catalog = sanitizeCatalogResponse(rawCatalog());
+    await generateCatalogDocs({ catalog, outputRoot });
+    const providerOverview = join(outputRoot, 'providers', 'first-provider', 'index.mdx');
+    const originalOverview = await readFile(providerOverview, 'utf8');
+    const unsafeCatalog = structuredClone(catalog);
+    unsafeCatalog.models[0].id = 'index';
+
+    await expect(generateCatalogDocs({ catalog: unsafeCatalog, outputRoot })).rejects.toThrow('reserved model slug: index');
+    expect(await readFile(providerOverview, 'utf8')).toBe(originalOverview);
   });
 
   test('quotes frontmatter and escapes adversarial public strings in MDX and shell payloads', async () => {

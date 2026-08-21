@@ -33,13 +33,16 @@ sidebar_position: 21
 
 ### Images
 
-**POST /v1/images/generations**
+**[POST /v1/images/generations](/api-reference/images)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 60 \
   --request POST \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/images/generations" \
+  --url "${MOLII_API_BASE_URL%/}/v1/images/generations" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
   --data '{"model":"grok-imagine-image-2.0","prompt":"描述所需图片"}'

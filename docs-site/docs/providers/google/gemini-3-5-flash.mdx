@@ -48,13 +48,16 @@ Google 早期 Flash 基线，适合高吞吐日常任务。
 
 ### Gemini GenerateContent
 
-**POST /v1beta/models/gemini-3.5-flash:generateContent**
+**[POST /v1beta/models/gemini-3.5-flash:generateContent](/api-reference/gemini-generate-content)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 60 \
   --request POST \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1beta/models/gemini-3.5-flash:generateContent" \
+  --url "${MOLII_API_BASE_URL%/}/v1beta/models/gemini-3.5-flash:generateContent" \
   --header "x-goog-api-key: $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
   --data '{"contents":[{"parts":[{"text":"你好"}]}]}'
@@ -62,13 +65,16 @@ curl --fail-with-body --silent --show-error \
 
 ### OpenAI Chat Completions
 
-**POST /v1/chat/completions**
+**[POST /v1/chat/completions](/api-reference/chat-completions)**
 
 ```bash
+: "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"
+: "${MOLII_API_KEY:?Set MOLII_API_KEY first}"
+
 curl --fail-with-body --silent --show-error \
   --max-time 60 \
   --request POST \
-  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --url "${MOLII_API_BASE_URL%/}/v1/chat/completions" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
   --data '{"model":"gemini-3.5-flash","messages":[{"role":"user","content":"你好"}]}'

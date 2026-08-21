@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { slugify } from './model-catalog.mjs';
+import { modelSlug, slugify } from './model-catalog.mjs';
 
 const defaultOutputRoot = resolve(import.meta.dirname, '../docs');
 const defaultCatalogPath = resolve(import.meta.dirname, '../data/development-model-catalog.json');
@@ -42,11 +42,32 @@ function category(label, position) {
   return `${JSON.stringify({ label, position, collapsible: true, collapsed: true }, null, 2)}\n`;
 }
 
-const base = '${MOLII_BASE_URL:-https://api.molii.co}';
+const base = '${MOLII_API_BASE_URL%/}';
+const endpointReferences = {
+  openai: '/api-reference/chat-completions',
+  'openai-response': '/api-reference/responses',
+  anthropic: '/api-reference/anthropic-messages',
+  gemini: '/api-reference/gemini-generate-content',
+  'image-generation': '/api-reference/images',
+  'openai-video': '/api-reference/videos',
+};
+
+function endpointDeclaration(method, path, type) {
+  return `**[${method} ${path}](${endpointReferences[type]})**`;
+}
+
+function curlSetup() {
+  return [
+    ': "${MOLII_API_BASE_URL:?Set MOLII_API_BASE_URL first}"',
+    ': "${MOLII_API_KEY:?Set MOLII_API_KEY first}"',
+    '',
+  ];
+}
 
 function postCurl(path, payload, headers) {
   return [
     '```bash',
+    ...curlSetup(),
     'curl --fail-with-body --silent --show-error \\',
     '  --max-time 60 \\',
     '  --request POST \\',
@@ -61,6 +82,7 @@ function postCurl(path, payload, headers) {
 function getCurl(path, maxTime, { accept = 'application/json', extraOptions = [] } = {}) {
   return [
     '```bash',
+    ...curlSetup(),
     'curl --fail-with-body --silent --show-error \\',
     `  --max-time ${maxTime} \\`,
     '  --max-redirs 0 \\',
@@ -80,18 +102,18 @@ function endpointSections(model) {
   const sections = [];
   for (const type of model.supported_endpoint_types) {
     if (type === 'openai') {
-      sections.push(`### OpenAI Chat Completions\n\n**POST /v1/chat/completions**\n\n${postCurl('/v1/chat/completions', { model: model.id, messages: [{ role: 'user', content: '你好' }] }, bearerHeaders)}`);
+      sections.push(`### OpenAI Chat Completions\n\n${endpointDeclaration('POST', '/v1/chat/completions', type)}\n\n${postCurl('/v1/chat/completions', { model: model.id, messages: [{ role: 'user', content: '你好' }] }, bearerHeaders)}`);
     } else if (type === 'openai-response') {
-      sections.push(`### OpenAI Responses\n\n**POST /v1/responses**\n\n${postCurl('/v1/responses', { model: model.id, input: '你好' }, bearerHeaders)}`);
+      sections.push(`### OpenAI Responses\n\n${endpointDeclaration('POST', '/v1/responses', type)}\n\n${postCurl('/v1/responses', { model: model.id, input: '你好' }, bearerHeaders)}`);
     } else if (type === 'anthropic') {
-      sections.push(`### Anthropic Messages\n\n**POST /v1/messages**\n\n${postCurl('/v1/messages', { model: model.id, max_tokens: 256, messages: [{ role: 'user', content: '你好' }] }, ['x-api-key: $MOLII_API_KEY', 'anthropic-version: 2023-06-01'])}`);
+      sections.push(`### Anthropic Messages\n\n${endpointDeclaration('POST', '/v1/messages', type)}\n\n${postCurl('/v1/messages', { model: model.id, max_tokens: 256, messages: [{ role: 'user', content: '你好' }] }, ['x-api-key: $MOLII_API_KEY', 'anthropic-version: 2023-06-01'])}`);
     } else if (type === 'gemini') {
-      sections.push(`### Gemini GenerateContent\n\n**POST /v1beta/models/${id}:generateContent**\n\n${postCurl(`/v1beta/models/${encodedId}:generateContent`, { contents: [{ parts: [{ text: '你好' }] }] }, ['x-goog-api-key: $MOLII_API_KEY'])}`);
+      sections.push(`### Gemini GenerateContent\n\n${endpointDeclaration('POST', `/v1beta/models/${id}:generateContent`, type)}\n\n${postCurl(`/v1beta/models/${encodedId}:generateContent`, { contents: [{ parts: [{ text: '你好' }] }] }, ['x-goog-api-key: $MOLII_API_KEY'])}`);
     } else if (type === 'image-generation') {
       const edits = (model.capabilities ?? []).includes('image_editing')
-        ? `\n\n具备图片编辑能力时，也可调用 **POST /v1/images/edits**。\n\n${postCurl('/v1/images/edits', { model: model.id, prompt: '描述需要的编辑', images: [{ url: 'https://example.invalid/source.png' }] }, bearerHeaders)}`
+        ? `\n\n具备图片编辑能力时，也可调用 ${endpointDeclaration('POST', '/v1/images/edits', type)}。\n\n${postCurl('/v1/images/edits', { model: model.id, prompt: '描述需要的编辑', images: [{ url: 'https://example.invalid/source.png' }] }, bearerHeaders)}`
         : '';
-      sections.push(`### Images\n\n**POST /v1/images/generations**\n\n${postCurl('/v1/images/generations', { model: model.id, prompt: '描述所需图片' }, bearerHeaders)}${edits}`);
+      sections.push(`### Images\n\n${endpointDeclaration('POST', '/v1/images/generations', type)}\n\n${postCurl('/v1/images/generations', { model: model.id, prompt: '描述所需图片' }, bearerHeaders)}${edits}`);
     } else if (type === 'openai-video') {
       const status = getCurl('/v1/videos/$TASK_ID', 30);
       const content = getCurl('/v1/videos/$TASK_ID/content', 300, {
@@ -101,7 +123,7 @@ function endpointSections(model) {
           '  --output ./video-content.bin \\',
         ],
       });
-      sections.push(`### OpenAI Video\n\n**POST /v1/videos**\n\n${postCurl('/v1/videos', { model: model.id, prompt: '描述所需视频' }, bearerHeaders)}\n\n创建视频是异步操作。保存创建响应中的任务 ID；下面的 GET 请求有单次超时且不自动重试。\n\n\`\`\`bash\nTASK_ID='task_public_123'\n\`\`\`\n\n**GET /v1/videos/\\{task_id\\}**\n\n${status}\n\n**GET /v1/videos/\\{task_id\\}/content**\n\n${content}\n\n内容请求故意不使用 \`--location\`，不会把 Molii 凭据转发给重定向主机。检查响应头和内容类型后再保存结果，详见[视频 API](/api-reference/videos)。创建请求可能产生费用；网络结果不确定时不要重复提交 POST。`);
+      sections.push(`### OpenAI Video\n\n${endpointDeclaration('POST', '/v1/videos', type)}\n\n${postCurl('/v1/videos', { model: model.id, prompt: '描述所需视频' }, bearerHeaders)}\n\n创建视频是异步操作。保存创建响应中的任务 ID；下面的 GET 请求有单次超时且不自动重试。\n\n\`\`\`bash\nTASK_ID='task_public_123'\n\`\`\`\n\n${endpointDeclaration('GET', '/v1/videos/\\{task_id\\}', type)}\n\n${status}\n\n${endpointDeclaration('GET', '/v1/videos/\\{task_id\\}/content', type)}\n\n${content}\n\n内容请求故意不使用 \`--location\`，不会把 Molii 凭据转发给重定向主机。检查响应头和内容类型后再保存结果，详见[视频 API](/api-reference/videos)。创建请求可能产生费用；网络结果不确定时不要重复提交 POST。`);
     } else {
       throw new Error(`Unknown endpoint type: ${type}`);
     }
@@ -139,7 +161,7 @@ function modelPage(model, provider) {
 }
 
 function providerIndex(provider, models) {
-  const rows = models.map((model) => `- [${escapeMdx(model.display_name)}](./${slugify(model.id)}) — ${inlineCode(model.id)}`).join('\n');
+  const rows = models.map((model) => `- [${escapeMdx(model.display_name)}](./${modelSlug(model.id)}) — ${inlineCode(model.id)}`).join('\n');
   return `---\ntitle: ${yamlScalar(provider.name)}\nsidebar_position: 1\n---\n\n# ${escapeMdx(provider.name)}\n\n${escapeMdx(provider.description || '该 Provider 的公开模型目录。')}\n\n## 模型\n\n${rows || '暂无公开模型。'}\n`;
 }
 
@@ -158,13 +180,14 @@ async function writeGeneratedTree(catalog, temporaryRoot) {
     await writeFile(resolve(providerDirectory, '_category_.json'), category(provider.name, provider.display_order));
     await writeFile(resolve(providerDirectory, 'index.mdx'), providerIndex(provider, providerModels));
     for (const model of providerModels) {
-      await writeFile(resolve(providerDirectory, `${slugify(model.id)}.mdx`), modelPage(model, provider));
+      await writeFile(resolve(providerDirectory, `${modelSlug(model.id)}.mdx`), modelPage(model, provider));
     }
   }
 }
 
 export async function generateCatalogDocs({ catalog, outputRoot = defaultOutputRoot }) {
   if (!catalog || !Array.isArray(catalog.vendors) || !Array.isArray(catalog.models)) throw new Error('Invalid catalog snapshot');
+  for (const model of catalog.models) modelSlug(model.id);
   const root = resolve(outputRoot);
   const target = resolve(root, 'providers');
   const temporary = resolve(root, `.providers-generated-${process.pid}`);

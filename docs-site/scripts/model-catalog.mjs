@@ -9,6 +9,8 @@ export const ENDPOINT_TYPES = new Set([
   'openai-video',
 ]);
 
+const RESERVED_MODEL_SLUGS = new Set(['index']);
+
 const MODEL_STRING_FIELDS = ['display_name', 'description', 'description_en', 'knowledge_cutoff', 'release_date'];
 const MODEL_ARRAY_FIELDS = [
   'input_modalities',
@@ -69,6 +71,12 @@ export function slugify(value) {
   return slug;
 }
 
+export function modelSlug(value) {
+  const slug = slugify(value);
+  if (RESERVED_MODEL_SLUGS.has(slug)) fail(`reserved model slug: ${slug}`);
+  return slug;
+}
+
 function ordered(items) {
   return [...items].sort((left, right) => left.display_order - right.display_order || left.id - right.id);
 }
@@ -110,7 +118,7 @@ export function sanitizeCatalogResponse(raw) {
   const models = response.data.map((modelValue, index) => {
     const model = asObject(modelValue, `data[${index}]`);
     const id = requiredString(model.model_name, `data[${index}].model_name`);
-    const slug = slugify(id);
+    const slug = modelSlug(id);
     if (modelSlugs.has(slug)) fail(`Duplicate model slug: ${slug}`);
     modelSlugs.add(slug);
 
