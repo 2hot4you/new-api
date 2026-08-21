@@ -93,7 +93,7 @@ describe('Molii homepage footer', () => {
     assert.equal(buildHomeDocsUrl(undefined, '/api-reference'), undefined)
   })
 
-  test('renders real product and documentation destinations in a charcoal layout', () => {
+  test('renders the complete product, developer, and support destinations', () => {
     const markup = renderFooter()
 
     assert.match(markup, /data-home-footer="true"/)
@@ -101,24 +101,43 @@ describe('Molii homepage footer', () => {
     assert.match(markup, /lg:grid-cols-\[1\.4fr_repeat\(4,1fr\)\]/)
     for (const href of [
       '/pricing',
+      '/playground',
       '/keys',
+      '/temporary-assets',
       '/usage-logs/task',
       '/usage-logs/common',
+      '/wallet',
       'https://docs.molii.example/getting-started/quickstart',
       'https://docs.molii.example/api-reference',
+      'https://docs.molii.example/api-basics/authentication',
+      'https://docs.molii.example/api-basics/base-url',
+      'https://docs.molii.example/api-basics/errors-retries',
+      'https://docs.molii.example/changelog',
+      'https://docs.molii.example/help',
+      'https://docs.molii.example/help/troubleshooting',
+      'https://docs.molii.example/help/contact-support',
       '/about',
       'https://github.com/QuantumNous/new-api',
     ]) {
       assert.match(markup, new RegExp(`href="${href}"`))
     }
+
+    assert.match(markup, /data-home-footer-protocol="OpenAI"/)
+    assert.match(markup, /data-home-footer-protocol="Anthropic"/)
+    assert.match(markup, /data-home-footer-protocol="Gemini"/)
+    assert.match(markup, /aria-label="footer\.home\.supportedProtocols"/)
+    assert.match(markup, /footer\.home\.capabilitySummary/)
+    assert.match(markup, /footer\.home\.compatibleApis/)
   })
 
   test('renders configured vendors in catalog order between developers and support', () => {
     const markup = renderFooter()
 
-    const developersIndex = markup.indexOf('footer.home.developers')
-    const vendorsIndex = markup.indexOf('Vendors')
-    const supportIndex = markup.indexOf('footer.home.support')
+    const developersIndex = markup.indexOf(
+      'aria-label="footer.home.developers"'
+    )
+    const vendorsIndex = markup.indexOf('aria-label="Vendors"')
+    const supportIndex = markup.indexOf('aria-label="footer.home.support"')
     assert.ok(developersIndex >= 0)
     assert.ok(vendorsIndex > developersIndex)
     assert.ok(supportIndex > vendorsIndex)
@@ -151,6 +170,11 @@ describe('Molii homepage footer', () => {
 
     assert.doesNotMatch(markup, /getting-started\/quickstart/)
     assert.doesNotMatch(markup, /api-reference/)
+    assert.doesNotMatch(markup, /api-basics\/authentication/)
+    assert.doesNotMatch(markup, /api-basics\/base-url/)
+    assert.doesNotMatch(markup, /api-basics\/errors-retries/)
+    assert.doesNotMatch(markup, /href="[^"]*\/changelog"/)
+    assert.doesNotMatch(markup, /href="[^"]*\/help/)
   })
 
   test('preserves the existing custom Footer HTML path', () => {

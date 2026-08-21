@@ -78,6 +78,32 @@ function FooterColumn(props: { title: string; links: HomeFooterLink[] }) {
   )
 }
 
+function FooterDeveloperColumn(props: {
+  title: string
+  links: HomeFooterLink[]
+  protocolLabel: string
+}) {
+  return (
+    <div className='min-w-0'>
+      <FooterColumn title={props.title} links={props.links} />
+      <div
+        aria-label={props.protocolLabel}
+        className='mt-5 flex flex-wrap gap-1.5'
+      >
+        {['OpenAI', 'Anthropic', 'Gemini'].map((protocol) => (
+          <span
+            key={protocol}
+            data-home-footer-protocol={protocol}
+            className='rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-white/46'
+          >
+            {protocol}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function FooterVendorColumn(props: { vendors: HomeVendor[] }) {
   const { t } = useTranslation()
   const title = t('Vendors')
@@ -118,12 +144,34 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
     '/getting-started/quickstart'
   )
   const apiReferenceLink = buildHomeDocsUrl(props.docsLink, '/api-reference')
+  const authenticationLink = buildHomeDocsUrl(
+    props.docsLink,
+    '/api-basics/authentication'
+  )
+  const baseUrlLink = buildHomeDocsUrl(props.docsLink, '/api-basics/base-url')
+  const errorsAndRetriesLink = buildHomeDocsUrl(
+    props.docsLink,
+    '/api-basics/errors-retries'
+  )
+  const changelogLink = buildHomeDocsUrl(props.docsLink, '/changelog')
+  const helpCenterLink = buildHomeDocsUrl(props.docsLink, '/help')
+  const troubleshootingLink = buildHomeDocsUrl(
+    props.docsLink,
+    '/help/troubleshooting'
+  )
+  const contactSupportLink = buildHomeDocsUrl(
+    props.docsLink,
+    '/help/contact-support'
+  )
 
   const productLinks: HomeFooterLink[] = [
     { href: '/pricing', label: t('Model marketplace') },
+    { href: '/playground', label: t('footer.home.onlinePlayground') },
     { href: '/keys', label: t('API Keys') },
+    { href: '/temporary-assets', label: t('footer.home.temporaryAssets') },
     { href: '/usage-logs/task', label: t('Generation Records') },
     { href: '/usage-logs/common', label: t('Usage Logs') },
+    { href: '/wallet', label: t('footer.home.walletAndBilling') },
   ]
   const developerLinks: HomeFooterLink[] = [
     ...(quickStartLink
@@ -145,8 +193,71 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
         ]
       : []),
     { href: '/pricing', label: t('footer.home.modelsAndPricing') },
+    ...(authenticationLink
+      ? [
+          {
+            href: authenticationLink,
+            label: t('footer.home.authentication'),
+            external: true,
+          },
+        ]
+      : []),
+    ...(baseUrlLink
+      ? [
+          {
+            href: baseUrlLink,
+            label: t('footer.home.baseUrl'),
+            external: true,
+          },
+        ]
+      : []),
+    ...(errorsAndRetriesLink
+      ? [
+          {
+            href: errorsAndRetriesLink,
+            label: t('footer.home.errorsAndRetries'),
+            external: true,
+          },
+        ]
+      : []),
+    ...(changelogLink
+      ? [
+          {
+            href: changelogLink,
+            label: t('footer.home.changelog'),
+            external: true,
+          },
+        ]
+      : []),
   ]
   const supportLinks: HomeFooterLink[] = [
+    ...(helpCenterLink
+      ? [
+          {
+            href: helpCenterLink,
+            label: t('footer.home.helpCenter'),
+            external: true,
+          },
+        ]
+      : []),
+    ...(troubleshootingLink
+      ? [
+          {
+            href: troubleshootingLink,
+            label: t('footer.home.troubleshooting'),
+            external: true,
+          },
+        ]
+      : []),
+    ...(contactSupportLink
+      ? [
+          {
+            href: contactSupportLink,
+            label: t('footer.home.contactSupport'),
+            external: true,
+          },
+        ]
+      : []),
     { href: '/about', label: t('About') },
     ...(props.userAgreementEnabled
       ? [{ href: '/user-agreement', label: t('User Agreement') }]
@@ -191,6 +302,9 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
             <p className='mt-5 max-w-md text-sm leading-7 text-white/52'>
               {t('footer.home.brandDescription')}
             </p>
+            <p className='mt-4 inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs leading-5 text-white/46'>
+              {t('footer.home.capabilitySummary')}
+            </p>
             <a
               href='/pricing'
               className='mt-7 inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/14 bg-white/7 px-4 text-sm font-medium transition-colors hover:bg-white/12'
@@ -204,9 +318,10 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
             title={t('footer.home.products')}
             links={productLinks}
           />
-          <FooterColumn
+          <FooterDeveloperColumn
             title={t('footer.home.developers')}
             links={developerLinks}
+            protocolLabel={t('footer.home.supportedProtocols')}
           />
           <FooterVendorColumn vendors={props.vendors} />
           <FooterColumn title={t('footer.home.support')} links={supportLinks} />
@@ -217,16 +332,22 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
             &copy; {currentYear} {props.displayName}.{' '}
             {t('footer.defaultCopyright')}
           </span>
-          <span>
-            {t('footer.home.builtOn')}{' '}
-            <a
-              href='https://github.com/QuantumNous/new-api'
-              target='_blank'
-              rel='noopener noreferrer'
-              className='font-medium text-white/60 transition-colors hover:text-white'
-            >
-              {t('New API')}
-            </a>
+          <span className='flex flex-wrap items-center gap-x-2 gap-y-1'>
+            <span>{t('footer.home.compatibleApis')}</span>
+            <span aria-hidden className='text-white/18'>
+              ·
+            </span>
+            <span>
+              {t('footer.home.builtOn')}{' '}
+              <a
+                href='https://github.com/QuantumNous/new-api'
+                target='_blank'
+                rel='noopener noreferrer'
+                className='font-medium text-white/60 transition-colors hover:text-white'
+              >
+                {t('New API')}
+              </a>
+            </span>
           </span>
         </div>
       </div>
