@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace']);
 const FORBIDDEN_PATHS = new Set(['/api/channel', '/api/models', '/api/assets/admin']);
 const FORBIDDEN_SCHEMA = /administrator/i;
+const PUBLIC_SECURITY_SCHEMES = new Set(['BearerAuth', 'AnthropicApiKey', 'GeminiApiKey']);
 
 function parseJsonFile(path) {
   return readFile(path, 'utf8').then((contents) => JSON.parse(contents));
@@ -19,8 +20,11 @@ function operationKey(method, path) {
 
 function allowedSecurity(security) {
   return Array.isArray(security)
-    && security.length > 0
-    && security.every((requirement) => Object.keys(requirement).length === 1 && Array.isArray(requirement.BearerAuth));
+    && security.length === 1
+    && Object.keys(security[0]).length === 1
+    && PUBLIC_SECURITY_SCHEMES.has(Object.keys(security[0])[0])
+    && Array.isArray(Object.values(security[0])[0])
+    && Object.values(security[0])[0].length === 0;
 }
 
 function referencesIn(value, references = []) {
@@ -56,7 +60,11 @@ function pruneComponents(sourceComponents = {}, paths) {
     queue.push(...referencesIn(value));
   }
 
-  output.securitySchemes = { BearerAuth: { type: 'http', scheme: 'bearer' } };
+  output.securitySchemes = Object.fromEntries([...PUBLIC_SECURITY_SCHEMES].map((name) => {
+    const scheme = sourceComponents.securitySchemes?.[name];
+    if (scheme === undefined) throw new Error(`Missing public security scheme: ${name}`);
+    return [name, clone(scheme)];
+  }));
   return output;
 }
 
@@ -118,7 +126,7 @@ export async function prepareOpenApi({ templatePath, allowlistPath, outputPath, 
       throw new Error(`Public operation requires responses: ${route}`);
     }
     if (!allowedSecurity(sourceOperation.security)) {
-      throw new Error(`Public operation must use only BearerAuth security: ${route}`);
+      throw new Error(`Public operation must use one documented public security scheme: ${route}`);
     }
     if (!sourceOperation.operationId?.trim()) throw new Error(`Public operation requires an operationId: ${route}`);
     if (seenOperationIds.has(sourceOperation.operationId)) {

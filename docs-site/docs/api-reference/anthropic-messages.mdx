@@ -1,0 +1,65 @@
+---
+title: Anthropic Messages API
+description: 使用 Anthropic Messages 兼容协议调用公开模型。
+audience: user
+apiVersion: v1
+sidebar_position: 10
+---
+
+# Anthropic Messages API
+
+此端点兼容 Anthropic Messages 请求与响应形状。请先阅读[身份验证](/api-basics/authentication)和[错误与重试](/api-basics/errors-retries)。
+
+## `POST /v1/messages`
+
+### 鉴权
+
+使用 `x-api-key: $MOLII_API_KEY`，并且必须发送 `anthropic-version`。密钥只放在请求头，绝不放入 URL 或查询参数。
+
+### 请求参数
+
+请求体为 `application/json`。`messages` 至少包含一条 `user` 或 `assistant` 消息；`content` 可为文本或兼容内容块数组。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `model` | string | 是 | 公开模型 ID |
+| `max_tokens` | integer | 是 | 最大生成 token 数 |
+| `messages` | array | 是 | 对话消息，至少一项 |
+| `system` | string 或 array | 否 | 系统指令 |
+| `stream` | boolean | 否 | 是否请求流式响应 |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/messages" \
+  --header "x-api-key: $MOLII_API_KEY" \
+  --header "anthropic-version: 2023-06-01" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"your-model-id","max_tokens":256,"messages":[{"role":"user","content":"用一句话介绍 Molii。"}]}'
+```
+
+### 成功响应
+
+HTTP `200` 返回 `type: "message"` 的助手消息；生成内容在 `content` 块数组中。
+
+```json
+{
+  "id": "msg_public_123",
+  "type": "message",
+  "role": "assistant",
+  "content": [{"type": "text", "text": "Molii 是统一的 AI 创作 API。"}],
+  "model": "your-model-id",
+  "stop_reason": "end_turn",
+  "usage": {"input_tokens": 12, "output_tokens": 16}
+}
+```
+
+### 错误与重试
+
+`400` 表示版本头、参数或内容不兼容；`401`/`403` 表示 API Key 或模型权限问题。对 `429` 或暂时性 `5xx` 的处理见[错误与重试](/api-basics/errors-retries)。该 POST 可能计费，超时后不要自动重放。
+
+### 计费
+
+按所选模型和实际输入、输出用量结算。使用记录是最终计费依据。

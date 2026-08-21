@@ -1,6 +1,10 @@
 {
   "operations": [
     "GET /v1/models",
+    "POST /v1/chat/completions",
+    "POST /v1/responses",
+    "POST /v1/messages",
+    "POST /v1beta/models/{model}:generateContent",
     "POST /v1/video/generations",
     "GET /v1/video/generations/{task_id}",
     "POST /v1/images/generations",

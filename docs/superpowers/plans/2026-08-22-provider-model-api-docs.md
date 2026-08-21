@@ -76,10 +76,13 @@ Expected: all tests pass; snapshot contains every Development Provider/model; a 
 - Create: `docs-site/docs/api-reference/anthropic-messages.mdx`
 - Create: `docs-site/docs/api-reference/gemini-generate-content.mdx`
 - Modify: `docs-site/scripts/mdx-api-reference-contract.test.ts`
+- Modify: `docs-site/scripts/prepare-openapi.mjs`
+- Modify: `docs-site/scripts/prepare-openapi.test.ts`
 
 **Interfaces:**
 - Produces public operations for `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/messages`, and `POST /v1beta/models/{model}:generateContent`.
 - Produces stable reference routes consumed by generated model pages.
+- Preserves only the explicit public security schemes `BearerAuth`, `AnthropicApiKey`, and `GeminiApiKey`; every other scheme fails closed.
 
 - [ ] **Step 1: Extend contract tests first**
 
@@ -152,4 +155,3 @@ git diff --check
 ```
 
 Expected: every command passes; build contains 10 Provider categories and 35 model routes from the Development snapshot.
-

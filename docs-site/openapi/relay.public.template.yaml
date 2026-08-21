@@ -12,7 +12,8 @@
     { "name": "Videos", "description": "异步视频任务" },
     { "name": "Files", "description": "用户自有的 24 小时媒体文件" },
     { "name": "Seedance", "description": "Seedance 2.0 多模态视频生成" },
-    { "name": "Assets", "description": "短期素材资产" }
+    { "name": "Assets", "description": "短期素材资产" },
+    { "name": "LLM", "description": "大语言模型兼容协议" }
   ],
   "paths": {
     "/v1/models": {
@@ -21,6 +22,38 @@
         "description": "返回当前 API Key 可用的模型。以响应的 `id` 作为后续请求的 `model`；模型与计费随账户授权变化。遇到 429 使用指数退避，勿重试 401/403。",
         "security": [{ "BearerAuth": [] }],
         "responses": { "200": { "description": "模型列表", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelList" }, "examples": { "success": { "value": { "object": "list", "data": [{ "id": "grok-imagine-video-1.5", "object": "model", "owned_by": "molii" }] } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": ["LLM"], "summary": "创建 Chat Completions", "operationId": "createChatCompletion",
+        "description": "使用 OpenAI Chat Completions 兼容协议生成回复。请求体可携带供应商兼容的可选字段；付费 POST 遇到超时不要自动重放。",
+        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatCompletionRequest" }, "examples": { "basic": { "value": { "model": "your-model-id", "messages": [{ "role": "user", "content": "用一句话介绍 Molii。" }] } } } } } },
+        "responses": { "200": { "description": "Chat Completions 响应", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatCompletionResponse" } } } }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
+      }
+    },
+    "/v1/responses": {
+      "post": {
+        "tags": ["LLM"], "summary": "创建 Responses", "operationId": "createResponse",
+        "description": "使用 OpenAI Responses 兼容协议生成回复。`input` 可为文本或供应商兼容的输入项数组；付费 POST 遇到超时不要自动重放。",
+        "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResponsesRequest" }, "examples": { "basic": { "value": { "model": "your-model-id", "input": "用一句话介绍 Molii。" } } } } } },
+        "responses": { "200": { "description": "Responses 响应", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResponsesResponse" } } } }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
+      }
+    },
+    "/v1/messages": {
+      "post": {
+        "tags": ["LLM"], "summary": "创建 Anthropic Messages", "operationId": "createAnthropicMessage",
+        "description": "使用 Anthropic Messages 兼容协议生成消息。必须使用 `x-api-key` 与 `anthropic-version` 请求头；不要将密钥放入查询字符串。",
+        "security": [{ "AnthropicApiKey": [] }], "parameters": [{ "name": "anthropic-version", "in": "header", "required": true, "description": "Anthropic 兼容协议版本。", "schema": { "type": "string", "minLength": 1 }, "example": "2023-06-01" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AnthropicMessagesRequest" }, "examples": { "basic": { "value": { "model": "your-model-id", "max_tokens": 256, "messages": [{ "role": "user", "content": "用一句话介绍 Molii。" }] } } } } } },
+        "responses": { "200": { "description": "Anthropic Messages 响应", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AnthropicMessagesResponse" } } } }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
+      }
+    },
+    "/v1beta/models/{model}:generateContent": {
+      "post": {
+        "tags": ["LLM"], "summary": "创建 Gemini GenerateContent", "operationId": "generateGeminiContent",
+        "description": "使用 Gemini GenerateContent 兼容协议生成内容。通过 `x-goog-api-key` 请求头鉴权；不要使用查询参数传递密钥。",
+        "security": [{ "GeminiApiKey": [] }], "parameters": [{ "name": "model", "in": "path", "required": true, "description": "公开模型 ID。", "schema": { "type": "string", "minLength": 1 }, "example": "your-model-id" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GeminiGenerateContentRequest" }, "examples": { "basic": { "value": { "contents": [{ "role": "user", "parts": [{ "text": "用一句话介绍 Molii。" }] }] } } } } } },
+        "responses": { "200": { "description": "Gemini GenerateContent 响应", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GeminiGenerateContentResponse" } } } }, "400": { "$ref": "#/components/responses/InvalidRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "$ref": "#/components/responses/UpstreamFailure" } }
       }
     },
     "/v1/video/generations": {
@@ -162,7 +195,7 @@
     }
   },
   "components": {
-    "securitySchemes": { "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "API key", "description": "Authorization: Bearer $MOLII_API_KEY" } },
+    "securitySchemes": { "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "API key", "description": "Authorization: Bearer $MOLII_API_KEY" }, "AnthropicApiKey": { "type": "apiKey", "in": "header", "name": "x-api-key", "description": "Anthropic 兼容请求的 x-api-key 请求头。" }, "GeminiApiKey": { "type": "apiKey", "in": "header", "name": "x-goog-api-key", "description": "Gemini 兼容请求的 x-goog-api-key 请求头。" } },
     "parameters": {
       "TaskId": { "name": "task_id", "in": "path", "required": true, "description": "创建响应返回的任务 ID。", "schema": { "type": "string", "minLength": 1 }, "example": "task_public_123" },
       "FileId": { "name": "id", "in": "path", "required": true, "description": "上传响应返回的 Molii 文件 ID。", "schema": { "type": "string", "pattern": "^file_[A-Za-z0-9]+$" }, "example": "file_a1b2c3d4e5f6g7h8" },
@@ -188,6 +221,16 @@
     "schemas": {
       "ModelList": { "type": "object", "required": ["object", "data"], "properties": { "object": { "type": "string", "const": "list" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/Model" } } } },
       "Model": { "type": "object", "required": ["id", "object"], "properties": { "id": { "type": "string", "description": "传给 model 字段的模型 ID" }, "object": { "type": "string", "const": "model" }, "owned_by": { "type": "string" } } },
+      "ChatMessage": { "type": "object", "required": ["role", "content"], "properties": { "role": { "type": "string", "enum": ["system", "developer", "user", "assistant", "tool"] }, "content": { "description": "文本或供应商兼容的多模态内容。", "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "object", "additionalProperties": true } }] }, "name": { "type": "string" }, "tool_call_id": { "type": "string" } }, "additionalProperties": true },
+      "ChatCompletionRequest": { "type": "object", "required": ["model", "messages"], "properties": { "model": { "type": "string", "minLength": 1 }, "messages": { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/ChatMessage" } }, "stream": { "type": "boolean", "default": false }, "temperature": { "type": "number" }, "max_tokens": { "type": "integer", "minimum": 1 }, "tools": { "type": "array", "items": { "type": "object", "additionalProperties": true } } }, "additionalProperties": true },
+      "ChatCompletionResponse": { "type": "object", "required": ["id", "object", "created", "model", "choices"], "properties": { "id": { "type": "string" }, "object": { "type": "string", "const": "chat.completion" }, "created": { "type": "integer" }, "model": { "type": "string" }, "choices": { "type": "array", "items": { "type": "object", "required": ["index", "message", "finish_reason"], "properties": { "index": { "type": "integer" }, "message": { "$ref": "#/components/schemas/ChatMessage" }, "finish_reason": { "type": ["string", "null"] } }, "additionalProperties": true } }, "usage": { "type": "object", "additionalProperties": true } }, "additionalProperties": true },
+      "ResponsesRequest": { "type": "object", "required": ["model", "input"], "properties": { "model": { "type": "string", "minLength": 1 }, "input": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "object", "additionalProperties": true } }] }, "instructions": { "type": "string" }, "stream": { "type": "boolean", "default": false }, "tools": { "type": "array", "items": { "type": "object", "additionalProperties": true } } }, "additionalProperties": true },
+      "ResponsesResponse": { "type": "object", "required": ["id", "object", "status", "output"], "properties": { "id": { "type": "string" }, "object": { "type": "string", "const": "response" }, "status": { "type": "string" }, "model": { "type": "string" }, "output": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "usage": { "type": "object", "additionalProperties": true } }, "additionalProperties": true },
+      "AnthropicMessageContent": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "object", "additionalProperties": true } }] },
+      "AnthropicMessagesRequest": { "type": "object", "required": ["model", "max_tokens", "messages"], "properties": { "model": { "type": "string", "minLength": 1 }, "max_tokens": { "type": "integer", "minimum": 1 }, "messages": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["role", "content"], "properties": { "role": { "type": "string", "enum": ["user", "assistant"] }, "content": { "$ref": "#/components/schemas/AnthropicMessageContent" } }, "additionalProperties": true } }, "system": { "$ref": "#/components/schemas/AnthropicMessageContent" }, "stream": { "type": "boolean", "default": false }, "temperature": { "type": "number" } }, "additionalProperties": true },
+      "AnthropicMessagesResponse": { "type": "object", "required": ["id", "type", "role", "content", "model", "stop_reason", "usage"], "properties": { "id": { "type": "string" }, "type": { "type": "string", "const": "message" }, "role": { "type": "string", "const": "assistant" }, "content": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "model": { "type": "string" }, "stop_reason": { "type": ["string", "null"] }, "usage": { "type": "object", "additionalProperties": true } }, "additionalProperties": true },
+      "GeminiGenerateContentRequest": { "type": "object", "required": ["contents"], "properties": { "contents": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["parts"], "properties": { "role": { "type": "string" }, "parts": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": true } } }, "additionalProperties": true } }, "systemInstruction": { "type": "object", "additionalProperties": true }, "generationConfig": { "type": "object", "additionalProperties": true }, "safetySettings": { "type": "array", "items": { "type": "object", "additionalProperties": true } } }, "additionalProperties": true },
+      "GeminiGenerateContentResponse": { "type": "object", "required": ["candidates"], "properties": { "candidates": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "promptFeedback": { "type": "object", "additionalProperties": true }, "usageMetadata": { "type": "object", "additionalProperties": true } }, "additionalProperties": true },
       "SeedanceVideoGenerationRequest": { "type": "object", "required": ["model"], "anyOf": [{ "required": ["content"] }, { "required": ["prompt"] }], "properties": { "model": { "type": "string", "enum": ["doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128"] }, "content": { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/SeedanceContentItem" } }, "prompt": { "type": "string", "minLength": 1, "description": "纯文本提示词便捷字段；与 content 中的 text 同时提供时会一并发送" }, "generate_audio": { "type": "boolean", "default": true }, "resolution": { "type": "string", "enum": ["480p", "720p", "1080p", "4k"], "default": "720p", "description": "Fast 模型只支持 480p 和 720p" }, "ratio": { "type": "string", "enum": ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"], "default": "adaptive" }, "duration": { "default": 5, "oneOf": [{ "type": "integer", "const": -1 }, { "type": "integer", "minimum": 4, "maximum": 15 }] }, "watermark": { "type": "boolean", "default": false }, "tools": { "type": "array", "items": { "$ref": "#/components/schemas/SeedanceTool" } } } },
       "SeedanceContentItem": { "oneOf": [{ "$ref": "#/components/schemas/SeedanceTextContent" }, { "$ref": "#/components/schemas/SeedanceImageContent" }, { "$ref": "#/components/schemas/SeedanceVideoContent" }, { "$ref": "#/components/schemas/SeedanceAudioContent" }] },
       "SeedanceMediaURL": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "minLength": 1, "description": "公网 URL；Seedance 图片和音频还可使用受支持的 Data URL 或 asset:// URI" } } },

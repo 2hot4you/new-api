@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { prepareOpenApi } from './prepare-openapi.mjs';
 
 const siteRoot = join(import.meta.dir, '..');
 
@@ -13,6 +16,10 @@ const referencePages = [
   'docs/api-reference/seedance.mdx',
   'docs/api-reference/assets.mdx',
   'docs/api-reference/errors.mdx',
+  'docs/api-reference/chat-completions.mdx',
+  'docs/api-reference/responses.mdx',
+  'docs/api-reference/anthropic-messages.mdx',
+  'docs/api-reference/gemini-generate-content.mdx',
 ];
 
 const endpointPages = {
@@ -45,7 +52,40 @@ const endpointPages = {
     'GET /v1/assets/{id}',
     'DELETE /v1/assets/{id}',
   ],
+  'docs/api-reference/chat-completions.mdx': ['POST /v1/chat/completions'],
+  'docs/api-reference/responses.mdx': ['POST /v1/responses'],
+  'docs/api-reference/anthropic-messages.mdx': ['POST /v1/messages'],
+  'docs/api-reference/gemini-generate-content.mdx': ['POST /v1beta/models/{model}:generateContent'],
 } as const;
+
+const coreProtocolOperations = [
+  {
+    signature: 'POST /v1/chat/completions',
+    operationId: 'createChatCompletion',
+    schema: 'ChatCompletionRequest',
+    security: [{ BearerAuth: [] }],
+  },
+  {
+    signature: 'POST /v1/responses',
+    operationId: 'createResponse',
+    schema: 'ResponsesRequest',
+    security: [{ BearerAuth: [] }],
+  },
+  {
+    signature: 'POST /v1/messages',
+    operationId: 'createAnthropicMessage',
+    schema: 'AnthropicMessagesRequest',
+    security: [{ AnthropicApiKey: [] }],
+  },
+  {
+    signature: 'POST /v1beta/models/{model}:generateContent',
+    operationId: 'generateGeminiContent',
+    schema: 'GeminiGenerateContentRequest',
+    security: [{ GeminiApiKey: [] }],
+  },
+] as const;
+
+const coreProtocolSignatures = new Set(coreProtocolOperations.map(({ signature }) => signature));
 
 async function source(relativePath: string) {
   return readFile(join(siteRoot, relativePath), 'utf8');
@@ -57,6 +97,55 @@ function frontmatter(document: string) {
 }
 
 describe('ordinary MDX API reference contract', () => {
+  test('publishes only the documented core LLM protocol operations and public schemas', async () => {
+    const template = JSON.parse(await source('openapi/relay.public.template.yaml')) as any;
+    const allowlist = JSON.parse(await source('openapi/public-api-surface.json')) as { operations: string[] };
+    const workspace = await mkdtemp(join(tmpdir(), 'molii-core-protocol-openapi-'));
+
+    try {
+      const generated = await prepareOpenApi({
+        templatePath: join(siteRoot, 'openapi/relay.public.template.yaml'),
+        allowlistPath: join(siteRoot, 'openapi/public-api-surface.json'),
+        outputPath: join(workspace, 'relay.public.json'),
+        apiBaseUrl: 'https://api.molii.example',
+      }) as any;
+      const operationIds = Object.values(generated.paths).flatMap((pathItem: any) =>
+        Object.values(pathItem as Record<string, any>).map((operation) => operation.operationId),
+      );
+
+      expect(new Set(operationIds).size).toBe(operationIds.length);
+      expect(generated.components.securitySchemes).toEqual({
+        BearerAuth: expect.any(Object),
+        AnthropicApiKey: expect.any(Object),
+        GeminiApiKey: expect.any(Object),
+      });
+      expect(Object.keys(generated.components.schemas).some((name) => /administrator/i.test(name))).toBe(false);
+
+      for (const expected of coreProtocolOperations) {
+        const [method, path] = expected.signature.split(' ');
+        const templateOperation = template.paths[path][method.toLowerCase()];
+        const generatedOperation = generated.paths[path][method.toLowerCase()];
+
+        expect(allowlist.operations).toContain(expected.signature);
+        expect(templateOperation.operationId).toBe(expected.operationId);
+        expect(templateOperation.requestBody.content['application/json'].schema.$ref)
+          .toBe(`#/components/schemas/${expected.schema}`);
+        expect(templateOperation.responses).toMatchObject({
+          200: expect.any(Object),
+          400: expect.any(Object),
+          401: expect.any(Object),
+          429: expect.any(Object),
+        });
+        expect(generatedOperation).toMatchObject({
+          operationId: expected.operationId,
+          security: expected.security,
+        });
+      }
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
   test('keeps the Seedance compatibility endpoint on its real multimodal request contract', async () => {
     const spec = JSON.parse(await source('openapi/relay.public.template.yaml')) as any;
     const operation = spec.paths['/v1/video/generations'].post;
@@ -128,6 +217,23 @@ describe('ordinary MDX API reference contract', () => {
       expect(document, relativePath).not.toMatch(/@theme\/Api|ApiExplorer|ApiItem|className=|<style/i);
       expect(document, relativePath).not.toMatch(/\/api\/(?:channel|models\/sync|assets\/admin|user\/manage)/);
       expect(document, relativePath).not.toMatch(/\bsk-[A-Za-z0-9_-]{16,}\b/);
+    }
+  });
+
+  test('gives each core protocol page safe request and response guidance', async () => {
+    for (const [relativePath, signatures] of Object.entries(endpointPages)) {
+      if (signatures.length !== 1 || !coreProtocolSignatures.has(signatures[0])) continue;
+      const document = await source(relativePath);
+      const signature = signatures[0];
+
+      expect(document).toContain(`## \`${signature}\``);
+      expect(document).toContain('### 请求参数');
+      expect(document).toContain('### 请求示例');
+      expect(document).toContain('### 成功响应');
+      expect(document).toContain('[身份验证](/api-basics/authentication)');
+      expect(document).toContain('[错误与重试](/api-basics/errors-retries)');
+      expect(document).toMatch(/curl[\s\S]*?\$MOLII_API_KEY/);
+      expect(document).not.toMatch(/[?&](?:key|api_key|x-goog-api-key)=/i);
     }
   });
 

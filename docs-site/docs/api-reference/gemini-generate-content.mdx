@@ -1,0 +1,58 @@
+---
+title: Gemini GenerateContent API
+description: 使用 Gemini GenerateContent 兼容协议调用公开模型。
+audience: user
+apiVersion: v1
+sidebar_position: 11
+---
+
+# Gemini GenerateContent API
+
+此端点兼容 Gemini GenerateContent 协议。认证和安全重试规则见[身份验证](/api-basics/authentication)与[错误与重试](/api-basics/errors-retries)。
+
+## `POST /v1beta/models/{model}:generateContent`
+
+### 鉴权
+
+使用 `x-goog-api-key: $MOLII_API_KEY` 请求头。不要把密钥放在 URL 或查询参数中。
+
+### 请求参数
+
+路径参数 `model` 是公开模型 ID。请求体为 `application/json`；`contents` 至少包含一个带 `parts` 的内容项。可按模型能力传递 `systemInstruction`、`generationConfig` 与 `safetySettings`。
+
+| 字段 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `model` | path | string | 是 | 公开模型 ID |
+| `contents` | body | array | 是 | 至少一个内容项 |
+| `contents[].parts` | body | array | 是 | 至少一个兼容内容块 |
+| `generationConfig` | body | object | 否 | 生成配置 |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1beta/models/your-model-id:generateContent" \
+  --header "x-goog-api-key: $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"contents":[{"role":"user","parts":[{"text":"用一句话介绍 Molii。"}]}]}'
+```
+
+### 成功响应
+
+HTTP `200` 返回候选结果数组。通常从 `candidates[].content.parts[]` 读取文本或其他兼容内容块。
+
+```json
+{
+  "candidates": [{"content": {"role": "model", "parts": [{"text": "Molii 是统一的 AI 创作 API。"}]}, "finishReason": "STOP"}],
+  "usageMetadata": {"promptTokenCount": 12, "candidatesTokenCount": 16}
+}
+```
+
+### 错误与重试
+
+`400` 表示路径模型、内容或生成配置不合法；`401`/`403` 表示密钥或权限问题。`429` 和暂时性 `5xx` 的处理见[错误与重试](/api-basics/errors-retries)。该 POST 可能计费，网络超时后不要自动重放。
+
+### 计费
+
+按模型和实际输入、输出用量结算。以账户使用记录为最终依据。

@@ -25,7 +25,16 @@ const publicSurface = [
   'POST /v1/assets',
   'GET /v1/assets/{id}',
   'DELETE /v1/assets/{id}',
+  'POST /v1/chat/completions',
+  'POST /v1/responses',
+  'POST /v1/messages',
+  'POST /v1beta/models/{model}:generateContent',
 ];
+
+const securityForOperation: Record<string, Record<string, []>> = {
+  'POST /v1/messages': { AnthropicApiKey: [] },
+  'POST /v1beta/models/{model}:generateContent': { GeminiApiKey: [] },
+};
 
 async function fixture() {
   const workspace = await mkdtemp(join(tmpdir(), 'molii-openapi-'));
@@ -40,7 +49,7 @@ async function fixture() {
       result[path][method.toLowerCase()] = {
           summary: `Public operation ${index + 1}`,
           operationId: `publicOperation${index + 1}`,
-          security: [{ BearerAuth: [] }],
+          security: [securityForOperation[entry] ?? { BearerAuth: [] }],
           responses: {
             '200': {
               description: 'Success',
@@ -68,6 +77,8 @@ async function fixture() {
     components: {
       securitySchemes: {
         BearerAuth: { type: 'http', scheme: 'bearer' },
+        AnthropicApiKey: { type: 'apiKey', in: 'header', name: 'x-api-key' },
+        GeminiApiKey: { type: 'apiKey', in: 'header', name: 'x-goog-api-key' },
         AdminAuth: { type: 'apiKey', in: 'header', name: 'X-Admin-Key' },
       },
       schemas: {
@@ -92,7 +103,7 @@ describe('prepareOpenApi', () => {
     expect(operations).toEqual([...publicSurface].sort());
   });
 
-  test('keeps stable unique operation ids and only bearer authentication', async () => {
+  test('keeps stable unique operation ids and only documented public authentication', async () => {
     const files = await fixture();
 
     const document = await prepareOpenApi({ ...files, apiBaseUrl: 'https://api.molii.example' });
@@ -101,8 +112,18 @@ describe('prepareOpenApi', () => {
     const operationIds = operations.map((operation: any) => operation.operationId);
     expect(new Set(operationIds).size).toBe(operationIds.length);
     expect(operationIds).toEqual(publicSurface.map((_, index) => `publicOperation${index + 1}`));
-    expect(document.components.securitySchemes).toEqual({ BearerAuth: { type: 'http', scheme: 'bearer' } });
-    expect(operations.every((operation: any) => JSON.stringify(operation.security) === JSON.stringify([{ BearerAuth: [] }]))).toBe(true);
+    expect(document.components.securitySchemes).toEqual({
+      BearerAuth: { type: 'http', scheme: 'bearer' },
+      AnthropicApiKey: { type: 'apiKey', in: 'header', name: 'x-api-key' },
+      GeminiApiKey: { type: 'apiKey', in: 'header', name: 'x-goog-api-key' },
+    });
+    expect(document.paths['/v1/messages'].post.security).toEqual([{ AnthropicApiKey: [] }]);
+    expect(document.paths['/v1beta/models/{model}:generateContent'].post.security).toEqual([{ GeminiApiKey: [] }]);
+    expect(operations.every((operation: any) =>
+      JSON.stringify(operation.security) === JSON.stringify([{ BearerAuth: [] }])
+      || JSON.stringify(operation.security) === JSON.stringify([{ AnthropicApiKey: [] }])
+      || JSON.stringify(operation.security) === JSON.stringify([{ GeminiApiKey: [] }]),
+    )).toBe(true);
   });
 
   test('sets the public server, prunes private schemas, and leaves source input unchanged', async () => {
@@ -119,14 +140,24 @@ describe('prepareOpenApi', () => {
     expect(input).toEqual(original);
   });
 
-  test('rejects unsafe or incomplete public operation definitions', async () => {
+  test('rejects unknown, multiple, empty, or incomplete public operation security definitions', async () => {
     const files = await fixture();
     const unsafe = JSON.parse(await Bun.file(files.templatePath).text());
     unsafe.paths['/v1/models'].get.security = [{ AdminAuth: [] }];
     unsafe.paths['/v1/videos'].post.summary = '';
 
     await expect(prepareOpenApi({ ...files, apiBaseUrl: 'https://api.molii.example', document: unsafe }))
-      .rejects.toThrow(/summary|BearerAuth/i);
+      .rejects.toThrow(/summary|security/i);
+
+    const multiple = JSON.parse(await Bun.file(files.templatePath).text());
+    multiple.paths['/v1/models'].get.security = [{ BearerAuth: [] }, { AnthropicApiKey: [] }];
+    await expect(prepareOpenApi({ ...files, apiBaseUrl: 'https://api.molii.example', document: multiple }))
+      .rejects.toThrow(/security/i);
+
+    const empty = JSON.parse(await Bun.file(files.templatePath).text());
+    empty.paths['/v1/models'].get.security = [];
+    await expect(prepareOpenApi({ ...files, apiBaseUrl: 'https://api.molii.example', document: empty }))
+      .rejects.toThrow(/security/i);
   });
 
   test('resets only the fixed generated API directory', async () => {

@@ -1,0 +1,65 @@
+---
+title: Chat Completions API
+description: 使用 OpenAI Chat Completions 兼容协议调用公开模型。
+audience: user
+apiVersion: v1
+sidebar_position: 8
+---
+
+# Chat Completions API
+
+使用 OpenAI Chat Completions 兼容协议向已授权模型发送消息。开始前阅读[身份验证](/api-basics/authentication)和[错误与重试](/api-basics/errors-retries)。
+
+## `POST /v1/chat/completions`
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+请求体为 `application/json`。`model` 是当前密钥可用的模型 ID；`messages` 至少包含一条带 `role` 与 `content` 的消息。`content` 可以是文本或兼容的多模态内容数组，其他已支持的 OpenAI 兼容字段可按模型能力传递。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `model` | string | 是 | 公开模型 ID |
+| `messages` | array | 是 | 对话消息，至少一项 |
+| `messages[].role` | string | 是 | `system`、`developer`、`user`、`assistant` 或 `tool` |
+| `messages[].content` | string 或 array | 是 | 消息内容 |
+| `stream` | boolean | 否 | 是否请求流式响应 |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/chat/completions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "model": "your-model-id",
+    "messages": [{"role": "user", "content": "用一句话介绍 Molii。"}]
+  }'
+```
+
+### 成功响应
+
+HTTP `200` 返回 OpenAI 兼容对象。读取首个 `choices[].message.content` 作为非流式文本结果；响应也可能带 `usage`。
+
+```json
+{
+  "id": "chatcmpl_public_123",
+  "object": "chat.completion",
+  "created": 1785744000,
+  "model": "your-model-id",
+  "choices": [{"index": 0, "message": {"role": "assistant", "content": "Molii 是统一的 AI 创作 API。"}, "finish_reason": "stop"}]
+}
+```
+
+### 错误与重试
+
+`400` 表示参数或模型不兼容；`401`/`403` 表示凭据或权限问题；`429` 或暂时性 `5xx` 可稍后处理。此操作可能计费，网络超时后不要自动重放 POST；参见[错误与重试](/api-basics/errors-retries)。
+
+### 计费
+
+按所选模型和实际用量结算。以账户中的使用记录为准，不要根据客户端估算自行扣费。

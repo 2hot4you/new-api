@@ -1,0 +1,61 @@
+---
+title: Responses API
+description: 使用 OpenAI Responses 兼容协议调用公开模型。
+audience: user
+apiVersion: v1
+sidebar_position: 9
+---
+
+# Responses API
+
+使用 OpenAI Responses 兼容协议创建模型响应。认证与安全重试规则见[身份验证](/api-basics/authentication)和[错误与重试](/api-basics/errors-retries)。
+
+## `POST /v1/responses`
+
+### 鉴权
+
+需要 `Authorization: Bearer $MOLII_API_KEY`。
+
+### 请求参数
+
+请求体为 `application/json`。`input` 可以是字符串或协议兼容的输入项数组；可按模型能力补充 `instructions`、`tools` 等字段。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `model` | string | 是 | 公开模型 ID |
+| `input` | string 或 array | 是 | 用户输入或兼容输入项 |
+| `instructions` | string | 否 | 附加系统指令 |
+| `stream` | boolean | 否 | 是否请求流式响应 |
+
+### 请求示例
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/responses" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"your-model-id","input":"用一句话介绍 Molii。"}'
+```
+
+### 成功响应
+
+HTTP `200` 返回 `response` 对象。结果项位于 `output`，其具体块类型取决于所选模型和请求的兼容功能。
+
+```json
+{
+  "id": "resp_public_123",
+  "object": "response",
+  "status": "completed",
+  "model": "your-model-id",
+  "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Molii 是统一的 AI 创作 API。"}]}]
+}
+```
+
+### 错误与重试
+
+`400` 表示请求不合法；`401`/`403` 需要修复凭据或授权；`429` 和暂时性 `5xx` 应遵循[错误与重试](/api-basics/errors-retries)。该 POST 可能计费，超时后不要自动提交第二次。
+
+### 计费
+
+按模型与实际用量结算。结果中的用量字段仅作参考，以账户使用记录为准。
