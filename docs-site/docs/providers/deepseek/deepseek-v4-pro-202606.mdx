@@ -1,0 +1,56 @@
+---
+title: DeepSeek V4 Pro
+sidebar_position: 26
+---
+
+# DeepSeek V4 Pro
+
+DeepSeek 旗舰推理模型，1.6T/49B 激活 MoE，开源 MIT，可切换思考模式。
+
+- **模型 ID：** `deepseek-v4-pro-202606`
+- **Provider：** DeepSeek
+- **输入模态：** text
+- **输出模态：** text
+- **上下文长度：** 1000000
+- **最大输出 Token：** 384000
+
+## 能力
+
+- function\_calling
+- streaming
+- json\_mode
+- structured\_output
+- reasoning
+- tools
+- system\_prompt
+- caching
+
+## 支持参数
+
+- stream
+- temperature
+- top\_p
+- max\_tokens
+- tools
+- tool\_choice
+- reasoning\_effort
+- response\_format
+
+## 兼容协议与安全调用
+
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### OpenAI Chat Completions
+
+**POST /v1/chat/completions**
+
+```bash
+curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  -H "Authorization: Bearer $MOLII_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-v4-pro-202606","messages":[{"role":"user","content":"你好"}]}'
+```
+
+## 调用提示
+
+同步接口在返回响应后完成。异步接口请保留任务 ID 并轮询结果；网络超时不表示请求未受理，提交前先查询任务，避免重复付费请求。
+
+通用接口参考：[模型列表](/api-reference/models)、[认证](/api-basics/authentication)。

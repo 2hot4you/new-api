@@ -1,0 +1,56 @@
+---
+title: GLM 5.2
+sidebar_position: 29
+---
+
+# GLM 5.2
+
+智谱开源旗舰（MIT），约 750B MoE，1M 无损上下文，擅长长程工程。
+
+- **模型 ID：** `glm-5.2`
+- **Provider：** Zhipu
+- **输入模态：** text
+- **输出模态：** text
+- **上下文长度：** 1048576
+- **最大输出 Token：** 131072
+
+## 能力
+
+- function\_calling
+- streaming
+- json\_mode
+- structured\_output
+- reasoning
+- tools
+- system\_prompt
+- caching
+
+## 支持参数
+
+- stream
+- temperature
+- top\_p
+- max\_tokens
+- tools
+- tool\_choice
+- reasoning\_effort
+- response\_format
+
+## 兼容协议与安全调用
+
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### OpenAI Chat Completions
+
+**POST /v1/chat/completions**
+
+```bash
+curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  -H "Authorization: Bearer $MOLII_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"glm-5.2","messages":[{"role":"user","content":"你好"}]}'
+```
+
+## 调用提示
+
+同步接口在返回响应后完成。异步接口请保留任务 ID 并轮询结果；网络超时不表示请求未受理，提交前先查询任务，避免重复付费请求。
+
+通用接口参考：[模型列表](/api-reference/models)、[认证](/api-basics/authentication)。

@@ -1,0 +1,70 @@
+---
+title: Gemini 3.7 Flash
+sidebar_position: 11
+---
+
+# Gemini 3.7 Flash
+
+Google 最新 Flash 主力模型，强化编码与 Agent，入门价更低。
+
+- **模型 ID：** `gemini-3.7-flash`
+- **Provider：** Google
+- **输入模态：** text、image、audio、video、file
+- **输出模态：** text
+- **上下文长度：** 1048576
+- **最大输出 Token：** 65536
+
+## 能力
+
+- function\_calling
+- streaming
+- vision
+- json\_mode
+- structured\_output
+- reasoning
+- tools
+- system\_prompt
+- web\_search
+- code\_interpreter
+- caching
+
+## 支持参数
+
+- stream
+- temperature
+- top\_p
+- max\_tokens
+- tools
+- tool\_choice
+- reasoning\_effort
+- response\_format
+
+## 兼容协议与安全调用
+
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### Gemini GenerateContent
+
+**POST /v1beta/models/gemini-3.7-flash:generateContent**
+
+```bash
+curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1beta/models/gemini-3.7-flash:generateContent" \
+  -H "Authorization: Bearer $MOLII_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"contents":[{"parts":[{"text":"你好"}]}]}'
+```
+
+### OpenAI Chat Completions
+
+**POST /v1/chat/completions**
+
+```bash
+curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  -H "Authorization: Bearer $MOLII_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"你好"}]}'
+```
+
+## 调用提示
+
+同步接口在返回响应后完成。异步接口请保留任务 ID 并轮询结果；网络超时不表示请求未受理，提交前先查询任务，避免重复付费请求。
+
+通用接口参考：[模型列表](/api-reference/models)、[认证](/api-basics/authentication)。
