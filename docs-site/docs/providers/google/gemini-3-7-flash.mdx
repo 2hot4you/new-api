@@ -1,5 +1,5 @@
 ---
-title: Gemini 3.7 Flash
+title: "Gemini 3.7 Flash"
 sidebar_position: 11
 ---
 
@@ -11,7 +11,10 @@ Google 最新 Flash 主力模型，强化编码与 Agent，入门价更低。
 - **Provider：** Google
 - **输入模态：** text、image、audio、video、file
 - **输出模态：** text
-- **上下文长度：** 1048576
+- **英文简介：** Google’s latest Flash workhorse for coding and agents at a lower intro price.
+- **发布日期：** 2026-08-13
+- **知识截止：** 2026-08
+- **上下文 Token 上限：** 1048576
 - **最大输出 Token：** 65536
 
 ## 能力
@@ -41,15 +44,20 @@ Google 最新 Flash 主力模型，强化编码与 Agent，入门价更低。
 
 ## 兼容协议与安全调用
 
-使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### Gemini GenerateContent
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
+
+### Gemini GenerateContent
 
 **POST /v1beta/models/gemini-3.7-flash:generateContent**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1beta/models/gemini-3.7-flash:generateContent" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"contents":[{"parts":[{"text":"你好"}]}]}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1beta/models/gemini-3.7-flash:generateContent" \
+  --header "x-goog-api-key: $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"contents":[{"parts":[{"text":"你好"}]}]}'
 ```
 
 ### OpenAI Chat Completions
@@ -57,10 +65,13 @@ curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1beta/models/gemini-3.7-f
 **POST /v1/chat/completions**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"你好"}]}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"gemini-3.7-flash","messages":[{"role":"user","content":"你好"}]}'
 ```
 
 ## 调用提示

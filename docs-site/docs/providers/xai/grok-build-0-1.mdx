@@ -1,5 +1,5 @@
 ---
-title: Grok Build
+title: "Grok Build"
 sidebar_position: 19
 ---
 
@@ -11,7 +11,10 @@ xAI 专为编码 Agent 设计的快速模型，驱动 Grok Build。
 - **Provider：** xAI
 - **输入模态：** text、image
 - **输出模态：** text
-- **上下文长度：** 256000
+- **英文简介：** xAI fast coding model for agentic software engineering and Grok Build.
+- **发布日期：** 2026-08-07
+- **知识截止：** 2026-08
+- **上下文 Token 上限：** 256000
 - **最大输出 Token：** 256000
 
 ## 能力
@@ -36,15 +39,20 @@ xAI 专为编码 Agent 设计的快速模型，驱动 Grok Build。
 
 ## 兼容协议与安全调用
 
-使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### OpenAI Chat Completions
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
+
+### OpenAI Chat Completions
 
 **POST /v1/chat/completions**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"grok-build-0.1","messages":[{"role":"user","content":"你好"}]}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"grok-build-0.1","messages":[{"role":"user","content":"你好"}]}'
 ```
 
 ### OpenAI Responses
@@ -52,10 +60,13 @@ curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
 **POST /v1/responses**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/responses" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"grok-build-0.1","input":"你好"}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/responses" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"grok-build-0.1","input":"你好"}'
 ```
 
 ## 调用提示

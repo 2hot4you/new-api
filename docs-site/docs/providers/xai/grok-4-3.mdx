@@ -1,5 +1,5 @@
 ---
-title: Grok 4.3
+title: "Grok 4.3"
 sidebar_position: 16
 ---
 
@@ -11,7 +11,10 @@ xAI 较早旗舰，更长上下文，支持视频输入。
 - **Provider：** xAI
 - **输入模态：** text、image、video
 - **输出模态：** text
-- **上下文长度：** 1000000
+- **英文简介：** Earlier xAI model with longer context and video input.
+- **发布日期：** 2026-04-30
+- **知识截止：** 2026-04
+- **上下文 Token 上限：** 1000000
 - **最大输出 Token：** 1000000
 
 ## 能力
@@ -40,15 +43,20 @@ xAI 较早旗舰，更长上下文，支持视频输入。
 
 ## 兼容协议与安全调用
 
-使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### OpenAI Chat Completions
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
+
+### OpenAI Chat Completions
 
 **POST /v1/chat/completions**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"grok-4.3","messages":[{"role":"user","content":"你好"}]}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"grok-4.3","messages":[{"role":"user","content":"你好"}]}'
 ```
 
 ### OpenAI Responses
@@ -56,10 +64,13 @@ curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
 **POST /v1/responses**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/responses" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"grok-4.3","input":"你好"}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/responses" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"grok-4.3","input":"你好"}'
 ```
 
 ## 调用提示

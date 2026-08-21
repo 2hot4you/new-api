@@ -1,5 +1,5 @@
 ---
-title: Claude Sonnet 4.6
+title: "Claude Sonnet 4.6"
 sidebar_position: 6
 ---
 
@@ -11,7 +11,10 @@ Anthropic 前一代 Sonnet，仍广泛可用的平衡模型。
 - **Provider：** Anthropic
 - **输入模态：** text、image
 - **输出模态：** text
-- **上下文长度：** 1000000
+- **英文简介：** Previous Anthropic Sonnet generation\, still widely used as a balanced model.
+- **发布日期：** 2026-02-17
+- **知识截止：** 2026-01
+- **上下文 Token 上限：** 1000000
 - **最大输出 Token：** 64000
 
 ## 能力
@@ -40,15 +43,21 @@ Anthropic 前一代 Sonnet，仍广泛可用的平衡模型。
 
 ## 兼容协议与安全调用
 
-使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### Anthropic Messages
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
+
+### Anthropic Messages
 
 **POST /v1/messages**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/messages" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"claude-sonnet-4-6","max_tokens":256,"messages":[{"role":"user","content":"你好"}]}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/messages" \
+  --header "x-api-key: $MOLII_API_KEY" \
+  --header "anthropic-version: 2023-06-01" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"claude-sonnet-4-6","max_tokens":256,"messages":[{"role":"user","content":"你好"}]}'
 ```
 
 ### OpenAI Chat Completions
@@ -56,10 +65,13 @@ curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/messages" \
 **POST /v1/chat/completions**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"你好"}]}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"你好"}]}'
 ```
 
 ## 调用提示

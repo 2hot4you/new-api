@@ -1,5 +1,5 @@
 ---
-title: Kimi K3
+title: "Kimi K3"
 sidebar_position: 30
 ---
 
@@ -11,7 +11,10 @@ sidebar_position: 30
 - **Provider：** MoonShot
 - **输入模态：** text、image、video
 - **输出模态：** text
-- **上下文长度：** 1048576
+- **英文简介：** Moonshot flagship 2.8T MoE with native vision and 1M context for long-horizon coding.
+- **发布日期：** 2026-07-16
+- **知识截止：** 2026-07
+- **上下文 Token 上限：** 1048576
 - **最大输出 Token：** 131072
 
 ## 能力
@@ -39,15 +42,20 @@ sidebar_position: 30
 
 ## 兼容协议与安全调用
 
-使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### OpenAI Chat Completions
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
+
+### OpenAI Chat Completions
 
 **POST /v1/chat/completions**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"kimi-k3","messages":[{"role":"user","content":"你好"}]}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"kimi-k3","messages":[{"role":"user","content":"你好"}]}'
 ```
 
 ## 调用提示

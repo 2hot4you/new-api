@@ -33,6 +33,7 @@ function asObject(value, label) {
 
 function requiredString(value, label) {
   if (typeof value !== 'string' || !value.trim()) fail(`${label} must be a non-empty string`);
+  if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)) fail(`${label} must not contain control characters`);
   return value.trim();
 }
 
@@ -53,10 +54,8 @@ function optionalPositiveInteger(value, label) {
 
 function publicStrings(value, label) {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || !entry.trim())) {
-    fail(`${label} must be an array of non-empty strings`);
-  }
-  return value.map((entry) => entry.trim());
+  if (!Array.isArray(value)) fail(`${label} must be an array of non-empty strings`);
+  return value.map((entry, index) => requiredString(entry, `${label}[${index}]`));
 }
 
 export function slugify(value) {
@@ -71,7 +70,7 @@ export function slugify(value) {
 }
 
 function ordered(items) {
-  return [...items].sort((left, right) => left.display_order - right.display_order || left.id.localeCompare(right.id));
+  return [...items].sort((left, right) => left.display_order - right.display_order || left.id - right.id);
 }
 
 /**

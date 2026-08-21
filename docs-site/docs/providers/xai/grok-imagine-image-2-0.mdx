@@ -1,5 +1,5 @@
 ---
-title: grok-imagine-image-2.0
+title: "grok-imagine-image-2.0"
 sidebar_position: 21
 ---
 
@@ -11,6 +11,13 @@ sidebar_position: 21
 - **Provider：** xAI
 - **输入模态：** text、image
 - **输出模态：** image
+- **英文简介：** Image model for prompt-driven generation\, editing\, and visual design workflows
+- **发布日期：** 2026-08-07
+- **最大输入图片数：** 3
+- **支持分辨率：** 1080p
+- **支持宽高比：** 16\:9
+- **输出格式：** url、b64\_json
+- **参考输入模态：** image
 
 ## 能力
 
@@ -22,15 +29,20 @@ sidebar_position: 21
 
 ## 兼容协议与安全调用
 
-使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### Images
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
+
+### Images
 
 **POST /v1/images/generations**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/images/generations" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"grok-imagine-image-2.0","prompt":"描述所需图片"}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/images/generations" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"grok-imagine-image-2.0","prompt":"描述所需图片"}'
 ```
 
 ## 调用提示

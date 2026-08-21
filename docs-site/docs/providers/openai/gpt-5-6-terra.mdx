@@ -1,5 +1,5 @@
 ---
-title: GPT 5.6 Terra
+title: "GPT 5.6 Terra"
 sidebar_position: 9
 ---
 
@@ -11,7 +11,10 @@ OpenAI GPT-5.6 中端平衡版，日常生产性价比高。
 - **Provider：** OpenAI
 - **输入模态：** text、image
 - **输出模态：** text
-- **上下文长度：** 1050000
+- **英文简介：** OpenAI GPT-5.6 balanced mid-tier for everyday production work.
+- **发布日期：** 2026-07-09
+- **知识截止：** 2026-02
+- **上下文 Token 上限：** 1050000
 - **最大输出 Token：** 128000
 
 ## 能力
@@ -40,15 +43,20 @@ OpenAI GPT-5.6 中端平衡版，日常生产性价比高。
 
 ## 兼容协议与安全调用
 
-使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### OpenAI Chat Completions
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
+
+### OpenAI Chat Completions
 
 **POST /v1/chat/completions**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.6-terra","messages":[{"role":"user","content":"你好"}]}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"gpt-5.6-terra","messages":[{"role":"user","content":"你好"}]}'
 ```
 
 ## 调用提示

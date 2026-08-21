@@ -1,5 +1,5 @@
 ---
-title: Grok 4.20
+title: "Grok 4.20"
 sidebar_position: 18
 ---
 
@@ -11,7 +11,10 @@ Grok 4.20 推理版，强调低幻觉与强指令遵循。
 - **Provider：** xAI
 - **输入模态：** text、image
 - **输出模态：** text
-- **上下文长度：** 2000000
+- **英文简介：** Grok 4.20 reasoning variant with low hallucination and strong instruction following.
+- **发布日期：** 2026-03-09
+- **知识截止：** 2025-09
+- **上下文 Token 上限：** 2000000
 - **最大输出 Token：** 2000000
 
 ## 能力
@@ -40,15 +43,20 @@ Grok 4.20 推理版，强调低幻觉与强指令遵循。
 
 ## 兼容协议与安全调用
 
-使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### OpenAI Chat Completions
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
+
+### OpenAI Chat Completions
 
 **POST /v1/chat/completions**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"grok-4.20-0309-reasoning","messages":[{"role":"user","content":"你好"}]}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"grok-4.20-0309-reasoning","messages":[{"role":"user","content":"你好"}]}'
 ```
 
 ### OpenAI Responses
@@ -56,10 +64,13 @@ curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/chat/completions" \
 **POST /v1/responses**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/responses" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"grok-4.20-0309-reasoning","input":"你好"}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/responses" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"grok-4.20-0309-reasoning","input":"你好"}'
 ```
 
 ## 调用提示

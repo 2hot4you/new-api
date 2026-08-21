@@ -1,5 +1,5 @@
 ---
-title: grok-imagine-video
+title: "grok-imagine-video"
 sidebar_position: 25
 ---
 
@@ -11,7 +11,13 @@ sidebar_position: 25
 - **Provider：** xAI
 - **输入模态：** text、image、video
 - **输出模态：** video
-- **时长限制：** 1–15 秒
+- **发布日期：** 2026-08-05
+- **最大输入图片数：** 1
+- **视频时长范围：** 1–15 秒
+- **支持分辨率：** 480p、720p
+- **支持宽高比：** 1\:1、16\:9、9\:16、4\:3、3\:4、3\:2、2\:3
+- **输出格式：** url
+- **参考输入模态：** image、video
 
 ## 能力
 
@@ -24,18 +30,55 @@ sidebar_position: 25
 
 ## 兼容协议与安全调用
 
-使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。### OpenAI Video
+使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
+
+### OpenAI Video
 
 **POST /v1/videos**
 
 ```bash
-curl -X POST "${MOLII_BASE_URL:-https://api.molii.co}/v1/videos" \
-  -H "Authorization: Bearer $MOLII_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"grok-imagine-video","prompt":"描述所需视频"}'
+curl --fail-with-body --silent --show-error \
+  --max-time 60 \
+  --request POST \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/videos" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"grok-imagine-video","prompt":"描述所需视频"}'
 ```
 
-创建视频是异步操作。使用返回的任务 ID 轮询 **GET /v1/videos/\{task_id\}**，完成后从 **GET /v1/videos/\{task_id\}/content** 下载结果。创建请求可能产生费用；保存任务 ID，避免因超时而重复提交。
+创建视频是异步操作。保存创建响应中的任务 ID；下面的 GET 请求有单次超时且不自动重试。
+
+```bash
+TASK_ID='task_public_123'
+```
+
+**GET /v1/videos/\{task_id\}**
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --max-time 30 \
+  --max-redirs 0 \
+  --request GET \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/videos/$TASK_ID" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+**GET /v1/videos/\{task_id\}/content**
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --max-time 300 \
+  --max-redirs 0 \
+  --request GET \
+  --url "${MOLII_BASE_URL:-https://api.molii.co}/v1/videos/$TASK_ID/content" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --dump-header ./video-content.headers \
+  --output ./video-content.bin \
+  --header "Accept: video/*"
+```
+
+内容请求故意不使用 `--location`，不会把 Molii 凭据转发给重定向主机。检查响应头和内容类型后再保存结果，详见[视频 API](/api-reference/videos)。创建请求可能产生费用；网络结果不确定时不要重复提交 POST。
 
 ## 调用提示
 
