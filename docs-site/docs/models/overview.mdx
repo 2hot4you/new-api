@@ -1,6 +1,6 @@
 ---
 title: 模型概览
-description: 比较 Molii 当前公开的 Seedance 与 Grok Imagine 图片、视频模型。
+description: 浏览 Molii Development 公开快照中的全部 Provider、模型与兼容协议。
 audience: user
 apiVersion: v1
 lastReviewed: 2026-08-10
@@ -10,20 +10,34 @@ sidebar_position: 1
 
 # 模型概览
 
-Molii 当前公开 Seedance 2.0 和 Grok Imagine 模型。以下内容只描述普通用户可以通过 API Key 调用的模型，不包含渠道或管理配置。
+当前检入的 Development 公开目录快照包含 **10 个 Provider** 和 **35 个模型**。本页提供稳定入口与协议索引；每个模型的完整能力、参数和调用示例由同一快照生成在 [Provider 与模型目录](/providers)中，避免在多个手写页面复制 35 行容易漂移的清单。
 
-| 模型 ID | 类型 | 主要能力 | 支持的分辨率 |
-| --- | --- | --- | --- |
-| `doubao-seedance-2-0-260128` | 视频 | 文本、多模态参考、音频与联网工具 | `480p`、`720p`、`1080p`、`4k` |
-| `doubao-seedance-2-0-fast-260128` | 视频 | Seedance Fast 生成 | `480p`、`720p` |
-| `grok-imagine-image` | 图片 | 图片生成与编辑 | `1k`、`2k` |
-| `grok-imagine-image-quality` | 图片 | 高质量图片生成与编辑 | `1k`、`2k` |
-| `grok-imagine-image-2.0` | 图片 | 第二代图片生成与编辑，支持 Low/Medium 质量档位 | `1k`、`2k` |
-| `grok-imagine-video` | 视频 | 文生视频、图生视频、视频编辑 | `480p`、`720p` |
-| `grok-imagine-video-1.5` | 视频 | 图生视频 | `480p`、`720p`、`1080p` |
+## 快照来源
 
-Fast 版不可使用 `1080p` 或 `4k`。如果请求需要这两个分辨率，请选择标准版。
+目录来自公开 Development 定价端点 [https://dev.molii.co/api/pricing](https://dev.molii.co/api/pricing)，当前快照版本为 `a42d372ccf0b5dd13ecf71203521f9d2`。同步是显式维护操作；日常测试、开发和构建只读取检入快照，不依赖 Development 网络可用性。
 
-Seedance 与 Grok 视频都通过 `POST /v1/videos` 创建异步任务。Grok 图片使用 `POST /v1/images/generations` 或 `POST /v1/images/edits` 同步返回结果。视频创建可能产生费用，网络结果不确定时不要自动重发 POST。
+快照表示文档生成时的公开目录，不替代账户授权判断。调用前使用[模型 API](/api-reference/models)读取当前 API Key 实际可用的模型；价格与权限以平台模型广场和账户当前状态为准。
 
-继续阅读：[Seedance 2.0](./seedance-2)、[Grok Imagine 图片](./grok-imagine-image)、[Grok Imagine 视频](./grok-imagine-video)、[多模态输入](../guides/seedance-multimodal)和[临时素材](../guides/temporary-assets)。
+## 兼容协议索引
+
+| 快照端点类型 | API 参考 | 公开端点 |
+| --- | --- | --- |
+| `openai` | [Chat Completions](/api-reference/chat-completions) | `POST /v1/chat/completions` |
+| `openai-response` | [Responses](/api-reference/responses) | `POST /v1/responses` |
+| `anthropic` | [Anthropic Messages](/api-reference/anthropic-messages) | `POST /v1/messages` |
+| `gemini` | [Gemini GenerateContent](/api-reference/gemini-generate-content) | `POST /v1beta/models/{model}:generateContent` |
+| `image-generation` | [图片 API](/api-reference/images) | `POST /v1/images/generations`、`POST /v1/images/edits` |
+| `openai-video` | [视频 API](/api-reference/videos) | `POST /v1/videos` 与任务查询、下载 GET |
+
+不同兼容协议使用不同请求头。OpenAI 兼容端点使用 Bearer；Anthropic 与 Gemini 的请求头以各自参考页为准。示例只使用环境变量，不要把 API Key 放入客户端代码、URL 或日志。
+
+## 专项深度指南
+
+生成目录覆盖全部 Provider 与模型 ID；以下手写页面继续补充媒体工作流的细节：
+
+- [Seedance 2.0](./seedance-2)与[多模态输入](../guides/seedance-multimodal)
+- [Grok Imagine 图片](./grok-imagine-image)
+- [Grok Imagine 视频](./grok-imagine-video)
+- [临时素材](../guides/temporary-assets)
+
+视频创建等付费 POST 在网络结果不确定时不要自动重发。保存任务 ID 与公开 Request ID，并按[异步任务](/api-basics/async-tasks)和[错误与重试](/api-basics/errors-retries)处理。

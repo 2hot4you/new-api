@@ -2,31 +2,40 @@
 id: index
 slug: /api-reference
 title: API 参考
-description: Molii 用户侧创作 API 的端点、参数、响应、错误与计费参考。
+description: Molii 公开模型协议、媒体创作、文件、素材与错误处理参考。
 audience: user
 apiVersion: v1
-lastReviewed: 2026-08-10
+lastReviewed: 2026-08-22
 sourceCommit: d396320dd9c0
 sidebar_position: 1
 ---
 
 # API 参考
 
-本参考只包含普通用户使用 API Key 调用的公开接口。所有示例都使用环境变量，内容严格限定为用户侧产品能力。
+本参考只包含使用 API Key 调用的公开接口。所有示例都使用环境变量，并按兼容协议说明鉴权、请求、响应和安全重试边界。
 
 ## 开始前确认
 
-先按 [Base URL](/api-basics/base-url) 选择可信环境地址，再按[身份验证](/api-basics/authentication)发送 `Authorization: Bearer $MOLII_API_KEY`。API Key 只能保存在服务端或本机安全环境；同时准备请求超时和日志中的公开 Request ID 字段。付费创建请求不要配置自动重试。
+先按 [Base URL](/api-basics/base-url) 选择可信环境地址，再阅读[身份验证](/api-basics/authentication)。OpenAI 兼容端点使用 `Authorization: Bearer`；Anthropic Messages 和 Gemini GenerateContent 使用各自参考页列出的请求头。API Key 只能保存在服务端或本机安全环境。付费创建请求不要配置自动重试。
 
 ## 选择端点
 
-- [模型 API](/api-reference/models)：读取当前公开模型。
-- [图片 API](/api-reference/images)：图片生成与编辑。
-- [视频 API](/api-reference/videos)：Grok 视频创建、编辑、查询和下载。
-- [文件 API](/api-reference/files)：上传和管理 Grok 请求使用的 24 小时媒体文件。
-- [Seedance API](/api-reference/seedance)：Seedance 多模态视频创建与查询。
-- [临时素材 API](/api-reference/assets)：创建、查询和删除素材。
-- [错误 API](/api-reference/errors)：标准错误、状态码和 Request ID。
+- [Chat Completions](/api-reference/chat-completions)：`POST /v1/chat/completions`，OpenAI 消息格式。
+- [Responses](/api-reference/responses)：`POST /v1/responses`，OpenAI Responses 格式。
+- [Anthropic Messages](/api-reference/anthropic-messages)：`POST /v1/messages`，Anthropic 消息格式。
+- [Gemini GenerateContent](/api-reference/gemini-generate-content)：`POST /v1beta/models/{model}:generateContent`，Gemini 原生格式。
+
+具体模型支持哪些协议，以 [Provider 与模型](/providers)中的模型页为准。
+
+### 模型、媒体与资源
+
+- [模型](/api-reference/models)：读取当前 API Key 可用的模型。
+- [图片](/api-reference/images)：图片生成与编辑。
+- [视频](/api-reference/videos)：视频创建、编辑、查询和下载。
+- [文件](/api-reference/files)：上传和管理请求使用的用户媒体文件。
+- [Seedance](/api-reference/seedance)：Seedance 多模态视频创建与查询。
+- [临时素材](/api-reference/assets)：创建、查询和删除临时素材。
+- [错误](/api-reference/errors)：标准错误、状态码和公开 Request ID。
 
 ## 同步与异步响应
 
@@ -40,16 +49,6 @@ sidebar_position: 1
 
 失败时保存公开 Request ID，并按状态码和操作类型决定是否重试。不要在日志或工单中记录完整 Authorization。详见[错误与重试](/api-basics/errors-retries)。
 
-## 接口分组
-
-- [模型](/api-reference/models)：查询当前 API Key 可使用的模型 ID。
-- [图片](/api-reference/images)：Grok Imagine 图片生成与图片编辑。
-- [视频](/api-reference/videos)：Grok Imagine 视频创建、编辑、查询与下载。
-- [文件](/api-reference/files)：上传、列出、查询、下载和删除用户自有媒体文件。
-- [Seedance](/api-reference/seedance)：Seedance 2.0 多模态视频生成与任务查询。
-- [临时素材](/api-reference/assets)：创建、查询和删除 Seedance 临时素材。
-- [错误](/api-reference/errors)：错误结构、HTTP 状态、Request ID 与重试规则。
-
 ## 响应兼容性
 
-客户端应读取本文列出的稳定字段，并忽略响应中不认识的附加字段。不要依赖渠道编号、内部任务编号、上游地址或供应商原始错误。
+客户端应读取各参考页列出的稳定字段，并忽略响应中不认识的附加字段。不要依赖未公开的实现细节或供应商原始错误。

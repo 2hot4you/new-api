@@ -496,6 +496,31 @@ describe('public API guide content contract', () => {
     ]);
   });
 
+  test('API reference navigation exposes every public protocol and resource group in order', () => {
+    const apiReference = sidebars.docsSidebar.find(
+      (item) => typeof item !== 'string' && item.type === 'category' && item.label === 'API 参考',
+    );
+
+    expect(apiReference).toEqual({
+      type: 'category',
+      label: 'API 参考',
+      items: [
+        'api-reference/index',
+        'api-reference/chat-completions',
+        'api-reference/responses',
+        'api-reference/anthropic-messages',
+        'api-reference/gemini-generate-content',
+        'api-reference/models',
+        'api-reference/images',
+        'api-reference/videos',
+        'api-reference/files',
+        'api-reference/seedance',
+        'api-reference/assets',
+        'api-reference/errors',
+      ],
+    });
+  });
+
   test('API lifecycle component covers submit, poll, and settlement states accessibly', async () => {
     const source = await page('src/components/ApiLifecycle.tsx');
     expect(source).toContain("aria-label='异步 API 生命周期'");
