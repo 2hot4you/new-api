@@ -1,0 +1,12 @@
+{
+  "id": "home-footer-vendor-column",
+  "title": "首页 Footer 增加按自定义顺序展示的厂商列",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-21T00:00:00+08:00",
+  "branch": "develop"
+}
