@@ -1,0 +1,12 @@
+{
+  "id": "enrich-home-footer-links",
+  "title": "丰富首页 Footer 产品、开发者和支持内容",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-21T00:00:00+08:00",
+  "branch": "develop"
+}
