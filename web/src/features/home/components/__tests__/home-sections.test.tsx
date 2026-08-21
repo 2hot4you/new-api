@@ -244,6 +244,7 @@ describe('Molii home sections', () => {
         displayLogo='/logo.png'
         userAgreementEnabled={false}
         privacyPolicyEnabled={false}
+        vendors={[]}
       />
     )
 

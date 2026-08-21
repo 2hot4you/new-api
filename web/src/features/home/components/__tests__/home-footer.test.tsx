@@ -6,10 +6,26 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 
 import { buildHomeDocsUrl, getHomeFooterVariant } from '../../lib/home-footer'
+import type { HomeVendor } from '../../lib/home-model-catalog'
 import { HomeFooterContent } from '../sections/home-footer'
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en' })
+
+const footerVendors: HomeVendor[] = [
+  {
+    id: 8,
+    name: 'Qwen',
+    icon: 'Qwen.Color',
+    modelCount: 3,
+  },
+  {
+    id: 2,
+    name: 'DeepSeek',
+    icon: 'DeepSeek.Color',
+    modelCount: 2,
+  },
+]
 
 function renderFooter(
   overrides: Partial<React.ComponentProps<typeof HomeFooterContent>> = {}
@@ -22,6 +38,7 @@ function renderFooter(
         docsLink='https://docs.molii.example/'
         userAgreementEnabled={false}
         privacyPolicyEnabled={false}
+        vendors={footerVendors}
         {...overrides}
       />
     </I18nextProvider>
@@ -81,7 +98,7 @@ describe('Molii homepage footer', () => {
 
     assert.match(markup, /data-home-footer="true"/)
     assert.match(markup, /bg-\[#171717\]/)
-    assert.match(markup, /lg:grid-cols-\[1\.4fr_repeat\(3,1fr\)\]/)
+    assert.match(markup, /lg:grid-cols-\[1\.4fr_repeat\(4,1fr\)\]/)
     for (const href of [
       '/pricing',
       '/keys',
@@ -94,6 +111,26 @@ describe('Molii homepage footer', () => {
     ]) {
       assert.match(markup, new RegExp(`href="${href}"`))
     }
+  })
+
+  test('renders configured vendors in catalog order between developers and support', () => {
+    const markup = renderFooter()
+
+    const developersIndex = markup.indexOf('footer.home.developers')
+    const vendorsIndex = markup.indexOf('Vendors')
+    const supportIndex = markup.indexOf('footer.home.support')
+    assert.ok(developersIndex >= 0)
+    assert.ok(vendorsIndex > developersIndex)
+    assert.ok(supportIndex > vendorsIndex)
+
+    const vendorLinks = [
+      ...markup.matchAll(/data-home-footer-vendor="([^"]+)"/g),
+    ].map((match) => match[1])
+    assert.deepEqual(vendorLinks, ['Qwen', 'DeepSeek'])
+    assert.match(markup, /data-icon-key="Qwen\.Color"/)
+    assert.match(markup, /data-icon-key="DeepSeek\.Color"/)
+    assert.match(markup, /href="\/pricing\?vendor=Qwen"/)
+    assert.match(markup, /href="\/pricing\?vendor=DeepSeek"/)
   })
 
   test('shows only the legal links enabled by system status', () => {

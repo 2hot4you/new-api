@@ -63,7 +63,7 @@ function DefaultHome(props: { isAuthenticated: boolean }) {
       <HowItWorks />
       <LatestModels models={catalog.latestModels} />
       <CTA isAuthenticated={props.isAuthenticated} />
-      <HomeFooter />
+      <HomeFooter vendors={catalog.vendors} />
     </PublicLayout>
   )
 }

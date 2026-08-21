@@ -24,8 +24,10 @@ import { MoliiWordmark } from '@/components/layout/components/molii-wordmark'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { DEFAULT_LOGO } from '@/lib/constants'
+import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { buildHomeDocsUrl, getHomeFooterVariant } from '../../lib/home-footer'
+import type { HomeVendor } from '../../lib/home-model-catalog'
 
 interface HomeFooterContentProps {
   displayName: string
@@ -33,6 +35,7 @@ interface HomeFooterContentProps {
   docsLink?: string
   userAgreementEnabled: boolean
   privacyPolicyEnabled: boolean
+  vendors: HomeVendor[]
 }
 
 interface HomeFooterLink {
@@ -69,6 +72,37 @@ function FooterColumn(props: { title: string; links: HomeFooterLink[] }) {
       >
         {props.links.map((link) => (
           <FooterLink key={`${link.href}:${link.label}`} {...link} />
+        ))}
+      </nav>
+    </div>
+  )
+}
+
+function FooterVendorColumn(props: { vendors: HomeVendor[] }) {
+  const { t } = useTranslation()
+  const title = t('Vendors')
+
+  return (
+    <div className='min-w-0'>
+      <h3 className='text-xs font-semibold tracking-[0.16em] text-white/38 uppercase'>
+        {title}
+      </h3>
+      <nav aria-label={title} className='mt-4 flex flex-col items-start gap-1'>
+        {props.vendors.map((vendor) => (
+          <a
+            key={vendor.id ?? vendor.name}
+            href={`/pricing?vendor=${encodeURIComponent(vendor.name)}`}
+            data-home-footer-vendor={vendor.name}
+            className='group/vendor flex min-h-8 max-w-full items-center gap-2 text-sm text-white/58 transition-[color,transform] hover:text-white motion-safe:hover:translate-x-0.5'
+          >
+            <span
+              data-icon-key={vendor.icon || vendor.name}
+              className='flex size-4 shrink-0 items-center justify-center'
+            >
+              {getLobeIcon(vendor.icon || vendor.name, 16)}
+            </span>
+            <span className='truncate'>{vendor.name}</span>
+          </a>
         ))}
       </nav>
     </div>
@@ -132,7 +166,7 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
         className='pointer-events-none absolute inset-x-0 top-0 h-px bg-white/12'
       />
       <div className='mx-auto max-w-7xl py-16 md:py-20'>
-        <div className='grid min-w-0 gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_repeat(3,1fr)] lg:gap-14'>
+        <div className='grid min-w-0 gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_repeat(4,1fr)] lg:gap-14'>
           <div className='min-w-0 sm:col-span-2 lg:col-span-1'>
             <a href='/' className='inline-flex items-center gap-3'>
               {useMoliiWordmark ? (
@@ -174,6 +208,7 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
             title={t('footer.home.developers')}
             links={developerLinks}
           />
+          <FooterVendorColumn vendors={props.vendors} />
           <FooterColumn title={t('footer.home.support')} links={supportLinks} />
         </div>
 
@@ -199,7 +234,7 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
   )
 }
 
-export function HomeFooter() {
+export function HomeFooter(props: { vendors: HomeVendor[] }) {
   const { systemName, logo, footerHtml } = useSystemConfig()
   const { status } = useStatus()
 
@@ -215,6 +250,7 @@ export function HomeFooter() {
       docsLink={docsLink}
       userAgreementEnabled={Boolean(status?.user_agreement_enabled)}
       privacyPolicyEnabled={Boolean(status?.privacy_policy_enabled)}
+      vendors={props.vendors}
     />
   )
 }
