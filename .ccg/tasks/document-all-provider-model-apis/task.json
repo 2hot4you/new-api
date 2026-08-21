@@ -1,0 +1,12 @@
+{
+  "id": "document-all-provider-model-apis",
+  "title": "完善所有 Provider 与模型 ID 的 Docusaurus API 调用文档",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "planning",
+  "nextAction": "执行 Provider 目录生成、核心协议 OpenAPI 与导航集成计划",
+  "createdAt": "2026-08-22T00:00:00+08:00",
+  "branch": "develop"
+}
