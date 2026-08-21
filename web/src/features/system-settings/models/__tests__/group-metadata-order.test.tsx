@@ -195,25 +195,27 @@ describe('group pricing metadata editing', () => {
     )
   })
 
-  test('rejects invalid recommendation values without silently serializing zero', async () => {
+  test('accepts one decimal recommendation and rejects invalid values', async () => {
     const calls: Array<[string, string]> = []
     ;({ host, root } = await mountEditor(calls))
 
     const recommendation = document.querySelector<HTMLInputElement>(
-      'input[inputmode="numeric"][pattern="[0-5]?"]'
+      'input[aria-label="Recommendation: default"]'
     )
     assert.ok(recommendation)
-    for (const value of ['-1', '6', '1.5', 'not-a-number']) {
+    for (const value of ['-1', '6', '5.1', '3.81', 'not-a-number']) {
       await act(async () => changeInput(recommendation, value))
     }
     assert.equal(calls.length, 0)
 
-    await act(async () => changeInput(recommendation, '5'))
+    await act(async () => changeInput(recommendation, '3'))
+    await act(async () => changeInput(recommendation, '3.'))
+    await act(async () => changeInput(recommendation, '3.8'))
     assert.deepEqual(
       calls.map(([field]) => field),
-      ['GroupMetadata']
+      ['GroupMetadata', 'GroupMetadata', 'GroupMetadata']
     )
-    assert.equal(JSON.parse(calls[0]?.[1] ?? '[]')[0]?.recommendation, 5)
+    assert.equal(JSON.parse(calls.at(-1)?.[1] ?? '[]')[0]?.recommendation, 3.8)
   })
 
   test('uses a pointer/touch sortable handle and preserves exact icon keys', async () => {
@@ -296,11 +298,11 @@ describe('group pricing metadata editing', () => {
     assert.ok(recommendationInput)
     recommendationInput.focus()
 
-    await act(async () => changeInput(recommendationInput, '5'))
+    await act(async () => changeInput(recommendationInput, '3.8'))
 
     assert.equal(recommendationInput.isConnected, true)
     assert.equal(document.activeElement, recommendationInput)
-    assert.equal(recommendationInput.value, '5')
+    assert.equal(recommendationInput.value, '3.8')
   })
 
   test('serializes structural add, rename, and delete changes across legacy maps', async () => {

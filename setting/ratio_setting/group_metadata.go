@@ -3,15 +3,16 @@ package ratio_setting
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"unicode/utf8"
 )
 
 type GroupMetadata struct {
-	Name           string `json:"name"`
-	Icon           string `json:"icon"`
-	Recommendation int    `json:"recommendation"`
+	Name           string  `json:"name"`
+	Icon           string  `json:"icon"`
+	Recommendation float64 `json:"recommendation"`
 }
 
 type groupMetadataStore struct {
@@ -75,6 +76,10 @@ func parseGroupMetadata(value []byte) ([]GroupMetadata, error) {
 		}
 		if entry.Recommendation < 0 || entry.Recommendation > 5 {
 			return nil, fmt.Errorf("group metadata recommendation must be between 0 and 5: %s", entry.Name)
+		}
+		scaledRecommendation := entry.Recommendation * 10
+		if math.Abs(scaledRecommendation-math.Round(scaledRecommendation)) > 1e-9 {
+			return nil, fmt.Errorf("group metadata recommendation must have at most one decimal place: %s", entry.Name)
 		}
 		seen[entry.Name] = struct{}{}
 	}

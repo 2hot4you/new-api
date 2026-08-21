@@ -140,9 +140,12 @@ const createGroupSchema = (t: Translate) =>
             item !== null &&
             typeof item.name === 'string' &&
             typeof item.icon === 'string' &&
-            Number.isInteger(item.recommendation) &&
+            Number.isFinite(item.recommendation) &&
             item.recommendation >= 0 &&
-            item.recommendation <= 5
+            item.recommendation <= 5 &&
+            Math.abs(
+              item.recommendation * 10 - Math.round(item.recommendation * 10)
+            ) < 1e-9
         ),
       predicateMessage: 'Expected an array of group display metadata',
     }),

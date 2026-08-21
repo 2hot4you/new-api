@@ -32,7 +32,7 @@ func TestGetUserGroupsJoinsMetadataAndAssignsStableDisplayOrder(t *testing.T) {
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"auto":1,"default":1,"vip":2,"zeta":3}`))
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP","zeta":"Zeta","auto":"Auto"}`))
 	require.NoError(t, ratio_setting.UpdateGroupMetadataByJSONString(`[
-		{"name":"vip","icon":"DeepSeek.Color","recommendation":4},
+		{"name":"vip","icon":"DeepSeek.Color","recommendation":3.8},
 		{"name":"auto","icon":"OpenAI.Color","recommendation":0}
 	]`))
 
@@ -61,7 +61,7 @@ func TestGetUserGroupsJoinsMetadataAndAssignsStableDisplayOrder(t *testing.T) {
 	assert.Equal(t, float64(2), groups["vip"]["ratio"])
 	assert.Equal(t, "VIP", groups["vip"]["desc"])
 	assert.Equal(t, "DeepSeek.Color", groups["vip"]["icon"])
-	assert.Equal(t, float64(4), groups["vip"]["recommendation"])
+	assert.Equal(t, float64(3.8), groups["vip"]["recommendation"])
 	assert.Equal(t, float64(0), groups["vip"]["display_order"])
 
 	assert.Equal(t, "自动", groups["auto"]["ratio"])

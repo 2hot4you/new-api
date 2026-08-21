@@ -16,10 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Check, ChevronsUpDown } from 'lucide-react'
+import { Check, ChevronsUpDown, Star } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -59,6 +60,30 @@ type ApiKeyGroupComboboxProps = {
   onValueChange: (value: string) => void
   placeholder?: string
   disabled?: boolean
+}
+
+function GroupRecommendationBadge({ score }: { score?: number }) {
+  const { t } = useTranslation()
+  if (
+    score === undefined ||
+    !Number.isFinite(score) ||
+    score <= 0 ||
+    score > 5
+  ) {
+    return null
+  }
+
+  const formattedScore = score.toFixed(1)
+  return (
+    <Badge
+      variant='warning'
+      data-group-recommendation-badge
+      className='shrink-0 px-1.5 text-[10px] sm:px-2 sm:text-xs'
+    >
+      <Star aria-hidden='true' className='fill-current' />
+      {t('Recommended {{count}}/5', { count: formattedScore })}
+    </Badge>
+  )
 }
 
 export function ApiKeyGroupCombobox({
@@ -133,8 +158,13 @@ export function ApiKeyGroupCombobox({
               </span>
             )}
             <span className='min-w-0'>
-              <span className='block truncate font-medium'>
-                {selectedOption?.label || placeholder || t('Select a group')}
+              <span className='flex min-w-0 items-center gap-1.5'>
+                <span className='block min-w-0 truncate font-medium'>
+                  {selectedOption?.label || placeholder || t('Select a group')}
+                </span>
+                <GroupRecommendationBadge
+                  score={selectedOption?.recommendation}
+                />
               </span>
               {selectedOption?.desc && (
                 <span className='text-muted-foreground block truncate text-[11px] sm:text-xs'>
@@ -225,16 +255,7 @@ export function ApiKeyGroupCombobox({
                       isAuto={isAutoOption}
                       shouldReduceMotion={shouldReduceMotion}
                     />
-                    {Number.isInteger(option.recommendation) &&
-                      option.recommendation !== undefined &&
-                      option.recommendation > 0 &&
-                      option.recommendation <= 5 && (
-                        <span className='bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium'>
-                          {t('Recommended {{count}}/5', {
-                            count: option.recommendation,
-                          })}
-                        </span>
-                      )}
+                    <GroupRecommendationBadge score={option.recommendation} />
                   </CommandItem>
                 )
               })}

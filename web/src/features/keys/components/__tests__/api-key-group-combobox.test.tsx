@@ -119,7 +119,7 @@ const options = [
     desc: 'Priority group',
     ratio: 3,
     icon: 'DeepSeek.Color',
-    recommendation: 4,
+    recommendation: 3.8,
   },
   {
     value: 'broken',
@@ -318,20 +318,25 @@ describe('API key group combobox Auto effect', () => {
     setReducedMotion(false)
   })
 
-  test('shows configured icons and recommendation only for recommended options', async () => {
+  test('shows configured icons and a one-decimal recommendation badge in the trigger and options', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
 
-    await act(async () => root.render(<Harness initialValue='default' />))
+    await act(async () => root.render(<Harness initialValue='vip' />))
 
     const trigger = getTrigger(container)
     const selectedIcon = trigger.querySelector<HTMLElement>(
       '[data-api-key-group-icon="selected"]'
     )
     assert.ok(selectedIcon)
-    assert.equal(selectedIcon.getAttribute('data-icon-key'), 'OpenAI.Color')
+    assert.equal(selectedIcon.getAttribute('data-icon-key'), 'DeepSeek.Color')
     assert.equal(selectedIcon.querySelector('svg')?.getAttribute('width'), '18')
+    const selectedRecommendation = trigger.querySelector<HTMLElement>(
+      '[data-group-recommendation-badge]'
+    )
+    assert.ok(selectedRecommendation)
+    assert.equal(selectedRecommendation.textContent?.includes('3.8/5'), true)
 
     await act(async () => trigger.click())
     const vipOption = getCommandItem('Priority group')
@@ -341,7 +346,11 @@ describe('API key group combobox Auto effect', () => {
     assert.ok(optionIcon)
     assert.equal(optionIcon.getAttribute('data-icon-key'), 'DeepSeek.Color')
     assert.equal(optionIcon.querySelector('svg')?.getAttribute('width'), '20')
-    assert.equal(vipOption.textContent?.includes('Recommended 4/5'), true)
+    const optionRecommendation = vipOption.querySelector<HTMLElement>(
+      '[data-group-recommendation-badge]'
+    )
+    assert.ok(optionRecommendation)
+    assert.equal(optionRecommendation.textContent?.includes('3.8/5'), true)
 
     const defaultOption = getCommandItem('User group')
     assert.equal(defaultOption.textContent?.includes('Recommended'), false)

@@ -35,7 +35,7 @@ func TestUpdateGroupMetadataRejectsInvalidEntries(t *testing.T) {
 		{name: "icon longer than 128 characters", value: `[{"name":"default","icon":"` + strings.Repeat("a", 129) + `","recommendation":5}]`},
 		{name: "negative recommendation", value: `[{"name":"default","icon":"OpenAI.Color","recommendation":-1}]`},
 		{name: "recommendation above five", value: `[{"name":"default","icon":"OpenAI.Color","recommendation":6}]`},
-		{name: "non integer recommendation", value: `[{"name":"default","icon":"OpenAI.Color","recommendation":1.5}]`},
+		{name: "more than one decimal place", value: `[{"name":"default","icon":"OpenAI.Color","recommendation":1.25}]`},
 	}
 
 	for _, test := range tests {
@@ -43,6 +43,16 @@ func TestUpdateGroupMetadataRejectsInvalidEntries(t *testing.T) {
 			assert.Error(t, UpdateGroupMetadataByJSONString(test.value))
 		})
 	}
+}
+
+func TestUpdateGroupMetadataAcceptsOneDecimalRecommendation(t *testing.T) {
+	original := GroupMetadata2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, UpdateGroupMetadataByJSONString(original))
+	})
+
+	require.NoError(t, UpdateGroupMetadataByJSONString(`[{"name":"vip","icon":"DeepSeek.Color","recommendation":3.8}]`))
+	assert.Equal(t, 3.8, GetGroupMetadataCopy()[0].Recommendation)
 }
 
 func TestUpdateGroupMetadataPreservesConfiguredOrder(t *testing.T) {

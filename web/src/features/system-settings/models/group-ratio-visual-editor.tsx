@@ -152,6 +152,16 @@ function parseNestedRatioMap(
   })
 }
 
+function isValidRecommendation(value: number): boolean {
+  const scaledValue = value * 10
+  return (
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 5 &&
+    Math.abs(scaledValue - Math.round(scaledValue)) < 1e-9
+  )
+}
+
 function parseGroupMetadata(value: string): GroupMetadataEntry[] {
   const entries = safeJsonParse<unknown[]>(value, {
     fallback: [],
@@ -175,12 +185,9 @@ function parseGroupMetadata(value: string): GroupMetadataEntry[] {
       {
         name,
         icon: typeof icon === 'string' ? icon : '',
-        recommendation:
-          Number.isInteger(recommendation) &&
-          recommendation >= 0 &&
-          recommendation <= 5
-            ? recommendation
-            : 0,
+        recommendation: isValidRecommendation(recommendation)
+          ? recommendation
+          : 0,
       },
     ]
   })
@@ -216,7 +223,7 @@ function buildGroupPricingRows(
     selectable: Object.hasOwn(usableMap, name),
     description: String(usableMap[name] ?? ''),
     icon: metadataByName.get(name)?.icon ?? '',
-    recommendation: String(metadataByName.get(name)?.recommendation ?? 0),
+    recommendation: (metadataByName.get(name)?.recommendation ?? 0).toFixed(1),
   }))
 }
 
@@ -241,12 +248,9 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     groupMetadata.push({
       name,
       icon: row.icon.trim(),
-      recommendation:
-        Number.isInteger(recommendation) &&
-        recommendation >= 0 &&
-        recommendation <= 5
-          ? recommendation
-          : 0,
+      recommendation: isValidRecommendation(recommendation)
+        ? recommendation
+        : 0,
     })
   }
 
@@ -620,10 +624,10 @@ function GroupPricingSortableRow({
       </div>
       <Input
         type='text'
-        inputMode='numeric'
-        pattern='[0-5]?'
+        inputMode='decimal'
+        pattern='(?:[0-4](?:\.[0-9]?)?|5(?:\.0?)?)?'
         value={row.recommendation}
-        placeholder='0'
+        placeholder='0.0'
         aria-label={`${t('Recommendation')}: ${groupLabel}`}
         onChange={(event) =>
           onUpdate(row._id, 'recommendation', event.target.value)
@@ -763,7 +767,7 @@ function GroupPricingTable({
         field === 'recommendation' &&
         typeof value === 'string' &&
         value !== '' &&
-        !/^[0-5]$/.test(value)
+        !/^(?:[0-4](?:\.[0-9]?)?|5(?:\.0?)?)$/.test(value)
       ) {
         return
       }
@@ -798,7 +802,7 @@ function GroupPricingTable({
         selectable: true,
         description: '',
         icon: '',
-        recommendation: '0',
+        recommendation: '0.0',
       },
     ])
   }, [emitRows, rows])
