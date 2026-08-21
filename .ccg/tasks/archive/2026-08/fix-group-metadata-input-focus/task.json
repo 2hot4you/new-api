@@ -1,0 +1,12 @@
+{
+  "id": "fix-group-metadata-input-focus",
+  "title": "修复分组图标与推荐指数输入后失焦",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交修复",
+  "createdAt": "2026-08-21T00:00:00Z",
+  "branch": "develop"
+}
