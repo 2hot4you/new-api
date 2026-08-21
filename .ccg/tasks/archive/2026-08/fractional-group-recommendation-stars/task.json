@@ -1,0 +1,12 @@
+{
+  "id": "fractional-group-recommendation-stars",
+  "title": "分组推荐指数改为分数与星级徽标",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
+  "createdAt": "2026-08-21T00:00:00+08:00",
+  "branch": "develop"
+}
