@@ -88,6 +88,7 @@ await i18n.use(initReactI18next).init({
         'Search...': 'Search...',
         'No group found.': 'No group found.',
         'Select a group': 'Select a group',
+        Recommendation: 'Recommendation',
         'Recommended {{count}}/5': 'Recommended {{count}}/5',
       },
     },
@@ -119,7 +120,7 @@ const options = [
     desc: 'Priority group',
     ratio: 3,
     icon: 'DeepSeek.Color',
-    recommendation: 3.8,
+    recommendation: 4.5,
   },
   {
     value: 'broken',
@@ -318,7 +319,7 @@ describe('API key group combobox Auto effect', () => {
     setReducedMotion(false)
   })
 
-  test('shows configured icons and a one-decimal recommendation badge in the trigger and options', async () => {
+  test('shows a fractional five-star recommendation badge without a slash-five label', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -336,7 +337,21 @@ describe('API key group combobox Auto effect', () => {
       '[data-group-recommendation-badge]'
     )
     assert.ok(selectedRecommendation)
-    assert.equal(selectedRecommendation.textContent?.includes('3.8/5'), true)
+    assert.equal(
+      selectedRecommendation.textContent?.includes('Recommendation 4.5'),
+      true
+    )
+    assert.equal(selectedRecommendation.textContent?.includes('/5'), false)
+    const selectedStars = [
+      ...selectedRecommendation.querySelectorAll<HTMLElement>(
+        '[data-recommendation-star]'
+      ),
+    ]
+    assert.equal(selectedStars.length, 5)
+    assert.deepEqual(
+      selectedStars.map((star) => star.dataset.fillPercent),
+      ['100', '100', '100', '100', '50']
+    )
 
     await act(async () => trigger.click())
     const vipOption = getCommandItem('Priority group')
@@ -350,7 +365,15 @@ describe('API key group combobox Auto effect', () => {
       '[data-group-recommendation-badge]'
     )
     assert.ok(optionRecommendation)
-    assert.equal(optionRecommendation.textContent?.includes('3.8/5'), true)
+    assert.equal(
+      optionRecommendation.textContent?.includes('Recommendation 4.5'),
+      true
+    )
+    assert.equal(
+      optionRecommendation.querySelectorAll('[data-recommendation-star]')
+        .length,
+      5
+    )
 
     const defaultOption = getCommandItem('User group')
     assert.equal(defaultOption.textContent?.includes('Recommended'), false)

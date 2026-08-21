@@ -80,8 +80,30 @@ function GroupRecommendationBadge({ score }: { score?: number }) {
       data-group-recommendation-badge
       className='shrink-0 px-1.5 text-[10px] sm:px-2 sm:text-xs'
     >
-      <Star aria-hidden='true' className='fill-current' />
-      {t('Recommended {{count}}/5', { count: formattedScore })}
+      <span aria-hidden='true' className='flex items-center gap-px'>
+        {Array.from({ length: 5 }, (_, index) => {
+          const fillPercent = Math.round(
+            Math.min(1, Math.max(0, score - index)) * 100
+          )
+          return (
+            <span
+              key={index}
+              data-recommendation-star
+              data-fill-percent={fillPercent}
+              className='relative size-2.5 shrink-0'
+            >
+              <Star className='absolute inset-0 size-2.5 opacity-35' />
+              <span
+                className='absolute inset-y-0 left-0 overflow-hidden'
+                style={{ width: `${fillPercent}%` }}
+              >
+                <Star className='size-2.5 max-w-none fill-current' />
+              </span>
+            </span>
+          )
+        })}
+      </span>
+      {t('Recommendation')} {formattedScore}
     </Badge>
   )
 }
