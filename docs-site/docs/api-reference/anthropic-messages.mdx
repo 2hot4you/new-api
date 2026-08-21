@@ -14,7 +14,7 @@ sidebar_position: 10
 
 ### 鉴权
 
-使用 `x-api-key: $MOLII_API_KEY`，并且必须发送 `anthropic-version`。密钥只放在请求头，绝不放入 URL 或查询参数。
+使用 `x-api-key: $MOLII_API_KEY`。建议发送 `anthropic-version: 2023-06-01` 以固定兼容版本；省略时网关默认 `2023-06-01`。密钥只放在请求头，绝不放入 URL 或查询参数。
 
 ### 请求参数
 
@@ -27,6 +27,8 @@ sidebar_position: 10
 | `messages` | array | 是 | 对话消息，至少一项 |
 | `system` | string 或 array | 否 | 系统指令 |
 | `stream` | boolean | 否 | 是否请求流式响应 |
+
+`anthropic-version` 是可选但建议保留的请求头；示例显式发送 `2023-06-01`，网关在省略时使用相同默认值。
 
 ### 请求示例
 
@@ -55,6 +57,22 @@ HTTP `200` 返回 `type: "message"` 的助手消息；生成内容在 `content` 
   "usage": {"input_tokens": 12, "output_tokens": 16}
 }
 ```
+
+### 流式响应
+
+传入 `"stream": true` 时，HTTP `200` 的内容类型为 `text/event-stream`。按 Anthropic Messages 事件序列处理 `message_start`、内容块事件与 `message_delta`；收到 `event: message_stop` 后才表示成功终态。
+
+```bash
+curl -N --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/messages" \
+  --header "x-api-key: $MOLII_API_KEY" \
+  --header "anthropic-version: 2023-06-01" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"your-model-id","max_tokens":256,"messages":[{"role":"user","content":"用一句话介绍 Molii。"}],"stream": true}'
+```
+
+连接中断或未收到 `message_stop` 时，保留公开 Request ID 与本地日志并确认状态；不要自动重放可能计费的 POST。
 
 ### 错误与重试
 

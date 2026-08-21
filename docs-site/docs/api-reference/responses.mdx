@@ -52,6 +52,21 @@ HTTP `200` 返回 `response` 对象。结果项位于 `output`，其具体块类
 }
 ```
 
+### 流式响应
+
+传入 `"stream": true` 时，HTTP `200` 的内容类型为 `text/event-stream`。处理 `response.output_text.delta` 等事件；`response.completed` 是成功终态事件，`response.failed` 表示请求未完成。
+
+```bash
+curl -N --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/responses" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"your-model-id","input":"用一句话介绍 Molii。","stream": true}'
+```
+
+流中断或未收到 `response.completed` 时，记录公开 Request ID 与本地日志，先确认请求状态；不要自动重放可能计费的 POST。
+
 ### 错误与重试
 
 `400` 表示请求不合法；`401`/`403` 需要修复凭据或授权；`429` 和暂时性 `5xx` 应遵循[错误与重试](/api-basics/errors-retries)。该 POST 可能计费，超时后不要自动提交第二次。

@@ -64,18 +64,21 @@ const coreProtocolOperations = [
     operationId: 'createChatCompletion',
     schema: 'ChatCompletionRequest',
     security: [{ BearerAuth: [] }],
+    streamTerminal: 'data: [DONE]',
   },
   {
     signature: 'POST /v1/responses',
     operationId: 'createResponse',
     schema: 'ResponsesRequest',
     security: [{ BearerAuth: [] }],
+    streamTerminal: 'response.completed',
   },
   {
     signature: 'POST /v1/messages',
     operationId: 'createAnthropicMessage',
     schema: 'AnthropicMessagesRequest',
     security: [{ AnthropicApiKey: [] }],
+    streamTerminal: 'message_stop',
   },
   {
     signature: 'POST /v1beta/models/{model}:generateContent',
@@ -120,6 +123,8 @@ describe('ordinary MDX API reference contract', () => {
         GeminiApiKey: expect.any(Object),
       });
       expect(Object.keys(generated.components.schemas).some((name) => /administrator/i.test(name))).toBe(false);
+      expect(template.components.responses.UpstreamFailure.description).toContain('不要自动重放');
+      expect(template.components.responses.UpstreamFailure.description).not.toContain('退避重试');
 
       for (const expected of coreProtocolOperations) {
         const [method, path] = expected.signature.split(' ');
@@ -140,7 +145,16 @@ describe('ordinary MDX API reference contract', () => {
           operationId: expected.operationId,
           security: expected.security,
         });
+        if (expected.streamTerminal) {
+          expect(generatedOperation.responses['200'].content['text/event-stream'].schema)
+            .toMatchObject({ type: 'string' });
+        }
       }
+
+      const anthropicVersion = template.paths['/v1/messages'].post.parameters
+        .find((parameter: any) => parameter.name === 'anthropic-version');
+      expect(anthropicVersion).toMatchObject({ in: 'header', required: false });
+      expect(anthropicVersion.description).toContain('2023-06-01');
     } finally {
       await rm(workspace, { recursive: true, force: true });
     }
@@ -234,6 +248,14 @@ describe('ordinary MDX API reference contract', () => {
       expect(document).toContain('[错误与重试](/api-basics/errors-retries)');
       expect(document).toMatch(/curl[\s\S]*?\$MOLII_API_KEY/);
       expect(document).not.toMatch(/[?&](?:key|api_key|x-goog-api-key)=/i);
+      const expected = coreProtocolOperations.find((operation) => operation.signature === signature);
+      expect(expected).toBeDefined();
+      if (expected!.streamTerminal) {
+        expect(document).toContain('### 流式响应');
+        expect(document).toContain('curl -N');
+        expect(document).toContain('"stream": true');
+        expect(document).toContain(expected!.streamTerminal);
+      }
     }
   });
 

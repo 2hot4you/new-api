@@ -56,6 +56,21 @@ HTTP `200` 返回 OpenAI 兼容对象。读取首个 `choices[].message.content`
 }
 ```
 
+### 流式响应
+
+传入 `"stream": true` 时，HTTP `200` 的内容类型为 `text/event-stream`。每个 `data:` 负载是 `chat.completion.chunk` JSON；收到 `data: [DONE]` 后才表示流已正常结束。
+
+```bash
+curl -N --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/chat/completions" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"model":"your-model-id","messages":[{"role":"user","content":"用一句话介绍 Molii。"}],"stream": true}'
+```
+
+连接中断或未收到终止标记时，保存公开 Request ID 与本地日志；不要自动重放这次可能计费的 POST。
+
 ### 错误与重试
 
 `400` 表示参数或模型不兼容；`401`/`403` 表示凭据或权限问题；`429` 或暂时性 `5xx` 可稍后处理。此操作可能计费，网络超时后不要自动重放 POST；参见[错误与重试](/api-basics/errors-retries)。
