@@ -258,12 +258,24 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
   }
 }
 
+function sortedRecordEntries<T>(record: Record<string, T>) {
+  return Object.entries(record).sort(([left], [right]) => {
+    if (left < right) return -1
+    if (left > right) return 1
+    return 0
+  })
+}
+
 function groupPricingSignature(rows: GroupPricingRow[]): string {
   const serialized = serializeGroupPricingRows(rows)
   return JSON.stringify({
-    groupRatio: parseRatioMap(serialized.GroupRatio),
-    userUsableGroups: parseUsableMap(serialized.UserUsableGroups),
-    topupGroupRatio: parseRatioMap(serialized.TopupGroupRatio),
+    groupRatio: sortedRecordEntries(parseRatioMap(serialized.GroupRatio)),
+    userUsableGroups: sortedRecordEntries(
+      parseUsableMap(serialized.UserUsableGroups)
+    ),
+    topupGroupRatio: sortedRecordEntries(
+      parseRatioMap(serialized.TopupGroupRatio)
+    ),
     groupMetadata: parseGroupMetadata(serialized.GroupMetadata),
   })
 }
@@ -275,9 +287,9 @@ function sourceGroupPricingSignature(
   groupMetadata: string
 ): string {
   return JSON.stringify({
-    groupRatio: parseRatioMap(groupRatio),
-    userUsableGroups: parseUsableMap(userUsableGroups),
-    topupGroupRatio: parseRatioMap(topupGroupRatio),
+    groupRatio: sortedRecordEntries(parseRatioMap(groupRatio)),
+    userUsableGroups: sortedRecordEntries(parseUsableMap(userUsableGroups)),
+    topupGroupRatio: sortedRecordEntries(parseRatioMap(topupGroupRatio)),
     groupMetadata: parseGroupMetadata(groupMetadata),
   })
 }

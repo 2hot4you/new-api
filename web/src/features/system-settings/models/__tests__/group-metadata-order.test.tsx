@@ -49,7 +49,7 @@ for (const key of [
   })
 }
 
-const { act } = await import('react')
+const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
@@ -103,6 +103,41 @@ async function mountEditor(calls: Array<[string, string]>) {
       </I18nextProvider>
     )
   )
+  return { host, root }
+}
+
+const reorderedMetadata = JSON.stringify([
+  { name: 'vip', icon: 'DeepSeek.Color', recommendation: 4 },
+  { name: 'default', icon: 'OpenAI.Color', recommendation: 0 },
+])
+
+function FocusPersistenceHarness() {
+  const [groupMetadata, setGroupMetadata] = useState(reorderedMetadata)
+
+  return (
+    <I18nextProvider i18n={i18n}>
+      <GroupRatioVisualEditor
+        groupRatio='{"default":1,"vip":2}'
+        topupGroupRatio='{}'
+        userUsableGroups='{"default":"Default","vip":"Priority"}'
+        groupGroupRatio='{}'
+        autoGroups='[]'
+        groupMetadata={groupMetadata}
+        maxTokenAutoGroupsField={null}
+        groupSpecialUsableGroup='{}'
+        onChange={(field, value) => {
+          if (field === 'GroupMetadata') setGroupMetadata(value)
+        }}
+      />
+    </I18nextProvider>
+  )
+}
+
+async function mountFocusPersistenceHarness() {
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  await act(async () => root.render(<FocusPersistenceHarness />))
   return { host, root }
 }
 
@@ -234,6 +269,38 @@ describe('group pricing metadata editing', () => {
         `Expected accessible input label: ${label}`
       )
     }
+  })
+
+  test('keeps the icon input mounted and focused while metadata syncs', async () => {
+    ;({ host, root } = await mountFocusPersistenceHarness())
+
+    const iconInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Icon: vip"]'
+    )
+    assert.ok(iconInput)
+    iconInput.focus()
+
+    await act(async () => changeInput(iconInput, 'DeepSeek.ColorX'))
+
+    assert.equal(iconInput.isConnected, true)
+    assert.equal(document.activeElement, iconInput)
+    assert.equal(iconInput.value, 'DeepSeek.ColorX')
+  })
+
+  test('keeps the recommendation input mounted and focused while metadata syncs', async () => {
+    ;({ host, root } = await mountFocusPersistenceHarness())
+
+    const recommendationInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Recommendation: default"]'
+    )
+    assert.ok(recommendationInput)
+    recommendationInput.focus()
+
+    await act(async () => changeInput(recommendationInput, '5'))
+
+    assert.equal(recommendationInput.isConnected, true)
+    assert.equal(document.activeElement, recommendationInput)
+    assert.equal(recommendationInput.value, '5')
   })
 
   test('serializes structural add, rename, and delete changes across legacy maps', async () => {
