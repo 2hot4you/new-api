@@ -82,8 +82,11 @@ jobs:
       - name: Run non-browser documentation tests
         working-directory: docs-site
         run: |
-          test_files=$(find scripts -maxdepth 1 -name '*.test.ts' ! -name '*.browser.test.ts' -print | sort)
-          bun test $test_files
+          test_files=()
+          while IFS= read -r test_file; do
+            test_files+=("$test_file")
+          done < <(find scripts -maxdepth 1 -name '*.test.ts' ! -name '*.browser.test.ts' -print | sort)
+          bun test "${test_files[@]}"
 
       - name: Run browser documentation tests
         working-directory: docs-site

@@ -27,6 +27,9 @@ test('documentation build uses the pinned toolchain and complete safety gates', 
   expect(workflow).toContain("bun-version: '1.3.14'");
   expect(workflow).toContain('bun install --frozen-lockfile');
   expect(workflow).toContain("! -name '*.browser.test.ts'");
+  expect(workflow).toContain('test_files+=("$test_file")');
+  expect(workflow).toContain('bun test "${test_files[@]}"');
+  expect(workflow).not.toContain('bun test $test_files');
   expect(workflow).toContain('bun test scripts/api-reference.browser.test.ts');
   expect(workflow).toMatch(
     /- name: Run browser documentation tests\n\s+working-directory: docs-site\n\s+env:\n\s+DOCS_ENV: development\n\s+DOCS_SITE_URL: http:\/\/127\.0\.0\.1:3197\n\s+DOCS_BASE_URL: \/\n\s+DOCS_API_BASE_URL: http:\/\/127\.0\.0\.1:3000\n\s+run:/,
