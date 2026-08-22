@@ -1,0 +1,12 @@
+{
+  "id": "deploy-docusaurus-under-docs",
+  "title": "将 Docusaurus 文档自动部署到正式与开发站点的 /docs 路径",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "devops",
+  "currentPhase": "analysis",
+  "nextAction": "等待用户确认书面部署规范后编写实施计划",
+  "createdAt": "2026-08-22T00:00:00Z",
+  "branch": "develop"
+}
