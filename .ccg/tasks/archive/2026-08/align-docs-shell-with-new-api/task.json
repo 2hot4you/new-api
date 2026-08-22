@@ -1,0 +1,12 @@
+{
+  "id": "align-docs-shell-with-new-api",
+  "title": "移除文档首页并恢复 Docusaurus 官方 Header/Footer",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已部署并验证，归档任务",
+  "createdAt": "2026-08-23T00:30:00+08:00",
+  "branch": "develop"
+}
