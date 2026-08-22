@@ -183,13 +183,16 @@ rsync --archive --delete --delay-updates "$staging_dir/" "$public_dir/"
 
 check_redirect() {
   local path=$1
-  local status location
+  local status location expected_path expected_absolute
+  expected_path='/docs/quick-start'
+  expected_absolute="$site_origin$expected_path"
   : >"$headers_file"
   status=$(curl --silent --show-error --max-time 15 \
     --output /dev/null --dump-header "$headers_file" --write-out '%{http_code}' \
     "$site_origin$path")
   location=$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit }' "$headers_file")
-  if [[ "$status" != '308' || "$location" != '/docs/quick-start' ]]; then
+  if [[ "$status" != '308' ]] ||
+    [[ "$location" != "$expected_path" && "$location" != "$expected_absolute" ]]; then
     fail "$path did not redirect to /docs/quick-start"
   fi
 }
