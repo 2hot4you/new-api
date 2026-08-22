@@ -44,6 +44,18 @@ test('documentation build uses the pinned toolchain and complete safety gates', 
   expect(workflow).toContain('actions/download-artifact@');
 });
 
+test('browser checks use a production build instead of the HMR development server', async () => {
+  const browserTest = await Bun.file(
+    resolve(repositoryRoot, 'docs-site/scripts/api-reference.browser.test.ts'),
+  ).text();
+
+  expect(browserTest).toContain("'docusaurus', 'build'");
+  expect(browserTest).toContain("'docusaurus', 'serve'");
+  expect(browserTest).not.toContain("'docusaurus', 'start'");
+  expect(browserTest).not.toContain("waitUntil: 'networkidle'");
+  expect(browserTest).toContain("waitUntil: 'domcontentloaded'");
+});
+
 test('documentation deployment reuses only infrastructure credentials', async () => {
   const workflow = await Bun.file(docsWorkflowPath).text();
 

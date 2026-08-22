@@ -9,26 +9,35 @@ const baseUrl = `http://127.0.0.1:${port}`;
 let server: ReturnType<typeof Bun.spawn> | undefined;
 
 beforeAll(async () => {
+  const build = Bun.spawn(
+    ['bun', 'x', 'docusaurus', 'build'],
+    { cwd: siteRoot, stdout: 'ignore', stderr: 'inherit' },
+  );
+  const buildExitCode = await build.exited;
+  if (buildExitCode !== 0) {
+    throw new Error(`Docusaurus production build exited with ${buildExitCode}`);
+  }
+
   server = Bun.spawn(
-    ['bun', 'x', 'docusaurus', 'start', '--host', '127.0.0.1', '--port', String(port), '--no-open'],
-    { cwd: siteRoot, stdout: 'ignore', stderr: 'pipe' },
+    ['bun', 'x', 'docusaurus', 'serve', '--host', '127.0.0.1', '--port', String(port), '--no-open'],
+    { cwd: siteRoot, stdout: 'ignore', stderr: 'inherit' },
   );
 
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     if (server.exitCode !== null) {
-      throw new Error(`Docusaurus development server exited with ${server.exitCode}`);
+      throw new Error(`Docusaurus static server exited with ${server.exitCode}`);
     }
     try {
       const response = await fetch(`${baseUrl}/api-reference`);
       if (response.ok) return;
     } catch {
-      // Development server is still compiling.
+      // Static server is still starting.
     }
     await Bun.sleep(100);
   }
-  throw new Error('Docusaurus development server did not become ready');
-}, 35_000);
+  throw new Error('Docusaurus static server did not become ready');
+}, 60_000);
 
 afterAll(async () => {
   server?.kill();
@@ -47,7 +56,7 @@ describe('default MDX API reference', () => {
     });
 
     try {
-      await page.goto(`${baseUrl}/api-reference`, { waitUntil: 'networkidle' });
+      await page.goto(`${baseUrl}/api-reference`, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('main .theme-doc-markdown h1').filter({ hasText: 'API 参考' }).count())
         .resolves.toBe(1);
       await expect(page.locator('.theme-doc-sidebar-container').count()).resolves.toBe(1);
@@ -72,7 +81,7 @@ describe('default MDX API reference', () => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
     try {
-      await page.goto(`${baseUrl}/api-reference`, { waitUntil: 'networkidle' });
+      await page.goto(`${baseUrl}/api-reference`, { waitUntil: 'domcontentloaded' });
       const sidebar = page.locator('.theme-doc-sidebar-container');
       const gettingStarted = sidebar.getByRole('button', { name: '开始使用', exact: true });
       const platform = sidebar.getByRole('button', { name: '平台与账户', exact: true });
@@ -95,7 +104,7 @@ describe('default MDX API reference', () => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
     try {
-      await page.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' });
+      await page.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('h2').filter({ hasText: 'POST /v1/images/generations' }).count())
         .resolves.toBe(1);
       await expect(page.locator('h2').filter({ hasText: 'POST /v1/images/edits' }).count())
@@ -114,7 +123,7 @@ describe('default MDX API reference', () => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
     try {
-      await page.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' });
+      await page.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'domcontentloaded' });
       const bodyFont = await page.locator('body').evaluate((element) => getComputedStyle(element).fontFamily);
       const headingFont = await page.locator('main h1').evaluate((element) => getComputedStyle(element).fontFamily);
       const codeFont = await page.locator('main pre code').first().evaluate((element) => getComputedStyle(element).fontFamily);
@@ -135,8 +144,8 @@ describe('default MDX API reference', () => {
 
     try {
       await Promise.all([
-        desktop.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' }),
-        mobile.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'networkidle' }),
+        desktop.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'domcontentloaded' }),
+        mobile.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'domcontentloaded' }),
       ]);
 
       const desktopLayout = await desktop.evaluate(() => ({
@@ -170,8 +179,8 @@ describe('default MDX API reference', () => {
 
     try {
       await Promise.all([
-        desktop.goto(`${baseUrl}/`, { waitUntil: 'networkidle' }),
-        mobile.goto(`${baseUrl}/`, { waitUntil: 'networkidle' }),
+        desktop.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' }),
+        mobile.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' }),
       ]);
 
       await expect(desktop.getByRole('heading', {
@@ -219,7 +228,7 @@ describe('default MDX API reference', () => {
     const page = await browser.newPage({ viewport: { width: 320, height: 720 } });
 
     try {
-      await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+      await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' });
       const primaryAction = page.getByRole('link', { name: '5 分钟快速开始' });
       await primaryAction.focus();
 
@@ -275,7 +284,7 @@ describe('default MDX API reference', () => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
     try {
-      await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+      await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' });
       const primaryLinks = page.locator('.navbar__items:not(.navbar__items--right) > .navbar__item.navbar__link');
       await expect(primaryLinks.allTextContents()).resolves.toEqual([
         '开始使用',
@@ -306,7 +315,7 @@ describe('default MDX API reference', () => {
         ['/quick-start', ['你将完成什么', '开始前准备', '获取 API Key', '发送第一个请求', '理解响应', '继续完成视频工作流', '接下来'], 6],
         ['/platform', ['平台能力地图', '从注册到生产使用', '看板与模型分析', 'API Key 管理', '管理临时素材', '核对生成记录与费用', '保护账户', '下一步'], 8],
       ] as const) {
-        await page.goto(`${baseUrl}${route}`, { waitUntil: 'networkidle' });
+        await page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' });
         const renderedHeadings = (await page.locator('main h2').allTextContents())
           .map((heading) => heading.replaceAll('\u200B', ''));
         expect(renderedHeadings).toEqual(headings);
@@ -331,7 +340,7 @@ describe('default MDX API reference', () => {
         ['/api-basics', ['公共请求约定', '环境与身份验证', '选择媒体输入', '处理异步任务', '错误、超时与重试', '预计费用与最终结算', '选择语言示例', '生产上线清单'], 10],
         ['/models', ['先按任务选择模型', '模型选择矩阵', 'Seedance 视频生成', 'Grok Imagine 图片', 'Grok Imagine 视频', '核对输入与输出能力', '查看权威参数与价格'], 8],
       ] as const) {
-        await page.goto(`${baseUrl}${route}`, { waitUntil: 'networkidle' });
+        await page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' });
         const renderedHeadings = (await page.locator('main h2').allTextContents())
           .map((heading) => heading.replaceAll('\u200B', ''));
         expect(renderedHeadings).toEqual(headings);
@@ -352,7 +361,7 @@ describe('default MDX API reference', () => {
       const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
       try {
-        await page.goto(`${baseUrl}${route}`, { waitUntil: 'networkidle' });
+        await page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' });
         const headings = (await page.locator('main h2').allTextContents())
           .map((heading) => heading.replaceAll('\u200B', ''));
         for (const required of requiredHeadings) expect(headings).toContain(required);
