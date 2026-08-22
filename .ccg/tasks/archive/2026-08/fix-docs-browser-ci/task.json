@@ -1,0 +1,12 @@
+{
+  "id": "fix-docs-browser-ci",
+  "title": "修复 Docusaurus 浏览器测试在 GitHub Runner 上的累计超时",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "devops",
+  "currentPhase": "completed",
+  "nextAction": "归档并推送修复，观察 Development 文档流水线",
+  "createdAt": "2026-08-22T15:46:00Z",
+  "branch": "develop"
+}

@@ -54,6 +54,12 @@ describe('default MDX API reference', () => {
       await expect(page.locator('.table-of-contents').count()).resolves.toBe(1);
       await expect(page.locator('.pagination-nav').count()).resolves.toBe(1);
       await expect(page.locator('[class*="openapi"], [class*="api-explorer"]').count()).resolves.toBe(0);
+      const headings = (await page.locator('main h2').allTextContents())
+        .map((heading) => heading.replaceAll('\u200B', ''));
+      for (const required of ['开始前确认', '选择端点', '同步与异步响应', '计费与用量字段', '错误与 Request ID']) {
+        expect(headings).toContain(required);
+      }
+      expect(await page.locator('main a[href^="/"]').count()).toBeGreaterThanOrEqual(10);
       expect(errors).toEqual([]);
     } finally {
       await browser.close();
@@ -336,25 +342,24 @@ describe('default MDX API reference', () => {
     }
   }, 30_000);
 
-  test('renders complete example, support, and API orientation pages', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  for (const [label, route, requiredHeadings, minimumLinks] of [
+    ['example', '/examples', ['按任务选择示例', 'Seedance 示例', 'Grok Imagine 示例', '安全运行示例', '从示例进入 API 参考'], 9],
+    ['support', '/help', ['按症状选择排障路径', '登录、鉴权与限流', '异步任务状态', '媒体输入与下载', '联系支持前准备', '保护敏感信息', '查看更新'], 8],
+  ] as const) {
+    test(`renders the complete ${label} page`, async () => {
+      const chromePath = await resolveBrowserExecutable();
+      const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+      const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
-    try {
-      for (const [route, requiredHeadings, minimumLinks] of [
-        ['/examples', ['按任务选择示例', 'Seedance 示例', 'Grok Imagine 示例', '安全运行示例', '从示例进入 API 参考'], 9],
-        ['/help', ['按症状选择排障路径', '登录、鉴权与限流', '异步任务状态', '媒体输入与下载', '联系支持前准备', '保护敏感信息', '查看更新'], 8],
-        ['/api-reference', ['开始前确认', '选择端点', '同步与异步响应', '计费与用量字段', '错误与 Request ID'], 10],
-      ] as const) {
+      try {
         await page.goto(`${baseUrl}${route}`, { waitUntil: 'networkidle' });
         const headings = (await page.locator('main h2').allTextContents())
           .map((heading) => heading.replaceAll('\u200B', ''));
         for (const required of requiredHeadings) expect(headings).toContain(required);
         expect(await page.locator('main a[href^="/"]').count()).toBeGreaterThanOrEqual(minimumLinks);
+      } finally {
+        await browser.close();
       }
-    } finally {
-      await browser.close();
-    }
-  }, 30_000);
+    }, 30_000);
+  }
 });
