@@ -1,12 +1,12 @@
 {
   "id": "deploy-docusaurus-under-docs",
   "title": "将 Docusaurus 文档自动部署到正式与开发站点的 /docs 路径",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "devops",
-  "currentPhase": "implementation",
-  "nextAction": "提交 CI 测试参数展开修复并进入最终审查",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交审查记录",
   "createdAt": "2026-08-22T00:00:00Z",
   "branch": "develop"
 }
