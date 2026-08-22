@@ -44,6 +44,36 @@ test('prevents search indexing during development', () => {
   ).toBe(false);
 });
 
+test('resolves the public /docs/ deployment contract for both environments', () => {
+  expect(
+    resolvePublicConfig({
+      DOCS_ENV: 'development',
+      DOCS_SITE_URL: 'https://dev.molii.co',
+      DOCS_BASE_URL: '/docs/',
+      DOCS_API_BASE_URL: 'https://dev.molii.co',
+    }),
+  ).toEqual({
+    siteUrl: 'https://dev.molii.co',
+    baseUrl: '/docs/',
+    apiBaseUrl: 'https://dev.molii.co',
+    noIndex: true,
+  });
+
+  expect(
+    resolvePublicConfig({
+      DOCS_ENV: 'production',
+      DOCS_SITE_URL: 'https://molii.co',
+      DOCS_BASE_URL: '/docs/',
+      DOCS_API_BASE_URL: 'https://molii.co',
+    }),
+  ).toEqual({
+    siteUrl: 'https://molii.co',
+    baseUrl: '/docs/',
+    apiBaseUrl: 'https://molii.co',
+    noIndex: false,
+  });
+});
+
 test('keeps New API and QuantumNous attribution visible in the footer', () => {
   const footer = siteConfig.themeConfig?.footer as { copyright?: string };
 

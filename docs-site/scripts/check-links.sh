@@ -2,7 +2,21 @@
 
 set -eu
 
-site_url='http://127.0.0.1:3100/'
+docs_base_url=${DOCS_BASE_URL:-/}
+case "$docs_base_url" in
+  *://*|*\?*|*\#*)
+    echo 'DOCS_BASE_URL must be a path.' >&2
+    exit 1
+    ;;
+esac
+
+normalized_base_url=$(printf '%s' "$docs_base_url" | sed 's#^/*##; s#/*$##')
+if [ -n "$normalized_base_url" ]; then
+  docs_base_url="/$normalized_base_url/"
+else
+  docs_base_url='/'
+fi
+site_url="http://127.0.0.1:3100${docs_base_url}"
 log_file="$(mktemp "${TMPDIR:-/tmp}/molii-docs-link-check.XXXXXX.log")"
 docs_pid=''
 

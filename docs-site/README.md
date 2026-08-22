@@ -42,3 +42,17 @@ bun run check:links:external
 ## 静态自托管
 
 构建输出位于 `build/`，可由任意静态文件服务托管。Nginx 的最小静态示例见 [`examples/nginx.conf.example`](examples/nginx.conf.example)；将其中的 `root` 路径替换为实际的 `build/` 目录即可。该示例只处理静态文件和缓存，不包含部署自动化、上传或凭据配置。
+
+### 同域 `/docs/` 部署
+
+Molii 的正式与开发环境将文档作为主站下的静态目录发布，不需要在服务器运行 Docusaurus 进程：
+
+```bash
+DOCS_ENV=development \
+DOCS_SITE_URL=https://dev.molii.co \
+DOCS_BASE_URL=/docs/ \
+DOCS_API_BASE_URL=https://dev.molii.co \
+bun run build
+```
+
+把 `build/` 的内容发布到主站静态根目录下的 `docs/`。OpenResty 应将 `/docs` 和 `/docs/` 重定向到 `/docs/quick-start`，并直接提供 `/docs/assets/` 与其他生成文件。生产环境把两个 `dev.molii.co` 值替换为 `molii.co`，并使用 `DOCS_ENV=production`。
