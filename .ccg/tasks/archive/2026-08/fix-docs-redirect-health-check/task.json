@@ -1,12 +1,12 @@
 {
   "id": "fix-docs-redirect-health-check",
   "title": "兼容 Nginx 同源绝对重定向的文档部署健康检查",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "S",
   "risk": "low",
   "domain": "devops",
-  "currentPhase": "implementation",
-  "nextAction": "新增绝对 Location 回归并修复严格匹配",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
   "createdAt": "2026-08-23T00:06:00+08:00",
   "branch": "develop"
 }
