@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { chromium } from 'playwright-core';
+import { chromium, type Browser } from 'playwright-core';
 
 import { resolveBrowserExecutable } from './browser-executable.mjs';
 
@@ -7,6 +7,12 @@ const siteRoot = new URL('..', import.meta.url).pathname;
 const port = 3197;
 const baseUrl = `http://127.0.0.1:${port}`;
 let server: ReturnType<typeof Bun.spawn> | undefined;
+let browser: Browser | undefined;
+
+function activeBrowser() {
+  if (!browser) throw new Error('Chromium browser is not ready');
+  return browser;
+}
 
 beforeAll(async () => {
   const build = Bun.spawn(
@@ -24,31 +30,37 @@ beforeAll(async () => {
   );
 
   const deadline = Date.now() + 10_000;
+  let serverReady = false;
   while (Date.now() < deadline) {
     if (server.exitCode !== null) {
       throw new Error(`Docusaurus static server exited with ${server.exitCode}`);
     }
     try {
       const response = await fetch(`${baseUrl}/api-reference`);
-      if (response.ok) return;
+      if (response.ok) {
+        serverReady = true;
+        break;
+      }
     } catch {
       // Static server is still starting.
     }
     await Bun.sleep(100);
   }
-  throw new Error('Docusaurus static server did not become ready');
+  if (!serverReady) throw new Error('Docusaurus static server did not become ready');
+
+  const chromePath = await resolveBrowserExecutable();
+  browser = await chromium.launch({ executablePath: chromePath, headless: true });
 }, 60_000);
 
 afterAll(async () => {
   server?.kill();
   await server?.exited;
-});
+  await browser?.close();
+}, 15_000);
 
 describe('default MDX API reference', () => {
   test('renders the API overview with the stock Docs layout and no OpenAPI explorer', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 1000 } });
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.stack ?? error.message));
     page.on('console', (message) => {
@@ -71,14 +83,12 @@ describe('default MDX API reference', () => {
       expect(await page.locator('main a[href^="/"]').count()).toBeGreaterThanOrEqual(10);
       expect(errors).toEqual([]);
     } finally {
-      await browser.close();
+      await page.close();
     }
   }, 30_000);
 
   test('opens onboarding and account categories by default while keeping them collapsible', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
 
     try {
       await page.goto(`${baseUrl}/api-reference`, { waitUntil: 'domcontentloaded' });
@@ -94,14 +104,12 @@ describe('default MDX API reference', () => {
       await gettingStarted.click();
       await expect(gettingStarted.getAttribute('aria-expanded')).resolves.toBe('false');
     } finally {
-      await browser.close();
+      await page.close();
     }
   }, 30_000);
 
   test('renders method-style image endpoints as ordinary headings, tables, and code blocks', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 1000 } });
 
     try {
       await page.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'domcontentloaded' });
@@ -113,14 +121,12 @@ describe('default MDX API reference', () => {
       expect(await page.locator('main pre').count()).toBeGreaterThanOrEqual(4);
       await expect(page.locator('[class*="openapi"], [class*="api-explorer"]').count()).resolves.toBe(0);
     } finally {
-      await browser.close();
+      await page.close();
     }
   }, 30_000);
 
   test('uses the New API Serif font for prose while preserving monospace code', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 1000 } });
 
     try {
       await page.goto(`${baseUrl}/api-reference/images`, { waitUntil: 'domcontentloaded' });
@@ -132,15 +138,13 @@ describe('default MDX API reference', () => {
       expect(headingFont).toStartWith('"Lora Variable"');
       expect(codeFont).not.toContain('Lora');
     } finally {
-      await browser.close();
+      await page.close();
     }
   }, 30_000);
 
   test('uses compact responsive root typography without page overflow', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const desktop = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
+    const mobile = await activeBrowser().newPage({ viewport: { width: 390, height: 844 } });
 
     try {
       await Promise.all([
@@ -160,15 +164,13 @@ describe('default MDX API reference', () => {
       expect(desktopLayout).toEqual({ rootFontSize: '12px', overflows: false });
       expect(mobileLayout).toEqual({ rootFontSize: '14px', overflows: false });
     } finally {
-      await browser.close();
+      await Promise.all([desktop.close(), mobile.close()]);
     }
   }, 30_000);
 
   test('renders the developer portal with complete desktop and mobile reading paths', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const desktop = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
+    const mobile = await activeBrowser().newPage({ viewport: { width: 390, height: 844 } });
     const errors: string[] = [];
     for (const page of [desktop, mobile]) {
       page.on('pageerror', (error) => errors.push(error.stack ?? error.message));
@@ -217,15 +219,13 @@ describe('default MDX API reference', () => {
       expect(mobileLayout).toEqual({ overflows: false, h1Visible: true });
       expect(errors).toEqual([]);
     } finally {
-      await browser.close();
+      await Promise.all([desktop.close(), mobile.close()]);
     }
   }, 30_000);
 
   test('keeps zoomed narrow homepage content and keyboard focus inside visible bounds', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
     // A 320 CSS-pixel viewport is the layout width of a 640-pixel window at 200% zoom.
-    const page = await browser.newPage({ viewport: { width: 320, height: 720 } });
+    const page = await activeBrowser().newPage({ viewport: { width: 320, height: 720 } });
 
     try {
       await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' });
@@ -274,14 +274,12 @@ describe('default MDX API reference', () => {
       expect(layout.focusVisible).toBe(true);
       expect(layout.focusWithinViewport).toBe(true);
     } finally {
-      await browser.close();
+      await page.close();
     }
   }, 30_000);
 
   test('exposes six focused top-level destinations and preserves nested routes', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
 
     try {
       await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' });
@@ -301,14 +299,12 @@ describe('default MDX API reference', () => {
         await expect(fetch(`${baseUrl}${route}`).then((response) => response.status)).resolves.toBe(200);
       }
     } finally {
-      await browser.close();
+      await page.close();
     }
   }, 30_000);
 
   test('renders complete onboarding and platform maps instead of sparse introductions', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
 
     try {
       for (const [route, headings, minimumLinks] of [
@@ -326,14 +322,12 @@ describe('default MDX API reference', () => {
         }
       }
     } finally {
-      await browser.close();
+      await page.close();
     }
   }, 30_000);
 
   test('renders complete developer and model decision guides', async () => {
-    const chromePath = await resolveBrowserExecutable();
-    const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
 
     try {
       for (const [route, headings, minimumLinks] of [
@@ -347,7 +341,7 @@ describe('default MDX API reference', () => {
         expect(await page.locator('main a[href^="/"]').count()).toBeGreaterThanOrEqual(minimumLinks);
       }
     } finally {
-      await browser.close();
+      await page.close();
     }
   }, 30_000);
 
@@ -356,9 +350,7 @@ describe('default MDX API reference', () => {
     ['support', '/help', ['按症状选择排障路径', '登录、鉴权与限流', '异步任务状态', '媒体输入与下载', '联系支持前准备', '保护敏感信息', '查看更新'], 8],
   ] as const) {
     test(`renders the complete ${label} page`, async () => {
-      const chromePath = await resolveBrowserExecutable();
-      const browser = await chromium.launch({ executablePath: chromePath, headless: true });
-      const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+      const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
 
       try {
         await page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' });
@@ -367,7 +359,7 @@ describe('default MDX API reference', () => {
         for (const required of requiredHeadings) expect(headings).toContain(required);
         expect(await page.locator('main a[href^="/"]').count()).toBeGreaterThanOrEqual(minimumLinks);
       } finally {
-        await browser.close();
+        await page.close();
       }
     }, 30_000);
   }

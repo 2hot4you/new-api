@@ -6,7 +6,7 @@
   "risk": "low",
   "domain": "devops",
   "currentPhase": "completed",
-  "nextAction": "归档、推送并确认 GitHub Runner 与 Development 部署",
+  "nextAction": "归档、推送最终生命周期修复并确认 Development 文档部署",
   "createdAt": "2026-08-22T15:46:00Z",
   "branch": "develop"
 }

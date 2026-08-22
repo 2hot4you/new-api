@@ -8,6 +8,8 @@ on:
     paths-ignore:
       - 'docs-site/**'
       - '.github/workflows/docs-deploy.yml'
+      - '.ccg/tasks/**'
+      - 'docs/superpowers/**'
   workflow_dispatch:
 
 permissions:

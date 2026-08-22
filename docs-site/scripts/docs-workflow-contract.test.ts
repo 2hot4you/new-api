@@ -54,6 +54,8 @@ test('browser checks use a production build instead of the HMR development serve
   expect(browserTest).not.toContain("'docusaurus', 'start'");
   expect(browserTest).not.toContain("waitUntil: 'networkidle'");
   expect(browserTest).toContain("waitUntil: 'domcontentloaded'");
+  expect(browserTest.match(/chromium\.launch/g)).toHaveLength(1);
+  expect(browserTest).toContain('await page.close()');
 });
 
 test('documentation deployment reuses only infrastructure credentials', async () => {
@@ -85,4 +87,6 @@ test('application deployment ignores documentation-only pushes', async () => {
   expect(appWorkflow).toContain('paths-ignore:');
   expect(appWorkflow).toContain("- 'docs-site/**'");
   expect(appWorkflow).toContain("- '.github/workflows/docs-deploy.yml'");
+  expect(appWorkflow).toContain("- '.ccg/tasks/**'");
+  expect(appWorkflow).toContain("- 'docs/superpowers/**'");
 });
