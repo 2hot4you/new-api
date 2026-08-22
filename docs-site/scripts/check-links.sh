@@ -17,6 +17,7 @@ else
   docs_base_url='/'
 fi
 site_url="http://127.0.0.1:3100${docs_base_url}"
+crawl_url="${site_url}quick-start"
 log_file="$(mktemp "${TMPDIR:-/tmp}/molii-docs-link-check.XXXXXX.log")"
 docs_pid=''
 
@@ -41,7 +42,7 @@ while :; do
     cat "$log_file" >&2
     exit 1
   fi
-  if curl --fail --silent "$site_url" | grep -Fq '<title data-rh="true">Molii 开发者文档</title>'; then
+  if curl --fail --silent "$crawl_url" | grep -Eq '<title data-rh="true">[^<]*Molii 开发者文档</title>'; then
     # A different process may already own port 3100. Confirm that the preview
     # process which we started is still alive before accepting the response.
     sleep 1
@@ -61,9 +62,9 @@ while :; do
 done
 
 if [ "${1:-}" = '--external' ]; then
-  ./node_modules/.bin/linkinator "$site_url" --recurse --check-fragments
+  ./node_modules/.bin/linkinator "$crawl_url" --recurse --check-fragments
   exit $?
 fi
 
-./node_modules/.bin/linkinator "$site_url" --recurse --check-fragments \
+./node_modules/.bin/linkinator "$crawl_url" --recurse --check-fragments \
   --skip '^https?://(?!127[.]0[.]0[.]1:3100)'

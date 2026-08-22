@@ -10,14 +10,25 @@ async function source(relativePath: string) {
 }
 
 describe('Docusaurus default-theme contract', () => {
-  test('keeps global CSS limited to typography while the portal owns isolated styles', async () => {
+  test('uses the official Docusaurus theme without custom shell styling', async () => {
     const config = await source('docusaurus.config.ts');
     const fonts = await source('src/css/fonts.css');
 
     expect(config).toContain("customCss: './src/css/fonts.css'");
     expect(fonts).toContain("@import '@fontsource-variable/lora';");
     expect(fonts).not.toMatch(/(?:^|[;{])\s*(?:color|background|border|margin|padding|gap|display|position|width|height|shadow)\s*:/i);
+    await expect(access(join(siteRoot, 'src/css/shell.css'), constants.F_OK)).rejects.toThrow();
+    await expect(access(join(siteRoot, 'src/theme/Footer/Layout/index.tsx'), constants.F_OK)).rejects.toThrow();
     await expect(access(join(siteRoot, 'src/css/custom.css'), constants.F_OK)).rejects.toThrow();
+  });
+
+  test('clears cached base-path assets before every production build', async () => {
+    const packageJson = JSON.parse(await source('package.json')) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(packageJson.scripts?.prebuild).toContain('docusaurus clear');
+    expect(packageJson.scripts?.prebuild).toContain('catalog:generate');
   });
 
   test('uses only the default Docs renderer for guides and API reference pages', async () => {
@@ -29,17 +40,34 @@ describe('Docusaurus default-theme contract', () => {
     expect(config).not.toContain("docItemComponent: '@theme/ApiItem'");
     expect(config).not.toContain('preserveOpenApiPackagesCommonJs');
     expect(config).toContain('New API（QuantumNous）');
-    expect(config).toContain("{ label: 'API 参考', to: '/api-reference' }");
+    expect(config).toContain("defaultMode: 'light'");
+    expect(config).toContain('disableSwitch: true');
+    expect(config).toContain('respectPrefersColorScheme: false');
+    expect(config).toContain("src: 'img/molii-mark.svg'");
+    expect(config).toContain("href: '/quick-start'");
     for (const label of ['开始使用', '平台与账户', '开发指南', '模型与能力', 'API 参考', '帮助与更新']) {
       expect(config).toContain(`label: '${label}'`);
     }
+    for (const removed of ['主页', '控制台', '模型广场', '排行榜', '文档', '关于']) {
+      expect(config).not.toContain(`label: '${removed}'`);
+    }
   });
 
-  test('routes the mixed-capability Grok homepage card to model selection', async () => {
-    const homepage = await source('src/pages/index.tsx');
+  test('removes the standalone portal so the server owns the root redirect', async () => {
+    await expect(access(join(siteRoot, 'src/pages/index.tsx'), constants.F_OK)).rejects.toThrow();
+    await expect(access(join(siteRoot, 'src/pages/index.module.css'), constants.F_OK)).rejects.toThrow();
+  });
 
-    expect(homepage).toContain('<Link to="/models">查看 Grok 模型 →</Link>');
-    expect(homepage).not.toContain('<Link to="/models/grok-imagine-video">查看 Grok 模型 →</Link>');
+  test('uses the concise default Docusaurus footer', async () => {
+    const config = await source('docusaurus.config.ts');
+
+    expect(config).toContain("title: '开发者资源'");
+    for (const label of ['快速开始', 'API 参考', '帮助']) {
+      expect(config).toContain(`label: '${label}'`);
+    }
+    for (const removedTitle of ['产品', '开发者', '厂商', '支持']) {
+      expect(config).not.toContain(`title: '${removedTitle}'`);
+    }
   });
 
   test('registers API reference pages in the ordinary Docs sidebar', async () => {

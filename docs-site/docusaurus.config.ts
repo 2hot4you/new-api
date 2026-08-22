@@ -50,11 +50,17 @@ const config: Config = {
   themes: [['@cmfcmf/docusaurus-search-local', { indexBlog: false, language: ['zh'] }]],
   themeConfig: {
     image: 'img/molii-mark.svg',
+    colorMode: {
+      defaultMode: 'light',
+      disableSwitch: true,
+      respectPrefersColorScheme: false,
+    },
     navbar: {
       title: 'Molii',
       logo: {
         alt: 'Molii',
         src: 'img/molii-mark.svg',
+        href: '/quick-start',
       },
       items: [
         { label: '开始使用', to: '/quick-start' },

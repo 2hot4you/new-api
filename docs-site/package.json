@@ -11,7 +11,7 @@
     "catalog:generate": "bun scripts/generate-model-docs.mjs",
     "catalog:check": "bun scripts/generate-model-docs.mjs --check",
     "predev": "bun run catalog:generate",
-    "prebuild": "bun run catalog:generate",
+    "prebuild": "bun run catalog:generate && docusaurus clear",
     "dev": "docusaurus start --host 127.0.0.1 --port 3100",
     "build": "docusaurus build",
     "serve": "docusaurus serve --host 127.0.0.1 --port 3100",

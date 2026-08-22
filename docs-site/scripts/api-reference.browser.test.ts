@@ -5,7 +5,15 @@ import { resolveBrowserExecutable } from './browser-executable.mjs';
 
 const siteRoot = new URL('..', import.meta.url).pathname;
 const port = 3197;
-const baseUrl = `http://127.0.0.1:${port}`;
+const configuredBasePath = process.env.DOCS_BASE_URL ?? '/';
+const normalizedBasePath = configuredBasePath === '/'
+  ? ''
+  : `/${configuredBasePath.replace(/^\/+|\/+$/g, '')}`;
+const baseUrl = `http://127.0.0.1:${port}${normalizedBasePath}`;
+
+function docsRoute(path: string) {
+  return `${normalizedBasePath}${path}`;
+}
 let server: ReturnType<typeof Bun.spawn> | undefined;
 let browser: Browser | undefined;
 
@@ -15,6 +23,15 @@ function activeBrowser() {
 }
 
 beforeAll(async () => {
+  const clear = Bun.spawn(
+    ['bun', 'x', 'docusaurus', 'clear'],
+    { cwd: siteRoot, stdout: 'ignore', stderr: 'inherit' },
+  );
+  const clearExitCode = await clear.exited;
+  if (clearExitCode !== 0) {
+    throw new Error(`Docusaurus cache cleanup exited with ${clearExitCode}`);
+  }
+
   const build = Bun.spawn(
     ['bun', 'x', 'docusaurus', 'build'],
     { cwd: siteRoot, stdout: 'ignore', stderr: 'inherit' },
@@ -168,121 +185,49 @@ describe('default MDX API reference', () => {
     }
   }, 30_000);
 
-  test('renders the developer portal with complete desktop and mobile reading paths', async () => {
+  test('uses the official Docusaurus shell while keeping search and a fixed light theme', async () => {
     const desktop = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
-    const mobile = await activeBrowser().newPage({ viewport: { width: 390, height: 844 } });
     const errors: string[] = [];
-    for (const page of [desktop, mobile]) {
-      page.on('pageerror', (error) => errors.push(error.stack ?? error.message));
-      page.on('console', (message) => {
-        if (message.type() === 'error') errors.push(message.text());
-      });
-    }
+    desktop.on('pageerror', (error) => errors.push(error.stack ?? error.message));
+    desktop.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text());
+    });
 
     try {
-      await Promise.all([
-        desktop.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' }),
-        mobile.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' }),
-      ]);
-
-      await expect(desktop.getByRole('heading', {
-        level: 1,
-        name: '把 AI 图片与视频能力，可靠地接入你的产品',
-      }).count()).resolves.toBe(1);
-      for (const heading of [
-        '选择你的接入路径',
-        '模型与能力一目了然',
-        '从请求到结算的完整链路',
-        '生产环境接入清单',
-        '继续深入',
-      ]) {
-        await expect(desktop.getByRole('heading', { level: 2, name: heading }).count())
-          .resolves.toBe(1);
-      }
-      await expect(desktop.getByRole('link', { name: '5 分钟快速开始' }).getAttribute('href'))
-        .resolves.toBe('/quick-start');
-      await expect(desktop.getByRole('link', { name: '浏览 API 参考' }).getAttribute('href'))
-        .resolves.toBe('/api-reference');
-
-      const desktopLayout = await desktop.evaluate(() => ({
-        overflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-        scrollHeight: document.documentElement.scrollHeight,
-        viewportHeight: innerHeight,
-      }));
-      const mobileLayout = await mobile.evaluate(() => ({
-        overflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-        h1Visible: Boolean(document.querySelector('main h1')),
-      }));
-
-      expect(desktopLayout.overflows).toBe(false);
-      expect(desktopLayout.scrollHeight).toBeGreaterThanOrEqual(desktopLayout.viewportHeight * 2);
-      expect(mobileLayout).toEqual({ overflows: false, h1Visible: true });
+      await desktop.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
+      const brand = desktop.locator('.navbar__brand');
+      await expect(brand.getAttribute('href')).resolves.toBe(docsRoute('/quick-start'));
+      await expect(brand.locator('img').first().getAttribute('src')).resolves.toBe(docsRoute('/img/molii-mark.svg'));
+      await expect(brand.locator('.navbar__title').textContent()).resolves.toContain('Molii');
+      await expect(desktop.locator('.aa-DetachedSearchButton').count()).resolves.toBe(1);
+      await expect(desktop.getByRole('button', { name: /切换.*模式/ }).count()).resolves.toBe(0);
+      await expect(desktop.locator('html').getAttribute('data-theme')).resolves.toBe('light');
+      await expect(desktop.locator('.footer__title').allTextContents()).resolves.toEqual(['开发者资源']);
       expect(errors).toEqual([]);
     } finally {
-      await Promise.all([desktop.close(), mobile.close()]);
+      await desktop.close();
     }
   }, 30_000);
 
-  test('keeps zoomed narrow homepage content and keyboard focus inside visible bounds', async () => {
-    // A 320 CSS-pixel viewport is the layout width of a 640-pixel window at 200% zoom.
+  test('keeps the documentation shell within a zoomed narrow viewport', async () => {
     const page = await activeBrowser().newPage({ viewport: { width: 320, height: 720 } });
 
     try {
-      await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' });
-      const primaryAction = page.getByRole('link', { name: '5 分钟快速开始' });
-      await primaryAction.focus();
-
-      const layout = await page.evaluate(() => {
-        const portal = document.querySelector('main');
-        const pre = document.querySelector('main pre');
-        const focused = document.activeElement;
-        if (!portal || !pre || !focused) throw new Error('Homepage layout fixture is incomplete');
-
-        const gridChildren = [
-          ...document.querySelectorAll('main > header > div'),
-          ...document.querySelectorAll('main > section > div > article'),
-          ...document.querySelectorAll('main > section > div > a'),
-        ];
-        const elementsWithinViewport = gridChildren.every((element) => {
-          const bounds = element.getBoundingClientRect();
-          return bounds.left >= 0 && bounds.right <= innerWidth;
-        });
-
-        pre.scrollLeft = pre.scrollWidth;
-        const focusedBounds = focused.getBoundingClientRect();
-        const focusedStyle = getComputedStyle(focused);
-        const outlineWidth = Number.parseFloat(focusedStyle.outlineWidth);
-
-        return {
-          portalOverflowX: getComputedStyle(portal).overflowX,
-          gridChildrenMinWidth: gridChildren.map((element) => getComputedStyle(element).minWidth),
-          elementsWithinViewport,
-          codeOverflowX: getComputedStyle(pre).overflowX,
-          codeScrollsIndependently: pre.scrollWidth > pre.clientWidth && pre.scrollLeft > 0,
-          focusVisible: focusedStyle.outlineStyle !== 'none' && outlineWidth > 0,
-          focusWithinViewport:
-            focusedBounds.left - outlineWidth >= 0
-            && focusedBounds.right + outlineWidth <= innerWidth,
-        };
-      });
-
-      expect(layout.portalOverflowX).toBe('visible');
-      expect(layout.gridChildrenMinWidth.every((minWidth) => minWidth === '0px')).toBe(true);
-      expect(layout.elementsWithinViewport).toBe(true);
-      expect(layout.codeOverflowX).toBe('auto');
-      expect(layout.codeScrollsIndependently).toBe(true);
-      expect(layout.focusVisible).toBe(true);
-      expect(layout.focusWithinViewport).toBe(true);
+      await page.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: /切换导航栏/ }).click();
+      expect(await page.locator('.navbar').getAttribute('class')).toContain('navbar-sidebar--show');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+      await expect(page.locator('footer').count()).resolves.toBe(1);
     } finally {
       await page.close();
     }
   }, 30_000);
 
-  test('exposes six focused top-level destinations and preserves nested routes', async () => {
+  test('exposes the six documentation destinations and removes the portal route', async () => {
     const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
 
     try {
-      await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
       const primaryLinks = page.locator('.navbar__items:not(.navbar__items--right) > .navbar__item.navbar__link');
       await expect(primaryLinks.allTextContents()).resolves.toEqual([
         '开始使用',
@@ -293,11 +238,19 @@ describe('default MDX API reference', () => {
         '帮助与更新',
       ]);
       await expect(primaryLinks.evaluateAll((links) => links.map((link) => link.getAttribute('href'))))
-        .resolves.toEqual(['/quick-start', '/platform', '/api-basics', '/models', '/api-reference', '/help']);
+        .resolves.toEqual([
+          '/quick-start',
+          '/platform',
+          '/api-basics',
+          '/models',
+          '/api-reference',
+          '/help',
+        ].map(docsRoute));
 
       for (const route of ['/examples', '/changelog']) {
         await expect(fetch(`${baseUrl}${route}`).then((response) => response.status)).resolves.toBe(200);
       }
+      await expect(fetch(`${baseUrl}/`).then((response) => response.status)).resolves.toBe(404);
     } finally {
       await page.close();
     }
