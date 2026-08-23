@@ -1,0 +1,12 @@
+{
+  "id": "fix-docs-logo-provider-duplicate",
+  "title": "统一文档 Logo 并移除 Provider 分类重复索引",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并推送 develop",
+  "createdAt": "2026-08-23T01:20:00+08:00",
+  "branch": "develop"
+}
