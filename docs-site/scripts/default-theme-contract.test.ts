@@ -43,7 +43,8 @@ describe('Docusaurus default-theme contract', () => {
     expect(config).toContain("defaultMode: 'light'");
     expect(config).toContain('disableSwitch: true');
     expect(config).toContain('respectPrefersColorScheme: false');
-    expect(config).toContain("src: 'img/molii-mark.svg'");
+    expect(config).not.toContain("title: 'Molii'");
+    expect(config).toContain("src: 'img/molii-wordmark.png'");
     expect(config).toContain("href: '/quick-start'");
     for (const label of ['开始使用', '平台与账户', '开发指南', '模型与能力', 'API 参考', '帮助与更新']) {
       expect(config).toContain(`label: '${label}'`);
@@ -51,6 +52,15 @@ describe('Docusaurus default-theme contract', () => {
     for (const removed of ['主页', '控制台', '模型广场', '排行榜', '文档', '关于']) {
       expect(config).not.toContain(`label: '${removed}'`);
     }
+  });
+
+  test('uses the exact New API wordmark asset without changing the default navbar component', async () => {
+    const [docsWordmark, appWordmark] = await Promise.all([
+      readFile(join(siteRoot, 'static/img/molii-wordmark.png')),
+      readFile(join(siteRoot, '../web/public/molii-wordmark.png')),
+    ]);
+
+    expect(docsWordmark.equals(appWordmark)).toBe(true);
   });
 
   test('removes the standalone portal so the server owns the root redirect', async () => {

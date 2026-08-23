@@ -39,7 +39,12 @@ function markdownList(values) {
 }
 
 function category(label, position) {
-  return `${JSON.stringify({ label, position, collapsible: true, collapsed: true }, null, 2)}\n`;
+  return `${JSON.stringify({
+    label,
+    position,
+    collapsible: true,
+    collapsed: true,
+  }, null, 2)}\n`;
 }
 
 const base = '${MOLII_API_BASE_URL%/}';
@@ -165,14 +170,8 @@ function providerIndex(provider, models) {
   return `---\ntitle: ${yamlScalar(provider.name)}\nsidebar_position: 1\n---\n\n# ${escapeMdx(provider.name)}\n\n${escapeMdx(provider.description || '该 Provider 的公开模型目录。')}\n\n## 模型\n\n${rows || '暂无公开模型。'}\n`;
 }
 
-function providersIndex(catalog) {
-  const rows = catalog.vendors.map((provider) => `- [${escapeMdx(provider.name)}](./${slugify(provider.name)})`).join('\n');
-  return `---\ntitle: ${yamlScalar('Provider 与模型')}\nsidebar_position: 1\n---\n\n# Provider 与模型\n\n本目录由公开 Development 模型快照生成，按 Provider 展示可调用模型与兼容协议。\n\n${rows}\n`;
-}
-
 async function writeGeneratedTree(catalog, temporaryRoot) {
   await writeFile(resolve(temporaryRoot, '_category_.json'), category('Provider 与模型', 1));
-  await writeFile(resolve(temporaryRoot, 'index.mdx'), providersIndex(catalog));
   for (const provider of catalog.vendors) {
     const providerDirectory = resolve(temporaryRoot, slugify(provider.name));
     const providerModels = catalog.models.filter((model) => model.vendor_id === provider.id);
@@ -201,7 +200,7 @@ export async function generateCatalogDocs({ catalog, outputRoot = defaultOutputR
     await rm(temporary, { recursive: true, force: true });
     throw error;
   }
-  return { providerCount: catalog.vendors.length, modelCount: catalog.models.length, fileCount: 2 + catalog.vendors.length * 2 + catalog.models.length };
+  return { providerCount: catalog.vendors.length, modelCount: catalog.models.length, fileCount: 1 + catalog.vendors.length * 2 + catalog.models.length };
 }
 
 async function main() {

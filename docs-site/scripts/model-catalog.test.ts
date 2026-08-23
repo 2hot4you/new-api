@@ -105,10 +105,15 @@ describe('model catalog', () => {
     const providersRoot = join(outputRoot, 'providers');
     const second = await generateCatalogDocs({ catalog, outputRoot });
 
-    expect(first).toEqual({ providerCount: 2, modelCount: 5, fileCount: 11 });
+    expect(first).toEqual({ providerCount: 2, modelCount: 5, fileCount: 10 });
     expect(second).toEqual(first);
-    expect((await readdir(providersRoot)).sort()).toEqual(['_category_.json', 'first-provider', 'index.mdx', 'second-provider']);
-    expect(await readFile(join(providersRoot, '_category_.json'), 'utf8')).toContain('"position": 1');
+    expect((await readdir(providersRoot)).sort()).toEqual(['_category_.json', 'first-provider', 'second-provider']);
+    expect(JSON.parse(await readFile(join(providersRoot, '_category_.json'), 'utf8'))).toEqual({
+      label: 'Provider 与模型',
+      position: 1,
+      collapsible: true,
+      collapsed: true,
+    });
     expect(await readFile(join(providersRoot, 'first-provider', '_category_.json'), 'utf8')).toContain('"position": 1');
     expect(await readFile(join(providersRoot, 'second-provider', '_category_.json'), 'utf8')).toContain('"position": 2');
 

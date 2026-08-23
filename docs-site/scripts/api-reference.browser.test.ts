@@ -197,8 +197,8 @@ describe('default MDX API reference', () => {
       await desktop.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
       const brand = desktop.locator('.navbar__brand');
       await expect(brand.getAttribute('href')).resolves.toBe(docsRoute('/quick-start'));
-      await expect(brand.locator('img').first().getAttribute('src')).resolves.toBe(docsRoute('/img/molii-mark.svg'));
-      await expect(brand.locator('.navbar__title').textContent()).resolves.toContain('Molii');
+      await expect(brand.locator('img').first().getAttribute('src')).resolves.toBe(docsRoute('/img/molii-wordmark.png'));
+      await expect(brand.locator('.navbar__title').count()).resolves.toBe(0);
       await expect(desktop.locator('.aa-DetachedSearchButton').count()).resolves.toBe(1);
       await expect(desktop.getByRole('button', { name: /切换.*模式/ }).count()).resolves.toBe(0);
       await expect(desktop.locator('html').getAttribute('data-theme')).resolves.toBe('light');
@@ -206,6 +206,20 @@ describe('default MDX API reference', () => {
       expect(errors).toEqual([]);
     } finally {
       await desktop.close();
+    }
+  }, 30_000);
+
+  test('uses one Provider category label backed by the generated Provider index', async () => {
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
+
+    try {
+      await page.goto(`${baseUrl}/providers`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('main h1').filter({ hasText: 'Provider 与模型' }).count())
+        .resolves.toBe(1);
+      await expect(page.locator('.theme-doc-sidebar-menu').getByText('Provider 与模型', { exact: true }).count())
+        .resolves.toBe(1);
+    } finally {
+      await page.close();
     }
   }, 30_000);
 

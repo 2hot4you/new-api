@@ -56,10 +56,9 @@ const config: Config = {
       respectPrefersColorScheme: false,
     },
     navbar: {
-      title: 'Molii',
       logo: {
         alt: 'Molii',
-        src: 'img/molii-mark.svg',
+        src: 'img/molii-wordmark.png',
         href: '/quick-start',
       },
       items: [
