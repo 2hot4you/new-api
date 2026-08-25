@@ -1,0 +1,12 @@
+{
+  "id": "docs-logo-environment-home-link",
+  "title": "按文档环境配置 Logo 返回主站地址",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交变更",
+  "createdAt": "2026-08-25T00:00:00+08:00",
+  "branch": "develop"
+}
