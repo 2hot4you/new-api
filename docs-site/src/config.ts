@@ -3,6 +3,7 @@ export type PublicEnvironment = Record<string, string | undefined>;
 export interface PublicAlgoliaConfig {
   apiKey: string;
   appId: string;
+  contextualSearch: false;
   indexName: string;
 }
 
@@ -101,6 +102,7 @@ export function resolvePublicConfig(environment: PublicEnvironment): PublicConfi
       algolia = {
         appId: appId!,
         apiKey: apiKey!,
+        contextualSearch: false,
         indexName: indexName!,
       };
     }

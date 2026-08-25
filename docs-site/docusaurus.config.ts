@@ -53,10 +53,7 @@ const config: Config = {
   themeConfig: {
     ...(publicConfig.algolia
       ? {
-          algolia: {
-            ...publicConfig.algolia,
-            contextualSearch: true,
-          },
+          algolia: publicConfig.algolia,
         }
       : {}),
     image: 'img/molii-mark.svg',

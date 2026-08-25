@@ -84,6 +84,7 @@ test('enables Algolia only for a fully configured development build', () => {
   expect(resolvePublicConfig({ ...validEnvironment, ...algolia }).algolia).toEqual({
     appId: 'development-app',
     apiKey: 'public-search-only-key',
+    contextualSearch: false,
     indexName: 'molii-development',
   });
   expect(
