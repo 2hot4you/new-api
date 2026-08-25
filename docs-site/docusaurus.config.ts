@@ -59,7 +59,8 @@ const config: Config = {
       logo: {
         alt: 'Molii',
         src: 'img/molii-wordmark.png',
-        href: '/quick-start',
+        href: publicConfig.siteUrl,
+        target: '_self',
       },
       items: [
         { label: '开始使用', to: '/quick-start' },

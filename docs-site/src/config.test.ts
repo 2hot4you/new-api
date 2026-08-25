@@ -80,3 +80,14 @@ test('keeps New API and QuantumNous attribution visible in the footer', () => {
   expect(footer.copyright).toContain('New API');
   expect(footer.copyright).toContain('QuantumNous');
 });
+
+test('links the documentation wordmark to the configured site origin', () => {
+  const navbar = siteConfig.themeConfig?.navbar as {
+    logo?: { href?: string; target?: string };
+  };
+
+  expect(navbar.logo).toMatchObject({
+    href: siteConfig.url,
+    target: '_self',
+  });
+});

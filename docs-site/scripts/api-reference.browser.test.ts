@@ -5,6 +5,7 @@ import { resolveBrowserExecutable } from './browser-executable.mjs';
 
 const siteRoot = new URL('..', import.meta.url).pathname;
 const port = 3197;
+const configuredSiteUrl = process.env.DOCS_SITE_URL ?? 'http://127.0.0.1:3100';
 const configuredBasePath = process.env.DOCS_BASE_URL ?? '/';
 const normalizedBasePath = configuredBasePath === '/'
   ? ''
@@ -196,7 +197,8 @@ describe('default MDX API reference', () => {
     try {
       await desktop.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
       const brand = desktop.locator('.navbar__brand');
-      await expect(brand.getAttribute('href')).resolves.toBe(docsRoute('/quick-start'));
+      await expect(brand.getAttribute('href')).resolves.toBe(configuredSiteUrl);
+      await expect(brand.getAttribute('target')).resolves.toBe('_self');
       await expect(brand.locator('img').first().getAttribute('src')).resolves.toBe(docsRoute('/img/molii-wordmark.png'));
       await expect(brand.locator('.navbar__title').count()).resolves.toBe(0);
       await expect(desktop.locator('.aa-DetachedSearchButton').count()).resolves.toBe(1);

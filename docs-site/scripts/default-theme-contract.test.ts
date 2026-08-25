@@ -45,7 +45,6 @@ describe('Docusaurus default-theme contract', () => {
     expect(config).toContain('respectPrefersColorScheme: false');
     expect(config).not.toContain("title: 'Molii'");
     expect(config).toContain("src: 'img/molii-wordmark.png'");
-    expect(config).toContain("href: '/quick-start'");
     for (const label of ['开始使用', '平台与账户', '开发指南', '模型与能力', 'API 参考', '帮助与更新']) {
       expect(config).toContain(`label: '${label}'`);
     }
