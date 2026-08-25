@@ -44,6 +44,22 @@ test('documentation build uses the pinned toolchain and complete safety gates', 
   expect(workflow).toContain('actions/download-artifact@');
 });
 
+test('injects the public Algolia search configuration only into Development builds', async () => {
+  const workflow = await Bun.file(docsWorkflowPath).text();
+
+  for (const variableName of [
+    'DOCS_ALGOLIA_APP_ID',
+    'DOCS_ALGOLIA_SEARCH_API_KEY',
+    'DOCS_ALGOLIA_INDEX_NAME',
+  ]) {
+    expect(workflow).toContain(`vars.${variableName}`);
+    expect(workflow).toContain(
+      `needs.prepare.outputs.environment == 'development' && vars.${variableName} || ''`,
+    );
+    expect(workflow).not.toContain(`secrets.${variableName}`);
+  }
+});
+
 test('browser checks use a production build instead of the HMR development server', async () => {
   const browserTest = await Bun.file(
     resolve(repositoryRoot, 'docs-site/scripts/api-reference.browser.test.ts'),

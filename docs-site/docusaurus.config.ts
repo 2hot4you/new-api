@@ -47,8 +47,18 @@ const config: Config = {
       },
     ],
   ],
-  themes: [['@cmfcmf/docusaurus-search-local', { indexBlog: false, language: ['zh'] }]],
+  themes: publicConfig.algolia
+    ? []
+    : [['@cmfcmf/docusaurus-search-local', { indexBlog: false, language: ['zh'] }]],
   themeConfig: {
+    ...(publicConfig.algolia
+      ? {
+          algolia: {
+            ...publicConfig.algolia,
+            contextualSearch: true,
+          },
+        }
+      : {}),
     image: 'img/molii-mark.svg',
     colorMode: {
       defaultMode: 'light',

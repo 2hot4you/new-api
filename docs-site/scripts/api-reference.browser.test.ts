@@ -6,6 +6,12 @@ import { resolveBrowserExecutable } from './browser-executable.mjs';
 const siteRoot = new URL('..', import.meta.url).pathname;
 const port = 3197;
 const configuredSiteUrl = process.env.DOCS_SITE_URL ?? 'http://127.0.0.1:3100';
+const usesAlgoliaSearch = process.env.DOCS_ENV === 'development' &&
+  [
+    process.env.DOCS_ALGOLIA_APP_ID,
+    process.env.DOCS_ALGOLIA_SEARCH_API_KEY,
+    process.env.DOCS_ALGOLIA_INDEX_NAME,
+  ].every((value) => Boolean(value?.trim()));
 const configuredBasePath = process.env.DOCS_BASE_URL ?? '/';
 const normalizedBasePath = configuredBasePath === '/'
   ? ''
@@ -201,7 +207,10 @@ describe('default MDX API reference', () => {
       await expect(brand.getAttribute('target')).resolves.toBe('_self');
       await expect(brand.locator('img').first().getAttribute('src')).resolves.toBe(docsRoute('/img/molii-wordmark.png'));
       await expect(brand.locator('.navbar__title').count()).resolves.toBe(0);
-      await expect(desktop.locator('.aa-DetachedSearchButton').count()).resolves.toBe(1);
+      const searchButton = usesAlgoliaSearch
+        ? desktop.locator('.DocSearch-Button')
+        : desktop.locator('.aa-DetachedSearchButton');
+      await expect(searchButton.count()).resolves.toBe(1);
       await expect(desktop.getByRole('button', { name: /切换.*模式/ }).count()).resolves.toBe(0);
       await expect(desktop.locator('html').getAttribute('data-theme')).resolves.toBe('light');
       await expect(desktop.locator('.footer__title').allTextContents()).resolves.toEqual(['开发者资源']);

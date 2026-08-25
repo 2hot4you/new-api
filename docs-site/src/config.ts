@@ -1,6 +1,13 @@
 export type PublicEnvironment = Record<string, string | undefined>;
 
+export interface PublicAlgoliaConfig {
+  apiKey: string;
+  appId: string;
+  indexName: string;
+}
+
 export interface PublicConfig {
+  algolia?: PublicAlgoliaConfig;
   apiBaseUrl: string;
   baseUrl: string;
   noIndex: boolean;
@@ -12,6 +19,9 @@ const publicVariables = new Set([
   'DOCS_SITE_URL',
   'DOCS_BASE_URL',
   'DOCS_API_BASE_URL',
+  'DOCS_ALGOLIA_APP_ID',
+  'DOCS_ALGOLIA_SEARCH_API_KEY',
+  'DOCS_ALGOLIA_INDEX_NAME',
 ]);
 
 const secretName = /(?:key|secret|token|password|private|credential)/i;
@@ -75,7 +85,29 @@ export function resolvePublicConfig(environment: PublicEnvironment): PublicConfi
     throw new Error('DOCS_ENV must be either development or production.');
   }
 
+  let algolia: PublicAlgoliaConfig | undefined;
+  if (docsEnvironment === 'development') {
+    const appId = environment.DOCS_ALGOLIA_APP_ID?.trim();
+    const apiKey = environment.DOCS_ALGOLIA_SEARCH_API_KEY?.trim();
+    const indexName = environment.DOCS_ALGOLIA_INDEX_NAME?.trim();
+    const configuredValueCount = [appId, apiKey, indexName].filter(Boolean).length;
+
+    if (configuredValueCount > 0 && configuredValueCount < 3) {
+      throw new Error(
+        'Development Algolia search requires DOCS_ALGOLIA_APP_ID, DOCS_ALGOLIA_SEARCH_API_KEY, and DOCS_ALGOLIA_INDEX_NAME.',
+      );
+    }
+    if (configuredValueCount === 3) {
+      algolia = {
+        appId: appId!,
+        apiKey: apiKey!,
+        indexName: indexName!,
+      };
+    }
+  }
+
   return {
+    ...(algolia ? { algolia } : {}),
     siteUrl: originUrl(required(environment, 'DOCS_SITE_URL'), 'DOCS_SITE_URL'),
     baseUrl: normalizeBaseUrl(required(environment, 'DOCS_BASE_URL')),
     apiBaseUrl: originUrl(required(environment, 'DOCS_API_BASE_URL'), 'DOCS_API_BASE_URL'),

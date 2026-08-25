@@ -74,6 +74,40 @@ test('resolves the public /docs/ deployment contract for both environments', () 
   });
 });
 
+test('enables Algolia only for a fully configured development build', () => {
+  const algolia = {
+    DOCS_ALGOLIA_APP_ID: 'development-app',
+    DOCS_ALGOLIA_SEARCH_API_KEY: 'public-search-only-key',
+    DOCS_ALGOLIA_INDEX_NAME: 'molii-development',
+  };
+
+  expect(resolvePublicConfig({ ...validEnvironment, ...algolia }).algolia).toEqual({
+    appId: 'development-app',
+    apiKey: 'public-search-only-key',
+    indexName: 'molii-development',
+  });
+  expect(
+    resolvePublicConfig({
+      ...validEnvironment,
+      ...algolia,
+      DOCS_ENV: 'production',
+      DOCS_SITE_URL: 'https://molii.co',
+      DOCS_BASE_URL: '/docs/',
+      DOCS_API_BASE_URL: 'https://molii.co',
+    }).algolia,
+  ).toBeUndefined();
+});
+
+test('rejects a partially configured development Algolia search', () => {
+  expect(() =>
+    resolvePublicConfig({
+      ...validEnvironment,
+      DOCS_ALGOLIA_APP_ID: 'development-app',
+      DOCS_ALGOLIA_SEARCH_API_KEY: 'public-search-only-key',
+    }),
+  ).toThrow('Development Algolia search requires');
+});
+
 test('keeps New API and QuantumNous attribution visible in the footer', () => {
   const footer = siteConfig.themeConfig?.footer as { copyright?: string };
 
