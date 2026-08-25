@@ -1,0 +1,12 @@
+{
+  "id": "sync-docs-favicon-with-new-api",
+  "title": "让 Docusaurus favicon 与 new-api 保持一致",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交到 develop",
+  "createdAt": "2026-08-25T05:44:16Z",
+  "branch": "develop"
+}

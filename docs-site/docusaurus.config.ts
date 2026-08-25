@@ -13,7 +13,7 @@ const publicConfig = resolvePublicConfig({
 const config: Config = {
   title: 'Molii 开发者文档',
   tagline: '构建可靠、可扩展的 AI 创作体验',
-  favicon: 'img/molii-mark.svg',
+  favicon: 'img/molii-favicon-32.png?v=4',
   url: publicConfig.siteUrl,
   baseUrl: publicConfig.baseUrl,
   organizationName: 'molii',

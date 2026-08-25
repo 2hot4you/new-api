@@ -62,6 +62,18 @@ describe('Docusaurus default-theme contract', () => {
     expect(docsWordmark.equals(appWordmark)).toBe(true);
   });
 
+  test('uses the exact New API favicon asset', async () => {
+    const config = await source('docusaurus.config.ts');
+    const [docsFavicon, appFavicon] = await Promise.all([
+      readFile(join(siteRoot, 'static/img/molii-favicon-32.png')),
+      readFile(join(siteRoot, '../web/public/molii-favicon-32.png')),
+    ]);
+
+    expect(config).toContain("favicon: 'img/molii-favicon-32.png?v=4'");
+    expect(config).not.toContain("favicon: 'img/molii-mark.svg'");
+    expect(docsFavicon.equals(appFavicon)).toBe(true);
+  });
+
   test('removes the standalone portal so the server owns the root redirect', async () => {
     await expect(access(join(siteRoot, 'src/pages/index.tsx'), constants.F_OK)).rejects.toThrow();
     await expect(access(join(siteRoot, 'src/pages/index.module.css'), constants.F_OK)).rejects.toThrow();
