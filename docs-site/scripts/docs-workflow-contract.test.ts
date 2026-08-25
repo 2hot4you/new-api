@@ -44,7 +44,7 @@ test('documentation build uses the pinned toolchain and complete safety gates', 
   expect(workflow).toContain('actions/download-artifact@');
 });
 
-test('injects the public Algolia search configuration only into Development builds', async () => {
+test('injects the configured Algolia search values only into Development builds', async () => {
   const workflow = await Bun.file(docsWorkflowPath).text();
 
   for (const variableName of [
@@ -52,11 +52,11 @@ test('injects the public Algolia search configuration only into Development buil
     'DOCS_ALGOLIA_SEARCH_API_KEY',
     'DOCS_ALGOLIA_INDEX_NAME',
   ]) {
-    expect(workflow).toContain(`vars.${variableName}`);
+    expect(workflow).toContain(`secrets.${variableName}`);
     expect(workflow).toContain(
-      `needs.prepare.outputs.environment == 'development' && vars.${variableName} || ''`,
+      `needs.prepare.outputs.environment == 'development' && secrets.${variableName} || ''`,
     );
-    expect(workflow).not.toContain(`secrets.${variableName}`);
+    expect(workflow).not.toContain(`vars.${variableName}`);
   }
 });
 
