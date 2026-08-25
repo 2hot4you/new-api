@@ -1,0 +1,12 @@
+{
+  "id": "improve-docs-search-trigger",
+  "title": "优化 Docusaurus 文档搜索入口样式与快捷键提示",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务、提交并推送 develop",
+  "createdAt": "2026-08-23T23:45:00+08:00",
+  "branch": "develop"
+}
