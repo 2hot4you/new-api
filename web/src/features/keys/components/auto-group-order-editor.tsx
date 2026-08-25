@@ -16,12 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  ArrowDown01Icon,
-  ArrowUp01Icon,
-  Cancel01Icon,
-  Drag01Icon,
-} from '@hugeicons/core-free-icons'
+import { Cancel01Icon, Drag01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Check, ChevronsUpDown, Search, Star } from 'lucide-react'
 import { Reorder, useDragControls } from 'motion/react'
@@ -71,12 +66,11 @@ type AutoGroupOrderEditorProps = Omit<ComponentProps<'div'>, 'onChange'> & {
 type AutoGroupOrderItemProps = {
   option: ApiKeyGroupOption
   index: number
-  count: number
   onMove: (index: number, direction: 'up' | 'down') => void
   onRemove: (group: string) => void
 }
 
-function RecommendationBadge(props: { score?: number }) {
+function RecommendationBadge(props: { score?: number; compact?: boolean }) {
   const { t } = useTranslation()
   if (
     props.score === undefined ||
@@ -88,9 +82,34 @@ function RecommendationBadge(props: { score?: number }) {
   }
 
   return (
-    <Badge variant='warning' className='gap-1 px-1.5 text-[10px]'>
+    <Badge
+      variant='warning'
+      aria-label={`${t('Recommendation')} ${props.score.toFixed(1)}`}
+      className='max-w-full gap-1 px-1.5 text-[10px]'
+    >
       <Star aria-hidden='true' className='size-2.5 fill-current' />
-      {t('Recommendation')} {props.score.toFixed(1)}
+      {!props.compact && t('Recommendation')} {props.score.toFixed(1)}
+    </Badge>
+  )
+}
+
+function CompactRatioBadge(props: { ratio?: number | string }) {
+  const { t } = useTranslation()
+  if (props.ratio === undefined || props.ratio === null || props.ratio === '') {
+    return null
+  }
+
+  const label =
+    typeof props.ratio === 'number'
+      ? `${props.ratio}x`
+      : `${t('Auto')} ${t('Ratio')}`
+  return (
+    <Badge
+      variant='outline'
+      aria-label={`${label} ${t('Ratio')}`}
+      className='max-w-16 truncate px-1.5 text-[10px]'
+    >
+      {label}
     </Badge>
   )
 }
@@ -119,7 +138,8 @@ function AutoGroupOrderItem(props: AutoGroupOrderItemProps) {
       value={props.option.value}
       dragListener={false}
       dragControls={dragControls}
-      className='bg-background flex items-center gap-2 rounded-lg border p-2'
+      data-selected-group-item={props.option.value}
+      className='bg-background flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border p-2'
     >
       <Button
         type='button'
@@ -129,6 +149,7 @@ function AutoGroupOrderItem(props: AutoGroupOrderItemProps) {
         aria-label={t('Drag {{group}} to reorder', {
           group: props.option.label,
         })}
+        aria-keyshortcuts='ArrowUp ArrowDown'
         onPointerDown={handleDragStart}
         onKeyDown={handleDragKeyDown}
       >
@@ -142,9 +163,21 @@ function AutoGroupOrderItem(props: AutoGroupOrderItemProps) {
           {getLobeIcon(props.option.icon, 20)}
         </span>
       )}
-      <span className='min-w-0 flex-1'>
-        <span className='block truncate text-sm font-medium'>
-          {props.option.label}
+      <span className='min-w-0 flex-1 overflow-hidden'>
+        <span
+          data-selected-group-name-line='true'
+          className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 overflow-hidden'
+        >
+          <span className='min-w-0 truncate text-sm font-medium'>
+            {props.option.label}
+          </span>
+          <span
+            data-selected-group-metadata='true'
+            className='flex min-w-0 shrink-0 items-center gap-1 overflow-hidden'
+          >
+            <RecommendationBadge score={props.option.recommendation} compact />
+            <CompactRatioBadge ratio={props.option.ratio} />
+          </span>
         </span>
         {props.option.desc && (
           <span className='text-muted-foreground block truncate text-xs'>
@@ -152,51 +185,16 @@ function AutoGroupOrderItem(props: AutoGroupOrderItemProps) {
           </span>
         )}
       </span>
-      <RecommendationBadge score={props.option.recommendation} />
-      <GroupRatioBadge ratio={props.option.ratio} />
-      <div className='flex shrink-0 gap-1'>
-        <Button
-          type='button'
-          variant='ghost'
-          size='icon-sm'
-          disabled={props.index === 0}
-          aria-label={t('Move {{group}} up', { group: props.option.label })}
-          onClick={() => props.onMove(props.index, 'up')}
-        >
-          <HugeiconsIcon
-            icon={ArrowUp01Icon}
-            strokeWidth={2}
-            aria-hidden='true'
-          />
-        </Button>
-        <Button
-          type='button'
-          variant='ghost'
-          size='icon-sm'
-          disabled={props.index === props.count - 1}
-          aria-label={t('Move {{group}} down', { group: props.option.label })}
-          onClick={() => props.onMove(props.index, 'down')}
-        >
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            strokeWidth={2}
-            aria-hidden='true'
-          />
-        </Button>
-        <Button
-          type='button'
-          variant='ghost'
-          size='icon-sm'
-          aria-label={t('Remove {{group}}', { group: props.option.label })}
-          onClick={() => props.onRemove(props.option.value)}
-        >
-          <HugeiconsIcon
-            icon={Cancel01Icon}
-            strokeWidth={2}
-            aria-hidden='true'
-          />
-        </Button>
-      </div>
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        className='shrink-0'
+        aria-label={t('Remove {{group}}', { group: props.option.label })}
+        onClick={() => props.onRemove(props.option.value)}
+      >
+        <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} aria-hidden='true' />
+      </Button>
     </Reorder.Item>
   )
 }
@@ -286,7 +284,10 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
       aria-label={props['aria-label'] || t('Group selection order')}
       aria-describedby={props['aria-describedby']}
       aria-invalid={props['aria-invalid']}
-      className={cn('flex flex-col gap-3', props.className)}
+      className={cn(
+        'flex w-full min-w-0 max-w-full flex-col gap-3 overflow-x-hidden',
+        props.className
+      )}
     >
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
@@ -442,7 +443,7 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
           axis='y'
           values={selectedValues}
           onReorder={emitCustomGroups}
-          className='flex flex-col gap-2'
+          className='flex w-full max-w-full min-w-0 flex-col gap-2 overflow-x-hidden'
           aria-label={t('Selected group priority')}
         >
           {selectedOptions.map((option, index) => (
@@ -450,7 +451,6 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
               key={option.value}
               option={option}
               index={index}
-              count={selectedOptions.length}
               onMove={handleMove}
               onRemove={handleToggle}
             />

@@ -381,6 +381,12 @@ describe('API keys mutate drawer direct group selection', () => {
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
 
+    const sheetContent = document.querySelector<HTMLElement>(
+      '[data-slot="sheet-content"]'
+    )
+    assert.ok(sheetContent)
+    assert.equal(sheetContent.classList.contains('overflow-x-hidden'), true)
+
     const groupControl = getControlByLabel<HTMLElement>('Group')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'

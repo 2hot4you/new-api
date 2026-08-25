@@ -388,7 +388,9 @@ export function ApiKeysMutateDrawer({
       }}
     >
       <SheetContent
-        className={sideDrawerContentClassName('max-w-none sm:!max-w-[620px]')}
+        className={sideDrawerContentClassName(
+          'w-full max-w-[620px] overflow-x-hidden sm:!max-w-[620px]'
+        )}
       >
         <SheetHeader className={sideDrawerHeaderClassName()}>
           <SheetTitle>
@@ -406,7 +408,9 @@ export function ApiKeysMutateDrawer({
             onSubmit={form.handleSubmit(onSubmit, onInvalid)}
             aria-busy={!isFormInitialized}
             inert={!isFormInitialized || isSubmitting ? true : undefined}
-            className={sideDrawerFormClassName('gap-5')}
+            className={sideDrawerFormClassName(
+              'min-w-0 gap-5 overflow-x-hidden'
+            )}
           >
             <SideDrawerSection>
               <SideDrawerSectionHeader

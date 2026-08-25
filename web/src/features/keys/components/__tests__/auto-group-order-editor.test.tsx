@@ -69,7 +69,13 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 const options = [
   { value: 'auto', label: 'auto', desc: 'Hidden internal route' },
-  { value: 'vip', label: 'VIP', desc: 'Priority access', ratio: 3 },
+  {
+    value: 'vip',
+    label: 'VIP',
+    desc: 'Priority access',
+    ratio: 3,
+    recommendation: 5,
+  },
   { value: 'default', label: 'Default', desc: 'Standard access', ratio: 1 },
   { value: 'team', label: 'Team', desc: 'Shared access', ratio: 2 },
 ]
@@ -242,21 +248,50 @@ describe('direct API key group selection', () => {
     )
   })
 
-  test('supports button and keyboard reordering for selected priority', async () => {
+  test('keeps selected rows compact and reorders from the drag handle', async () => {
     const container = await renderHarness()
-
-    await act(async () => findButton(container, 'Move VIP down').click())
-    assert.equal(output(container, 'order'), 'default,vip')
+    const vipItem = container.querySelector<HTMLElement>(
+      '[data-selected-group-item="vip"]'
+    )
+    assert.ok(vipItem)
+    const nameLine = vipItem.querySelector<HTMLElement>(
+      '[data-selected-group-name-line]'
+    )
+    assert.ok(nameLine)
+    assert.equal(nameLine.textContent?.includes('VIP'), true)
+    const metadata = nameLine.querySelector<HTMLElement>(
+      '[data-selected-group-metadata]'
+    )
+    assert.ok(metadata)
+    assert.equal(metadata.textContent?.includes('5.0'), true)
+    assert.equal(metadata.textContent?.includes('Recommendation'), false)
+    assert.equal(nameLine.textContent?.includes('3x'), true)
+    assert.equal(vipItem.textContent?.includes('Priority access'), true)
+    assert.equal(
+      vipItem.querySelector('button[aria-label="Move VIP up"]'),
+      null
+    )
+    assert.equal(
+      vipItem.querySelector('button[aria-label="Move VIP down"]'),
+      null
+    )
+    assert.ok(vipItem.querySelector('button[aria-label="Remove VIP"]'))
+    assert.equal(
+      findButton(container, 'Drag VIP to reorder').getAttribute(
+        'aria-keyshortcuts'
+      ),
+      'ArrowUp ArrowDown'
+    )
 
     await act(async () => {
-      findButton(container, 'Drag Default to reorder').dispatchEvent(
+      findButton(container, 'Drag VIP to reorder').dispatchEvent(
         new domWindow.KeyboardEvent('keydown', {
           key: 'ArrowDown',
           bubbles: true,
         }) as unknown as KeyboardEvent
       )
     })
-    assert.equal(output(container, 'order'), 'vip,default')
+    assert.equal(output(container, 'order'), 'default,vip')
   })
 
   test('copies the configured system order without exposing auto', async () => {

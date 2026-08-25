@@ -1,0 +1,12 @@
+{
+  "id": "compact-api-key-group-priority",
+  "title": "压缩 API Key 已选分组优先级布局",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-25T10:08:00Z",
+  "branch": "develop"
+}
