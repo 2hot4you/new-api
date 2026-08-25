@@ -220,6 +220,32 @@ describe('default MDX API reference', () => {
     }
   }, 30_000);
 
+  test('keeps official DocSearch typography isolated from the Serif document theme', async () => {
+    if (!usesAlgoliaSearch) return;
+
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
+
+    try {
+      await page.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
+      await page.locator('.DocSearch-Button').click();
+
+      const buttonFont = await page.locator('.DocSearch-Button')
+        .evaluate((element) => getComputedStyle(element).fontFamily);
+      const modalFont = await page.locator('.DocSearch-Modal')
+        .evaluate((element) => getComputedStyle(element).fontFamily);
+      const modalFontSize = await page.locator('.DocSearch-Modal')
+        .evaluate((element) => getComputedStyle(element).fontSize);
+
+      expect(buttonFont).toContain('system-ui');
+      expect(buttonFont).not.toContain('Lora');
+      expect(modalFont).toContain('system-ui');
+      expect(modalFont).not.toContain('Lora');
+      expect(modalFontSize).toBe('16px');
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
   test('uses one Provider category label backed by the generated Provider index', async () => {
     const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
 
