@@ -1,0 +1,12 @@
+{
+  "id": "wire-docs-algolia-secrets",
+  "title": "从现有 GitHub Secrets 注入 Development DocSearch 配置",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档、提交并重新部署 Development 文档",
+  "createdAt": "2026-08-25T12:00:00+08:00",
+  "branch": "develop"
+}
