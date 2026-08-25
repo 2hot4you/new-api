@@ -5879,6 +5879,18 @@
     "Invalid marketplace order request": "Invalid marketplace order request",
     "Marketplace records changed. Refresh and try again.": "Marketplace records changed. Refresh and try again.",
     "Unable to load marketplace order": "Unable to load marketplace order",
-    "Unable to save marketplace order": "Unable to save marketplace order"
+    "Unable to save marketplace order": "Unable to save marketplace order",
+    "Select at least one group": "Select at least one group",
+    "Select at most {{max}} groups": "Select at most {{max}} groups",
+    "Groups must not contain duplicates": "Groups must not contain duplicates",
+    "Select one group for fixed routing, or select multiple groups and drag them into fallback order.": "Select one group for fixed routing, or select multiple groups and drag them into fallback order.",
+    "Group selection order": "Group selection order",
+    "Select groups": "Select groups",
+    "Select {{group}}": "Select {{group}}",
+    "No groups selected": "No groups selected",
+    "One group uses fixed routing": "One group uses fixed routing",
+    "{{count}} groups will be tried in order": "{{count}} groups will be tried in order",
+    "Use system default order": "Use system default order",
+    "Selected group priority": "Selected group priority"
   }
 }

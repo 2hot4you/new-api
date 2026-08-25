@@ -5879,6 +5879,18 @@
     "Invalid marketplace order request": "無効なマーケットプレイスの並び順リクエスト",
     "Marketplace records changed. Refresh and try again.": "マーケットプレイスのデータが変更されました。更新してもう一度お試しください。",
     "Unable to load marketplace order": "マーケットプレイスの並び順を読み込めませんでした",
-    "Unable to save marketplace order": "マーケットプレイスの並び順を保存できませんでした"
+    "Unable to save marketplace order": "マーケットプレイスの並び順を保存できませんでした",
+    "Select at least one group": "グループを1つ以上選択してください",
+    "Select at most {{max}} groups": "最大 {{max}} グループまで選択できます",
+    "Groups must not contain duplicates": "グループを重複して選択できません",
+    "Select one group for fixed routing, or select multiple groups and drag them into fallback order.": "1つ選ぶと固定ルーティング、複数選ぶとドラッグでフェイルオーバー順を設定できます。",
+    "Group selection order": "グループ選択順",
+    "Select groups": "グループを選択",
+    "Select {{group}}": "{{group}} を選択",
+    "No groups selected": "グループが選択されていません",
+    "One group uses fixed routing": "1グループは固定ルーティングを使用します",
+    "{{count}} groups will be tried in order": "{{count}} グループを順番に試行します",
+    "Use system default order": "システム既定の順序を使用",
+    "Selected group priority": "選択したグループの優先順位"
   }
 }

@@ -67,6 +67,7 @@ const { QueryClient, QueryClientProvider } =
 const { api } = await import('@/lib/api')
 const { ApiKeysProvider } = await import('../api-keys-provider')
 const { ApiKeysMutateDrawer } = await import('../api-keys-mutate-drawer')
+const { apiKeySchema } = await import('../../types')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -83,6 +84,7 @@ type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>
 type MockableApi = {
   get: ApiMethod
   post: ApiMethod
+  put: ApiMethod
 }
 type RenderedDrawer = {
   host: HTMLDivElement
@@ -93,10 +95,20 @@ type RenderedDrawer = {
 const apiClient = api as unknown as MockableApi
 const originalGet = apiClient.get
 const originalPost = apiClient.post
+const originalPut = apiClient.put
 let renderedDrawer: RenderedDrawer | null = null
 
-function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
+function installApiFixtures(
+  createdPayloads: Array<Record<string, unknown>>,
+  options: {
+    apiKey?: ReturnType<typeof apiKeySchema.parse>
+    updatedPayloads?: Array<Record<string, unknown>>
+  } = {}
+) {
   apiClient.get = async (url) => {
+    if (options.apiKey && url === `/api/token/${options.apiKey.id}`) {
+      return { data: { success: true, data: options.apiKey } }
+    }
     switch (url) {
       case '/api/status':
         return { data: { data: { default_use_auto_group: true } } }
@@ -142,6 +154,12 @@ function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
     createdPayloads.push(data as Record<string, unknown>)
     return { data: { success: true, data: {} } }
   }
+  apiClient.put = async (url, data) => {
+    assert.equal(url, '/api/token/')
+    assert.ok(data && typeof data === 'object')
+    options.updatedPayloads?.push(data as Record<string, unknown>)
+    return { data: { success: true, data: {} } }
+  }
 }
 
 async function waitForCondition(
@@ -171,13 +189,16 @@ async function waitForCondition(
   })
 }
 
-async function renderCreateDrawer(groupsData?: {
-  success: boolean
-  data: Record<
-    string,
-    { desc: string; ratio: number | string; display_order?: number }
-  >
-}): Promise<void> {
+async function renderCreateDrawer(
+  groupsData?: {
+    success: boolean
+    data: Record<
+      string,
+      { desc: string; ratio: number | string; display_order?: number }
+    >
+  },
+  currentRow?: ReturnType<typeof apiKeySchema.parse>
+): Promise<void> {
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -227,6 +248,13 @@ async function renderCreateDrawer(groupsData?: {
     },
     { updatedAt: freshAt }
   )
+  if (currentRow) {
+    queryClient.setQueryData(
+      ['api-key', currentRow.id],
+      { success: true, data: currentRow },
+      { updatedAt: freshAt }
+    )
+  }
   renderedDrawer = { host, queryClient, root }
 
   await act(async () =>
@@ -234,7 +262,11 @@ async function renderCreateDrawer(groupsData?: {
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
           <ApiKeysProvider>
-            <ApiKeysMutateDrawer open onOpenChange={() => undefined} />
+            <ApiKeysMutateDrawer
+              open
+              onOpenChange={() => undefined}
+              currentRow={currentRow}
+            />
           </ApiKeysProvider>
         </I18nextProvider>
       </QueryClientProvider>
@@ -295,7 +327,9 @@ async function selectComboboxOption(
 ) {
   await act(async () => trigger.click())
   const option = [
-    ...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]'),
+    ...document.querySelectorAll<HTMLElement>(
+      '[data-group-selection-checkbox]'
+    ),
   ].find((candidate) => candidate.textContent?.includes(optionDescription))
   assert.ok(option, `Expected option containing "${optionDescription}"`)
   await act(async () => option.click())
@@ -304,6 +338,7 @@ async function selectComboboxOption(
 afterEach(async () => {
   apiClient.get = originalGet
   apiClient.post = originalPost
+  apiClient.put = originalPut
   domWindow.localStorage.clear()
   if (renderedDrawer) {
     await act(async () => renderedDrawer?.root.unmount())
@@ -318,27 +353,58 @@ after(() => {
   domWindow.close()
 })
 
-describe('API keys mutate drawer Auto group integration', () => {
-  test('inherits the root Auto order and sends an empty override for every batch-created key', async () => {
+function makeLegacyApiKey(overrides: Record<string, unknown> = {}) {
+  return apiKeySchema.parse({
+    id: 7,
+    name: 'legacy-key',
+    key: 'sk-test',
+    status: 1,
+    remain_quota: 0,
+    used_quota: 0,
+    unlimited_quota: true,
+    expired_time: -1,
+    created_time: 1,
+    accessed_time: 0,
+    group: 'default',
+    auto_groups: null,
+    cross_group_retry: false,
+    model_limits_enabled: false,
+    model_limits: '',
+    allow_ips: '',
+    ...overrides,
+  })
+}
+
+describe('API keys mutate drawer direct group selection', () => {
+  test('shows real groups only and copies the configured order for batch-created keys', async () => {
     const createdPayloads: Array<Record<string, unknown>> = []
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
 
-    const groupTrigger = getControlByLabel<HTMLButtonElement>('Group')
-    assert.equal(groupTrigger.textContent?.includes('auto'), true)
+    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
+      'button[role="combobox"]'
+    )
+    assert.ok(groupTrigger)
+    assert.equal(groupTrigger.textContent?.includes('vip → default'), true)
     assert.equal(
-      document.body.textContent?.includes(
-        'Using the complete global Auto order (2 groups)'
-      ),
+      document.body.textContent?.includes('2 / 3 groups selected'),
       true
     )
+
+    await act(async () => groupTrigger.click())
     assert.deepEqual(
       [
-        ...document.querySelectorAll('[data-slot="global-auto-order-name"]'),
-      ].map((item) => item.textContent),
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-group-selection-checkbox]'
+        ),
+      ].map((checkbox) => checkbox.dataset.groupSelectionCheckbox),
       ['vip', 'default']
     )
-    assert.equal(findButton('Restore global Auto', true).disabled, true)
+    assert.equal(
+      document.body.textContent?.includes('Automatic routing'),
+      false
+    )
 
     await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'batch')
     await changeInput(getControlByLabel<HTMLInputElement>('Quantity'), '2')
@@ -354,54 +420,76 @@ describe('API keys mutate drawer Auto group integration', () => {
     assert.equal(createdPayloads[0]?.name, 'batch')
     for (const payload of createdPayloads) {
       assert.equal(payload.group, 'auto')
-      assert.deepEqual(payload.auto_groups, [])
+      assert.deepEqual(payload.auto_groups, ['vip', 'default'])
       assert.equal(payload.cross_group_retry, true)
     }
   })
 
-  test('preserves an unsaved custom order and mode after Auto to ordinary to Auto changes', async () => {
+  test('maps one selected group to fixed routing', async () => {
     const createdPayloads: Array<Record<string, unknown>> = []
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
 
-    const autoOrderControl = getControlByLabel<HTMLElement>('Auto group order')
-    const addGroupTrigger = autoOrderControl.querySelector<HTMLButtonElement>(
+    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
-    assert.ok(addGroupTrigger)
-    await selectComboboxOption(addGroupTrigger, 'Priority access')
+    assert.ok(groupTrigger)
+    await selectComboboxOption(groupTrigger, 'Priority access')
 
-    assert.ok(document.querySelector('button[aria-label="Remove vip"]'))
+    assert.equal(groupTrigger.textContent?.includes('default'), true)
+    assert.equal(groupTrigger.textContent?.includes('vip'), false)
     assert.equal(
-      document.body.textContent?.includes('1 / 3 groups selected'),
+      document.body.textContent?.includes('One group uses fixed routing'),
       true
     )
-    assert.equal(findButton('Restore global Auto', true).disabled, false)
 
-    const groupTrigger = getControlByLabel<HTMLButtonElement>('Group')
-    await selectComboboxOption(groupTrigger, 'Standard access')
-    assert.equal(
-      document.querySelector('button[aria-label="Remove vip"]'),
-      null
-    )
-    await selectComboboxOption(groupTrigger, 'Automatic routing')
-
-    assert.ok(document.querySelector('button[aria-label="Remove vip"]'))
-    assert.equal(
-      document.body.textContent?.includes('1 / 3 groups selected'),
-      true
-    )
-    assert.equal(findButton('Restore global Auto', true).disabled, false)
-
-    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'custom')
+    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'fixed')
     await act(async () => findButton('Save changes', true).click())
     await act(async () =>
       waitForCondition(
         () => createdPayloads.length === 1,
-        'custom-order API key was not created'
+        'fixed-group API key was not created'
       )
     )
-    assert.deepEqual(createdPayloads[0]?.auto_groups, ['vip'])
+    assert.equal(createdPayloads[0]?.group, 'default')
+    assert.deepEqual(createdPayloads[0]?.auto_groups, [])
+    assert.equal(createdPayloads[0]?.cross_group_retry, false)
+  })
+
+  test('keeps direct selections open and submits their ordered fallback', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer()
+
+    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
+      'button[role="combobox"]'
+    )
+    assert.ok(groupTrigger)
+    await selectComboboxOption(groupTrigger, 'Priority access')
+    const priorityOption = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-group-selection-checkbox]'
+      ),
+    ].find((option) => option.textContent?.includes('Priority access'))
+    assert.ok(priorityOption)
+    await act(async () => priorityOption.click())
+
+    assert.equal(groupTrigger.getAttribute('aria-expanded'), 'true')
+    assert.equal(groupTrigger.textContent?.includes('default → vip'), true)
+    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'fallback')
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => createdPayloads.length === 1,
+        'ordered-fallback API key was not created'
+      )
+    )
+
+    assert.equal(createdPayloads[0]?.group, 'auto')
+    assert.deepEqual(createdPayloads[0]?.auto_groups, ['default', 'vip'])
+    assert.equal(createdPayloads[0]?.cross_group_retry, true)
   })
 
   test('sorts group choices by display order before legacy name fallback', async () => {
@@ -409,24 +497,30 @@ describe('API keys mutate drawer Auto group integration', () => {
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
 
-    const groupTrigger = getControlByLabel<HTMLButtonElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
+      'button[role="combobox"]'
+    )
+    assert.ok(groupTrigger)
     await act(async () => groupTrigger.click())
 
     assert.deepEqual(
-      [...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')]
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-group-selection-checkbox]'
+        ),
+      ]
         .map((item) => item.textContent)
         .filter(
           (text): text is string =>
             text?.includes('Priority access') ||
-            text?.includes('Standard access') ||
-            text?.includes('Automatic routing')
+            text?.includes('Standard access')
         )
         .map((text) => {
           if (text.includes('Priority access')) return 'vip'
-          if (text.includes('Standard access')) return 'default'
-          return 'auto'
+          return 'default'
         }),
-      ['vip', 'default', 'auto']
+      ['vip', 'default']
     )
   })
 
@@ -442,24 +536,91 @@ describe('API keys mutate drawer Auto group integration', () => {
       },
     })
 
-    const groupTrigger = getControlByLabel<HTMLButtonElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
+      'button[role="combobox"]'
+    )
+    assert.ok(groupTrigger)
     await act(async () => groupTrigger.click())
 
     assert.deepEqual(
-      [...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')]
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-group-selection-checkbox]'
+        ),
+      ]
         .map((item) => item.textContent)
         .filter(
           (text): text is string =>
-            text?.includes('Automatic routing') ||
-            text?.includes('Legacy Z') ||
-            text?.includes('Legacy A acute')
+            text?.includes('Legacy Z') || text?.includes('Legacy A acute')
         )
         .map((text) => {
-          if (text.includes('Automatic routing')) return 'auto'
           if (text.includes('Legacy Z')) return 'z'
           return 'á'
         }),
-      ['auto', 'z', 'á']
+      ['z', 'á']
     )
+  })
+
+  test('preserves a legacy fixed group when updating a key', async () => {
+    const apiKey = makeLegacyApiKey()
+    const updatedPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures([], { apiKey, updatedPayloads })
+    await renderCreateDrawer(undefined, apiKey)
+
+    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
+      'button[role="combobox"]'
+    )
+    assert.ok(groupTrigger)
+    assert.equal(groupTrigger.textContent?.includes('default'), true)
+    assert.equal(
+      document.body.textContent?.includes('One group uses fixed routing'),
+      true
+    )
+
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => updatedPayloads.length === 1,
+        'legacy fixed API key was not updated'
+      )
+    )
+
+    assert.equal(updatedPayloads[0]?.id, apiKey.id)
+    assert.equal(updatedPayloads[0]?.group, 'default')
+    assert.deepEqual(updatedPayloads[0]?.auto_groups, [])
+    assert.equal(updatedPayloads[0]?.cross_group_retry, false)
+  })
+
+  test('materializes the current ordered groups for a legacy Auto key', async () => {
+    const apiKey = makeLegacyApiKey({
+      group: 'auto',
+      auto_groups: null,
+      cross_group_retry: true,
+    })
+    const updatedPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures([], { apiKey, updatedPayloads })
+    await renderCreateDrawer(undefined, apiKey)
+
+    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
+      'button[role="combobox"]'
+    )
+    assert.ok(groupTrigger)
+    assert.equal(groupTrigger.textContent?.includes('vip → default'), true)
+
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => updatedPayloads.length === 1,
+        'legacy Auto API key was not updated'
+      )
+    )
+
+    assert.equal(updatedPayloads[0]?.id, apiKey.id)
+    assert.equal(updatedPayloads[0]?.group, 'auto')
+    assert.deepEqual(updatedPayloads[0]?.auto_groups, ['vip', 'default'])
+    assert.equal(updatedPayloads[0]?.cross_group_retry, true)
   })
 })

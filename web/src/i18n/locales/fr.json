@@ -5879,6 +5879,18 @@
     "Invalid marketplace order request": "Demande d’ordre de la place de marché invalide",
     "Marketplace records changed. Refresh and try again.": "Les enregistrements de la place de marché ont changé. Actualisez la page et réessayez.",
     "Unable to load marketplace order": "Impossible de charger l’ordre de la place de marché",
-    "Unable to save marketplace order": "Impossible d’enregistrer l’ordre de la place de marché"
+    "Unable to save marketplace order": "Impossible d’enregistrer l’ordre de la place de marché",
+    "Select at least one group": "Sélectionnez au moins un groupe",
+    "Select at most {{max}} groups": "Sélectionnez au maximum {{max}} groupes",
+    "Groups must not contain duplicates": "Les groupes ne peuvent pas être dupliqués",
+    "Select one group for fixed routing, or select multiple groups and drag them into fallback order.": "Sélectionnez un groupe pour un routage fixe, ou plusieurs groupes et faites-les glisser pour définir l’ordre de repli.",
+    "Group selection order": "Ordre de sélection des groupes",
+    "Select groups": "Sélectionner des groupes",
+    "Select {{group}}": "Sélectionner {{group}}",
+    "No groups selected": "Aucun groupe sélectionné",
+    "One group uses fixed routing": "Un groupe utilise un routage fixe",
+    "{{count}} groups will be tried in order": "{{count}} groupes seront essayés dans l’ordre",
+    "Use system default order": "Utiliser l’ordre par défaut du système",
+    "Selected group priority": "Priorité des groupes sélectionnés"
   }
 }

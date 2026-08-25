@@ -5879,6 +5879,18 @@
     "Invalid marketplace order request": "無效的模型廣場排序請求",
     "Marketplace records changed. Refresh and try again.": "模型廣場資料已變更。請重新整理後再試一次。",
     "Unable to load marketplace order": "無法載入模型廣場排序",
-    "Unable to save marketplace order": "無法儲存模型廣場排序"
+    "Unable to save marketplace order": "無法儲存模型廣場排序",
+    "Select at least one group": "請至少選擇一個分組",
+    "Select at most {{max}} groups": "最多選擇 {{max}} 個分組",
+    "Groups must not contain duplicates": "分組不能重複",
+    "Select one group for fixed routing, or select multiple groups and drag them into fallback order.": "選擇一個分組時固定路由；選擇多個分組時可拖動設定故障轉移順序。",
+    "Group selection order": "分組選擇順序",
+    "Select groups": "選擇分組",
+    "Select {{group}}": "選擇 {{group}}",
+    "No groups selected": "尚未選擇分組",
+    "One group uses fixed routing": "單個分組使用固定路由",
+    "{{count}} groups will be tried in order": "將按順序嘗試 {{count}} 個分組",
+    "Use system default order": "使用系統預設順序",
+    "Selected group priority": "已選分組優先級"
   }
 }

@@ -5879,6 +5879,18 @@
     "Invalid marketplace order request": "Yêu cầu sắp xếp chợ mô hình không hợp lệ",
     "Marketplace records changed. Refresh and try again.": "Dữ liệu chợ mô hình đã thay đổi. Hãy làm mới và thử lại.",
     "Unable to load marketplace order": "Không thể tải thứ tự chợ mô hình",
-    "Unable to save marketplace order": "Không thể lưu thứ tự chợ mô hình"
+    "Unable to save marketplace order": "Không thể lưu thứ tự chợ mô hình",
+    "Select at least one group": "Chọn ít nhất một nhóm",
+    "Select at most {{max}} groups": "Chọn tối đa {{max}} nhóm",
+    "Groups must not contain duplicates": "Không được chọn nhóm trùng lặp",
+    "Select one group for fixed routing, or select multiple groups and drag them into fallback order.": "Chọn một nhóm để định tuyến cố định, hoặc chọn nhiều nhóm và kéo để đặt thứ tự chuyển tiếp.",
+    "Group selection order": "Thứ tự chọn nhóm",
+    "Select groups": "Chọn nhóm",
+    "Select {{group}}": "Chọn {{group}}",
+    "No groups selected": "Chưa chọn nhóm",
+    "One group uses fixed routing": "Một nhóm sử dụng định tuyến cố định",
+    "{{count}} groups will be tried in order": "{{count}} nhóm sẽ được thử theo thứ tự",
+    "Use system default order": "Dùng thứ tự mặc định của hệ thống",
+    "Selected group priority": "Ưu tiên nhóm đã chọn"
   }
 }

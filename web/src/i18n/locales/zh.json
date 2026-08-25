@@ -5879,6 +5879,18 @@
     "Invalid marketplace order request": "无效的模型广场排序请求",
     "Marketplace records changed. Refresh and try again.": "模型广场记录已变更。请刷新后重试。",
     "Unable to load marketplace order": "无法加载模型广场排序",
-    "Unable to save marketplace order": "无法保存模型广场排序"
+    "Unable to save marketplace order": "无法保存模型广场排序",
+    "Select at least one group": "请至少选择一个分组",
+    "Select at most {{max}} groups": "最多选择 {{max}} 个分组",
+    "Groups must not contain duplicates": "分组不能重复",
+    "Select one group for fixed routing, or select multiple groups and drag them into fallback order.": "选择一个分组时固定路由；选择多个分组时可拖动设置故障转移顺序。",
+    "Group selection order": "分组选择顺序",
+    "Select groups": "选择分组",
+    "Select {{group}}": "选择 {{group}}",
+    "No groups selected": "尚未选择分组",
+    "One group uses fixed routing": "单个分组使用固定路由",
+    "{{count}} groups will be tried in order": "将按顺序尝试 {{count}} 个分组",
+    "Use system default order": "使用系统默认顺序",
+    "Selected group priority": "已选分组优先级"
   }
 }

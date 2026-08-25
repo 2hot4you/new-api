@@ -490,8 +490,15 @@ func TokenAuth() func(c *gin.Context) {
 		userGroup := userCache.Group
 		tokenGroup := token.Group
 		if tokenGroup != "" {
+			explicitAutoGroupsAllowed := false
+			if tokenGroup == "auto" && token.AutoGroups != "" {
+				autoGroups, parseErr := token.GetAutoGroups()
+				if parseErr == nil {
+					explicitAutoGroupsAllowed = len(service.FilterUserTokenAutoGroups(userGroup, autoGroups)) > 0
+				}
+			}
 			// check common.UserUsableGroups[userGroup]
-			if _, ok := service.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
+			if _, ok := service.GetUserUsableGroups(userGroup)[tokenGroup]; !ok && !explicitAutoGroupsAllowed {
 				abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", tokenGroup))
 				return
 			}

@@ -5879,6 +5879,18 @@
     "Invalid marketplace order request": "Недопустимый запрос порядка витрины",
     "Marketplace records changed. Refresh and try again.": "Данные витрины изменились. Обновите страницу и повторите попытку.",
     "Unable to load marketplace order": "Не удалось загрузить порядок витрины",
-    "Unable to save marketplace order": "Не удалось сохранить порядок витрины"
+    "Unable to save marketplace order": "Не удалось сохранить порядок витрины",
+    "Select at least one group": "Выберите хотя бы одну группу",
+    "Select at most {{max}} groups": "Выберите не более {{max}} групп",
+    "Groups must not contain duplicates": "Группы не должны повторяться",
+    "Select one group for fixed routing, or select multiple groups and drag them into fallback order.": "Выберите одну группу для фиксированной маршрутизации или несколько и перетащите их в порядке переключения.",
+    "Group selection order": "Порядок выбора групп",
+    "Select groups": "Выберите группы",
+    "Select {{group}}": "Выбрать {{group}}",
+    "No groups selected": "Группы не выбраны",
+    "One group uses fixed routing": "Одна группа использует фиксированную маршрутизацию",
+    "{{count}} groups will be tried in order": "{{count}} групп будут проверены по порядку",
+    "Use system default order": "Использовать системный порядок",
+    "Selected group priority": "Приоритет выбранных групп"
   }
 }

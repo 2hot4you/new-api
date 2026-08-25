@@ -1,0 +1,12 @@
+{
+  "id": "direct-token-group-multiselect",
+  "title": "令牌分组直接支持单选与有序多选回退",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-25T08:51:45Z",
+  "branch": "develop"
+}

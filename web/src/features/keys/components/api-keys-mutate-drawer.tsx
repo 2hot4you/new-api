@@ -82,12 +82,11 @@ import {
   transformApiKeyToFormDefaults,
 } from '../lib'
 import type { ApiKey } from '../types'
-import {
-  ApiKeyGroupCombobox,
-  type ApiKeyGroupOption,
-} from './api-key-group-combobox'
 import { useApiKeys } from './api-keys-provider'
-import { AutoGroupOrderEditor } from './auto-group-order-editor'
+import {
+  AutoGroupOrderEditor,
+  type ApiKeyGroupOption,
+} from './auto-group-order-editor'
 
 type ApiKeyMutateDrawerProps = {
   open: boolean
@@ -164,6 +163,7 @@ export function ApiKeysMutateDrawer({
   const groups = useMemo<ApiKeyGroupOption[]>(
     () =>
       Object.entries(groupsData?.data || {})
+        .filter(([key]) => key !== 'auto')
         .sort(([leftName, left], [rightName, right]) => {
           const leftOrder = left.display_order
           const rightOrder = right.display_order
@@ -188,17 +188,21 @@ export function ApiKeysMutateDrawer({
         })),
     [groupsData]
   )
-  const backendHasAuto = groups.some((g) => g.value === 'auto')
   const availableAutoGroupNames = useMemo(
-    () => groups.filter((group) => group.value !== 'auto').map((g) => g.value),
+    () => groups.map((group) => group.value),
     [groups]
   )
+  const maxAutoGroups =
+    Number.isInteger(autoGroupsData?.data?.max_count) &&
+    Number(autoGroupsData?.data?.max_count) > 0
+      ? Number(autoGroupsData?.data?.max_count)
+      : 5
   const globalAutoGroups = useMemo(() => {
     const available = new Set(availableAutoGroupNames)
-    return (autoGroupsData?.data?.groups || []).filter((group) =>
-      available.has(group)
-    )
-  }, [autoGroupsData, availableAutoGroupNames])
+    return (autoGroupsData?.data?.groups || [])
+      .filter((group) => available.has(group))
+      .slice(0, maxAutoGroups)
+  }, [autoGroupsData, availableAutoGroupNames, maxAutoGroups])
   const globalAutoGroupOptions = useMemo(() => {
     const groupsByValue = new Map(groups.map((group) => [group.value, group]))
     return globalAutoGroups.flatMap((group) => {
@@ -206,11 +210,6 @@ export function ApiKeysMutateDrawer({
       return option ? [option] : []
     })
   }, [globalAutoGroups, groups])
-  const maxAutoGroups =
-    Number.isInteger(autoGroupsData?.data?.max_count) &&
-    Number(autoGroupsData?.data?.max_count) > 0
-      ? Number(autoGroupsData?.data?.max_count)
-      : 5
   const schema = useMemo(
     () => getApiKeyFormSchema(t, maxAutoGroups),
     [t, maxAutoGroups]
@@ -246,15 +245,28 @@ export function ApiKeysMutateDrawer({
           transformApiKeyToFormDefaults(
             apiKeyData.data,
             availableAutoGroupNames,
-            maxAutoGroups
+            maxAutoGroups,
+            globalAutoGroups
           )
         )
         setInitializedTarget(target)
       }
     } else {
-      form.reset(
-        getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto)
+      const defaults = getApiKeyFormDefaultValues(
+        defaultUseAutoGroup,
+        globalAutoGroups,
+        maxAutoGroups
       )
+      if (defaults.auto_groups.length === 0) {
+        const fallback =
+          groups.find((group) => group.value === 'default')?.value ??
+          groups[0]?.value
+        if (fallback) {
+          defaults.group = fallback
+          defaults.auto_groups = [fallback]
+        }
+      }
+      form.reset(defaults)
       setInitializedTarget(target)
     }
   }, [
@@ -264,7 +276,6 @@ export function ApiKeysMutateDrawer({
     form,
     defaultUseAutoGroup,
     statusLoading,
-    backendHasAuto,
     groupsFetched,
     groupsFetching,
     autoGroupsFetched,
@@ -273,6 +284,8 @@ export function ApiKeysMutateDrawer({
     apiKeyFetched,
     apiKeyFetching,
     availableAutoGroupNames,
+    globalAutoGroups,
+    groups,
     maxAutoGroups,
     initializedTarget,
   ])
@@ -280,25 +293,6 @@ export function ApiKeysMutateDrawer({
   const formTarget =
     isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
   const isFormInitialized = initializedTarget === formTarget
-  const selectedGroup = form.watch('group')
-
-  // Correct group after groups load: if the form value is not in available groups, fall back
-  useEffect(() => {
-    if (groups.length === 0) return
-    const currentGroup = selectedGroup
-    if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
-      const fallback =
-        groups.find((g) => g.value === 'default')?.value ??
-        groups[0]?.value ??
-        ''
-      form.setValue('group', fallback)
-      if (currentGroup === 'auto') {
-        form.setValue('auto_groups', [])
-        form.setValue('auto_groups_mode', 'inherit')
-        form.setValue('cross_group_retry', false)
-      }
-    }
-  }, [groups, form, selectedGroup])
 
   const onSubmit = async (data: ApiKeyFormValues) => {
     setIsSubmitting(true)
@@ -437,101 +431,48 @@ export function ApiKeysMutateDrawer({
 
               <FormField
                 control={form.control}
-                name='group'
+                name='auto_groups'
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t('Group')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Select one group for fixed routing, or select multiple groups and drag them into fallback order.'
+                      )}
+                    </FormDescription>
                     <FormControl>
-                      <ApiKeyGroupCombobox
-                        options={groups}
+                      <AutoGroupOrderEditor
                         value={field.value}
-                        onValueChange={(group) => {
-                          field.onChange(group)
-                          if (group === 'auto') {
-                            form.setValue('cross_group_retry', true, {
-                              shouldDirty: true,
-                            })
-                            return
-                          }
-                          form.setValue('cross_group_retry', false, {
+                        mode={autoGroupsMode}
+                        options={groups}
+                        globalOptions={globalAutoGroupOptions}
+                        maxCount={maxAutoGroups}
+                        onChange={(value) => {
+                          form.setValue('auto_groups_mode', value.mode, {
+                            shouldDirty: true,
+                            shouldValidate: false,
+                          })
+                          form.setValue('auto_groups', value.groups, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          })
+                          const orderedFallback =
+                            value.mode === 'inherit' || value.groups.length > 1
+                          form.setValue(
+                            'group',
+                            orderedFallback ? 'auto' : value.groups[0] || '',
+                            { shouldDirty: true }
+                          )
+                          form.setValue('cross_group_retry', orderedFallback, {
                             shouldDirty: true,
                           })
                         }}
-                        placeholder={t('Select a group')}
                       />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-              {selectedGroup === 'auto' && (
-                <FormField
-                  control={form.control}
-                  name='auto_groups'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Auto group order')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'Choose and order the groups this API key will try.'
-                        )}
-                      </FormDescription>
-                      <FormControl>
-                        <AutoGroupOrderEditor
-                          value={field.value}
-                          mode={autoGroupsMode}
-                          options={groups}
-                          globalOptions={globalAutoGroupOptions}
-                          maxCount={maxAutoGroups}
-                          onChange={(value) => {
-                            form.setValue('auto_groups_mode', value.mode, {
-                              shouldDirty: true,
-                              shouldValidate: false,
-                            })
-                            form.setValue(
-                              'auto_groups',
-                              value.groups.slice(0, maxAutoGroups),
-                              {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              }
-                            )
-                          }}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
-              {selectedGroup === 'auto' && (
-                <FormField
-                  control={form.control}
-                  name='cross_group_retry'
-                  render={({ field }) => (
-                    <FormItem className={sideDrawerSwitchItemClassName()}>
-                      <div className='flex flex-col gap-0.5'>
-                        <FormLabel className='text-sm'>
-                          {t('Cross-group retry')}
-                        </FormLabel>
-                        <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
-                          {t(
-                            'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
-                          )}
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={!!field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              )}
 
               <FormField
                 control={form.control}
