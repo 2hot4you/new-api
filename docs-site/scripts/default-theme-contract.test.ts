@@ -10,13 +10,12 @@ async function source(relativePath: string) {
 }
 
 describe('Docusaurus default-theme contract', () => {
-  test('uses the official Docusaurus theme without custom shell styling', async () => {
+  test('uses official Docusaurus shell components without custom replacements', async () => {
     const config = await source('docusaurus.config.ts');
     const fonts = await source('src/css/fonts.css');
 
     expect(config).toContain("customCss: './src/css/fonts.css'");
     expect(fonts).toContain("@import '@fontsource-variable/lora';");
-    expect(fonts).not.toMatch(/(?:^|[;{])\s*(?:color|background|border|margin|padding|gap|display|position|width|height|shadow)\s*:/i);
     await expect(access(join(siteRoot, 'src/css/shell.css'), constants.F_OK)).rejects.toThrow();
     await expect(access(join(siteRoot, 'src/theme/Footer/Layout/index.tsx'), constants.F_OK)).rejects.toThrow();
     await expect(access(join(siteRoot, 'src/css/custom.css'), constants.F_OK)).rejects.toThrow();

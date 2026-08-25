@@ -246,6 +246,135 @@ describe('default MDX API reference', () => {
     }
   }, 30_000);
 
+  test('renders a compact bounded navbar around the DocSearch trigger', async () => {
+    if (!usesAlgoliaSearch) return;
+
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
+
+    try {
+      await page.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
+      const layout = await page.evaluate(() => {
+        const navbar = document.querySelector<HTMLElement>('.navbar');
+        const searchButton = document.querySelector<HTMLElement>('.DocSearch-Button');
+        if (!navbar || !searchButton) throw new Error('Navbar or DocSearch trigger is missing');
+
+        const navbarStyle = getComputedStyle(navbar);
+        return {
+          navbarHeight: navbar.getBoundingClientRect().height,
+          searchButtonHeight: searchButton.getBoundingClientRect().height,
+          paddingTop: navbarStyle.paddingTop,
+          paddingBottom: navbarStyle.paddingBottom,
+          borderTopWidth: navbarStyle.borderTopWidth,
+          borderBottomWidth: navbarStyle.borderBottomWidth,
+          boxShadow: navbarStyle.boxShadow,
+        };
+      });
+
+      expect(layout).toEqual({
+        navbarHeight: 42,
+        searchButtonHeight: 32,
+        paddingTop: '4px',
+        paddingBottom: '4px',
+        borderTopWidth: '1px',
+        borderBottomWidth: '1px',
+        boxShadow: 'none',
+      });
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
+  test('shrinks desktop DocSearch results to their content and keeps long results scrollable', async () => {
+    if (!usesAlgoliaSearch) return;
+
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
+
+    try {
+      await page.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
+      const compactLayout = await page.evaluate(() => {
+        document.body.insertAdjacentHTML('beforeend', `
+          <div data-docsearch-layout-fixture class="DocSearch-Container">
+            <div class="DocSearch-Modal">
+              <form class="DocSearch-Form"></form>
+              <div class="DocSearch-Dropdown">
+                <section class="DocSearch-Hits">
+                  <h2 class="DocSearch-Hit-source">Documentation</h2>
+                  <ul>
+                    <li class="DocSearch-Hit">
+                      <a><div class="DocSearch-Hit-Container">Quick start</div></a>
+                    </li>
+                  </ul>
+                </section>
+              </div>
+              <footer class="DocSearch-Footer"></footer>
+            </div>
+          </div>`);
+        const fixture = document.querySelector<HTMLElement>('[data-docsearch-layout-fixture]');
+        const dropdownElement = fixture?.querySelector<HTMLElement>('.DocSearch-Dropdown');
+        const modal = fixture?.querySelector<HTMLElement>('.DocSearch-Modal');
+        if (!dropdownElement || !modal) throw new Error('DocSearch result fixture is missing');
+        return {
+          dropdownHeight: dropdownElement.getBoundingClientRect().height,
+          modalHeight: modal.getBoundingClientRect().height,
+        };
+      });
+
+      expect(compactLayout.dropdownHeight).toBeLessThan(536);
+      expect(compactLayout.modalHeight).toBeLessThan(644);
+
+      const longResultsLayout = await page.evaluate(() => {
+        const fixture = document.querySelector<HTMLElement>('[data-docsearch-layout-fixture]');
+        const dropdownElement = fixture?.querySelector<HTMLElement>('.DocSearch-Dropdown');
+        if (!dropdownElement) throw new Error('DocSearch result fixture is missing');
+        dropdownElement.innerHTML = `
+          <section class="DocSearch-Hits">
+            <h2 class="DocSearch-Hit-source">Documentation</h2>
+            <ul>${Array.from({ length: 20 }, (_, index) => `
+              <li class="DocSearch-Hit">
+                <a><div class="DocSearch-Hit-Container">Result ${index + 1}</div></a>
+              </li>`).join('')}</ul>
+          </section>`;
+        return {
+          clientHeight: dropdownElement.clientHeight,
+          scrollHeight: dropdownElement.scrollHeight,
+        };
+      });
+
+      expect(longResultsLayout.clientHeight).toBe(536);
+      expect(longResultsLayout.scrollHeight).toBeGreaterThan(longResultsLayout.clientHeight);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
+  test('keeps DocSearch full screen on mobile', async () => {
+    if (!usesAlgoliaSearch) return;
+
+    const page = await activeBrowser().newPage({ viewport: { width: 390, height: 844 } });
+
+    try {
+      await page.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
+      await page.evaluate(() => {
+        document.body.insertAdjacentHTML('beforeend', `
+          <div data-docsearch-mobile-fixture class="DocSearch-Container">
+            <div class="DocSearch-Modal">
+              <form class="DocSearch-Form"></form>
+              <div class="DocSearch-Dropdown">
+                <section class="DocSearch-Hits"></section>
+              </div>
+              <footer class="DocSearch-Footer"></footer>
+            </div>
+          </div>`);
+      });
+      const modalHeight = await page.locator('[data-docsearch-mobile-fixture] .DocSearch-Modal')
+        .evaluate((element) => element.getBoundingClientRect().height);
+
+      expect(modalHeight).toBe(844);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
   test('uses one Provider category label backed by the generated Provider index', async () => {
     const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 900 } });
 

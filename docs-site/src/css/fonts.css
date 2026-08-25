@@ -2,6 +2,8 @@
 
 :root {
   font-size: 12px;
+  --ifm-navbar-height: 42px;
+  --ifm-navbar-padding-vertical: 4px;
   --ifm-font-family-base:
     'Lora Variable', 'Lora', 'Source Serif Pro', 'Source Serif 4',
     'Noto Serif SC', 'Noto Serif TC', 'Noto Serif JP', 'Noto Serif KR',
@@ -12,10 +14,25 @@
   --ifm-heading-font-family: var(--ifm-font-family-base);
 }
 
+.navbar {
+  border-block: 1px solid var(--ifm-color-emphasis-200);
+  box-shadow: none;
+}
+
 .navbar .DocSearch-Button,
 .DocSearch-Container {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 16px;
+}
+
+.navbar .DocSearch-Button {
+  height: 30px;
+}
+
+@media (min-width: 769px) {
+  .DocSearch-Dropdown:has(.DocSearch-Hits) {
+    height: auto;
+  }
 }
 
 @media (max-width: 996px) {
