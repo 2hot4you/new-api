@@ -35,8 +35,13 @@ import dayjs from '@/lib/dayjs'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+import { getTokenAutoGroups } from '../api'
 import { API_KEY_STATUSES } from '../constants'
 import { canSelectApiKey, type ApiKey } from '../types'
+import type {
+  ApiKeyGroupDataStatus,
+  ApiKeyGroupDisplayInfo,
+} from './api-key-auto-group-details'
 import { ApiKeyGroupCell } from './api-key-group-cell'
 import { ApiKeyTimestampCell } from './api-key-timestamp-cell'
 import {
@@ -53,32 +58,58 @@ function getQuotaProgressColor(percentage: number): string {
   return '[&_[data-slot=progress-indicator]]:bg-emerald-500'
 }
 
-type GroupDisplayInfo = {
-  ratio?: number | string
-  icon?: string
+type GroupDisplayQueryResult = {
+  data: Record<string, ApiKeyGroupDisplayInfo>
+  status: ApiKeyGroupDataStatus
 }
 
-function useGroupDisplayInfo(): Record<string, GroupDisplayInfo> {
-  const { data } = useQuery({
+function useGroupDisplayInfo(): GroupDisplayQueryResult {
+  const query = useQuery({
     queryKey: ['user-groups'],
     queryFn: getUserGroups,
     staleTime: 0,
-    select: (res) => {
-      if (!res.success || !res.data) return {}
-      const groups: Record<string, GroupDisplayInfo> = {}
-      for (const [group, info] of Object.entries(res.data)) {
-        groups[group] = { ratio: info.ratio, icon: info.icon }
-      }
-      return groups
-    },
   })
 
-  return data ?? {}
+  if (query.isPending) return { data: {}, status: 'loading' }
+  if (query.isError || !query.data.success || !query.data.data) {
+    return { data: {}, status: 'error' }
+  }
+
+  const groups: Record<string, ApiKeyGroupDisplayInfo> = {}
+  for (const [group, info] of Object.entries(query.data.data)) {
+    groups[group] = {
+      desc: info.desc,
+      icon: info.icon,
+      ratio: info.ratio,
+      recommendation: info.recommendation,
+    }
+  }
+  return { data: groups, status: 'ready' }
+}
+
+type DefaultAutoGroupsQueryResult = {
+  data: string[]
+  status: ApiKeyGroupDataStatus
+}
+
+function useDefaultAutoGroups(): DefaultAutoGroupsQueryResult {
+  const query = useQuery({
+    queryKey: ['token-auto-groups'],
+    queryFn: getTokenAutoGroups,
+    staleTime: 0,
+  })
+
+  if (query.isPending) return { data: [], status: 'loading' }
+  if (query.isError || !query.data.success || !query.data.data) {
+    return { data: [], status: 'error' }
+  }
+  return { data: query.data.data.groups, status: 'ready' }
 }
 
 export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
   const groupDisplayInfo = useGroupDisplayInfo()
+  const defaultAutoGroups = useDefaultAutoGroups()
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const justNowLabel = t('Just now')
@@ -215,9 +246,14 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         const group = row.getValue('group') as string
         return (
           <ApiKeyGroupCell
+            autoGroups={apiKey.auto_groups}
+            defaultAutoGroups={defaultAutoGroups.data}
+            defaultAutoGroupsStatus={defaultAutoGroups.status}
             group={group}
-            ratio={groupDisplayInfo[group]?.ratio}
-            icon={groupDisplayInfo[group]?.icon}
+            groupDataStatus={groupDisplayInfo.status}
+            groupDisplayInfo={groupDisplayInfo.data}
+            ratio={groupDisplayInfo.data[group]?.ratio}
+            icon={groupDisplayInfo.data[group]?.icon}
             crossGroupRetry={apiKey.cross_group_retry}
             shouldReduceMotion={shouldReduceMotion}
           />

@@ -67,6 +67,13 @@ await i18n.use(initReactI18next).init({
       translation: {
         Auto: 'Auto',
         'Cross-group': 'Cross-group',
+        'View cross-group details': 'View cross-group details',
+        'Group failover order': 'Group failover order',
+        '{{count}} groups': '{{count}} groups',
+        'Uses system default order': 'Uses system default order',
+        Unavailable: 'Unavailable',
+        'No groups configured.': 'No groups configured.',
+        Recommendation: 'Recommendation',
         Ratio: 'Ratio',
         'Automatically selects the best available group with circuit breaker mechanism':
           'Automatically selects the best available group with circuit breaker mechanism',
@@ -86,6 +93,19 @@ function CellHarness(props: {
   icon?: string
   crossGroupRetry?: boolean
   shouldReduceMotion?: boolean
+  autoGroups?: string[] | null
+  defaultAutoGroups?: string[]
+  groupDisplayInfo?: Record<
+    string,
+    {
+      ratio?: number | string
+      icon?: string
+      recommendation?: number
+      desc?: string
+    }
+  >
+  groupDataStatus?: 'loading' | 'error' | 'ready'
+  defaultAutoGroupsStatus?: 'loading' | 'error' | 'ready'
 }) {
   return (
     <I18nextProvider i18n={i18n}>
@@ -96,6 +116,11 @@ function CellHarness(props: {
           icon={props.icon}
           crossGroupRetry={props.crossGroupRetry ?? false}
           shouldReduceMotion={props.shouldReduceMotion ?? false}
+          autoGroups={props.autoGroups}
+          defaultAutoGroups={props.defaultAutoGroups}
+          groupDisplayInfo={props.groupDisplayInfo}
+          groupDataStatus={props.groupDataStatus}
+          defaultAutoGroupsStatus={props.defaultAutoGroupsStatus}
         />
       </TooltipProvider>
     </I18nextProvider>
@@ -258,6 +283,205 @@ describe('API key group table cell', () => {
     assert.ok(icon)
     assert.equal(icon.getAttribute('data-icon-key'), 'OpenAI.Color')
     assert.equal(icon.querySelector('svg')?.getAttribute('width'), '16')
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('opens the saved cross-group failover order with group metadata and keeps removed groups visible', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () =>
+      root.render(
+        <CellHarness
+          group='auto'
+          autoGroups={['vip', 'removed', 'default']}
+          defaultAutoGroups={['default', 'vip']}
+          groupDisplayInfo={{
+            vip: {
+              ratio: 2,
+              recommendation: 4.5,
+              desc: 'Priority route',
+              icon: 'OpenAI.Color',
+            },
+            default: { ratio: 1, recommendation: 5 },
+          }}
+        />
+      )
+    )
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="View cross-group details"]'
+    )
+    assert.ok(trigger)
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false')
+
+    await act(async () => trigger.click())
+
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true')
+    const details = document.body.querySelector<HTMLElement>(
+      '[data-api-key-auto-group-details]'
+    )
+    assert.ok(details)
+    assert.equal(details.textContent?.includes('Group failover order'), true)
+    assert.equal(details.textContent?.includes('3 groups'), true)
+    assert.equal(details.textContent?.includes('Priority route'), true)
+    assert.equal(details.textContent?.includes('4.5'), true)
+    assert.equal(details.textContent?.includes('2x'), true)
+    assert.equal(details.classList.contains('max-h-(--available-height)'), true)
+    const detailList = details.querySelector<HTMLElement>(
+      '[data-auto-group-detail-list]'
+    )
+    assert.ok(detailList)
+    assert.equal(detailList.classList.contains('min-h-0'), true)
+    assert.equal(detailList.classList.contains('overflow-y-auto'), true)
+
+    const items = [
+      ...details.querySelectorAll<HTMLElement>('[data-auto-group-detail]'),
+    ]
+    assert.deepEqual(
+      items.map((item) => item.dataset.autoGroupDetail),
+      ['vip', 'removed', 'default']
+    )
+    assert.equal(items[1]?.textContent?.includes('Unavailable'), true)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('labels legacy cross-group keys and shows the current system default order', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () =>
+      root.render(
+        <CellHarness
+          group='auto'
+          autoGroups={null}
+          defaultAutoGroups={['default', 'vip']}
+          groupDisplayInfo={{
+            default: { ratio: 1 },
+            vip: { ratio: 2 },
+          }}
+        />
+      )
+    )
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="View cross-group details"]'
+    )
+    assert.ok(trigger)
+    await act(async () => trigger.click())
+
+    const details = document.body.querySelector<HTMLElement>(
+      '[data-api-key-auto-group-details]'
+    )
+    assert.ok(details)
+    assert.equal(
+      details.textContent?.includes('Uses system default order'),
+      true
+    )
+    assert.deepEqual(
+      [
+        ...details.querySelectorAll<HTMLElement>('[data-auto-group-detail]'),
+      ].map((item) => item.dataset.autoGroupDetail),
+      ['default', 'vip']
+    )
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('shows an explicit empty state when no fallback groups are available', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () =>
+      root.render(
+        <CellHarness group='auto' autoGroups={null} defaultAutoGroups={[]} />
+      )
+    )
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="View cross-group details"]'
+    )
+    assert.ok(trigger)
+    await act(async () => trigger.click())
+
+    const details = document.body.querySelector<HTMLElement>(
+      '[data-api-key-auto-group-details]'
+    )
+    assert.ok(details)
+    assert.equal(details.textContent?.includes('No groups configured.'), true)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('does not label saved groups unavailable while group metadata is loading', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () =>
+      root.render(
+        <CellHarness
+          group='auto'
+          autoGroups={['vip']}
+          groupDataStatus='loading'
+        />
+      )
+    )
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="View cross-group details"]'
+    )
+    assert.ok(trigger)
+    await act(async () => trigger.click())
+
+    const details = document.body.querySelector<HTMLElement>(
+      '[data-api-key-auto-group-details]'
+    )
+    assert.ok(details)
+    assert.equal(details.textContent?.includes('Loading...'), true)
+    assert.equal(details.textContent?.includes('Unavailable'), false)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('does not report an empty legacy order when the default order request fails', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () =>
+      root.render(
+        <CellHarness
+          group='auto'
+          autoGroups={null}
+          groupDataStatus='ready'
+          defaultAutoGroupsStatus='error'
+        />
+      )
+    )
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="View cross-group details"]'
+    )
+    assert.ok(trigger)
+    await act(async () => trigger.click())
+
+    const details = document.body.querySelector<HTMLElement>(
+      '[data-api-key-auto-group-details]'
+    )
+    assert.ok(details)
+    assert.equal(details.textContent?.includes('Failed to load'), true)
+    assert.equal(details.textContent?.includes('No groups configured.'), false)
 
     await act(async () => root.unmount())
     container.remove()
