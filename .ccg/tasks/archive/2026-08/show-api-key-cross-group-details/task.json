@@ -1,0 +1,12 @@
+{
+  "id": "show-api-key-cross-group-details",
+  "title": "在 API 密钥表格展示跨分组故障转移详情",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-25T11:52:49Z",
+  "branch": "develop"
+}
