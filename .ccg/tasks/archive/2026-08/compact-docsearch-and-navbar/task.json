@@ -1,0 +1,12 @@
+{
+  "id": "compact-docsearch-and-navbar",
+  "title": "收紧 Docusaurus 顶栏与 DocSearch 搜索结果布局",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-25T00:00:00Z",
+  "branch": "develop"
+}
