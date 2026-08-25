@@ -1,0 +1,12 @@
+{
+  "id": "disable-docsearch-contextual-filters",
+  "title": "修复 Development 文档 Algolia 搜索无结果",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交",
+  "createdAt": "2026-08-25T00:00:00+08:00",
+  "branch": "develop"
+}
