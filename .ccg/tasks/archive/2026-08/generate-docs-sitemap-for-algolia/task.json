@@ -1,0 +1,12 @@
+{
+  "id": "generate-docs-sitemap-for-algolia",
+  "title": "为 Development 与 Production 文档构建生成可用 Sitemap",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-25T00:00:00Z",
+  "branch": "develop"
+}
