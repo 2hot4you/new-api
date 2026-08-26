@@ -33,14 +33,14 @@ import {
 import { useRankings } from './hooks/use-rankings'
 import type { RankingPeriod } from './types'
 
-const VALID_PERIODS: RankingPeriod[] = ['today', 'week', 'month', 'year']
+const VALID_PERIODS = new Set<RankingPeriod>(['today', 'week', 'month', 'year'])
 
 export function Rankings() {
   const { t } = useTranslation()
   const search = useSearch({ from: '/rankings/' })
   const navigate = useNavigate()
 
-  const period: RankingPeriod = VALID_PERIODS.includes(
+  const period: RankingPeriod = VALID_PERIODS.has(
     search.period as RankingPeriod
   )
     ? (search.period as RankingPeriod)
@@ -54,6 +54,48 @@ export function Rankings() {
       to: '/rankings',
       search: (prev) => ({ ...prev, period: next }),
     })
+  }
+
+  let content
+  if (rankingsQuery.isLoading) {
+    content = <RankingsLoading />
+  } else if (!snapshot) {
+    content = (
+      <RankingsError
+        message={
+          rankingsQuery.error instanceof Error
+            ? rankingsQuery.error.message
+            : t('Unable to load rankings data')
+        }
+      />
+    )
+  } else {
+    content = (
+      <>
+        <ModelsSection
+          history={snapshot.models_history}
+          rows={snapshot.models}
+          period={period}
+        />
+
+        <MarketShareSection
+          history={snapshot.vendor_share_history}
+          rows={snapshot.vendors}
+          period={period}
+        />
+
+        <GroupSuccessSection
+          period={period}
+          groups={snapshot.group_success}
+          isAvailable={snapshot.group_success_available}
+        />
+
+        <PulseSection
+          movers={snapshot.top_movers}
+          droppers={snapshot.top_droppers}
+        />
+      </>
+    )
   }
 
   return (
@@ -77,42 +119,7 @@ export function Rankings() {
         <PageTransition className='relative mx-auto w-full max-w-[1280px] space-y-8 px-3 pt-16 pb-10 sm:px-6 sm:pt-20 sm:pb-12 xl:px-8'>
           <RankingsHero period={period} onPeriodChange={handlePeriodChange} />
 
-          {rankingsQuery.isLoading ? (
-            <RankingsLoading />
-          ) : !snapshot ? (
-            <RankingsError
-              message={
-                rankingsQuery.error instanceof Error
-                  ? rankingsQuery.error.message
-                  : t('Unable to load rankings data')
-              }
-            />
-          ) : (
-            <>
-              <ModelsSection
-                history={snapshot.models_history}
-                rows={snapshot.models}
-                period={period}
-              />
-
-              <MarketShareSection
-                history={snapshot.vendor_share_history}
-                rows={snapshot.vendors}
-                period={period}
-              />
-
-              <GroupSuccessSection
-                period={period}
-                groups={snapshot.group_success}
-                isAvailable={snapshot.group_success_available}
-              />
-
-              <PulseSection
-                movers={snapshot.top_movers}
-                droppers={snapshot.top_droppers}
-              />
-            </>
-          )}
+          {content}
         </PageTransition>
       </div>
     </PublicLayout>

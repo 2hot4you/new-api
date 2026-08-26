@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { CircleAlert, ShieldCheck } from 'lucide-react'
-import { useMemo } from 'react'
+import { type ReactNode, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { getSuccessRateTextClass } from '@/features/performance-metrics/lib/format'
@@ -80,6 +80,70 @@ export function GroupSuccessSection(props: GroupSuccessSectionProps) {
     return [...measured, ...withoutRequests]
   }, [props.groups])
 
+  let content: ReactNode
+  if (!isAvailable) {
+    content = (
+      <div
+        className='text-muted-foreground flex items-start gap-3 px-5 py-6 text-sm'
+        role='alert'
+      >
+        <CircleAlert className='mt-0.5 size-4 shrink-0 text-amber-500' />
+        <div>
+          <p className='text-foreground font-medium'>
+            {t('Group success rates are temporarily unavailable')}
+          </p>
+          <p className='mt-1'>{t('Other rankings are still available')}</p>
+        </div>
+      </div>
+    )
+  } else if (groups.length === 0) {
+    content = (
+      <div className='text-muted-foreground px-5 py-8 text-center text-sm'>
+        {t('No configured groups')}
+      </div>
+    )
+  } else {
+    content = (
+      <ul aria-label={t('Group success rate ranking')} className='divide-y'>
+        {groups.map((group) => {
+          const measured = isMeasured(group)
+          return (
+            <li
+              key={group.group}
+              data-group-success-row={group.group}
+              className='flex items-center gap-3 px-5 py-3'
+            >
+              <span className='text-foreground min-w-0 flex-1 truncate font-mono text-sm font-medium'>
+                {group.group}
+              </span>
+              {measured ? (
+                <div className='flex shrink-0 items-baseline gap-2 text-right sm:gap-3'>
+                  <span
+                    className={cn(
+                      'font-mono text-sm font-semibold tabular-nums',
+                      getSuccessRateTextClass(group.success_rate)
+                    )}
+                  >
+                    {formatSuccessRate(group.success_rate)}
+                  </span>
+                  <span className='text-muted-foreground font-mono text-xs tabular-nums'>
+                    {t('{{count}} requests', {
+                      count: formatRequestCount(group.request_count),
+                    })}
+                  </span>
+                </div>
+              ) : (
+                <span className='text-muted-foreground shrink-0 text-sm'>
+                  {t('No requests')}
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
+
   return (
     <section
       aria-label={t('Group success rates for {{period}}', {
@@ -99,62 +163,7 @@ export function GroupSuccessSection(props: GroupSuccessSectionProps) {
         </p>
       </header>
 
-      {!isAvailable ? (
-        <div
-          className='text-muted-foreground flex items-start gap-3 px-5 py-6 text-sm'
-          role='alert'
-        >
-          <CircleAlert className='mt-0.5 size-4 shrink-0 text-amber-500' />
-          <div>
-            <p className='text-foreground font-medium'>
-              {t('Group success rates are temporarily unavailable')}
-            </p>
-            <p className='mt-1'>{t('Other rankings are still available')}</p>
-          </div>
-        </div>
-      ) : groups.length === 0 ? (
-        <div className='text-muted-foreground px-5 py-8 text-center text-sm'>
-          {t('No configured groups')}
-        </div>
-      ) : (
-        <ul aria-label={t('Group success rate ranking')} className='divide-y'>
-          {groups.map((group) => {
-            const measured = isMeasured(group)
-            return (
-              <li
-                key={group.group}
-                data-group-success-row={group.group}
-                className='flex items-center gap-3 px-5 py-3'
-              >
-                <span className='text-foreground min-w-0 flex-1 truncate font-mono text-sm font-medium'>
-                  {group.group}
-                </span>
-                {measured ? (
-                  <div className='flex shrink-0 items-baseline gap-2 text-right sm:gap-3'>
-                    <span
-                      className={cn(
-                        'font-mono text-sm font-semibold tabular-nums',
-                        getSuccessRateTextClass(group.success_rate)
-                      )}
-                    >
-                      {formatSuccessRate(group.success_rate)}
-                    </span>
-                    <span className='text-muted-foreground font-mono text-xs tabular-nums'>
-                      {t('{{count}} requests', {
-                        count: formatRequestCount(group.request_count),
-                      })}
-                    </span>
-                  </div>
-                ) : (
-                  <span className='text-muted-foreground shrink-0 text-sm'>
-                    {t('No requests')}
-                  </span>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      )}
+      {content}
     </section>
   )
 }
