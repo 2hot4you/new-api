@@ -45,20 +45,29 @@ import {
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
 
-// eslint-disable-next-line react-refresh/only-export-components -- shared with the metadata normalization regression test
-export const normalizeGroupMetadataString = (value: string) => {
+const normalizeGroupMetadataString = (value: string) => {
   const normalized = normalizeJsonString(value)
 
   try {
     const parsed = JSON.parse(normalized)
     if (!Array.isArray(parsed)) return normalized
 
+    const isValidMetadataEntry = (item: unknown) => {
+      if (!item || typeof item !== 'object') return false
+      const entry = item as Record<string, unknown>
+      return (
+        typeof entry.name === 'string' &&
+        entry.name.trim() !== '' &&
+        (entry.icon === undefined || typeof entry.icon === 'string')
+      )
+    }
+    if (!parsed.every(isValidMetadataEntry)) return normalized
+
     return JSON.stringify(
-      parsed.map((item) => {
-        if (!item || typeof item !== 'object') return {}
+      parsed.map((item: Record<string, unknown>) => {
         return {
           name: item.name,
-          icon: item.icon,
+          icon: item.icon ?? '',
         }
       })
     )

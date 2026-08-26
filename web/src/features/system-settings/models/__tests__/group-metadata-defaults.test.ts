@@ -21,7 +21,7 @@ import { getBillingSectionContent } from '../../billing/section-registry'
 import type { BillingSettings } from '../../types'
 
 describe('group pricing metadata defaults', () => {
-  test('normalizes legacy persisted group metadata before editing', async () => {
+  test('reloads persisted group metadata into the group pricing form', () => {
     const groupMetadata = JSON.stringify([
       { name: 'vip', icon: 'DeepSeek.Color', recommendation: 4 },
     ])
@@ -43,15 +43,5 @@ describe('group pricing metadata defaults', () => {
     }
 
     assert.equal(section.props.groupDefaults.GroupMetadata, groupMetadata)
-
-    const ratioSettingsModule = await import('../ratio-settings-card')
-    const normalizeGroupMetadataString = Reflect.get(
-      ratioSettingsModule,
-      'normalizeGroupMetadataString'
-    )
-    assert.equal(typeof normalizeGroupMetadataString, 'function')
-    assert.deepEqual(JSON.parse(normalizeGroupMetadataString(groupMetadata)), [
-      { name: 'vip', icon: 'DeepSeek.Color' },
-    ])
   })
 })

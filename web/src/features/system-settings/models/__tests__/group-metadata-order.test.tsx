@@ -175,6 +175,10 @@ describe('group pricing metadata editing', () => {
     )
     const metadata = JSON.parse(calls[0]?.[1] ?? '[]')
     assert.equal(metadata[1]?.icon, 'Claude.Color')
+    assert.equal(
+      metadata.some((entry: object) => Object.hasOwn(entry, 'recommendation')),
+      false
+    )
   })
 
   test('serializes accessible moves as metadata-only order changes', async () => {
