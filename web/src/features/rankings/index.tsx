@@ -24,11 +24,13 @@ import { PageTransition } from '@/components/page-transition'
 import { Skeleton } from '@/components/ui/skeleton'
 
 import {
+  GroupSuccessSection,
   MarketShareSection,
   ModelsSection,
   PulseSection,
   RankingsHero,
 } from './components'
+import { useGroupSuccess } from './hooks/use-group-success'
 import { useRankings } from './hooks/use-rankings'
 import type { RankingPeriod } from './types'
 
@@ -46,6 +48,7 @@ export function Rankings() {
     : 'week'
 
   const rankingsQuery = useRankings(period)
+  const groupSuccessQuery = useGroupSuccess(period)
   const snapshot = rankingsQuery.data?.data
 
   const handlePeriodChange = (next: RankingPeriod) => {
@@ -98,6 +101,13 @@ export function Rankings() {
                 history={snapshot.vendor_share_history}
                 rows={snapshot.vendors}
                 period={period}
+              />
+
+              <GroupSuccessSection
+                period={period}
+                groups={groupSuccessQuery.data?.data.groups ?? []}
+                isLoading={groupSuccessQuery.isLoading}
+                error={groupSuccessQuery.error}
               />
 
               <PulseSection

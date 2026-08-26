@@ -54,11 +54,18 @@ export type PerfModelSummary = {
   request_count?: number
 }
 
+export type PerfGroupSummary = {
+  group: string
+  request_count: number
+  success_rate: number | null
+}
+
 export type PerfSummaryAllData = {
   success: boolean
   message?: string
   data: {
     models: PerfModelSummary[]
+    groups: PerfGroupSummary[]
   }
 }
 

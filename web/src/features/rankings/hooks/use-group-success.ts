@@ -16,11 +16,26 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export * from './entity-links'
-export * from './group-success-section'
-export * from './growth-text'
-export * from './market-share-section'
-export * from './model-leaderboard'
-export * from './models-section'
-export * from './pulse-section'
-export * from './rankings-hero'
+import { useQuery } from '@tanstack/react-query'
+
+import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
+
+import type { RankingPeriod } from '../types'
+
+export const RANKING_PERIOD_HOURS: Record<RankingPeriod, number> = {
+  today: 24,
+  week: 168,
+  month: 720,
+  year: 8760,
+}
+
+export function useGroupSuccess(period: RankingPeriod) {
+  const hours = RANKING_PERIOD_HOURS[period]
+
+  return useQuery({
+    queryKey: ['rankings-group-success', hours],
+    queryFn: () => getPerfMetricsSummary(hours),
+    staleTime: 60 * 1000,
+    retry: false,
+  })
+}
