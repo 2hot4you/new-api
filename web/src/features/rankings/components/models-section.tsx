@@ -36,8 +36,6 @@ const PERIOD_DESCRIPTIONS: Record<RankingPeriod, string> = {
   year: 'Weekly token usage by model across the past year',
 }
 
-const TOOLTIP_MAX_ROWS = 10
-
 type ModelsSectionProps = {
   history: ModelHistorySeries
   rows: ModelRanking[]
@@ -74,15 +72,17 @@ export function ModelsSection(props: ModelsSectionProps) {
   }, [props.history])
 
   const totalTokens = useMemo(
-    () => props.rows.reduce((s, r) => s + r.total_tokens, 0),
-    [props.rows]
+    () => props.history.models.reduce((sum, model) => sum + model.total, 0),
+    [props.history.models]
   )
   const modelIcons = useMemo(
     () =>
       new Map(
-        props.rows.map((model) => [model.model_name, model.model_icon] as const)
+        props.history.models.map(
+          (model) => [model.name, model.model_icon] as const
+        )
       ),
-    [props.rows]
+    [props.history.models]
   )
 
   const spec = useMemo(() => {
@@ -118,6 +118,7 @@ export function ModelsSection(props: ModelsSectionProps) {
         },
       ],
       tooltip: {
+        style: { maxContentHeight: '80%' },
         updateElement: (
           tooltipElement: HTMLElement,
           actualTooltip: { content?: Array<{ key?: string }> }
@@ -150,24 +151,17 @@ export function ModelsSection(props: ModelsSectionProps) {
           updateContent: (
             array: Array<{ key: string; value: string | number }>
           ) => {
-            array.sort((a, b) => Number(b.value) - Number(a.value))
-            const sum = array.reduce((s, x) => s + (Number(x.value) || 0), 0)
-            const visible = array.slice(0, TOOLTIP_MAX_ROWS)
-            const overflow = array.slice(TOOLTIP_MAX_ROWS)
-            const result = visible.map((item) => ({
+            const sorted = [...array].sort(
+              (a, b) => Number(b.value) - Number(a.value)
+            )
+            const sum = sorted.reduce(
+              (total, item) => total + (Number(item.value) || 0),
+              0
+            )
+            const result = sorted.map((item) => ({
               key: item.key,
               value: formatTokens(Number(item.value) || 0),
             }))
-            if (overflow.length > 0) {
-              const otherSum = overflow.reduce(
-                (s, item) => s + (Number(item.value) || 0),
-                0
-              )
-              result.push({
-                key: t('+{{count}} more', { count: overflow.length }),
-                value: formatTokens(otherSum),
-              })
-            }
             result.unshift({ key: t('Total:'), value: formatTokens(sum) })
             return result
           },

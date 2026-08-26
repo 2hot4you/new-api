@@ -22,6 +22,7 @@ import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
 
 import { Window } from 'happy-dom'
+import type { ReactNode } from 'react'
 
 const domWindow = new Window()
 domWindow.document.write('<!doctype html><html><body></body></html>')
@@ -63,6 +64,12 @@ for (const key of [
 type CapturedSpec = {
   data?: Array<{ id?: string }>
   tooltip?: {
+    style?: { maxContentHeight?: number | string }
+    dimension?: {
+      updateContent?: (
+        array: Array<{ key: string; value: number | string }>
+      ) => Array<{ key: string; value: number | string }>
+    }
     updateElement?: (
       tooltipElement: HTMLElement,
       actualTooltip: { content?: Array<{ key?: string }> }
@@ -116,6 +123,32 @@ function tooltipWithOneShape(): HTMLElement {
   return tooltip
 }
 
+async function renderWithRouter(component: ReactNode) {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const rootRoute = createRootRoute()
+  const fixtureRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/',
+    component: () => <I18nextProvider i18n={i18n}>{component}</I18nextProvider>,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([fixtureRoute]),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  })
+  await router.load()
+
+  await act(async () => {
+    root.render(<RouterProvider router={router} />)
+  })
+
+  return async () => {
+    await act(async () => root.unmount())
+    container.remove()
+  }
+}
+
 test('uses configured model and vendor icons in ranking tooltips and vendor rows', async () => {
   const container = document.createElement('div')
   document.body.append(container)
@@ -143,7 +176,18 @@ test('uses configured model and vendor icons in ranking tooltips and vendor rows
             history={{
               buckets: 1,
               models: [
-                { name: 'claude-sonnet-4-6', vendor: 'Anthropic', total: 100 },
+                {
+                  name: 'claude-sonnet-4-6',
+                  vendor: 'Anthropic',
+                  model_icon: 'Claude.Color',
+                  total: 100,
+                },
+                {
+                  name: 'history-only-model',
+                  vendor: 'OpenAI',
+                  model_icon: 'OpenAI.Color',
+                  total: 50,
+                },
               ],
               points: [
                 {
@@ -216,6 +260,17 @@ test('uses configured model and vendor icons in ranking tooltips and vendor rows
     'Claude.Color'
   )
 
+  const historyOnlyTooltip = tooltipWithOneShape()
+  specs.get('models-history')?.tooltip?.updateElement?.(historyOnlyTooltip, {
+    content: [{ key: 'history-only-model' }],
+  })
+  assert.equal(
+    historyOnlyTooltip
+      .querySelector('[data-ranking-tooltip-icon]')
+      ?.getAttribute('data-ranking-tooltip-icon'),
+    'OpenAI.Color'
+  )
+
   const vendorTooltip = tooltipWithOneShape()
   specs.get('vendor-share')?.tooltip?.updateElement?.(vendorTooltip, {
     content: [{ key: 'Anthropic' }],
@@ -241,4 +296,74 @@ test('uses configured model and vendor icons in ranking tooltips and vendor rows
 
   await act(async () => root.unmount())
   container.remove()
+})
+
+test('keeps every model row in the summary tooltip and enables internal scrolling', async () => {
+  specs.delete('models-history')
+  const cleanup = await renderWithRouter(
+    <ModelsSection
+      period='week'
+      rows={[]}
+      history={{
+        buckets: 1,
+        models: [{ name: 'model-01', vendor: 'Vendor', total: 12 }],
+        points: [
+          {
+            ts: '1',
+            label: 'Aug 26',
+            model: 'model-01',
+            vendor: 'Vendor',
+            tokens: 12,
+          },
+        ],
+      }}
+    />
+  )
+  const tooltip = specs.get('models-history')?.tooltip
+  const rows = [
+    { key: 'model-12', value: 1 },
+    { key: 'model-01', value: 12 },
+    { key: 'model-02', value: 11 },
+    { key: 'model-03', value: 10 },
+    { key: 'model-04', value: 9 },
+    { key: 'model-05', value: 8 },
+    { key: 'model-06', value: 7 },
+    { key: 'model-07', value: 6 },
+    { key: 'model-08', value: 5 },
+    { key: 'model-09', value: 4 },
+    { key: 'model-10', value: 3 },
+    { key: 'model-11', value: 2 },
+  ]
+
+  const content = tooltip?.dimension?.updateContent?.(rows)
+
+  assert.ok(tooltip?.style?.maxContentHeight)
+  assert.equal(content?.length, 13)
+  assert.deepEqual(
+    content?.slice(1).map((item) => item.key),
+    [
+      'model-01',
+      'model-02',
+      'model-03',
+      'model-04',
+      'model-05',
+      'model-06',
+      'model-07',
+      'model-08',
+      'model-09',
+      'model-10',
+      'model-11',
+      'model-12',
+    ]
+  )
+  assert.equal(
+    content?.some((item) => item.key === 'Others'),
+    false
+  )
+  assert.equal(
+    content?.some((item) => item.key.includes('more')),
+    false
+  )
+
+  await cleanup()
 })

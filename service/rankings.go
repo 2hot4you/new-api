@@ -17,7 +17,6 @@ import (
 const (
 	rankingCacheTTL         = 5 * time.Minute
 	rankingLeaderboardLimit = 20
-	rankingHistoryLimit     = 10
 	rankingVendorLimit      = 5
 	rankingMoverLimit       = 6
 	rankingOthersLabel      = "Others"
@@ -85,9 +84,10 @@ type ModelHistoryPoint struct {
 }
 
 type ModelHistoryModel struct {
-	Name   string `json:"name"`
-	Vendor string `json:"vendor"`
-	Total  int64  `json:"total"`
+	Name      string `json:"name"`
+	Vendor    string `json:"vendor"`
+	ModelIcon string `json:"model_icon,omitempty"`
+	Total     int64  `json:"total"`
 }
 
 type ModelHistorySeries struct {
@@ -483,34 +483,25 @@ func ensureVendorAggregate(aggregates map[string]*vendorAggregate, meta rankingM
 }
 
 func buildModelHistory(buckets []model.RankingQuotaBucket, totals []model.RankingQuotaTotal, meta map[string]rankingModelMeta, config rankingPeriodConfig) ModelHistorySeries {
-	topModels := make(map[string]struct{})
-	models := make([]ModelHistoryModel, 0, minInt(len(totals), rankingHistoryLimit)+1)
-	otherTotal := int64(0)
-	for idx, item := range totals {
-		if idx < rankingHistoryLimit {
-			topModels[item.ModelName] = struct{}{}
-			modelMeta := modelMeta(item.ModelName, meta)
-			models = append(models, ModelHistoryModel{Name: item.ModelName, Vendor: modelMeta.vendor, Total: item.TotalTokens})
-			continue
-		}
-		otherTotal += item.TotalTokens
-	}
-	if otherTotal > 0 {
-		models = append(models, ModelHistoryModel{Name: rankingOthersLabel, Vendor: "Various", Total: otherTotal})
+	models := make([]ModelHistoryModel, 0, len(totals))
+	for _, item := range totals {
+		modelMeta := modelMeta(item.ModelName, meta)
+		models = append(models, ModelHistoryModel{
+			Name:      item.ModelName,
+			Vendor:    modelMeta.vendor,
+			ModelIcon: modelMeta.modelIcon,
+			Total:     item.TotalTokens,
+		})
 	}
 
 	bucketSet := make(map[int64]struct{})
 	tokensByBucketAndModel := make(map[int64]map[string]int64)
 	for _, item := range buckets {
-		modelName := item.ModelName
-		if _, ok := topModels[modelName]; !ok {
-			modelName = rankingOthersLabel
-		}
 		bucketSet[item.Bucket] = struct{}{}
 		if _, ok := tokensByBucketAndModel[item.Bucket]; !ok {
 			tokensByBucketAndModel[item.Bucket] = make(map[string]int64)
 		}
-		tokensByBucketAndModel[item.Bucket][modelName] += item.Tokens
+		tokensByBucketAndModel[item.Bucket][item.ModelName] += item.Tokens
 	}
 
 	sortedBuckets := sortedRankingBuckets(bucketSet)

@@ -98,7 +98,12 @@ export type ModelHistorySeries = {
   /** Flat points ready for VChart, ordered oldest → newest. */
   points: ModelHistoryPoint[]
   /** Models that appear in the series, sorted by total tokens desc. */
-  models: Array<{ name: string; vendor: string; total: number }>
+  models: Array<{
+    name: string
+    vendor: string
+    model_icon?: string
+    total: number
+  }>
   /** Bucket count (used for sizing axis ticks). */
   buckets: number
 }

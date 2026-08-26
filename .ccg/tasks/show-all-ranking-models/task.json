@@ -1,0 +1,12 @@
+{
+  "id": "show-all-ranking-models",
+  "title": "排行榜热门模型完整展示所有模型 ID",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "提交实现并归档任务",
+  "createdAt": "2026-08-26T16:00:00+08:00",
+  "branch": "develop"
+}
