@@ -1,0 +1,12 @@
+{
+  "id": "add-group-success-rate-rankings",
+  "title": "Add weighted group success-rate rankings and replace recommendation scores",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "Archive completed task",
+  "createdAt": "2026-08-26T07:34:39Z",
+  "branch": "develop"
+}

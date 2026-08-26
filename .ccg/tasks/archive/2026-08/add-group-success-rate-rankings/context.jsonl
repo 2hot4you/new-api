@@ -1,0 +1,7 @@
+{"path":"pkg/perf_metrics/metrics.go","reason":"Existing persisted plus hot-bucket performance aggregation"}
+{"path":"model/perf_metric.go","reason":"Cross-database performance bucket queries"}
+{"path":"controller/perf_metrics.go","reason":"Public summary endpoint and active group filtering"}
+{"path":"web/src/features/rankings/index.tsx","reason":"Rankings page composition and period state"}
+{"path":"web/src/features/keys/components/auto-group-order-editor.tsx","reason":"Recommendation badge currently shown in key group picker"}
+{"path":"web/src/features/system-settings/models/group-ratio-visual-editor.tsx","reason":"Recommendation input in group pricing editor"}
+{"path":"setting/ratio_setting/group_metadata.go","reason":"Persisted group icon/order/recommendation metadata"}
