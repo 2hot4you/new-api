@@ -1,11 +1,12 @@
 package ratio_setting
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 type GroupMetadata struct {
@@ -25,7 +26,7 @@ func newGroupMetadataStore() *groupMetadataStore {
 func (store *groupMetadataStore) MarshalJSON() ([]byte, error) {
 	store.mutex.RLock()
 	defer store.mutex.RUnlock()
-	return json.Marshal(store.entries)
+	return common.Marshal(store.entries)
 }
 
 func (store *groupMetadataStore) UnmarshalJSON(value []byte) error {
@@ -55,7 +56,7 @@ func (store *groupMetadataStore) jsonString() string {
 
 func parseGroupMetadata(value []byte) ([]GroupMetadata, error) {
 	var entries []GroupMetadata
-	if err := json.Unmarshal(value, &entries); err != nil {
+	if err := common.Unmarshal(value, &entries); err != nil {
 		return nil, err
 	}
 	if entries == nil {
@@ -82,7 +83,7 @@ func NormalizeGroupMetadataJSONString(jsonStr string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	value, err := json.Marshal(entries)
+	value, err := common.Marshal(entries)
 	if err != nil {
 		return "", err
 	}
