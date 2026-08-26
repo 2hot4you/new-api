@@ -80,7 +80,6 @@ func GetUserGroups(c *gin.Context) {
 			if configured.metadata.Icon != "" {
 				group["icon"] = configured.metadata.Icon
 			}
-			group["recommendation"] = configured.metadata.Recommendation
 		}
 		usableGroups[entry.name] = group
 	}

@@ -11,7 +11,7 @@ import (
 
 const groupMetadataOptionKey = "group_ratio_setting.group_metadata"
 
-func TestUpdateOptionValidatesAndPersistsGroupMetadata(t *testing.T) {
+func TestUpdateOptionNormalizesAndPersistsGroupMetadata(t *testing.T) {
 	db := useFrontendOptionMigrationDB(t)
 	originalMetadata := ratio_setting.GroupMetadata2JSONString()
 	originalOptionMap := common.OptionMap
@@ -23,9 +23,32 @@ func TestUpdateOptionValidatesAndPersistsGroupMetadata(t *testing.T) {
 
 	value := `[{"name":"vip","icon":"DeepSeek.Color","recommendation":4}]`
 	require.NoError(t, UpdateOption(groupMetadataOptionKey, value))
-	assert.Equal(t, value, requireOptionValue(t, db, groupMetadataOptionKey))
-	assert.Equal(t, []ratio_setting.GroupMetadata{{Name: "vip", Icon: "DeepSeek.Color", Recommendation: 4}}, ratio_setting.GetGroupMetadataCopy())
+	assert.JSONEq(t, `[{"name":"vip","icon":"DeepSeek.Color"}]`, requireOptionValue(t, db, groupMetadataOptionKey))
+	assert.JSONEq(t, `[{"name":"vip","icon":"DeepSeek.Color"}]`, common.OptionMap[groupMetadataOptionKey])
+	assert.Equal(t, []ratio_setting.GroupMetadata{{Name: "vip", Icon: "DeepSeek.Color"}}, ratio_setting.GetGroupMetadataCopy())
 
-	assert.Error(t, UpdateOption(groupMetadataOptionKey, `[{"name":"","icon":"OpenAI.Color","recommendation":5}]`))
-	assert.Equal(t, value, requireOptionValue(t, db, groupMetadataOptionKey))
+	assert.Error(t, UpdateOption(groupMetadataOptionKey, `[{"name":"","icon":"OpenAI.Color"}]`))
+	assert.JSONEq(t, `[{"name":"vip","icon":"DeepSeek.Color"}]`, requireOptionValue(t, db, groupMetadataOptionKey))
+}
+
+func TestLoadOptionsFromDatabaseNormalizesLegacyGroupMetadata(t *testing.T) {
+	db := useFrontendOptionMigrationDB(t)
+	originalMetadata := ratio_setting.GroupMetadata2JSONString()
+	originalOptionMap := common.OptionMap
+	common.OptionMap = map[string]string{}
+	t.Cleanup(func() {
+		common.OptionMap = originalOptionMap
+		require.NoError(t, ratio_setting.UpdateGroupMetadataByJSONString(originalMetadata))
+	})
+
+	require.NoError(t, db.Create(&Option{
+		Key:   groupMetadataOptionKey,
+		Value: `[{"name":"vip","icon":"DeepSeek.Color","recommendation":4}]`,
+	}).Error)
+
+	loadOptionsFromDatabase()
+
+	assert.JSONEq(t, `[{"name":"vip","icon":"DeepSeek.Color"}]`, requireOptionValue(t, db, groupMetadataOptionKey))
+	assert.JSONEq(t, `[{"name":"vip","icon":"DeepSeek.Color"}]`, common.OptionMap[groupMetadataOptionKey])
+	assert.Equal(t, []ratio_setting.GroupMetadata{{Name: "vip", Icon: "DeepSeek.Color"}}, ratio_setting.GetGroupMetadataCopy())
 }

@@ -199,7 +199,17 @@ func InitOptionMap() {
 func loadOptionsFromDatabase() {
 	options, _ := AllOption()
 	for _, option := range options {
-		err := updateOptionMap(option.Key, option.Value)
+		value, err := normalizeOptionValue(option.Key, option.Value)
+		if err != nil {
+			common.SysLog("failed to normalize option value: " + err.Error())
+			value = option.Value
+		} else if value != option.Value {
+			option.Value = value
+			if err := DB.Save(option).Error; err != nil {
+				common.SysLog("failed to persist normalized option value: " + err.Error())
+			}
+		}
+		err = updateOptionMap(option.Key, value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
@@ -227,7 +237,19 @@ func validateOptionValue(key string, value string) error {
 	return nil
 }
 
+func normalizeOptionValue(key string, value string) (string, error) {
+	if key == "group_ratio_setting.group_metadata" {
+		return ratio_setting.NormalizeGroupMetadataJSONString(value)
+	}
+	return value, nil
+}
+
 func UpdateOption(key string, value string) error {
+	normalizedValue, err := normalizeOptionValue(key, value)
+	if err != nil {
+		return err
+	}
+	value = normalizedValue
 	if err := validateOptionValue(key, value); err != nil {
 		return err
 	}
@@ -255,13 +277,19 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	normalizedValues := make(map[string]string, len(values))
 	for key, value := range values {
-		if err := validateOptionValue(key, value); err != nil {
+		normalizedValue, err := normalizeOptionValue(key, value)
+		if err != nil {
+			return err
+		}
+		normalizedValues[key] = normalizedValue
+		if err := validateOptionValue(key, normalizedValue); err != nil {
 			return err
 		}
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range values {
+		for k, v := range normalizedValues {
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
 				return err
@@ -276,7 +304,7 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if err != nil {
 		return err
 	}
-	for k, v := range values {
+	for k, v := range normalizedValues {
 		if err := updateOptionMap(k, v); err != nil {
 			return err
 		}

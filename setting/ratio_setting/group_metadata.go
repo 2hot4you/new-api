@@ -3,16 +3,14 @@ package ratio_setting
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 	"sync"
 	"unicode/utf8"
 )
 
 type GroupMetadata struct {
-	Name           string  `json:"name"`
-	Icon           string  `json:"icon"`
-	Recommendation float64 `json:"recommendation"`
+	Name string `json:"name"`
+	Icon string `json:"icon"`
 }
 
 type groupMetadataStore struct {
@@ -74,16 +72,21 @@ func parseGroupMetadata(value []byte) ([]GroupMetadata, error) {
 		if utf8.RuneCountInString(entry.Icon) > 128 {
 			return nil, fmt.Errorf("group metadata icon must be at most 128 characters: %s", entry.Name)
 		}
-		if entry.Recommendation < 0 || entry.Recommendation > 5 {
-			return nil, fmt.Errorf("group metadata recommendation must be between 0 and 5: %s", entry.Name)
-		}
-		scaledRecommendation := entry.Recommendation * 10
-		if math.Abs(scaledRecommendation-math.Round(scaledRecommendation)) > 1e-9 {
-			return nil, fmt.Errorf("group metadata recommendation must have at most one decimal place: %s", entry.Name)
-		}
 		seen[entry.Name] = struct{}{}
 	}
 	return entries, nil
+}
+
+func NormalizeGroupMetadataJSONString(jsonStr string) (string, error) {
+	entries, err := parseGroupMetadata([]byte(jsonStr))
+	if err != nil {
+		return "", err
+	}
+	value, err := json.Marshal(entries)
+	if err != nil {
+		return "", err
+	}
+	return string(value), nil
 }
 
 func GetGroupMetadataCopy() []GroupMetadata {

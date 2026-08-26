@@ -61,13 +61,15 @@ func TestGetUserGroupsJoinsMetadataAndAssignsStableDisplayOrder(t *testing.T) {
 	assert.Equal(t, float64(2), groups["vip"]["ratio"])
 	assert.Equal(t, "VIP", groups["vip"]["desc"])
 	assert.Equal(t, "DeepSeek.Color", groups["vip"]["icon"])
-	assert.Equal(t, float64(3.8), groups["vip"]["recommendation"])
 	assert.Equal(t, float64(0), groups["vip"]["display_order"])
+	_, hasVIPRecommendation := groups["vip"]["recommendation"]
+	assert.False(t, hasVIPRecommendation)
 
 	assert.Equal(t, "自动", groups["auto"]["ratio"])
 	assert.Equal(t, "OpenAI.Color", groups["auto"]["icon"])
-	assert.Equal(t, float64(0), groups["auto"]["recommendation"])
 	assert.Equal(t, float64(1), groups["auto"]["display_order"])
+	_, hasAutoRecommendation := groups["auto"]["recommendation"]
+	assert.False(t, hasAutoRecommendation)
 	assert.Equal(t, float64(2), groups["default"]["display_order"])
 	assert.Equal(t, float64(3), groups["zeta"]["display_order"])
 	_, hasDefaultIcon := groups["default"]["icon"]

@@ -30,12 +30,9 @@ func TestUpdateGroupMetadataRejectsInvalidEntries(t *testing.T) {
 		name  string
 		value string
 	}{
-		{name: "empty name", value: `[{"name":"","icon":"OpenAI.Color","recommendation":5}]`},
-		{name: "duplicate name", value: `[{"name":"default","icon":"OpenAI.Color","recommendation":5},{"name":"default","icon":"DeepSeek.Color","recommendation":4}]`},
-		{name: "icon longer than 128 characters", value: `[{"name":"default","icon":"` + strings.Repeat("a", 129) + `","recommendation":5}]`},
-		{name: "negative recommendation", value: `[{"name":"default","icon":"OpenAI.Color","recommendation":-1}]`},
-		{name: "recommendation above five", value: `[{"name":"default","icon":"OpenAI.Color","recommendation":6}]`},
-		{name: "more than one decimal place", value: `[{"name":"default","icon":"OpenAI.Color","recommendation":1.25}]`},
+		{name: "empty name", value: `[{"name":"","icon":"OpenAI.Color"}]`},
+		{name: "duplicate name", value: `[{"name":"default","icon":"OpenAI.Color"},{"name":"default","icon":"DeepSeek.Color"}]`},
+		{name: "icon longer than 128 characters", value: `[{"name":"default","icon":"` + strings.Repeat("a", 129) + `"}]`},
 	}
 
 	for _, test := range tests {
@@ -45,14 +42,15 @@ func TestUpdateGroupMetadataRejectsInvalidEntries(t *testing.T) {
 	}
 }
 
-func TestUpdateGroupMetadataAcceptsOneDecimalRecommendation(t *testing.T) {
+func TestUpdateGroupMetadataDropsRetiredRecommendation(t *testing.T) {
 	original := GroupMetadata2JSONString()
 	t.Cleanup(func() {
 		require.NoError(t, UpdateGroupMetadataByJSONString(original))
 	})
 
-	require.NoError(t, UpdateGroupMetadataByJSONString(`[{"name":"vip","icon":"DeepSeek.Color","recommendation":3.8}]`))
-	assert.Equal(t, 3.8, GetGroupMetadataCopy()[0].Recommendation)
+	require.NoError(t, UpdateGroupMetadataByJSONString(`[{"name":"vip","icon":"DeepSeek.Color","recommendation":99}]`))
+	assert.Equal(t, []GroupMetadata{{Name: "vip", Icon: "DeepSeek.Color"}}, GetGroupMetadataCopy())
+	assert.JSONEq(t, `[{"name":"vip","icon":"DeepSeek.Color"}]`, GroupMetadata2JSONString())
 }
 
 func TestUpdateGroupMetadataPreservesConfiguredOrder(t *testing.T) {
@@ -62,13 +60,13 @@ func TestUpdateGroupMetadataPreservesConfiguredOrder(t *testing.T) {
 	})
 
 	require.NoError(t, UpdateGroupMetadataByJSONString(`[
-		{"name":"vip","icon":"DeepSeek.Color","recommendation":4},
-		{"name":"default","icon":"OpenAI.Color","recommendation":5}
+		{"name":"vip","icon":"DeepSeek.Color"},
+		{"name":"default","icon":"OpenAI.Color"}
 	]`))
 
 	assert.Equal(t, []GroupMetadata{
-		{Name: "vip", Icon: "DeepSeek.Color", Recommendation: 4},
-		{Name: "default", Icon: "OpenAI.Color", Recommendation: 5},
+		{Name: "vip", Icon: "DeepSeek.Color"},
+		{Name: "default", Icon: "OpenAI.Color"},
 	}, GetGroupMetadataCopy())
 }
 
@@ -83,5 +81,6 @@ func TestGroupMetadataStartupReloadHandlesMissingAndConfiguredOption(t *testing.
 	require.NoError(t, manager.LoadFromDB(map[string]string{
 		"group_ratio_setting.group_metadata": `[{"name":"vip","icon":"DeepSeek.Color","recommendation":4}]`,
 	}))
-	assert.Equal(t, []GroupMetadata{{Name: "vip", Icon: "DeepSeek.Color", Recommendation: 4}}, setting.GroupMetadata.copy())
+	assert.Equal(t, []GroupMetadata{{Name: "vip", Icon: "DeepSeek.Color"}}, setting.GroupMetadata.copy())
+	assert.JSONEq(t, `[{"name":"vip","icon":"DeepSeek.Color"}]`, setting.GroupMetadata.jsonString())
 }
