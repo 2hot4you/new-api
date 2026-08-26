@@ -20,6 +20,8 @@ var hotBuckets sync.Map
 // hiding fields or making response-only privacy hardening changes.
 const seriesSchema = "dbcd0a3c01b55203"
 
+const maxQueryHours = 24 * 365
+
 func Init() {
 	go flushLoop()
 }
@@ -80,8 +82,8 @@ func Query(params QueryParams) (QueryResult, error) {
 	if params.Hours <= 0 {
 		params.Hours = 24
 	}
-	if params.Hours > 24*30 {
-		params.Hours = 24 * 30
+	if params.Hours > maxQueryHours {
+		params.Hours = maxQueryHours
 	}
 	endTs := time.Now().Unix()
 	startTs := endTs - int64(params.Hours)*3600
@@ -126,8 +128,8 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	if hours <= 0 {
 		hours = 24
 	}
-	if hours > 24*30 {
-		hours = 24 * 30
+	if hours > maxQueryHours {
+		hours = maxQueryHours
 	}
 	endTs := time.Now().Unix()
 	startTs := endTs - int64(hours)*3600
@@ -139,6 +141,10 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	}
 
 	totals := map[string]counters{}
+	groupTotals := map[string]counters{}
+	for _, group := range groups {
+		groupTotals[group] = counters{}
+	}
 	modelBuckets := map[string]map[int64]counters{}
 	for _, row := range rows {
 		value := counters{
@@ -150,6 +156,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 		}
 		mergeModelTotals(totals, row.ModelName, value)
 		mergeModelBucket(modelBuckets, row.ModelName, row.BucketTs, value)
+		mergeGroupTotals(groupTotals, row.Group, value)
 	}
 
 	hotBuckets.Range(func(key, value any) bool {
@@ -168,6 +175,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 		}
 		mergeModelTotals(totals, k.model, snap)
 		mergeModelBucket(modelBuckets, k.model, k.bucketTs, snap)
+		mergeGroupTotals(groupTotals, k.group, snap)
 		return true
 	})
 
@@ -195,7 +203,27 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 		return models[i].RequestCount > models[j].RequestCount
 	})
 
-	return SummaryAllResult{Models: models}, nil
+	groupNames := make([]string, 0, len(groupTotals))
+	for group := range groupTotals {
+		groupNames = append(groupNames, group)
+	}
+	sort.Strings(groupNames)
+
+	groupSummaries := make([]GroupSummary, 0, len(groupNames))
+	for _, group := range groupNames {
+		total := groupTotals[group]
+		summary := GroupSummary{
+			Group:        group,
+			RequestCount: total.requestCount,
+		}
+		if total.requestCount > 0 {
+			rate := math.Round(successRate(total)*100) / 100
+			summary.SuccessRate = &rate
+		}
+		groupSummaries = append(groupSummaries, summary)
+	}
+
+	return SummaryAllResult{Models: models, Groups: groupSummaries}, nil
 }
 
 func mergeModelTotals(totals map[string]counters, modelName string, value counters) {
@@ -229,6 +257,16 @@ func mergeModelBucket(modelBuckets map[string]map[int64]counters, modelName stri
 	current.outputTokens += value.outputTokens
 	current.generationMs += value.generationMs
 	modelBuckets[modelName][bucketTs] = current
+}
+
+func mergeGroupTotals(totals map[string]counters, group string, value counters) {
+	if value.requestCount == 0 {
+		return
+	}
+	current := totals[group]
+	current.requestCount += value.requestCount
+	current.successCount += value.successCount
+	totals[group] = current
 }
 
 func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
