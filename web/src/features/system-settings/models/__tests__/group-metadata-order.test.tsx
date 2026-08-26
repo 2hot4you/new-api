@@ -86,7 +86,10 @@ async function changeInput(input: HTMLInputElement, value: string) {
   })
 }
 
-async function mountEditor(calls: Array<[string, string]>) {
+async function mountEditor(
+  calls: Array<[string, string]>,
+  groupMetadata = initialMetadata
+) {
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -99,7 +102,7 @@ async function mountEditor(calls: Array<[string, string]>) {
           userUsableGroups='{"default":"Default","vip":"Priority"}'
           groupGroupRatio='{}'
           autoGroups='[]'
-          groupMetadata={initialMetadata}
+          groupMetadata={groupMetadata}
           maxTokenAutoGroupsField={null}
           groupSpecialUsableGroup='{}'
           onChange={(field, value) => calls.push([field, value])}
@@ -213,6 +216,26 @@ describe('group pricing metadata editing', () => {
       [...document.querySelectorAll('span')].some(
         (element) => element.textContent === 'Recommendation'
       ),
+      false
+    )
+  })
+
+  test('does not overwrite malformed metadata when another visual field changes', async () => {
+    const calls: Array<[string, string]> = []
+    ;({ host, root } = await mountEditor(calls, '[{"name":"vip","icon":42}]'))
+
+    const ratioInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Ratio: vip"]'
+    )
+    assert.ok(ratioInput)
+    await changeInput(ratioInput, '3')
+
+    assert.deepEqual(
+      calls.map(([field]) => field),
+      ['GroupRatio', 'UserUsableGroups', 'TopupGroupRatio']
+    )
+    assert.equal(
+      calls.some(([field]) => field === 'GroupMetadata'),
       false
     )
   })

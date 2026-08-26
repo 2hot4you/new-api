@@ -177,6 +177,30 @@ function parseGroupMetadata(value: string): GroupMetadataEntry[] {
   })
 }
 
+function isGroupMetadataStructurallyValid(value: string): boolean {
+  const entries = safeJsonParse<unknown>(value, {
+    fallback: null,
+    silent: true,
+  })
+  if (!Array.isArray(entries)) return false
+
+  const names = new Set<string>()
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') return false
+    const metadata = entry as Record<string, unknown>
+    if (
+      typeof metadata.name !== 'string' ||
+      typeof metadata.icon !== 'string'
+    ) {
+      return false
+    }
+    const name = metadata.name.trim()
+    if (!name || names.has(name)) return false
+    names.add(name)
+  }
+  return true
+}
+
 function buildGroupPricingRows(
   groupRatio: string,
   userUsableGroups: string,
@@ -681,6 +705,10 @@ function GroupPricingTable({
       groupMetadata
     )
   )
+  const metadataIsValid = useMemo(
+    () => isGroupMetadataStructurallyValid(groupMetadata),
+    [groupMetadata]
+  )
 
   useEffect(() => {
     const incomingSignature = sourceGroupPricingSignature(
@@ -709,20 +737,23 @@ function GroupPricingTable({
       onChange('GroupRatio', serialized.GroupRatio)
       onChange('UserUsableGroups', serialized.UserUsableGroups)
       onChange('TopupGroupRatio', serialized.TopupGroupRatio)
-      onChange('GroupMetadata', serialized.GroupMetadata)
+      if (metadataIsValid) {
+        onChange('GroupMetadata', serialized.GroupMetadata)
+      }
     },
-    [onChange]
+    [metadataIsValid, onChange]
   )
 
   const emitMetadataRows = useCallback(
     (nextRows: GroupPricingRow[]) => {
+      if (!metadataIsValid) return
       setRows(nextRows)
       onChange(
         'GroupMetadata',
         serializeGroupPricingRows(nextRows).GroupMetadata
       )
     },
-    [onChange]
+    [metadataIsValid, onChange]
   )
 
   const updateRow = useCallback(
