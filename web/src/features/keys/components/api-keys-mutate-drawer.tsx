@@ -266,7 +266,11 @@ export function ApiKeysMutateDrawer({
   useEffect(() => {
     if (!open) {
       setInitializedTarget(null)
-      setIpDraftState({ hasDraft: false, isValid: true })
+      setIpDraftState((current) =>
+        !current.hasDraft && current.isValid
+          ? current
+          : { hasDraft: false, isValid: true }
+      )
       setIsIpValidationReady(false)
       return
     }
@@ -410,7 +414,13 @@ export function ApiKeysMutateDrawer({
 
   const handleIpDraftStateChange = useCallback(
     (state: { hasDraft: boolean; isValid: boolean }) => {
-      setIpDraftState(state)
+      if (!open) return
+
+      setIpDraftState((current) =>
+        current.hasDraft === state.hasDraft && current.isValid === state.isValid
+          ? current
+          : state
+      )
       setIsIpValidationReady(true)
       if (!state.hasDraft && state.isValid) {
         form.clearErrors('allow_ips')
@@ -423,7 +433,7 @@ export function ApiKeysMutateDrawer({
           : t('Enter a valid IP address or CIDR'),
       })
     },
-    [form, t]
+    [form, open, t]
   )
 
   const handleSetExpiry = (months: number, days: number, hours: number) => {
@@ -451,17 +461,7 @@ export function ApiKeysMutateDrawer({
   const unlimitedQuota = form.watch('unlimited_quota')
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(v) => {
-        onOpenChange(v)
-        if (!v) {
-          setIpDraftState({ hasDraft: false, isValid: true })
-          setIsIpValidationReady(false)
-          form.reset()
-        }
-      }}
-    >
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         className={sideDrawerContentClassName(
           'w-full max-w-[620px] overflow-x-hidden sm:!max-w-[620px]'

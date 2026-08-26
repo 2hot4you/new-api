@@ -61,7 +61,7 @@ Object.defineProperty(globalThis, 'matchMedia', {
   value: domWindow.matchMedia.bind(domWindow),
 })
 
-const { act } = await import('react')
+const { act, Component, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
@@ -110,6 +110,41 @@ const originalGet = apiClient.get
 const originalPost = apiClient.post
 const originalPut = apiClient.put
 let renderedDrawer: RenderedDrawer | null = null
+let capturedDrawerError: Error | null = null
+
+class DrawerErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: Error) {
+    capturedDrawerError = error
+  }
+
+  render() {
+    return this.state.hasError ? <div>drawer crashed</div> : this.props.children
+  }
+}
+
+function ControlledDrawer(props: {
+  closeOnChange: boolean
+  currentRow?: ReturnType<typeof apiKeySchema.parse>
+}) {
+  const [open, setOpen] = useState(true)
+
+  return (
+    <ApiKeysMutateDrawer
+      open={open}
+      onOpenChange={props.closeOnChange ? setOpen : () => undefined}
+      currentRow={props.currentRow}
+    />
+  )
+}
 
 function installApiFixtures(
   createdPayloads: Array<Record<string, unknown>>,
@@ -214,7 +249,8 @@ async function renderCreateDrawer(
     >
   },
   currentRow?: ReturnType<typeof apiKeySchema.parse>,
-  models: string[] = []
+  models: string[] = [],
+  closeOnChange = false
 ): Promise<void> {
   const host = document.createElement('div')
   document.body.append(host)
@@ -279,11 +315,12 @@ async function renderCreateDrawer(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
           <ApiKeysProvider>
-            <ApiKeysMutateDrawer
-              open
-              onOpenChange={() => undefined}
-              currentRow={currentRow}
-            />
+            <DrawerErrorBoundary>
+              <ControlledDrawer
+                closeOnChange={closeOnChange}
+                currentRow={currentRow}
+              />
+            </DrawerErrorBoundary>
           </ApiKeysProvider>
         </I18nextProvider>
       </QueryClientProvider>
@@ -362,6 +399,7 @@ afterEach(async () => {
   apiClient.post = originalPost
   apiClient.put = originalPut
   domWindow.localStorage.clear()
+  capturedDrawerError = null
   if (renderedDrawer) {
     await act(async () => renderedDrawer?.root.unmount())
     renderedDrawer.queryClient.clear()
@@ -743,6 +781,42 @@ describe('API keys mutate drawer model limits', () => {
 })
 
 describe('API keys mutate drawer IP restrictions', () => {
+  test('closes cleanly after a successful create without a repeated state update', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer(undefined, undefined, [], true)
+    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'close-test')
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => createdPayloads.length === 1,
+        'API key was not created'
+      )
+    )
+
+    assert.equal(capturedDrawerError, null)
+    assert.equal(document.body.textContent?.includes('drawer crashed'), false)
+  })
+
+  test('closes cleanly after a successful update without a repeated state update', async () => {
+    const apiKey = makeLegacyApiKey()
+    const updatedPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures([], { apiKey, updatedPayloads })
+    await renderCreateDrawer(undefined, apiKey, [], true)
+
+    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'renamed')
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => updatedPayloads.length === 1,
+        'API key was not updated'
+      )
+    )
+
+    assert.equal(capturedDrawerError, null)
+    assert.equal(document.body.textContent?.includes('drawer crashed'), false)
+  })
+
   test('blocks a valid uncommitted IP draft until Add serializes the newline-delimited payload', async () => {
     const createdPayloads: Array<Record<string, unknown>> = []
     installApiFixtures(createdPayloads)
