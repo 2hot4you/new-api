@@ -64,14 +64,14 @@ function normalizeIpCidr(entry: string): string | null {
     if (segments[0].includes(':')) {
       const address = new Address6(entry)
       return segments.length === 2
-        ? `${address.correctForm()}/${address.subnetMask}`
+        ? `${address.startAddress().correctForm()}/${address.subnetMask}`
         : address.correctForm()
     }
 
     const address = new Address4(entry)
     if (address.correctForm() !== segments[0]) return null
     return segments.length === 2
-      ? `${address.correctForm()}/${address.subnetMask}`
+      ? `${address.startAddress().correctForm()}/${address.subnetMask}`
       : address.correctForm()
   } catch {
     return null

@@ -122,6 +122,7 @@ export function ApiKeysMutateDrawer({
     hasDraft: false,
     isValid: true,
   })
+  const [isIpValidationReady, setIsIpValidationReady] = useState(false)
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
     null
   )
@@ -266,6 +267,7 @@ export function ApiKeysMutateDrawer({
     if (!open) {
       setInitializedTarget(null)
       setIpDraftState({ hasDraft: false, isValid: true })
+      setIsIpValidationReady(false)
       return
     }
     if (
@@ -291,6 +293,7 @@ export function ApiKeysMutateDrawer({
             globalAutoGroups
           )
         )
+        setIsIpValidationReady(false)
         setInitializedTarget(target)
       }
     } else {
@@ -309,6 +312,7 @@ export function ApiKeysMutateDrawer({
         }
       }
       form.reset(defaults)
+      setIsIpValidationReady(false)
       setInitializedTarget(target)
     }
   }, [
@@ -407,6 +411,7 @@ export function ApiKeysMutateDrawer({
   const handleIpDraftStateChange = useCallback(
     (state: { hasDraft: boolean; isValid: boolean }) => {
       setIpDraftState(state)
+      setIsIpValidationReady(true)
       if (!state.hasDraft && state.isValid) {
         form.clearErrors('allow_ips')
         return
@@ -452,6 +457,7 @@ export function ApiKeysMutateDrawer({
         onOpenChange(v)
         if (!v) {
           setIpDraftState({ hasDraft: false, isValid: true })
+          setIsIpValidationReady(false)
           form.reset()
         }
       }}
@@ -475,7 +481,11 @@ export function ApiKeysMutateDrawer({
           <form
             id='api-key-form'
             onSubmit={(event) => {
-              if (ipDraftState.hasDraft || !ipDraftState.isValid) {
+              if (
+                !isIpValidationReady ||
+                ipDraftState.hasDraft ||
+                !ipDraftState.isValid
+              ) {
                 event.preventDefault()
                 showIpDraftError()
                 return
@@ -732,7 +742,7 @@ export function ApiKeysMutateDrawer({
                     )}
                   />
                 </CollapsibleTrigger>
-                <CollapsibleContent>
+                <CollapsibleContent keepMounted>
                   <div className='flex flex-col gap-4 pt-2'>
                     <FormField
                       control={form.control}
@@ -742,7 +752,29 @@ export function ApiKeysMutateDrawer({
                           <FormLabel>{t('Model Limits')}</FormLabel>
                           <FormControl>
                             <MultiSelect
-                              options={modelOptions}
+                              options={[
+                                ...modelOptions,
+                                ...field.value.flatMap((model) => {
+                                  if (models.includes(model)) return []
+                                  const icon = modelIcons.get(model)
+                                  if (!icon) return []
+                                  return [
+                                    {
+                                      label: model,
+                                      value: model,
+                                      selectable: false,
+                                      icon: (
+                                        <span
+                                          data-model-limit-icon={icon}
+                                          aria-hidden='true'
+                                        >
+                                          {getLobeIcon(icon, 16)}
+                                        </span>
+                                      ),
+                                    },
+                                  ]
+                                }),
+                              ]}
                               selected={field.value}
                               onChange={field.onChange}
                               placeholder={t(
@@ -809,6 +841,7 @@ export function ApiKeysMutateDrawer({
             }}
             disabled={
               !isFormInitialized ||
+              !isIpValidationReady ||
               isSubmitting ||
               ipDraftState.hasDraft ||
               !ipDraftState.isValid

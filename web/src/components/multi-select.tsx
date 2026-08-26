@@ -42,6 +42,8 @@ export type Option = {
   label: string
   value: string
   icon?: React.ReactNode
+  /** Show a selected legacy value without offering it as a new selection. */
+  selectable?: boolean
 }
 
 interface MultiSelectProps {
@@ -161,13 +163,22 @@ export function MultiSelect(props: MultiSelectProps) {
     trimmedInput.length > 0 &&
     !inputMatchesExisting
 
-  // We expose all known option values + every currently selected value to Base
-  // UI's items list. This way Base UI filters them by the search query and the
-  // user can still see the chip labels mapped correctly.
+  // We expose selectable option values + selected values to Base UI's items
+  // list. Non-selectable options let callers render legacy selected chips
+  // without making unavailable values newly selectable.
   const items = React.useMemo(() => {
-    const set = new Set<string>(props.options.map((option) => option.value))
+    const nonSelectable = new Set(
+      props.options
+        .filter((option) => option.selectable === false)
+        .map((option) => option.value)
+    )
+    const set = new Set<string>(
+      props.options
+        .filter((option) => option.selectable !== false)
+        .map((option) => option.value)
+    )
     for (const value of props.selected) {
-      set.add(value)
+      if (!nonSelectable.has(value)) set.add(value)
     }
     if (canCreate) {
       set.add(trimmedInput)

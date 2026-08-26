@@ -271,6 +271,18 @@ describe('IP CIDR chip input', () => {
     assert.deepEqual(values, ['2001:db8::1'])
   })
 
+  test('canonicalizes CIDR host bits before deduplicating equivalent networks', async () => {
+    const values: string[] = []
+    await renderInput((value) => values.push(value))
+
+    await addWithButton('192.0.2.99/24')
+    await addWithButton('192.0.2.0/24')
+    await addWithButton('2001:db8::99/64')
+    await addWithButton('2001:db8::/64')
+
+    assert.deepEqual(values, ['192.0.2.0/24', '192.0.2.0/24\n2001:db8::/64'])
+  })
+
   test('normalizes and deduplicates preloaded valid entries into the controlled value', async () => {
     const values: string[] = []
     await renderPreloadedInput(

@@ -292,7 +292,12 @@ async function renderCreateDrawer(
   await act(async () =>
     waitForCondition(() => {
       const saveButton = findButton('Save changes', false)
-      return saveButton !== null && !saveButton.disabled
+      return (
+        saveButton !== null &&
+        document
+          .querySelector('form#api-key-form')
+          ?.getAttribute('aria-busy') === 'false'
+      )
     }, 'API key drawer did not finish initializing')
   )
 }
@@ -765,7 +770,7 @@ describe('API keys mutate drawer IP restrictions', () => {
       )
     )
 
-    assert.equal(createdPayloads[0]?.allow_ips, '192.0.2.1\n2001:db8::1/64')
+    assert.equal(createdPayloads[0]?.allow_ips, '192.0.2.1\n2001:db8::/64')
   })
 
   test('does not submit an invalid uncommitted IP draft', async () => {
@@ -780,6 +785,11 @@ describe('API keys mutate drawer IP restrictions', () => {
     assert.ok(ipInput, 'Expected IP address input')
     await changeInput(ipInput, '300.0.0.1')
     await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'blocked')
+    assert.equal(findButton('Save changes', true).disabled, true)
+    assert.equal(
+      document.body.textContent?.includes('Enter a valid IP address or CIDR'),
+      true
+    )
     await act(async () => findButton('Save changes', true).click())
 
     assert.equal(createdPayloads.length, 0)
@@ -787,6 +797,19 @@ describe('API keys mutate drawer IP restrictions', () => {
       document.body.textContent?.includes('Enter a valid IP address or CIDR'),
       true
     )
+  })
+
+  test('blocks legacy IP restrictions before Advanced Settings is opened', async () => {
+    const apiKey = makeLegacyApiKey({ allow_ips: 'legacy-address' })
+    const updatedPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures([], { apiKey, updatedPayloads })
+    await renderCreateDrawer(undefined, apiKey)
+
+    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'renamed')
+    assert.equal(findButton('Save changes', true).disabled, true)
+    await act(async () => findButton('Save changes', true).click())
+
+    assert.equal(updatedPayloads.length, 0)
   })
 
   test('blocks legacy invalid restrictions until removal leaves a canonical payload', async () => {
@@ -817,5 +840,59 @@ describe('API keys mutate drawer IP restrictions', () => {
     )
 
     assert.equal(updatedPayloads[0]?.allow_ips, '2001:db8::1')
+  })
+
+  test('keeps the configured icon for a selected unavailable model without listing it as selectable', async () => {
+    const apiKey = makeLegacyApiKey({
+      model_limits_enabled: true,
+      model_limits: 'retired-model',
+    })
+    const pricing: PricingData = {
+      ...emptyPricing,
+      data: [
+        {
+          id: 1,
+          model_name: 'retired-model',
+          icon: 'Claude.Color',
+          vendor_id: 2,
+          quota_type: 0,
+          model_ratio: 1,
+          completion_ratio: 1,
+          enable_groups: [],
+        },
+      ],
+      vendors: [{ id: 2, name: 'OpenAI', icon: 'OpenAI.Color' }],
+    }
+    installApiFixtures([], { apiKey, pricing })
+    await renderCreateDrawer(undefined, apiKey)
+
+    await act(async () => findButton('Advanced Settings', true).click())
+    assert.ok(
+      document.querySelector(
+        '[data-slot="combobox-chip"] [data-model-limit-icon="Claude.Color"]'
+      )
+    )
+    const modelInput = document.querySelector<HTMLInputElement>(
+      '[data-slot="combobox-chip-input"]'
+    )
+    assert.ok(modelInput)
+    await act(async () => modelInput.focus())
+    await act(async () =>
+      modelInput.dispatchEvent(
+        new domWindow.KeyboardEvent('keydown', {
+          bubbles: true,
+          key: 'ArrowDown',
+        }) as unknown as Event
+      )
+    )
+
+    assert.equal(
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-slot="combobox-item"]'
+        ),
+      ].some((item) => item.textContent?.includes('retired-model')),
+      false
+    )
   })
 })
