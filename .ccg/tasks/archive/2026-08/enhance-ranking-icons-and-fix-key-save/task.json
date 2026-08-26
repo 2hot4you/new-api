@@ -1,0 +1,12 @@
+{
+  "id": "enhance-ranking-icons-and-fix-key-save",
+  "title": "完善排行榜图标并修复 API 密钥保存后的前端崩溃",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交到 develop",
+  "createdAt": "2026-08-26T11:15:00Z",
+  "branch": "develop"
+}
