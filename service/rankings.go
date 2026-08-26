@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
@@ -24,14 +25,22 @@ const (
 )
 
 type RankingsResponse struct {
-	Models                []RankedModel              `json:"models"`
-	Vendors               []RankedVendor             `json:"vendors"`
-	TopMovers             []RankingMover             `json:"top_movers"`
-	TopDroppers           []RankingMover             `json:"top_droppers"`
-	ModelsHistory         ModelHistorySeries         `json:"models_history"`
-	VendorShareHistory    VendorShareSeries          `json:"vendor_share_history"`
-	GroupSuccess          []perfmetrics.GroupSummary `json:"group_success"`
-	GroupSuccessAvailable bool                       `json:"group_success_available"`
+	Models                []RankedModel         `json:"models"`
+	Vendors               []RankedVendor        `json:"vendors"`
+	TopMovers             []RankingMover        `json:"top_movers"`
+	TopDroppers           []RankingMover        `json:"top_droppers"`
+	ModelsHistory         ModelHistorySeries    `json:"models_history"`
+	VendorShareHistory    VendorShareSeries     `json:"vendor_share_history"`
+	GroupSuccess          []RankingGroupSuccess `json:"group_success"`
+	GroupSuccessAvailable bool                  `json:"group_success_available"`
+}
+
+type RankingGroupSuccess struct {
+	Group        string   `json:"group"`
+	RequestCount int64    `json:"request_count"`
+	SuccessRate  *float64 `json:"success_rate"`
+	Icon         string   `json:"icon,omitempty"`
+	Description  string   `json:"description,omitempty"`
 }
 
 type RankedModel struct {
@@ -252,9 +261,10 @@ func rankingConfiguredGroups(
 }
 
 func addRankingGroupSuccess(response *RankingsResponse, config rankingPeriodConfig) {
-	groups := rankingConfiguredGroups(
+	groups := rankingConfiguredGroupSuccess(
 		ratio_setting.GetGroupRatioCopy(),
 		ratio_setting.GetGroupMetadataCopy(),
+		setting.GetUserUsableGroupsCopy(),
 	)
 	if err := applyRankingGroupSuccess(
 		response,
@@ -266,16 +276,44 @@ func addRankingGroupSuccess(response *RankingsResponse, config rankingPeriodConf
 	}
 }
 
+func rankingConfiguredGroupSuccess(
+	activeRatios map[string]float64,
+	metadata []ratio_setting.GroupMetadata,
+	descriptions map[string]string,
+) []RankingGroupSuccess {
+	metadataByGroup := make(map[string]ratio_setting.GroupMetadata, len(metadata))
+	for _, entry := range metadata {
+		metadataByGroup[entry.Name] = entry
+	}
+
+	groupNames := rankingConfiguredGroups(activeRatios, metadata)
+	groups := make([]RankingGroupSuccess, 0, len(groupNames))
+	for _, group := range groupNames {
+		entry := metadataByGroup[group]
+		groups = append(groups, RankingGroupSuccess{
+			Group:       group,
+			Icon:        entry.Icon,
+			Description: descriptions[group],
+		})
+	}
+	return groups
+}
+
 func applyRankingGroupSuccess(
 	response *RankingsResponse,
 	hours int,
-	groups []string,
+	groups []RankingGroupSuccess,
 	query func(int, []string) (perfmetrics.SummaryAllResult, error),
 ) error {
 	response.GroupSuccessAvailable = false
-	response.GroupSuccess = []perfmetrics.GroupSummary{}
+	response.GroupSuccess = []RankingGroupSuccess{}
 
-	result, err := query(hours, groups)
+	groupNames := make([]string, 0, len(groups))
+	for _, group := range groups {
+		groupNames = append(groupNames, group.Group)
+	}
+
+	result, err := query(hours, groupNames)
 	if err != nil {
 		return err
 	}
@@ -285,13 +323,16 @@ func applyRankingGroupSuccess(
 		byGroup[summary.Group] = summary
 	}
 
-	response.GroupSuccess = make([]perfmetrics.GroupSummary, 0, len(groups))
+	response.GroupSuccess = make([]RankingGroupSuccess, 0, len(groups))
 	for _, group := range groups {
-		summary, ok := byGroup[group]
+		summary, ok := byGroup[group.Group]
 		if !ok {
-			summary = perfmetrics.GroupSummary{Group: group}
+			response.GroupSuccess = append(response.GroupSuccess, group)
+			continue
 		}
-		response.GroupSuccess = append(response.GroupSuccess, summary)
+		group.RequestCount = summary.RequestCount
+		group.SuccessRate = summary.SuccessRate
+		response.GroupSuccess = append(response.GroupSuccess, group)
 	}
 	response.GroupSuccessAvailable = true
 	return nil

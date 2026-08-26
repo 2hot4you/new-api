@@ -21,6 +21,7 @@ import { type ReactNode, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { getSuccessRateTextClass } from '@/features/performance-metrics/lib/format'
+import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
 import type { RankingGroupSuccess, RankingPeriod } from '../types'
@@ -113,9 +114,24 @@ export function GroupSuccessSection(props: GroupSuccessSectionProps) {
               data-group-success-row={group.group}
               className='flex items-center gap-3 px-5 py-3'
             >
-              <span className='text-foreground min-w-0 flex-1 truncate font-mono text-sm font-medium'>
-                {group.group}
+              <span
+                className='flex size-4 shrink-0 items-center justify-center'
+                data-group-success-icon
+                data-icon-key={group.icon || group.group}
+                aria-hidden='true'
+              >
+                {getLobeIcon(group.icon || group.group, 16)}
               </span>
+              <div className='min-w-0 flex-1'>
+                <span className='text-foreground block truncate font-mono text-sm font-medium'>
+                  {group.group}
+                </span>
+                {group.description && (
+                  <p className='text-muted-foreground truncate text-xs'>
+                    {group.description}
+                  </p>
+                )}
+              </div>
               {measured ? (
                 <div className='flex shrink-0 items-baseline gap-2 text-right sm:gap-3'>
                   <span

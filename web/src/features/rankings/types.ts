@@ -127,6 +127,8 @@ export type RankingGroupSuccess = {
   group: string
   request_count: number
   success_rate: number | null
+  icon?: string
+  description?: string
 }
 
 export type RankingsSnapshot = {

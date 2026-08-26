@@ -195,11 +195,41 @@ describe('GroupSuccessSection', () => {
           <GroupSuccessSection
             period='week'
             groups={[
-              { group: 'free', request_count: 0, success_rate: null },
-              { group: 'standard', request_count: 80, success_rate: 90 },
-              { group: 'premium', request_count: 12, success_rate: 100 },
-              { group: 'trial', request_count: 3, success_rate: 0 },
-              { group: 'business', request_count: 180, success_rate: 90 },
+              {
+                group: 'free',
+                request_count: 0,
+                success_rate: null,
+                icon: 'Gemini.Color',
+                description: 'No-cost access',
+              },
+              {
+                group: 'standard',
+                request_count: 80,
+                success_rate: 90,
+                icon: 'OpenAI.Color',
+                description: 'Everyday access',
+              },
+              {
+                group: 'premium',
+                request_count: 12,
+                success_rate: 100,
+                icon: 'Claude.Color',
+                description: 'Priority access',
+              },
+              {
+                group: 'trial',
+                request_count: 3,
+                success_rate: 0,
+                icon: 'DeepSeek.Color',
+                description: 'Evaluation access',
+              },
+              {
+                group: 'business',
+                request_count: 180,
+                success_rate: 90,
+                icon: 'Qwen.Color',
+                description: 'Team access',
+              },
             ]}
           />
         </I18nextProvider>
@@ -213,6 +243,25 @@ describe('GroupSuccessSection', () => {
     )
     assert.match(rows[3].textContent ?? '', /trial.*0%.*3 requests/)
     assert.match(rows[4].textContent ?? '', /free.*No requests/)
+    assert.deepEqual(
+      rows.map((row) =>
+        row
+          .querySelector('[data-group-success-icon]')
+          ?.getAttribute('data-icon-key')
+      ),
+      [
+        'Claude.Color',
+        'Qwen.Color',
+        'OpenAI.Color',
+        'DeepSeek.Color',
+        'Gemini.Color',
+      ]
+    )
+    assert.match(rows[0].textContent ?? '', /Priority access/)
+    assert.match(rows[1].textContent ?? '', /Team access/)
+    assert.match(rows[2].textContent ?? '', /Everyday access/)
+    assert.match(rows[3].textContent ?? '', /Evaluation access/)
+    assert.match(rows[4].textContent ?? '', /No-cost access/)
 
     await act(async () => root.unmount())
     container.remove()
