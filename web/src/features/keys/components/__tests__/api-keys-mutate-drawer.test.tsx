@@ -738,7 +738,7 @@ describe('API keys mutate drawer model limits', () => {
 })
 
 describe('API keys mutate drawer IP restrictions', () => {
-  test('serializes accepted IP entries as the existing newline-delimited payload', async () => {
+  test('blocks a valid uncommitted IP draft until Add serializes the newline-delimited payload', async () => {
     const createdPayloads: Array<Record<string, unknown>> = []
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
@@ -748,10 +748,14 @@ describe('API keys mutate drawer IP restrictions', () => {
       'input[aria-label="IP address or CIDR"]'
     )
     assert.ok(ipInput, 'Expected IP address input')
+    assert.equal(ipInput.name, 'allow_ips')
     await changeInput(ipInput, '192.0.2.1')
+    assert.equal(findButton('Save changes', true).disabled, true)
     await act(async () => findButton('Add IP address', true).click())
     await changeInput(ipInput, '2001:db8::1/64')
+    assert.equal(findButton('Save changes', true).disabled, true)
     await act(async () => findButton('Add IP address', true).click())
+    assert.equal(findButton('Save changes', true).disabled, false)
     await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'restricted')
     await act(async () => findButton('Save changes', true).click())
     await act(async () =>

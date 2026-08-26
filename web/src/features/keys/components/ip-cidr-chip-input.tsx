@@ -19,10 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { Address4, Address6 } from 'ip-address'
 import {
   forwardRef,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentProps,
+  type FocusEventHandler,
   type KeyboardEvent,
+  type Ref,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -32,11 +36,23 @@ import { cn } from '@/lib/utils'
 
 type IpCidrChipInputProps = Omit<
   ComponentProps<'div'>,
-  'onChange' | 'value'
+  'onBlur' | 'onChange' | 'value'
 > & {
   value: string
   onChange: (value: string) => void
+  resetKey?: string | number
+  name?: string
+  onBlur?: FocusEventHandler<HTMLInputElement>
+  inputRef?: Ref<HTMLInputElement>
   onValidityChange?: (valid: boolean) => void
+  onDraftStateChange?: (state: { hasDraft: boolean; isValid: boolean }) => void
+}
+
+type IpCidrEntry = {
+  key: string
+  rawValue: string
+  value: string
+  valid: boolean
 }
 
 function normalizeIpCidr(entry: string): string | null {
@@ -63,11 +79,35 @@ function normalizeIpCidr(entry: string): string | null {
   }
 }
 
-function getEntries(value: string): string[] {
+function getEntries(value: string): IpCidrEntry[] {
+  const seen = new Set<string>()
   return value
     .split('\n')
     .map((entry) => entry.trim())
     .filter(Boolean)
+    .flatMap<IpCidrEntry>((rawValue, index) => {
+      const normalized = normalizeIpCidr(rawValue)
+      if (!normalized) {
+        return [
+          {
+            key: `invalid-${index}-${rawValue}`,
+            rawValue,
+            value: rawValue,
+            valid: false,
+          },
+        ]
+      }
+      if (seen.has(normalized)) return []
+      seen.add(normalized)
+      return [
+        {
+          key: normalized,
+          rawValue,
+          value: normalized,
+          valid: true,
+        },
+      ]
+    })
 }
 
 function isDraftValid(draft: string): boolean {
@@ -78,36 +118,83 @@ function isDraftValid(draft: string): boolean {
 export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
   function IpCidrChipInput(props, ref) {
     const { t } = useTranslation()
-    const { className, id, onChange, onValidityChange, value, ...divProps } =
-      props
+    const {
+      className,
+      id,
+      inputRef,
+      name,
+      onBlur,
+      onChange,
+      onDraftStateChange,
+      onValidityChange,
+      resetKey,
+      value,
+      ...divProps
+    } = props
     const [draft, setDraft] = useState('')
     const [error, setError] = useState<string | null>(null)
     const entries = useMemo(() => getEntries(value), [value])
+    const hasLegacyInvalidEntries = entries.some((entry) => !entry.valid)
+    const callbacksRef = useRef({ onDraftStateChange, onValidityChange })
+
+    useEffect(() => {
+      callbacksRef.current = { onDraftStateChange, onValidityChange }
+    }, [onDraftStateChange, onValidityChange])
+
+    const updateDraft = (nextDraft: string, nextError: string | null) => {
+      setDraft(nextDraft)
+      setError(nextError)
+      const isValid = isDraftValid(nextDraft)
+      callbacksRef.current.onValidityChange?.(isValid)
+      callbacksRef.current.onDraftStateChange?.({
+        hasDraft: nextDraft.trim().length > 0,
+        isValid,
+      })
+    }
+
+    useEffect(() => {
+      setDraft('')
+      setError(null)
+      callbacksRef.current.onValidityChange?.(true)
+      callbacksRef.current.onDraftStateChange?.({
+        hasDraft: false,
+        isValid: true,
+      })
+    }, [resetKey])
 
     const addCandidates = (candidates: string[]) => {
       if (candidates.length === 0) {
-        setError(null)
-        onValidityChange?.(true)
+        updateDraft('', null)
+        return
+      }
+
+      if (hasLegacyInvalidEntries) {
+        updateDraft(
+          candidates.join(', '),
+          t('Remove invalid saved entries before adding another IP address')
+        )
         return
       }
 
       const normalized = candidates.map(normalizeIpCidr)
-      if (normalized.some((entry) => entry === null)) {
-        setError(t('Enter a valid IP address or CIDR'))
-        onValidityChange?.(false)
-        return
-      }
-
-      const nextEntries = [...entries]
+      const invalidCandidates = candidates.filter(
+        (_, index) => normalized[index] === null
+      )
+      const nextEntries = entries.map((entry) => entry.value)
       for (const entry of normalized) {
         if (entry && !nextEntries.includes(entry)) nextEntries.push(entry)
       }
-      setDraft('')
-      setError(null)
-      onValidityChange?.(true)
       if (nextEntries.length !== entries.length) {
         onChange(nextEntries.join('\n'))
       }
+      if (invalidCandidates.length > 0) {
+        updateDraft(
+          invalidCandidates.join(', '),
+          t('Enter a valid IP address or CIDR')
+        )
+        return
+      }
+      updateDraft('', null)
     }
 
     const addDraft = () => addCandidates(draft.split(/[\s,]+/).filter(Boolean))
@@ -129,24 +216,29 @@ export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
           <div className='flex flex-wrap gap-2'>
             {entries.map((entry) => (
               <span
-                key={entry}
-                data-ip-cidr-chip={entry}
-                className='bg-muted flex items-center gap-1 rounded-md px-2 py-1 text-sm'
+                key={entry.key}
+                data-ip-cidr-chip={entry.value}
+                className={cn(
+                  'bg-muted flex items-center gap-1 rounded-md px-2 py-1 text-sm',
+                  !entry.valid && 'border-destructive text-destructive border'
+                )}
               >
-                <span>{entry}</span>
+                <span>{entry.value}</span>
                 <Button
                   type='button'
                   variant='ghost'
                   size='icon-sm'
                   className='size-5'
-                  aria-label={t('Remove {{entry}}', { entry })}
-                  onClick={() =>
+                  aria-label={t('Remove {{entry}}', { entry: entry.value })}
+                  onClick={() => {
                     onChange(
                       entries
-                        .filter((candidate) => candidate !== entry)
+                        .filter((candidate) => candidate.key !== entry.key)
+                        .map((candidate) => candidate.value)
                         .join('\n')
                     )
-                  }
+                    updateDraft('', null)
+                  }}
                 >
                   <span aria-hidden='true'>×</span>
                 </Button>
@@ -157,13 +249,14 @@ export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
         <div className='flex gap-2'>
           <Input
             id={id}
+            ref={inputRef}
+            name={name}
             value={draft}
             onChange={(event) => {
               const nextDraft = event.target.value
-              setDraft(nextDraft)
-              setError(null)
-              onValidityChange?.(isDraftValid(nextDraft))
+              updateDraft(nextDraft, null)
             }}
+            onBlur={onBlur}
             onKeyDown={handleKeyDown}
             onPaste={(event) => {
               const pasted = event.clipboardData.getData('text')

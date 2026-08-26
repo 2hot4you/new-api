@@ -160,6 +160,29 @@ async function renderInput(
   )
 }
 
+async function renderPreloadedInput(
+  value: string,
+  onChange: (value: string) => void,
+  resetKey = 'first-record'
+): Promise<void> {
+  if (!host) {
+    host = document.createElement('div')
+    document.body.append(host)
+    root = createRoot(host)
+  }
+  await act(async () =>
+    root?.render(
+      <I18nextProvider i18n={i18n}>
+        <IpCidrChipInput
+          value={value}
+          onChange={onChange}
+          resetKey={resetKey}
+        />
+      </I18nextProvider>
+    )
+  )
+}
+
 afterEach(async () => {
   if (root) {
     await act(async () => root?.unmount())
@@ -196,6 +219,20 @@ describe('IP CIDR chip input', () => {
     assert.equal(values.at(-1), '192.0.2.1\n2001:db8::1\n198.51.100.0/24')
   })
 
+  test('keeps valid batch entries when a pasted candidate is invalid', async () => {
+    const values: string[] = []
+    await renderInput((value) => values.push(value))
+
+    await pasteIntoInput('192.0.2.1, 300.0.0.1, 2001:db8::1')
+
+    assert.deepEqual(values, ['192.0.2.1\n2001:db8::1'])
+    assert.equal(
+      document.querySelector<HTMLElement>('[role="alert"]')?.textContent,
+      'Enter a valid IP address or CIDR'
+    )
+    assert.equal(getInput().value, '300.0.0.1')
+  })
+
   test('does not add an entry that already has a chip', async () => {
     const values: string[] = []
     await renderInput((value) => values.push(value))
@@ -204,6 +241,88 @@ describe('IP CIDR chip input', () => {
     await addWithButton('192.0.2.1')
 
     assert.deepEqual(values, ['192.0.2.1'])
+  })
+
+  test('rejects leading-zero IPv4 forms and accepts IPv4 and IPv6 prefix boundaries', async () => {
+    const values: string[] = []
+    await renderInput((value) => values.push(value))
+
+    await addWithButton('192.0.002.1/24')
+    await addWithButton('0.0.0.0/0')
+    await addWithButton('192.0.2.1/32')
+    await addWithButton('::/0')
+    await addWithButton('2001:db8::1/128')
+
+    assert.equal(
+      values.at(-1),
+      '0.0.0.0/0\n192.0.2.1/32\n::/0\n2001:db8::1/128'
+    )
+  })
+
+  test('suppresses canonical-equivalent IPv6 entries', async () => {
+    const values: string[] = []
+    await renderInput((value) => values.push(value))
+
+    await addWithButton('2001:0DB8:0:0::1')
+    await addWithButton('2001:db8::1')
+
+    assert.deepEqual(values, ['2001:db8::1'])
+  })
+
+  test('normalizes and deduplicates preloaded valid entries without changing them on mount', async () => {
+    const values: string[] = []
+    await renderPreloadedInput(
+      '2001:0DB8:0:0::1\n2001:db8::1\nlegacy-address',
+      (value) => values.push(value)
+    )
+
+    assert.deepEqual(
+      [...document.querySelectorAll<HTMLElement>('[data-ip-cidr-chip]')].map(
+        (chip) => chip.getAttribute('data-ip-cidr-chip')
+      ),
+      ['2001:db8::1', 'legacy-address']
+    )
+    assert.deepEqual(values, [])
+    await addWithButton('192.0.2.1')
+
+    assert.deepEqual(values, [])
+    assert.equal(
+      document.querySelector<HTMLElement>('[role="alert"]')?.textContent,
+      'Remove invalid saved entries before adding another IP address'
+    )
+  })
+
+  test('clears an uncommitted draft when resetKey changes for another record', async () => {
+    const values: string[] = []
+    await renderPreloadedInput('192.0.2.1', (value) => values.push(value))
+    await changeInput('300.0.0.1')
+    assert.equal(getInput().value, '300.0.0.1')
+
+    await renderPreloadedInput(
+      '192.0.2.1',
+      (value) => values.push(value),
+      'second-record'
+    )
+
+    assert.equal(getInput().value, '')
+    assert.equal(document.querySelector('[role="alert"]'), null)
+    assert.deepEqual(values, [])
+  })
+
+  test('renders the latest controlled entries after a prop update', async () => {
+    const values: string[] = []
+    await renderPreloadedInput('192.0.2.1', (value) => values.push(value))
+    await renderPreloadedInput('2001:0DB8::1\n198.51.100.0/24', (value) =>
+      values.push(value)
+    )
+
+    assert.deepEqual(
+      [...document.querySelectorAll<HTMLElement>('[data-ip-cidr-chip]')].map(
+        (chip) => chip.getAttribute('data-ip-cidr-chip')
+      ),
+      ['2001:db8::1', '198.51.100.0/24']
+    )
+    assert.deepEqual(values, [])
   })
 
   test('shows invalid address, prefix, and zone identifier feedback without adding entries', async () => {

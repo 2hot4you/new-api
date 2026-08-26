@@ -118,7 +118,10 @@ export function ApiKeysMutateDrawer({
   const { status, loading: statusLoading } = useStatus()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [hasInvalidIpDraft, setHasInvalidIpDraft] = useState(false)
+  const [ipDraftState, setIpDraftState] = useState({
+    hasDraft: false,
+    isValid: true,
+  })
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
     null
   )
@@ -262,7 +265,7 @@ export function ApiKeysMutateDrawer({
   useEffect(() => {
     if (!open) {
       setInitializedTarget(null)
-      setHasInvalidIpDraft(false)
+      setIpDraftState({ hasDraft: false, isValid: true })
       return
     }
     if (
@@ -392,23 +395,30 @@ export function ApiKeysMutateDrawer({
     toast.error(t('Please fix the highlighted fields before saving'))
   }
 
-  const showInvalidIpDraftError = useCallback(() => {
+  const showIpDraftError = useCallback(() => {
     form.setError('allow_ips', {
       type: 'manual',
-      message: t('Enter a valid IP address or CIDR'),
+      message: ipDraftState.isValid
+        ? t('Add IP address before saving')
+        : t('Enter a valid IP address or CIDR'),
     })
-  }, [form, t])
+  }, [form, ipDraftState.isValid, t])
 
-  const handleIpDraftValidityChange = useCallback(
-    (valid: boolean) => {
-      setHasInvalidIpDraft(!valid)
-      if (valid) {
+  const handleIpDraftStateChange = useCallback(
+    (state: { hasDraft: boolean; isValid: boolean }) => {
+      setIpDraftState(state)
+      if (!state.hasDraft) {
         form.clearErrors('allow_ips')
         return
       }
-      showInvalidIpDraftError()
+      form.setError('allow_ips', {
+        type: 'manual',
+        message: state.isValid
+          ? t('Add IP address before saving')
+          : t('Enter a valid IP address or CIDR'),
+      })
     },
-    [form, showInvalidIpDraftError]
+    [form, t]
   )
 
   const handleSetExpiry = (months: number, days: number, hours: number) => {
@@ -441,7 +451,7 @@ export function ApiKeysMutateDrawer({
       onOpenChange={(v) => {
         onOpenChange(v)
         if (!v) {
-          setHasInvalidIpDraft(false)
+          setIpDraftState({ hasDraft: false, isValid: true })
           form.reset()
         }
       }}
@@ -465,9 +475,9 @@ export function ApiKeysMutateDrawer({
           <form
             id='api-key-form'
             onSubmit={(event) => {
-              if (hasInvalidIpDraft) {
+              if (ipDraftState.hasDraft) {
                 event.preventDefault()
-                showInvalidIpDraftError()
+                showIpDraftError()
                 return
               }
               void form.handleSubmit(onSubmit, onInvalid)(event)
@@ -760,7 +770,11 @@ export function ApiKeysMutateDrawer({
                             <IpCidrChipInput
                               value={field.value || ''}
                               onChange={field.onChange}
-                              onValidityChange={handleIpDraftValidityChange}
+                              name={field.name}
+                              onBlur={field.onBlur}
+                              inputRef={field.ref}
+                              resetKey={open ? formTarget : 'closed'}
+                              onDraftStateChange={handleIpDraftStateChange}
                             />
                           </FormControl>
                           <FormDescription>
@@ -787,13 +801,15 @@ export function ApiKeysMutateDrawer({
           <Button
             type='button'
             onClick={() => {
-              if (hasInvalidIpDraft) {
-                showInvalidIpDraftError()
+              if (ipDraftState.hasDraft) {
+                showIpDraftError()
                 return
               }
               void form.handleSubmit(onSubmit, onInvalid)()
             }}
-            disabled={!isFormInitialized || isSubmitting || hasInvalidIpDraft}
+            disabled={
+              !isFormInitialized || isSubmitting || ipDraftState.hasDraft
+            }
             className='w-full sm:w-auto'
           >
             {isSubmitting ? t('Saving...') : t('Save changes')}
