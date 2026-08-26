@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -28,6 +29,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { getPricing } from '@/features/pricing/api'
+import type { PricingData, PricingVendor } from '@/features/pricing/types'
 import { useMediaQuery } from '@/hooks'
 import { toIntlLocale } from '@/i18n/languages'
 import { getUserGroups } from '@/lib/api'
@@ -43,13 +46,14 @@ import type {
   ApiKeyGroupDisplayInfo,
 } from './api-key-auto-group-details'
 import { ApiKeyGroupCell } from './api-key-group-cell'
-import { ApiKeyTimestampCell } from './api-key-timestamp-cell'
 import {
-  ApiKeyCell,
   IpRestrictionsCell,
   ModelLimitsCell,
-  UnlimitedQuotaBadge,
-} from './api-keys-cells'
+  type ApiKeyModelDisplayInfo,
+  type ApiKeyModelDisplayStatus,
+} from './api-key-restriction-details'
+import { ApiKeyTimestampCell } from './api-key-timestamp-cell'
+import { ApiKeyCell, UnlimitedQuotaBadge } from './api-keys-cells'
 import { DataTableRowActions } from './data-table-row-actions'
 
 function getQuotaProgressColor(percentage: number): string {
@@ -106,10 +110,64 @@ function useDefaultAutoGroups(): DefaultAutoGroupsQueryResult {
   return { data: query.data.data.groups, status: 'ready' }
 }
 
+type ModelDisplayQueryResult = {
+  data: Record<string, ApiKeyModelDisplayInfo>
+  status: ApiKeyModelDisplayStatus
+}
+
+export function buildApiKeyModelDisplayInfo(
+  pricingData: PricingData
+): Record<string, ApiKeyModelDisplayInfo> {
+  const vendors = new Map<number, PricingVendor>(
+    pricingData.vendors.map((vendor) => [vendor.id, vendor])
+  )
+  const models: Record<string, ApiKeyModelDisplayInfo> = {}
+  for (const model of pricingData.data) {
+    const vendor = model.vendor_id ? vendors.get(model.vendor_id) : undefined
+    models[model.model_name] = {
+      providerIcon: vendor?.icon,
+      providerName: vendor?.name,
+    }
+  }
+  return models
+}
+
+function useModelDisplayInfo(): ModelDisplayQueryResult {
+  const query = useQuery({
+    queryKey: ['pricing'],
+    queryFn: getPricing,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const modelDisplayInfo = useMemo(() => {
+    if (
+      !query.data?.success ||
+      !Array.isArray(query.data.data) ||
+      !Array.isArray(query.data.vendors)
+    ) {
+      return {}
+    }
+    return buildApiKeyModelDisplayInfo(query.data)
+  }, [query.data])
+
+  if (query.isPending) return { data: {}, status: 'loading' }
+  if (
+    query.isError ||
+    !query.data.success ||
+    !Array.isArray(query.data.data) ||
+    !Array.isArray(query.data.vendors)
+  ) {
+    return { data: {}, status: 'error' }
+  }
+
+  return { data: modelDisplayInfo, status: 'ready' }
+}
+
 export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
   const groupDisplayInfo = useGroupDisplayInfo()
   const defaultAutoGroups = useDefaultAutoGroups()
+  const modelDisplayInfo = useModelDisplayInfo()
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const justNowLabel = t('Just now')
@@ -266,7 +324,13 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
       id: 'model_limits',
       accessorKey: 'model_limits',
       header: t('Models'),
-      cell: ({ row }) => <ModelLimitsCell apiKey={row.original} />,
+      cell: ({ row }) => (
+        <ModelLimitsCell
+          apiKey={row.original}
+          modelDisplayInfo={modelDisplayInfo.data}
+          modelDisplayStatus={modelDisplayInfo.status}
+        />
+      ),
       enableSorting: false,
       size: 160,
       meta: { mobileHidden: true },
@@ -289,6 +353,7 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
           now={now}
           locale={locale}
           justNowLabel={justNowLabel}
+          display='absolute'
           className='text-muted-foreground'
         />
       ),
@@ -309,6 +374,7 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
             now={now}
             locale={locale}
             justNowLabel={justNowLabel}
+            display='absolute'
             className={isStale ? 'text-warning' : 'text-muted-foreground'}
           />
         )

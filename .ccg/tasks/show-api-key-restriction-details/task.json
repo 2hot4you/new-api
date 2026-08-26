@@ -1,0 +1,12 @@
+{
+  "id": "show-api-key-restriction-details",
+  "title": "在 API 密钥表格展示模型/IP 限制明细与准确时间",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-26T00:00:00+08:00",
+  "branch": "develop"
+}
