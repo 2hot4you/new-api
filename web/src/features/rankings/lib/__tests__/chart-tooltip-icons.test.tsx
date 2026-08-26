@@ -154,3 +154,43 @@ test('matches icons to rendered keys after a summary row is inserted and aligns 
     'center'
   )
 })
+
+test('reveals the VChart shape column when a summary tooltip receives custom icons', () => {
+  const tooltip = document.createElement('div')
+  tooltip.innerHTML = `
+    <div class="vchart-tooltip-content-box">
+      <div data-col="shape" style="display: none">
+        <div></div>
+        <div></div>
+        <div></div>
+      </div>
+      <div data-col="key">
+        <div>Total:</div>
+        <div>gpt-5.6-sol</div>
+        <div>claude-sonnet-4-6</div>
+      </div>
+    </div>
+  `
+
+  decorateChartTooltipIcons(
+    tooltip,
+    {
+      content: [
+        { key: 'Total:' },
+        { key: 'gpt-5.6-sol' },
+        { key: 'claude-sonnet-4-6' },
+      ],
+    },
+    new Map([
+      ['gpt-5.6-sol', 'OpenAI.Color'],
+      ['claude-sonnet-4-6', 'Claude.Color'],
+    ])
+  )
+
+  const shapeColumn = tooltip.querySelector<HTMLElement>('[data-col="shape"]')
+  assert.equal(shapeColumn?.style.display, 'inline-block')
+  assert.equal(
+    shapeColumn?.querySelectorAll('[data-ranking-tooltip-icon]').length,
+    2
+  )
+})

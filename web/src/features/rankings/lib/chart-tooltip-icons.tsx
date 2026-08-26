@@ -49,6 +49,7 @@ export function decorateChartTooltipIcons(
     ...(tooltipElement.querySelector<HTMLElement>('[data-col="key"]')
       ?.children ?? []),
   ]
+  let hasCustomIcon = false
   shapeRows.forEach((shapeRow, index) => {
     const renderedKey = keyRows[index]?.textContent?.trim()
     const key = renderedKey || content[index]?.key
@@ -67,6 +68,7 @@ export function decorateChartTooltipIcons(
     }
 
     const iconKey = iconByKey.get(key)
+    hasCustomIcon = true
     const markup = renderToStaticMarkup(
       <span
         aria-hidden='true'
@@ -80,4 +82,9 @@ export function decorateChartTooltipIcons(
     template.innerHTML = markup
     shapeRow.replaceChildren(template.content.cloneNode(true))
   })
+
+  // Dimension updateContent entries do not retain VChart's shape metadata,
+  // so VChart hides the entire marker column before updateElement runs.
+  // Reveal it only when this decorator actually supplied custom icons.
+  if (hasCustomIcon) shapeColumn.style.display = 'inline-block'
 }

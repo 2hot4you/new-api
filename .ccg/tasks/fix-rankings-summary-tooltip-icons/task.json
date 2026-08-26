@@ -1,0 +1,12 @@
+{
+  "id": "fix-rankings-summary-tooltip-icons",
+  "title": "修复排行榜汇总 Tooltip 缺少模型图标",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交推送 develop",
+  "createdAt": "2026-08-26T15:40:00+08:00",
+  "branch": "develop"
+}
