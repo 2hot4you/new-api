@@ -736,3 +736,52 @@ describe('API keys mutate drawer model limits', () => {
     assert.equal(createdPayloads[0]?.model_limits, 'claude-test-model')
   })
 })
+
+describe('API keys mutate drawer IP restrictions', () => {
+  test('serializes accepted IP entries as the existing newline-delimited payload', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer()
+
+    await act(async () => findButton('Advanced Settings', true).click())
+    const ipInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="IP address or CIDR"]'
+    )
+    assert.ok(ipInput, 'Expected IP address input')
+    await changeInput(ipInput, '192.0.2.1')
+    await act(async () => findButton('Add IP address', true).click())
+    await changeInput(ipInput, '2001:db8::1/64')
+    await act(async () => findButton('Add IP address', true).click())
+    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'restricted')
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => createdPayloads.length === 1,
+        'restricted API key was not created'
+      )
+    )
+
+    assert.equal(createdPayloads[0]?.allow_ips, '192.0.2.1\n2001:db8::1/64')
+  })
+
+  test('does not submit an invalid uncommitted IP draft', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer()
+
+    await act(async () => findButton('Advanced Settings', true).click())
+    const ipInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="IP address or CIDR"]'
+    )
+    assert.ok(ipInput, 'Expected IP address input')
+    await changeInput(ipInput, '300.0.0.1')
+    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'blocked')
+    await act(async () => findButton('Save changes', true).click())
+
+    assert.equal(createdPayloads.length, 0)
+    assert.equal(
+      document.body.textContent?.includes('Enter a valid IP address or CIDR'),
+      true
+    )
+  })
+})

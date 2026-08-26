@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -61,7 +61,6 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
 import { getPricing } from '@/features/pricing/api'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
@@ -93,6 +92,7 @@ import {
   AutoGroupOrderEditor,
   type ApiKeyGroupOption,
 } from './auto-group-order-editor'
+import { IpCidrChipInput } from './ip-cidr-chip-input'
 
 type ApiKeyMutateDrawerProps = {
   open: boolean
@@ -118,6 +118,7 @@ export function ApiKeysMutateDrawer({
   const { status, loading: statusLoading } = useStatus()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [hasInvalidIpDraft, setHasInvalidIpDraft] = useState(false)
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
     null
   )
@@ -261,6 +262,7 @@ export function ApiKeysMutateDrawer({
   useEffect(() => {
     if (!open) {
       setInitializedTarget(null)
+      setHasInvalidIpDraft(false)
       return
     }
     if (
@@ -390,6 +392,25 @@ export function ApiKeysMutateDrawer({
     toast.error(t('Please fix the highlighted fields before saving'))
   }
 
+  const showInvalidIpDraftError = useCallback(() => {
+    form.setError('allow_ips', {
+      type: 'manual',
+      message: t('Enter a valid IP address or CIDR'),
+    })
+  }, [form, t])
+
+  const handleIpDraftValidityChange = useCallback(
+    (valid: boolean) => {
+      setHasInvalidIpDraft(!valid)
+      if (valid) {
+        form.clearErrors('allow_ips')
+        return
+      }
+      showInvalidIpDraftError()
+    },
+    [form, showInvalidIpDraftError]
+  )
+
   const handleSetExpiry = (months: number, days: number, hours: number) => {
     if (months === 0 && days === 0 && hours === 0) {
       form.setValue('expired_time', undefined)
@@ -420,6 +441,7 @@ export function ApiKeysMutateDrawer({
       onOpenChange={(v) => {
         onOpenChange(v)
         if (!v) {
+          setHasInvalidIpDraft(false)
           form.reset()
         }
       }}
@@ -442,7 +464,14 @@ export function ApiKeysMutateDrawer({
         <Form {...form}>
           <form
             id='api-key-form'
-            onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+            onSubmit={(event) => {
+              if (hasInvalidIpDraft) {
+                event.preventDefault()
+                showInvalidIpDraftError()
+                return
+              }
+              void form.handleSubmit(onSubmit, onInvalid)(event)
+            }}
             aria-busy={!isFormInitialized}
             inert={!isFormInitialized || isSubmitting ? true : undefined}
             className={sideDrawerFormClassName(
@@ -728,13 +757,10 @@ export function ApiKeysMutateDrawer({
                             {t('IP Whitelist (supports CIDR)')}
                           </FormLabel>
                           <FormControl>
-                            <Textarea
-                              {...field}
-                              className='min-h-20 resize-none'
-                              placeholder={t(
-                                'One IP per line (empty for no restriction)'
-                              )}
-                              rows={3}
+                            <IpCidrChipInput
+                              value={field.value || ''}
+                              onChange={field.onChange}
+                              onValidityChange={handleIpDraftValidityChange}
                             />
                           </FormControl>
                           <FormDescription>
@@ -760,8 +786,14 @@ export function ApiKeysMutateDrawer({
           </SheetClose>
           <Button
             type='button'
-            onClick={form.handleSubmit(onSubmit, onInvalid)}
-            disabled={!isFormInitialized || isSubmitting}
+            onClick={() => {
+              if (hasInvalidIpDraft) {
+                showInvalidIpDraftError()
+                return
+              }
+              void form.handleSubmit(onSubmit, onInvalid)()
+            }}
+            disabled={!isFormInitialized || isSubmitting || hasInvalidIpDraft}
             className='w-full sm:w-auto'
           >
             {isSubmitting ? t('Saving...') : t('Save changes')}
