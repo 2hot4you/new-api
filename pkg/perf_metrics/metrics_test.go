@@ -93,28 +93,38 @@ func TestQuerySummaryAllBuildsWeightedGroupSummaries(t *testing.T) {
 
 func TestQuerySummaryAllAllowsAtMostOneYear(t *testing.T) {
 	setupSummaryTestState(t)
-	now := time.Now()
+	const fixedNow = int64(2_000_001_600) // Exactly divisible by the one-hour bucket size.
+	require.Equal(t, fixedNow, bucketStart(fixedNow))
+	useFixedQueryClock(t, fixedNow)
 	rows := []model.PerfMetric{
-		{ModelName: "inside-one-year", Group: "default", BucketTs: now.Add(-8000 * time.Hour).Unix(), RequestCount: 1, SuccessCount: 1},
-		{ModelName: "outside-one-year", Group: "default", BucketTs: now.Add(-8800 * time.Hour).Unix(), RequestCount: 1, SuccessCount: 1},
+		{ModelName: "inside-before-boundary", Group: "default", BucketTs: fixedNow - int64(8759*time.Hour/time.Second), RequestCount: 1, SuccessCount: 1},
+		{ModelName: "inside-at-boundary", Group: "default", BucketTs: fixedNow - int64(8760*time.Hour/time.Second), RequestCount: 1, SuccessCount: 1},
+		{ModelName: "outside-after-boundary", Group: "default", BucketTs: fixedNow - int64(8761*time.Hour/time.Second), RequestCount: 1, SuccessCount: 1},
 	}
 	require.NoError(t, model.DB.Create(&rows).Error)
 
 	result, err := QuerySummaryAll(9000, nil)
 
 	require.NoError(t, err)
-	require.Len(t, result.Models, 1)
-	assert.Equal(t, "inside-one-year", result.Models[0].ModelName)
+	require.Len(t, result.Models, 2)
+	assert.ElementsMatch(t, []string{"inside-before-boundary", "inside-at-boundary"}, []string{
+		result.Models[0].ModelName,
+		result.Models[1].ModelName,
+	})
 	require.Len(t, result.Groups, 1)
 	assert.Equal(t, "default", result.Groups[0].Group)
+	assert.Equal(t, int64(2), result.Groups[0].RequestCount)
 }
 
 func TestQueryAllowsAtMostOneYear(t *testing.T) {
 	setupSummaryTestState(t)
-	now := time.Now()
+	const fixedNow = int64(2_000_001_600) // Exactly divisible by the one-hour bucket size.
+	require.Equal(t, fixedNow, bucketStart(fixedNow))
+	useFixedQueryClock(t, fixedNow)
 	rows := []model.PerfMetric{
-		{ModelName: "query-window", Group: "default", BucketTs: now.Add(-8000 * time.Hour).Unix(), RequestCount: 1, SuccessCount: 1},
-		{ModelName: "query-window", Group: "default", BucketTs: now.Add(-8800 * time.Hour).Unix(), RequestCount: 1, SuccessCount: 1},
+		{ModelName: "query-window", Group: "default", BucketTs: fixedNow - int64(8759*time.Hour/time.Second), RequestCount: 1, SuccessCount: 1},
+		{ModelName: "query-window", Group: "default", BucketTs: fixedNow - int64(8760*time.Hour/time.Second), RequestCount: 1, SuccessCount: 1},
+		{ModelName: "query-window", Group: "default", BucketTs: fixedNow - int64(8761*time.Hour/time.Second), RequestCount: 1, SuccessCount: 1},
 	}
 	require.NoError(t, model.DB.Create(&rows).Error)
 
@@ -122,20 +132,34 @@ func TestQueryAllowsAtMostOneYear(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result.Groups, 1)
-	assert.Equal(t, int64(1), result.Groups[0].RequestCount)
+	assert.Equal(t, int64(2), result.Groups[0].RequestCount)
+	require.Len(t, result.Groups[0].Series, 2)
+	assert.Equal(t, fixedNow-int64(8760*time.Hour/time.Second), result.Groups[0].Series[0].Ts)
+	assert.Equal(t, fixedNow-int64(8759*time.Hour/time.Second), result.Groups[0].Series[1].Ts)
+}
+
+func useFixedQueryClock(t *testing.T, now int64) {
+	t.Helper()
+	previous := currentUnix
+	currentUnix = func() int64 { return now }
+	t.Cleanup(func() { currentUnix = previous })
 }
 
 func setupSummaryTestState(t *testing.T) {
 	t.Helper()
 	previousDB := model.DB
+	previousLogDB := model.LOG_DB
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "perf-metrics.db")), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.PerfMetric{}))
 	model.DB = db
+	t.Setenv("LOG_SQL_DSN", "")
+	require.NoError(t, model.InitLogDB())
 	clearHotBuckets()
 	t.Cleanup(func() {
 		clearHotBuckets()
 		model.DB = previousDB
+		model.LOG_DB = previousLogDB
 	})
 }
 

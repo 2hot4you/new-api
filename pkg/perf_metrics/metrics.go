@@ -16,6 +16,8 @@ import (
 
 var hotBuckets sync.Map
 
+var currentUnix = func() int64 { return time.Now().Unix() }
+
 // seriesSchema is a stable client cache/schema marker. Do not change it when
 // hiding fields or making response-only privacy hardening changes.
 const seriesSchema = "dbcd0a3c01b55203"
@@ -85,7 +87,7 @@ func Query(params QueryParams) (QueryResult, error) {
 	if params.Hours > maxQueryHours {
 		params.Hours = maxQueryHours
 	}
-	endTs := time.Now().Unix()
+	endTs := currentUnix()
 	startTs := endTs - int64(params.Hours)*3600
 
 	merged := map[bucketKey]counters{}
@@ -131,7 +133,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	if hours > maxQueryHours {
 		hours = maxQueryHours
 	}
-	endTs := time.Now().Unix()
+	endTs := currentUnix()
 	startTs := endTs - int64(hours)*3600
 	allowedGroups := allowedGroupSet(groups)
 
