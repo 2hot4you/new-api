@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
+import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type { ComponentType } from 'react'
@@ -58,6 +58,15 @@ Object.defineProperty(globalThis, 'matchMedia', {
   configurable: true,
   value: domWindow.matchMedia.bind(domWindow),
 })
+const clipboardWrites: string[] = []
+Object.defineProperty(domWindow.navigator, 'clipboard', {
+  configurable: true,
+  value: {
+    writeText: async (value: string) => {
+      clipboardWrites.push(value)
+    },
+  },
+})
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -69,6 +78,7 @@ const { IpRestrictionsCell, ModelLimitsCell } =
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
   lng: 'en',
+  interpolation: { escapeValue: false },
   resources: {
     en: {
       translation: {
@@ -81,6 +91,11 @@ await i18n.use(initReactI18next).init({
         'Loading model providers': 'Loading model providers',
         'Provider unavailable': 'Provider unavailable',
         'Unknown provider': 'Unknown provider',
+        'Copy all models': 'Copy all models',
+        'Copy model {{model}}': 'Copy model {{model}}',
+        'Copy IP {{ip}}': 'Copy IP {{ip}}',
+        'Copied!': 'Copied!',
+        Copied: 'Copied',
       },
     },
   },
@@ -93,7 +108,7 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 type ModelDisplayInfo = Record<
   string,
-  { providerName?: string; providerIcon?: string }
+  { modelIcon?: string; providerName?: string; providerIcon?: string }
 >
 
 type ModelLimitsCellWithDetailsProps = {
@@ -130,10 +145,23 @@ function apiKey(overrides: Partial<ApiKey>): ApiKey {
 
 async function clickButton(label: string): Promise<void> {
   const button = document.querySelector<HTMLButtonElement>(
-    `button[aria-label="${label}"]`
+    `button[aria-label^="${label}"]`
   )
   assert.ok(button)
   await act(async () => button.click())
+}
+
+async function clickCopyButton(label: string): Promise<void> {
+  const button = document.querySelector<HTMLButtonElement>(
+    `button[aria-label="${label}"]`
+  )
+  assert.ok(button)
+  await act(async () => {
+    button.click()
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
 }
 
 async function pressEnter(button: HTMLButtonElement): Promise<void> {
@@ -149,6 +177,9 @@ async function pressEnter(button: HTMLButtonElement): Promise<void> {
     button.dispatchEvent(
       new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' })
     )
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
   })
 }
 
@@ -156,8 +187,74 @@ describe('API key restriction table cells', () => {
   after(() => {
     domWindow.close()
   })
+  afterEach(() => {
+    document.body.replaceChildren()
+  })
 
-  test('opens every restricted model with its provider and full model ID', async () => {
+  test('shows the first five configured model icons in token order and an overflow ellipsis', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    const modelIds = [
+      'claude-opus-5',
+      'claude-opus-4-8',
+      'gpt-5.6-sol',
+      'deepseek-v4-pro',
+      'gemini-3.7-flash',
+      'grok-4.6',
+    ]
+
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ModelLimitsCellWithDetails
+            apiKey={apiKey({
+              model_limits_enabled: true,
+              model_limits: modelIds.join(','),
+            })}
+            modelDisplayInfo={{
+              'claude-opus-5': { modelIcon: 'Claude.Color' },
+              'claude-opus-4-8': { modelIcon: 'Claude.Color' },
+              'gpt-5.6-sol': {
+                modelIcon: 'OpenAI.Color',
+              },
+              'deepseek-v4-pro': { modelIcon: 'DeepSeek.Color' },
+              'gemini-3.7-flash': { modelIcon: 'Gemini.Color' },
+              'grok-4.6': { modelIcon: 'Grok.Color' },
+            }}
+          />
+        </I18nextProvider>
+      )
+    )
+
+    const summaryIcons = container.querySelectorAll<HTMLElement>(
+      '[data-model-summary-icon]'
+    )
+    assert.deepEqual(
+      Array.from(summaryIcons, (icon) => icon.dataset.modelSummaryIcon),
+      [
+        'Claude.Color',
+        'Claude.Color',
+        'OpenAI.Color',
+        'DeepSeek.Color',
+        'Gemini.Color',
+      ]
+    )
+    assert.ok(container.querySelector('[data-model-summary-overflow]'))
+    assert.equal(container.querySelector('[data-slot="status-badge"]'), null)
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="View model restrictions"]'
+    )
+    assert.ok(trigger)
+    assert.match(trigger.getAttribute('aria-label') ?? '', /6 model\(s\)/)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('groups models by provider, uses model icons, and copies one or all model IDs', async () => {
+    clipboardWrites.length = 0
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -168,16 +265,23 @@ describe('API key restriction table cells', () => {
           <ModelLimitsCellWithDetails
             apiKey={apiKey({
               model_limits_enabled: true,
-              model_limits: 'gpt-5.6-sol,deepseek-v4-pro-202606',
+              model_limits: 'claude-opus-5,claude-opus-4-8,gpt-5.6-sol',
             })}
             modelDisplayInfo={{
+              'claude-opus-5': {
+                modelIcon: 'Claude.Color',
+                providerName: 'Anthropic',
+                providerIcon: 'Anthropic.Color',
+              },
+              'claude-opus-4-8': {
+                modelIcon: 'Claude.Color',
+                providerName: 'Anthropic',
+                providerIcon: 'Anthropic.Color',
+              },
               'gpt-5.6-sol': {
+                modelIcon: 'OpenAI.Color',
                 providerName: 'OpenAI',
                 providerIcon: 'OpenAI.Color',
-              },
-              'deepseek-v4-pro-202606': {
-                providerName: 'DeepSeek',
-                providerIcon: 'DeepSeek.Color',
               },
             }}
           />
@@ -185,21 +289,59 @@ describe('API key restriction table cells', () => {
       )
     )
 
-    assert.equal(container.textContent?.includes('2 model(s)'), true)
     await clickButton('View model restrictions')
-    assert.match(document.body.textContent ?? '', /OpenAI/)
-    assert.match(document.body.textContent ?? '', /gpt-5\.6-sol/)
-    assert.match(document.body.textContent ?? '', /DeepSeek/)
-    assert.match(document.body.textContent ?? '', /deepseek-v4-pro-202606/)
+    const header = document.querySelector<HTMLElement>(
+      '[data-api-key-restriction-header]'
+    )
+    assert.ok(header)
+    assert.equal(header.classList.contains('flex-col'), true)
+    assert.equal(header.classList.contains('sm:flex-row'), true)
+    const headerActions = document.querySelector<HTMLElement>(
+      '[data-api-key-restriction-header-actions]'
+    )
+    assert.ok(headerActions)
+    assert.equal(headerActions.classList.contains('w-full'), true)
+    assert.equal(headerActions.classList.contains('sm:w-auto'), true)
+    const providerHeaders = document.querySelectorAll<HTMLElement>(
+      '[data-provider-icon]'
+    )
+    assert.deepEqual(
+      Array.from(providerHeaders, (header) => header.dataset.providerIcon),
+      ['Anthropic.Color', 'OpenAI.Color']
+    )
+    assert.match(providerHeaders[0]?.textContent ?? '', /Anthropic/)
+    assert.match(providerHeaders[1]?.textContent ?? '', /OpenAI/)
 
-    const modelIds = document.querySelectorAll<HTMLElement>(
+    const modelIds = document.querySelectorAll<HTMLButtonElement>(
       '[data-model-restriction-id]'
     )
-    assert.equal(modelIds.length, 2)
+    assert.deepEqual(
+      Array.from(modelIds, (modelId) => [
+        modelId.dataset.modelIcon,
+        modelId.textContent?.trim(),
+      ]),
+      [
+        ['Claude.Color', 'claude-opus-5'],
+        ['Claude.Color', 'claude-opus-4-8'],
+        ['OpenAI.Color', 'gpt-5.6-sol'],
+      ]
+    )
     for (const modelId of modelIds) {
       assert.equal(modelId.classList.contains('truncate'), false)
       assert.equal(modelId.classList.contains('break-all'), true)
     }
+
+    const modelCopyButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy model claude-opus-5"]'
+    )
+    assert.ok(modelCopyButton)
+    await pressEnter(modelCopyButton)
+    assert.equal(modelCopyButton.getAttribute('aria-label'), 'Copied')
+    await clickCopyButton('Copy all models')
+    assert.deepEqual(clipboardWrites, [
+      'claude-opus-5',
+      'claude-opus-5,claude-opus-4-8,gpt-5.6-sol',
+    ])
 
     const list = document.querySelector<HTMLElement>(
       '[data-api-key-restriction-list="models"]'
@@ -248,7 +390,7 @@ describe('API key restriction table cells', () => {
       )
 
       const trigger = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="View model restrictions"]'
+        'button[aria-label^="View model restrictions"]'
       )
       assert.ok(trigger)
       assert.equal(trigger.tagName, 'BUTTON')
@@ -266,7 +408,8 @@ describe('API key restriction table cells', () => {
     }
   })
 
-  test('opens all configured IP addresses and CIDR ranges instead of truncating to the count', async () => {
+  test('shows the first IP plus an ellipsis and copies any IP from the detail badges', async () => {
+    clipboardWrites.length = 0
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -283,7 +426,20 @@ describe('API key restriction table cells', () => {
       )
     )
 
-    assert.equal(container.textContent?.includes('3 IP(s)'), true)
+    assert.match(container.textContent ?? '', /203\.0\.113\.10/)
+    assert.match(container.textContent ?? '', /…/)
+    assert.equal(
+      container.querySelector('[data-slot="status-badge"]')?.textContent,
+      '203.0.113.10'
+    )
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="View IP restrictions"]'
+    )
+    assert.ok(trigger)
+    assert.match(
+      trigger.getAttribute('aria-label') ?? '',
+      /203\.0\.113\.10.*3 IP\(s\)/
+    )
     await clickButton('View IP restrictions')
     const bodyText = document.body.textContent ?? ''
     assert.match(bodyText, /203\.0\.113\.10/)
@@ -296,6 +452,24 @@ describe('API key restriction table cells', () => {
     assert.ok(list)
     assert.equal(list.classList.contains('overflow-y-auto'), true)
     assert.equal(list.classList.contains('overflow-x-hidden'), true)
+    const ipBadges = document.querySelectorAll<HTMLButtonElement>(
+      '[data-ip-restriction-value]'
+    )
+    assert.equal(ipBadges.length, 3)
+    const targetIp = document.querySelector<HTMLElement>(
+      '[data-ip-restriction-value="198.51.100.0/24"]'
+    )
+    const targetIpButton = targetIp?.closest('button')
+    assert.ok(targetIpButton)
+    assert.equal(
+      targetIpButton.getAttribute('aria-label'),
+      'Copy IP 198.51.100.0/24'
+    )
+    await act(async () => {
+      targetIpButton.click()
+      await Promise.resolve()
+    })
+    assert.deepEqual(clipboardWrites, ['198.51.100.0/24'])
 
     await act(async () => root.unmount())
     container.remove()

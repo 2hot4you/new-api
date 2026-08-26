@@ -40,6 +40,7 @@ describe('API key model provider display mapping', () => {
         {
           id: 1,
           model_name: 'deepseek-v4-pro-202606',
+          icon: 'DeepSeek.Color',
           quota_type: 0,
           model_ratio: 1,
           completion_ratio: 1,
@@ -51,7 +52,7 @@ describe('API key model provider display mapping', () => {
         {
           id: 8,
           name: 'DeepSeek',
-          icon: 'DeepSeek.Color',
+          icon: 'DeepSeek.Provider.Color',
         },
       ],
       group_ratio: {},
@@ -62,7 +63,8 @@ describe('API key model provider display mapping', () => {
 
     assert.deepEqual(buildModelDisplayInfo?.(pricingData), {
       'deepseek-v4-pro-202606': {
-        providerIcon: 'DeepSeek.Color',
+        modelIcon: 'DeepSeek.Color',
+        providerIcon: 'DeepSeek.Provider.Color',
         providerName: 'DeepSeek',
       },
     })

@@ -1,0 +1,12 @@
+{
+  "id": "refine-api-key-restriction-summary",
+  "title": "优化 API 密钥模型与 IP 限制摘要、图标分组和复制交互",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-26T00:00:00+08:00",
+  "branch": "develop"
+}

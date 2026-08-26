@@ -125,6 +125,7 @@ export function buildApiKeyModelDisplayInfo(
   for (const model of pricingData.data) {
     const vendor = model.vendor_id ? vendors.get(model.vendor_id) : undefined
     models[model.model_name] = {
+      modelIcon: model.icon,
       providerIcon: vendor?.icon,
       providerName: vendor?.name,
     }

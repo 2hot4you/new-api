@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { CopyButton } from '@/components/copy-button'
 import { StatusBadge } from '@/components/status-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -34,6 +35,7 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import type { ApiKey } from '../types'
 
 export type ApiKeyModelDisplayInfo = {
+  modelIcon?: string
   providerIcon?: string
   providerName?: string
 }
@@ -46,6 +48,7 @@ type RestrictionDetailsProps = {
   listKind: 'ips' | 'models'
   title: string
   trigger: ReactNode
+  headerAction?: ReactNode
   children: ReactNode
 }
 
@@ -80,11 +83,20 @@ function RestrictionDetails(props: RestrictionDetailsProps) {
         className='max-h-(--available-height) min-h-0 w-[min(26rem,calc(100vw-2rem))] gap-3 overflow-hidden p-3'
       >
         <PopoverHeader>
-          <div className='flex items-center justify-between gap-3'>
+          <div
+            data-api-key-restriction-header
+            className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'
+          >
             <PopoverTitle>{props.title}</PopoverTitle>
-            <Badge variant='secondary' className='shrink-0 tabular-nums'>
-              {props.count}
-            </Badge>
+            <div
+              data-api-key-restriction-header-actions
+              className='flex w-full items-center justify-between gap-2 sm:w-auto sm:shrink-0'
+            >
+              {props.headerAction}
+              <Badge variant='secondary' className='tabular-nums'>
+                {props.count}
+              </Badge>
+            </div>
           </div>
         </PopoverHeader>
         <div
@@ -96,6 +108,45 @@ function RestrictionDetails(props: RestrictionDetailsProps) {
       </PopoverContent>
     </Popover>
   )
+}
+
+type ModelGroup = {
+  key: string
+  providerIcon?: string
+  providerName: string
+  rows: Array<{
+    displayInfo?: ApiKeyModelDisplayInfo
+    key: string
+    model: string
+  }>
+}
+
+function groupModelRows(
+  modelRows: Array<{ key: string; value: string }>,
+  modelDisplayInfo: Record<string, ApiKeyModelDisplayInfo> | undefined,
+  providerFallback: string
+): ModelGroup[] {
+  const groups = new Map<string, ModelGroup>()
+  for (const row of modelRows) {
+    const displayInfo = modelDisplayInfo?.[row.value]
+    const providerName = displayInfo?.providerName || providerFallback
+    let group = groups.get(providerName)
+    if (!group) {
+      group = {
+        key: providerName,
+        providerIcon: displayInfo?.providerIcon,
+        providerName,
+        rows: [],
+      }
+      groups.set(providerName, group)
+    }
+    group.rows.push({
+      displayInfo,
+      key: row.key,
+      model: row.value,
+    })
+  }
+  return [...groups.values()]
 }
 
 type ModelLimitsCellProps = {
@@ -124,55 +175,110 @@ export function ModelLimitsCell(props: ModelLimitsCellProps) {
     .filter(Boolean)
   const modelRows = withOccurrenceKeys(models)
   const displayStatus = props.modelDisplayStatus ?? 'ready'
+  let providerFallback = t('Unknown provider')
+  if (displayStatus === 'loading') {
+    providerFallback = t('Loading model providers')
+  } else if (displayStatus === 'error') {
+    providerFallback = t('Provider unavailable')
+  }
+  const modelGroups = groupModelRows(
+    modelRows,
+    props.modelDisplayInfo,
+    providerFallback
+  )
+  const summaryRows = modelRows.slice(0, 5)
 
   return (
     <RestrictionDetails
-      ariaLabel={t('View model restrictions')}
+      ariaLabel={`${t('View model restrictions')}: ${t('{{count}} model(s)', {
+        count: models.length,
+      })}`}
       count={models.length}
       listKind='models'
       title={t('Model restrictions')}
       trigger={
-        <StatusBadge
-          label={t('{{count}} model(s)', { count: models.length })}
-          variant='neutral'
-          copyable={false}
-        />
+        <span className='flex min-w-0 items-center gap-1'>
+          <span className='sr-only'>
+            {t('{{count}} model(s)', { count: models.length })}
+          </span>
+          {summaryRows.map(({ key, value: model }) => {
+            const modelIcon = props.modelDisplayInfo?.[model]?.modelIcon
+            return (
+              <span
+                key={key}
+                data-model-summary-icon={modelIcon || ''}
+                className='shrink-0'
+                aria-hidden='true'
+              >
+                {getLobeIcon(modelIcon, 18)}
+              </span>
+            )
+          })}
+          {models.length > 5 && (
+            <span
+              data-model-summary-overflow
+              className='text-muted-foreground pl-0.5 text-sm font-medium'
+              aria-hidden='true'
+            >
+              …
+            </span>
+          )}
+        </span>
+      }
+      headerAction={
+        <CopyButton
+          value={models.join(',')}
+          variant='outline'
+          size='sm'
+          className='h-7 gap-1.5 px-2 text-xs'
+          iconClassName='size-3.5'
+          tooltip={t('Copy all models')}
+          successTooltip={t('Copied!')}
+          aria-label={t('Copy all models')}
+        >
+          {t('Copy all models')}
+        </CopyButton>
       }
     >
-      {modelRows.map(({ key, value: model }) => {
-        const displayInfo = props.modelDisplayInfo?.[model]
-        let providerName = displayInfo?.providerName || t('Unknown provider')
-        if (displayStatus === 'loading') {
-          providerName = t('Loading model providers')
-        } else if (displayStatus === 'error') {
-          providerName = t('Provider unavailable')
-        }
-
-        return (
+      {modelGroups.map((group) => (
+        <section key={group.key} className='space-y-1.5'>
           <div
-            key={key}
-            className='bg-muted/30 flex min-w-0 items-center gap-2 rounded-lg border p-2'
+            data-provider-icon={group.providerIcon || ''}
+            className='text-muted-foreground flex items-center gap-2 px-1 text-xs font-medium'
           >
             <span className='shrink-0' aria-hidden='true'>
-              {getLobeIcon(
-                displayInfo?.providerIcon || displayInfo?.providerName,
-                20
-              )}
+              {getLobeIcon(group.providerIcon, 18)}
             </span>
-            <span className='min-w-0 flex-1'>
-              <span className='text-muted-foreground block text-xs break-words whitespace-normal'>
-                {providerName}
-              </span>
-              <span
-                data-model-restriction-id={model}
-                className='block font-mono text-xs break-all whitespace-normal'
-              >
-                {model}
-              </span>
-            </span>
+            <span>{group.providerName}</span>
           </div>
-        )
-      })}
+          <div className='space-y-1'>
+            {group.rows.map((row) => (
+              <CopyButton
+                key={row.key}
+                value={row.model}
+                variant='ghost'
+                size='sm'
+                className='bg-muted/30 h-auto w-full min-w-0 justify-start gap-2 rounded-lg border p-2 font-normal'
+                iconClassName='hidden'
+                tooltip={t('Copy model {{model}}', { model: row.model })}
+                successTooltip={t('Copied!')}
+                aria-label={t('Copy model {{model}}', { model: row.model })}
+              >
+                <span className='shrink-0' aria-hidden='true'>
+                  {getLobeIcon(row.displayInfo?.modelIcon, 20)}
+                </span>
+                <span
+                  data-model-restriction-id={row.model}
+                  data-model-icon={row.displayInfo?.modelIcon || ''}
+                  className='min-w-0 text-left font-mono text-xs break-all whitespace-normal'
+                >
+                  {row.model}
+                </span>
+              </CopyButton>
+            ))}
+          </div>
+        </section>
+      ))}
     </RestrictionDetails>
   )
 }
@@ -200,25 +306,46 @@ export function IpRestrictionsCell(props: { apiKey: ApiKey }) {
 
   return (
     <RestrictionDetails
-      ariaLabel={t('View IP restrictions')}
+      ariaLabel={`${t('View IP restrictions')}: ${ips[0]}, ${t(
+        '{{count}} IP(s)',
+        { count: ips.length }
+      )}`}
       count={ips.length}
       listKind='ips'
       title={t('IP restrictions')}
       trigger={
-        <StatusBadge
-          label={t('{{count}} IP(s)', { count: ips.length })}
-          variant='neutral'
-          copyable={false}
-        />
+        <span className='flex min-w-0 items-center gap-1'>
+          <StatusBadge label={ips[0]} variant='neutral' copyable={false} />
+          {ips.length > 1 && (
+            <span
+              className='text-muted-foreground text-sm font-medium'
+              aria-hidden='true'
+            >
+              …
+            </span>
+          )}
+          <span className='sr-only'>
+            {t('{{count}} IP(s)', { count: ips.length })}
+          </span>
+        </span>
       }
     >
       {ipRows.map(({ key, value: ip }) => (
-        <div
+        <CopyButton
           key={key}
-          className='bg-muted/30 min-w-0 rounded-lg border px-2.5 py-2 font-mono text-xs break-all'
+          value={ip}
+          variant='outline'
+          size='sm'
+          className='h-auto max-w-full gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs'
+          iconClassName='hidden'
+          tooltip={t('Copy IP {{ip}}', { ip })}
+          successTooltip={t('Copied!')}
+          aria-label={t('Copy IP {{ip}}', { ip })}
         >
-          {ip}
-        </div>
+          <span data-ip-restriction-value={ip} className='break-all'>
+            {ip}
+          </span>
+        </CopyButton>
       ))}
     </RestrictionDetails>
   )
