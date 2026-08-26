@@ -49,6 +49,10 @@ for (const key of domGlobals) {
     value: domWindow[key],
   })
 }
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: domWindow.matchMedia.bind(domWindow),
+})
 
 const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -74,10 +78,22 @@ const options = [
     label: 'VIP',
     desc: 'Priority access',
     ratio: 3,
-    recommendation: 5,
+    successRate: 97.5,
   },
-  { value: 'default', label: 'Default', desc: 'Standard access', ratio: 1 },
-  { value: 'team', label: 'Team', desc: 'Shared access', ratio: 2 },
+  {
+    value: 'default',
+    label: 'Default',
+    desc: 'Standard access',
+    ratio: 1,
+    successRate: null,
+  },
+  {
+    value: 'team',
+    label: 'Team',
+    desc: 'Shared access',
+    ratio: 2,
+    successRate: 0,
+  },
 ]
 const globalOptions = options.filter((option) => option.value !== 'auto')
 
@@ -248,7 +264,7 @@ describe('direct API key group selection', () => {
     )
   })
 
-  test('keeps selected rows compact and reorders from the drag handle', async () => {
+  test('shows today’s real success rate in selected rows and keeps drag ordering', async () => {
     const container = await renderHarness()
     const vipItem = container.querySelector<HTMLElement>(
       '[data-selected-group-item="vip"]'
@@ -263,7 +279,7 @@ describe('direct API key group selection', () => {
       '[data-selected-group-metadata]'
     )
     assert.ok(metadata)
-    assert.equal(metadata.textContent?.includes('5.0'), true)
+    assert.equal(metadata.textContent?.includes('97.5%'), true)
     assert.equal(metadata.textContent?.includes('Recommendation'), false)
     assert.equal(nameLine.textContent?.includes('3x'), true)
     assert.equal(vipItem.textContent?.includes('Priority access'), true)
@@ -292,6 +308,31 @@ describe('direct API key group selection', () => {
       )
     })
     assert.equal(output(container, 'order'), 'default,vip')
+  })
+
+  test('shows real success rates in picker rows and no requests for groups without today’s metrics', async () => {
+    const container = await renderHarness()
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[role="combobox"]'
+    )
+    assert.ok(trigger)
+    await act(async () => trigger.click())
+
+    const vip = document.querySelector<HTMLElement>(
+      '[data-group-selection-checkbox="vip"]'
+    )
+    const defaultGroup = document.querySelector<HTMLElement>(
+      '[data-group-selection-checkbox="default"]'
+    )
+    const team = document.querySelector<HTMLElement>(
+      '[data-group-selection-checkbox="team"]'
+    )
+    assert.ok(vip)
+    assert.ok(defaultGroup)
+    assert.ok(team)
+    assert.equal(vip.textContent?.includes('97.5%'), true)
+    assert.equal(defaultGroup.textContent?.includes('No requests'), true)
+    assert.equal(team.textContent?.includes('0%'), true)
   })
 
   test('copies the configured system order without exposing auto', async () => {

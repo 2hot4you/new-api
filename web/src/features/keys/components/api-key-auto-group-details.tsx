@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Star } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -33,13 +32,14 @@ import {
 } from '@/components/ui/popover'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
+import { GroupSuccessRateBadge } from '../hooks/use-group-success-rates'
 import { GroupRatioBadge, type GroupRatio } from './auto-group-visuals'
 
 export type ApiKeyGroupDisplayInfo = {
   desc?: string
   icon?: string
   ratio?: GroupRatio
-  recommendation?: number
+  successRate?: number | null
 }
 
 export type ApiKeyGroupDataStatus = 'error' | 'loading' | 'ready'
@@ -51,29 +51,6 @@ type ApiKeyAutoGroupDetailsProps = {
   groupDataStatus?: ApiKeyGroupDataStatus
   groupDisplayInfo?: Record<string, ApiKeyGroupDisplayInfo>
   trigger: ReactNode
-}
-
-function RecommendationBadge(props: { score?: number }) {
-  const { t } = useTranslation()
-  if (
-    props.score === undefined ||
-    !Number.isFinite(props.score) ||
-    props.score <= 0 ||
-    props.score > 5
-  ) {
-    return null
-  }
-
-  return (
-    <Badge
-      variant='warning'
-      aria-label={`${t('Recommendation')} ${props.score.toFixed(1)}`}
-      className='gap-1 px-1.5 text-[10px]'
-    >
-      <Star aria-hidden='true' className='size-2.5 fill-current' />
-      {props.score.toFixed(1)}
-    </Badge>
-  )
 }
 
 export function ApiKeyAutoGroupDetails(props: ApiKeyAutoGroupDetailsProps) {
@@ -178,7 +155,7 @@ export function ApiKeyAutoGroupDetails(props: ApiKeyAutoGroupDetailsProps) {
                   </span>
                   {info ? (
                     <span className='flex shrink-0 items-center gap-1'>
-                      <RecommendationBadge score={info.recommendation} />
+                      <GroupSuccessRateBadge successRate={info.successRate} />
                       <GroupRatioBadge ratio={info.ratio} />
                     </span>
                   ) : (

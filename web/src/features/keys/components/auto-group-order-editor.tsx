@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Cancel01Icon, Drag01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Check, ChevronsUpDown, Search, Star } from 'lucide-react'
+import { Check, ChevronsUpDown, Search } from 'lucide-react'
 import { Reorder, useDragControls } from 'motion/react'
 import {
   useMemo,
@@ -41,6 +41,7 @@ import {
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
+import { GroupSuccessRateBadge } from '../hooks/use-group-success-rates'
 import { GroupRatioBadge } from './auto-group-visuals'
 
 export type ApiKeyGroupOption = {
@@ -49,7 +50,7 @@ export type ApiKeyGroupOption = {
   desc?: string
   ratio?: number | string
   icon?: string
-  recommendation?: number
+  successRate?: number | null
 }
 
 type AutoGroupOrderEditorProps = Omit<ComponentProps<'div'>, 'onChange'> & {
@@ -68,29 +69,6 @@ type AutoGroupOrderItemProps = {
   index: number
   onMove: (index: number, direction: 'up' | 'down') => void
   onRemove: (group: string) => void
-}
-
-function RecommendationBadge(props: { score?: number; compact?: boolean }) {
-  const { t } = useTranslation()
-  if (
-    props.score === undefined ||
-    !Number.isFinite(props.score) ||
-    props.score <= 0 ||
-    props.score > 5
-  ) {
-    return null
-  }
-
-  return (
-    <Badge
-      variant='warning'
-      aria-label={`${t('Recommendation')} ${props.score.toFixed(1)}`}
-      className='max-w-full gap-1 px-1.5 text-[10px]'
-    >
-      <Star aria-hidden='true' className='size-2.5 fill-current' />
-      {!props.compact && t('Recommendation')} {props.score.toFixed(1)}
-    </Badge>
-  )
 }
 
 function CompactRatioBadge(props: { ratio?: number | string }) {
@@ -175,7 +153,7 @@ function AutoGroupOrderItem(props: AutoGroupOrderItemProps) {
             data-selected-group-metadata='true'
             className='flex min-w-0 shrink-0 items-center gap-1 overflow-hidden'
           >
-            <RecommendationBadge score={props.option.recommendation} compact />
+            <GroupSuccessRateBadge successRate={props.option.successRate} />
             <CompactRatioBadge ratio={props.option.ratio} />
           </span>
         </span>
@@ -400,7 +378,7 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
                     )}
                   </span>
                   <GroupRatioBadge ratio={option.ratio} />
-                  <RecommendationBadge score={option.recommendation} />
+                  <GroupSuccessRateBadge successRate={option.successRate} />
                 </button>
               )
             })}

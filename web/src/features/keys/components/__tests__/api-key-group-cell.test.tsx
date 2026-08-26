@@ -72,6 +72,7 @@ await i18n.use(initReactI18next).init({
         '{{count}} groups': '{{count}} groups',
         'Uses system default order': 'Uses system default order',
         Unavailable: 'Unavailable',
+        'No requests': 'No requests',
         'No groups configured.': 'No groups configured.',
         Recommendation: 'Recommendation',
         Ratio: 'Ratio',
@@ -100,7 +101,7 @@ function CellHarness(props: {
     {
       ratio?: number | string
       icon?: string
-      recommendation?: number
+      successRate?: number | null
       desc?: string
     }
   >
@@ -288,7 +289,7 @@ describe('API key group table cell', () => {
     container.remove()
   })
 
-  test('opens the saved cross-group failover order with group metadata and keeps removed groups visible', async () => {
+  test('shows today’s group success rates in the saved cross-group failover order', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -302,11 +303,11 @@ describe('API key group table cell', () => {
           groupDisplayInfo={{
             vip: {
               ratio: 2,
-              recommendation: 4.5,
+              successRate: 86.5,
               desc: 'Priority route',
               icon: 'OpenAI.Color',
             },
-            default: { ratio: 1, recommendation: 5 },
+            default: { ratio: 1, successRate: null },
           }}
         />
       )
@@ -325,30 +326,38 @@ describe('API key group table cell', () => {
       '[data-api-key-auto-group-details]'
     )
     assert.ok(details)
-    assert.equal(details.textContent?.includes('Group failover order'), true)
-    assert.equal(details.textContent?.includes('3 groups'), true)
-    assert.equal(details.textContent?.includes('Priority route'), true)
-    assert.equal(details.textContent?.includes('4.5'), true)
-    assert.equal(details.textContent?.includes('2x'), true)
-    assert.equal(details.classList.contains('max-h-(--available-height)'), true)
+    const detailText = details.textContent ?? ''
+    const hasExpectedHeight = details.classList.contains(
+      'max-h-(--available-height)'
+    )
     const detailList = details.querySelector<HTMLElement>(
       '[data-auto-group-detail-list]'
     )
     assert.ok(detailList)
-    assert.equal(detailList.classList.contains('min-h-0'), true)
-    assert.equal(detailList.classList.contains('overflow-y-auto'), true)
+    const hasScrollableList =
+      detailList.classList.contains('min-h-0') &&
+      detailList.classList.contains('overflow-y-auto')
 
     const items = [
       ...details.querySelectorAll<HTMLElement>('[data-auto-group-detail]'),
     ]
-    assert.deepEqual(
-      items.map((item) => item.dataset.autoGroupDetail),
-      ['vip', 'removed', 'default']
-    )
-    assert.equal(items[1]?.textContent?.includes('Unavailable'), true)
+    const groupOrder = items.map((item) => item.dataset.autoGroupDetail)
+    const removedGroupUnavailable =
+      items[1]?.textContent?.includes('Unavailable')
 
     await act(async () => root.unmount())
     container.remove()
+
+    assert.equal(detailText.includes('Group failover order'), true)
+    assert.equal(detailText.includes('3 groups'), true)
+    assert.equal(detailText.includes('Priority route'), true)
+    assert.equal(detailText.includes('86.5%'), true)
+    assert.equal(detailText.includes('No requests'), true)
+    assert.equal(detailText.includes('2x'), true)
+    assert.equal(hasExpectedHeight, true)
+    assert.equal(hasScrollableList, true)
+    assert.deepEqual(groupOrder, ['vip', 'removed', 'default'])
+    assert.equal(removedGroupUnavailable, true)
   })
 
   test('labels legacy cross-group keys and shows the current system default order', async () => {

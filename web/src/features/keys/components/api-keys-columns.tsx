@@ -40,6 +40,10 @@ import { cn } from '@/lib/utils'
 
 import { getTokenAutoGroups } from '../api'
 import { API_KEY_STATUSES } from '../constants'
+import {
+  getGroupSuccessRate,
+  useGroupSuccessRates,
+} from '../hooks/use-group-success-rates'
 import { canSelectApiKey, type ApiKey } from '../types'
 import type {
   ApiKeyGroupDataStatus,
@@ -67,7 +71,9 @@ type GroupDisplayQueryResult = {
   status: ApiKeyGroupDataStatus
 }
 
-function useGroupDisplayInfo(): GroupDisplayQueryResult {
+function useGroupDisplayInfo(
+  groupSuccessRates: ReturnType<typeof useGroupSuccessRates>
+): GroupDisplayQueryResult {
   const query = useQuery({
     queryKey: ['user-groups'],
     queryFn: getUserGroups,
@@ -85,7 +91,7 @@ function useGroupDisplayInfo(): GroupDisplayQueryResult {
       desc: info.desc,
       icon: info.icon,
       ratio: info.ratio,
-      recommendation: info.recommendation,
+      successRate: getGroupSuccessRate(group, groupSuccessRates),
     }
   }
   return { data: groups, status: 'ready' }
@@ -166,7 +172,8 @@ function useModelDisplayInfo(): ModelDisplayQueryResult {
 
 export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
-  const groupDisplayInfo = useGroupDisplayInfo()
+  const groupSuccessRates = useGroupSuccessRates()
+  const groupDisplayInfo = useGroupDisplayInfo(groupSuccessRates)
   const defaultAutoGroups = useDefaultAutoGroups()
   const modelDisplayInfo = useModelDisplayInfo()
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')

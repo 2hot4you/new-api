@@ -75,6 +75,10 @@ import {
 } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
+  getGroupSuccessRate,
+  useGroupSuccessRates,
+} from '../hooks/use-group-success-rates'
+import {
   getApiKeyFormSchema,
   type ApiKeyFormValues,
   getApiKeyFormDefaultValues,
@@ -116,6 +120,7 @@ export function ApiKeysMutateDrawer({
     null
   )
   const defaultUseAutoGroup = status?.default_use_auto_group === true
+  const groupSuccessRates = useGroupSuccessRates(open)
 
   // Fetch models
   const { data: modelsData } = useQuery({
@@ -184,9 +189,9 @@ export function ApiKeysMutateDrawer({
           desc: info.desc || key,
           ratio: info.ratio,
           icon: info.icon,
-          recommendation: info.recommendation,
+          successRate: getGroupSuccessRate(key, groupSuccessRates),
         })),
-    [groupsData]
+    [groupsData, groupSuccessRates]
   )
   const availableAutoGroupNames = useMemo(
     () => groups.map((group) => group.value),
