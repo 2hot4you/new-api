@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils'
 export type Option = {
   label: string
   value: string
+  icon?: React.ReactNode
 }
 
 interface MultiSelectProps {
@@ -138,6 +139,13 @@ export function MultiSelect(props: MultiSelectProps) {
     }
     return map
   }, [props.options])
+  const iconMap = React.useMemo(() => {
+    const map = new Map<string, React.ReactNode>()
+    for (const option of props.options) {
+      map.set(option.value, option.icon)
+    }
+    return map
+  }, [props.options])
 
   const trimmedInput = inputValue.trim()
   const inputMatchesExisting =
@@ -164,7 +172,7 @@ export function MultiSelect(props: MultiSelectProps) {
     if (canCreate) {
       set.add(trimmedInput)
     }
-    return Array.from(set)
+    return [...set]
   }, [props.options, props.selected, canCreate, trimmedInput])
 
   const addValues = React.useCallback(
@@ -282,8 +290,10 @@ export function MultiSelect(props: MultiSelectProps) {
               <>
                 {visibleValues.map((value) => {
                   const label = labelMap.get(value) ?? value
+                  const icon = iconMap.get(value)
                   return (
                     <ComboboxChip key={value}>
+                      {icon}
                       {props.copyChipOnClick ? (
                         <button
                           type='button'
@@ -356,6 +366,7 @@ export function MultiSelect(props: MultiSelectProps) {
             {(item: string) => {
               const isCreate = canCreate && item === trimmedInput
               const label = labelMap.get(item) ?? item
+              const icon = iconMap.get(item)
               return (
                 <ComboboxItem
                   key={item}
@@ -377,7 +388,10 @@ export function MultiSelect(props: MultiSelectProps) {
                       </span>
                     </>
                   ) : (
-                    <span className='truncate'>{label}</span>
+                    <>
+                      {icon}
+                      <span className='truncate'>{label}</span>
+                    </>
                   )}
                 </ComboboxItem>
               )

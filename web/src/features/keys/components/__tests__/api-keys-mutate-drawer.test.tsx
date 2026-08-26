@@ -21,6 +21,8 @@ import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import type { PricingData } from '@/features/pricing/types'
+
 const domWindow = new Window()
 const domGlobals = [
   'window',
@@ -32,6 +34,7 @@ const domGlobals = [
   'HTMLFormElement',
   'SVGElement',
   'Node',
+  'NodeFilter',
   'Element',
   'Event',
   'KeyboardEvent',
@@ -92,6 +95,16 @@ type RenderedDrawer = {
   root: ReturnType<typeof createRoot>
 }
 
+const emptyPricing: PricingData = {
+  success: true,
+  data: [],
+  vendors: [],
+  group_ratio: {},
+  usable_group: {},
+  supported_endpoint: {},
+  auto_groups: [],
+}
+
 const apiClient = api as unknown as MockableApi
 const originalGet = apiClient.get
 const originalPost = apiClient.post
@@ -102,6 +115,7 @@ function installApiFixtures(
   createdPayloads: Array<Record<string, unknown>>,
   options: {
     apiKey?: ReturnType<typeof apiKeySchema.parse>
+    pricing?: PricingData
     updatedPayloads?: Array<Record<string, unknown>>
   } = {}
 ) {
@@ -114,6 +128,8 @@ function installApiFixtures(
         return { data: { data: { default_use_auto_group: true } } }
       case '/api/user/models':
         return { data: { success: true, data: [] } }
+      case '/api/pricing':
+        return { data: options.pricing ?? emptyPricing }
       case '/api/user/self/groups':
         return {
           data: {
@@ -197,7 +213,8 @@ async function renderCreateDrawer(
       { desc: string; ratio: number | string; display_order?: number }
     >
   },
-  currentRow?: ReturnType<typeof apiKeySchema.parse>
+  currentRow?: ReturnType<typeof apiKeySchema.parse>,
+  models: string[] = []
 ): Promise<void> {
   const host = document.createElement('div')
   document.body.append(host)
@@ -213,7 +230,7 @@ async function renderCreateDrawer(
   )
   queryClient.setQueryData(
     ['user-models'],
-    { success: true, data: [] },
+    { success: true, data: models },
     { updatedAt: freshAt }
   )
   queryClient.setQueryData(
@@ -628,5 +645,94 @@ describe('API keys mutate drawer direct group selection', () => {
     assert.equal(updatedPayloads[0]?.group, 'auto')
     assert.deepEqual(updatedPayloads[0]?.auto_groups, ['vip', 'default'])
     assert.equal(updatedPayloads[0]?.cross_group_retry, true)
+  })
+})
+
+describe('API keys mutate drawer model limits', () => {
+  test('uses the configured model icon in model choices and selected chips', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    const pricing: PricingData = {
+      success: true,
+      data: [
+        {
+          id: 1,
+          model_name: 'claude-test-model',
+          icon: 'Claude.Color',
+          vendor_id: 2,
+          quota_type: 0,
+          model_ratio: 1,
+          completion_ratio: 1,
+          enable_groups: [],
+        },
+      ],
+      vendors: [{ id: 2, name: 'OpenAI', icon: 'OpenAI.Color' }],
+      group_ratio: {},
+      usable_group: {},
+      supported_endpoint: {},
+      auto_groups: [],
+    }
+    installApiFixtures(createdPayloads, { pricing })
+    await renderCreateDrawer(undefined, undefined, ['claude-test-model'])
+
+    await act(async () => findButton('Advanced Settings', true).click())
+    const modelControl = getControlByLabel<HTMLElement>('Model Limits')
+    const modelInput = modelControl.matches('input')
+      ? (modelControl as HTMLInputElement)
+      : modelControl.querySelector<HTMLInputElement>('input')
+    assert.ok(modelInput)
+    await act(async () => {
+      modelInput.focus()
+      modelInput.dispatchEvent(
+        new domWindow.KeyboardEvent('keydown', {
+          bubbles: true,
+          key: 'ArrowDown',
+        }) as unknown as Event
+      )
+    })
+    await changeInput(modelInput, 'claude')
+    await act(async () =>
+      waitForCondition(
+        () =>
+          [
+            ...document.querySelectorAll<HTMLElement>(
+              '[data-slot="combobox-item"]'
+            ),
+          ].some((item) => item.textContent?.includes('claude-test-model')),
+        'model restriction option did not render'
+      )
+    )
+
+    const modelOption = [
+      ...document.querySelectorAll<HTMLElement>('[data-slot="combobox-item"]'),
+    ].find((item) => item.textContent?.includes('claude-test-model'))
+    assert.ok(modelOption)
+    assert.ok(
+      modelOption.querySelector('[data-model-limit-icon="Claude.Color"]')
+    )
+    assert.equal(
+      modelOption.querySelector('[data-model-limit-icon="OpenAI.Color"]'),
+      null
+    )
+
+    await act(async () => modelOption.click())
+    await act(async () =>
+      waitForCondition(
+        () =>
+          document.querySelector(
+            '[data-slot="combobox-chip"] [data-model-limit-icon="Claude.Color"]'
+          ) !== null,
+        'selected model chip did not render its configured icon'
+      )
+    )
+
+    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'limited')
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => createdPayloads.length === 1,
+        'model-limited API key was not created'
+      )
+    )
+    assert.equal(createdPayloads[0]?.model_limits, 'claude-test-model')
   })
 })

@@ -62,9 +62,11 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { getPricing } from '@/features/pricing/api'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
+import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
 import {
@@ -129,6 +131,12 @@ export function ApiKeysMutateDrawer({
     enabled: open,
     staleTime: 0,
   })
+  const { data: pricingData } = useQuery({
+    queryKey: ['pricing'],
+    queryFn: getPricing,
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  })
 
   // Fetch groups
   const {
@@ -164,7 +172,31 @@ export function ApiKeysMutateDrawer({
     staleTime: 0,
   })
 
-  const models = modelsData?.data || []
+  const models = useMemo(() => modelsData?.data ?? [], [modelsData])
+  const modelIcons = useMemo(() => {
+    if (!pricingData?.success || !Array.isArray(pricingData.data)) {
+      return new Map<string, string | undefined>()
+    }
+    return new Map(
+      pricingData.data.map((model) => [model.model_name, model.icon])
+    )
+  }, [pricingData])
+  const modelOptions = useMemo(
+    () =>
+      models.map((model) => {
+        const icon = modelIcons.get(model)
+        return {
+          label: model,
+          value: model,
+          icon: (
+            <span data-model-limit-icon={icon ?? ''} aria-hidden='true'>
+              {getLobeIcon(icon, 16)}
+            </span>
+          ),
+        }
+      }),
+    [models, modelIcons]
+  )
   const groups = useMemo<ApiKeyGroupOption[]>(
     () =>
       Object.entries(groupsData?.data || {})
@@ -671,10 +703,7 @@ export function ApiKeysMutateDrawer({
                           <FormLabel>{t('Model Limits')}</FormLabel>
                           <FormControl>
                             <MultiSelect
-                              options={models.map((m) => ({
-                                label: m,
-                                value: m,
-                              }))}
+                              options={modelOptions}
                               selected={field.value}
                               onChange={field.onChange}
                               placeholder={t(
