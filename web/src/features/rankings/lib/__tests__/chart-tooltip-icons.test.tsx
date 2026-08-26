@@ -100,3 +100,57 @@ test('uses the existing Lobe icon fallback for a configured item without an icon
   assert.equal(icon?.getAttribute('data-ranking-tooltip-icon'), '')
   assert.equal(icon?.textContent, '?')
 })
+
+test('matches icons to rendered keys after a summary row is inserted and aligns the icon column', () => {
+  const tooltip = document.createElement('div')
+  tooltip.innerHTML = `
+    <div class="vchart-tooltip-content-box">
+      <div data-col="shape" style="width: 8px; margin-right: 6px">
+        <div><svg data-original-marker="total"></svg></div>
+        <div><svg data-original-marker="first-model"></svg></div>
+        <div><svg data-original-marker="second-model"></svg></div>
+      </div>
+      <div data-col="key">
+        <div>Total:</div>
+        <div>claude-sonnet-4-6</div>
+        <div>gpt-5.6-sol</div>
+      </div>
+    </div>
+  `
+
+  decorateChartTooltipIcons(
+    tooltip,
+    {
+      // VChart may expose the pre-transform content here. The rendered key
+      // column is authoritative after sorting and prepending the summary row.
+      content: [{ key: 'gpt-5.6-sol' }, { key: 'claude-sonnet-4-6' }],
+    },
+    new Map([
+      ['claude-sonnet-4-6', 'Claude.Color'],
+      ['gpt-5.6-sol', 'OpenAI.Color'],
+    ])
+  )
+
+  const shapeColumn = tooltip.querySelector<HTMLElement>('[data-col="shape"]')
+  const rows = shapeColumn?.children
+  assert.equal(shapeColumn?.style.width, '20px')
+  assert.equal(shapeColumn?.style.marginRight, '8px')
+  assert.equal(rows?.[0]?.children.length, 0)
+  assert.equal(
+    rows?.[1]
+      ?.querySelector('[data-ranking-tooltip-icon]')
+      ?.getAttribute('data-ranking-tooltip-icon'),
+    'Claude.Color'
+  )
+  assert.equal(
+    rows?.[2]
+      ?.querySelector('[data-ranking-tooltip-icon]')
+      ?.getAttribute('data-ranking-tooltip-icon'),
+    'OpenAI.Color'
+  )
+  assert.equal((rows?.[1] as HTMLElement | undefined)?.style.display, 'flex')
+  assert.equal(
+    (rows?.[1] as HTMLElement | undefined)?.style.alignItems,
+    'center'
+  )
+})

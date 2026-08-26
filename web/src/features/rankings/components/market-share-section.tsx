@@ -288,24 +288,29 @@ function VendorList(props: { rows: VendorRanking[] }) {
   return (
     <ul>
       {props.rows.map((vendor) => (
-        <li key={vendor.vendor} className='flex items-center gap-3 py-2.5'>
+        <li key={vendor.vendor} className='flex items-center py-2.5'>
           <span className='text-muted-foreground/80 w-6 shrink-0 text-right font-mono text-xs tabular-nums'>
             {vendor.rank}.
           </span>
-          <span
-            data-ranking-vendor-icon={vendor.vendor_icon ?? ''}
-            aria-hidden='true'
-            className='inline-flex size-5 shrink-0 items-center justify-center'
+          <div
+            data-ranking-vendor-identity
+            className='ml-3 flex min-w-0 flex-1 items-center gap-2.5'
           >
-            {getLobeIcon(vendor.vendor_icon, 18)}
-          </span>
-          <VendorLink
-            vendor={vendor.vendor}
-            className='text-foreground min-w-0 flex-1 truncate text-sm font-medium'
-          >
-            {vendor.vendor}
-          </VendorLink>
-          <div className='shrink-0 text-right'>
+            <span
+              data-ranking-vendor-icon={vendor.vendor_icon ?? ''}
+              aria-hidden='true'
+              className='inline-flex size-6 shrink-0 items-center justify-center'
+            >
+              {getLobeIcon(vendor.vendor_icon, 18)}
+            </span>
+            <VendorLink
+              vendor={vendor.vendor}
+              className='text-foreground min-w-0 flex-1 truncate text-sm font-medium'
+            >
+              {vendor.vendor}
+            </VendorLink>
+          </div>
+          <div className='ml-3 shrink-0 text-right'>
             <div className='text-foreground font-mono text-sm font-semibold tabular-nums'>
               {formatTokens(vendor.total_tokens)}
             </div>

@@ -232,6 +232,12 @@ test('uses configured model and vendor icons in ranking tooltips and vendor rows
       ?.getAttribute('data-ranking-vendor-icon'),
     'Anthropic.Color'
   )
+  const vendorIdentity = container.querySelector(
+    '[data-ranking-vendor-identity]'
+  )
+  assert.ok(vendorIdentity)
+  assert.ok(vendorIdentity.querySelector('[data-ranking-vendor-icon]'))
+  assert.equal(vendorIdentity.textContent?.includes('Anthropic'), true)
 
   await act(async () => root.unmount())
   container.remove()

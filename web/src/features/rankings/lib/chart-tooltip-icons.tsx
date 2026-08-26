@@ -26,8 +26,8 @@ type ChartTooltipActual = {
 
 /**
  * VChart owns the tooltip DOM and recreates its marker column on every update.
- * Replace only markers whose row key maps to a configured model/vendor icon;
- * summary rows such as Total and Others keep VChart's native marker.
+ * Replace markers whose rendered row key maps to a configured model/vendor
+ * icon; summary rows keep an empty, aligned icon slot.
  */
 export function decorateChartTooltipIcons(
   tooltipElement: HTMLElement,
@@ -36,13 +36,35 @@ export function decorateChartTooltipIcons(
 ): void {
   const shapeColumn =
     tooltipElement.querySelector<HTMLElement>('[data-col="shape"]')
-  if (!shapeColumn || !actualTooltip.content) return
+  const content = actualTooltip.content
+  if (!shapeColumn || !content) return
+
+  // VChart reserves an 8px marker column. Lobe icons are 16px wide, so they
+  // otherwise overflow into the key column and sit against the label.
+  shapeColumn.style.width = '20px'
+  shapeColumn.style.marginRight = '8px'
 
   const shapeRows = [...shapeColumn.children]
-  actualTooltip.content.forEach((item, index) => {
-    const key = item.key
-    const shapeRow = shapeRows[index]
-    if (!key || !shapeRow || !iconByKey.has(key)) return
+  const keyRows = [
+    ...(tooltipElement.querySelector<HTMLElement>('[data-col="key"]')
+      ?.children ?? []),
+  ]
+  shapeRows.forEach((shapeRow, index) => {
+    const renderedKey = keyRows[index]?.textContent?.trim()
+    const key = renderedKey || content[index]?.key
+
+    const rowElement = shapeRow as HTMLElement
+    rowElement.style.display = 'flex'
+    rowElement.style.alignItems = 'center'
+    rowElement.style.justifyContent = 'center'
+
+    if (!key || !iconByKey.has(key)) {
+      // Transformed dimension tooltips can prepend summary rows (for example
+      // Total) that have no entity icon. Keep their column width as alignment
+      // space, but remove the misleading native colour marker.
+      if (renderedKey) shapeRow.replaceChildren()
+      return
+    }
 
     const iconKey = iconByKey.get(key)
     const markup = renderToStaticMarkup(

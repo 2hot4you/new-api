@@ -1,0 +1,12 @@
+{
+  "id": "fix-rankings-tooltip-icon-layout",
+  "title": "修复排行榜图表提示中的图标间距、对齐和总计行错位",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交推送 develop",
+  "createdAt": "2026-08-26T12:00:00+08:00",
+  "branch": "develop"
+}
