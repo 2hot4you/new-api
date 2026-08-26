@@ -72,6 +72,7 @@ const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
+const { toast } = await import('sonner')
 const { IpRestrictionsCell, ModelLimitsCell } =
   await import('../api-key-restriction-details')
 
@@ -92,8 +93,10 @@ await i18n.use(initReactI18next).init({
         'Provider unavailable': 'Provider unavailable',
         'Unknown provider': 'Unknown provider',
         'Copy all models': 'Copy all models',
+        'Copy all IPs': 'Copy all IPs',
         'Copy model {{model}}': 'Copy model {{model}}',
         'Copy IP {{ip}}': 'Copy IP {{ip}}',
+        'Copied to clipboard': 'Copied to clipboard',
         'Copied!': 'Copied!',
         Copied: 'Copied',
       },
@@ -188,6 +191,7 @@ describe('API key restriction table cells', () => {
     domWindow.close()
   })
   afterEach(() => {
+    toast.dismiss()
     document.body.replaceChildren()
   })
 
@@ -311,6 +315,19 @@ describe('API key restriction table cells', () => {
     )
     assert.match(providerHeaders[0]?.textContent ?? '', /Anthropic/)
     assert.match(providerHeaders[1]?.textContent ?? '', /OpenAI/)
+    const providerGroups = document.querySelectorAll<HTMLElement>(
+      '[data-model-provider-group]'
+    )
+    assert.equal(providerGroups.length, 2)
+    assert.equal(providerGroups[0]?.classList.contains('border'), true)
+    assert.equal(providerGroups[0]?.classList.contains('overflow-hidden'), true)
+    assert.equal(providerHeaders[0]?.classList.contains('bg-muted/50'), true)
+    assert.equal(
+      document
+        .querySelector('[data-model-provider-rows]')
+        ?.classList.contains('divide-y'),
+      true
+    )
 
     const modelIds = document.querySelectorAll<HTMLButtonElement>(
       '[data-model-restriction-id]'
@@ -337,7 +354,28 @@ describe('API key restriction table cells', () => {
     assert.ok(modelCopyButton)
     await pressEnter(modelCopyButton)
     assert.equal(modelCopyButton.getAttribute('aria-label'), 'Copied')
+    assert.equal(
+      toast
+        .getToasts()
+        .some(
+          (notification) =>
+            'title' in notification &&
+            notification.title === 'Copied to clipboard'
+        ),
+      true
+    )
+    toast.dismiss()
     await clickCopyButton('Copy all models')
+    assert.equal(
+      toast
+        .getToasts()
+        .some(
+          (notification) =>
+            'title' in notification &&
+            notification.title === 'Copied to clipboard'
+        ),
+      true
+    )
     assert.deepEqual(clipboardWrites, [
       'claude-opus-5',
       'claude-opus-5,claude-opus-4-8,gpt-5.6-sol',
@@ -465,11 +503,34 @@ describe('API key restriction table cells', () => {
       targetIpButton.getAttribute('aria-label'),
       'Copy IP 198.51.100.0/24'
     )
-    await act(async () => {
-      targetIpButton.click()
-      await Promise.resolve()
-    })
-    assert.deepEqual(clipboardWrites, ['198.51.100.0/24'])
+    assert.equal(targetIpButton.classList.contains('bg-muted/60'), true)
+    await clickCopyButton('Copy IP 198.51.100.0/24')
+    assert.equal(
+      toast
+        .getToasts()
+        .some(
+          (notification) =>
+            'title' in notification &&
+            notification.title === 'Copied to clipboard'
+        ),
+      true
+    )
+    toast.dismiss()
+    await clickCopyButton('Copy all IPs')
+    assert.equal(
+      toast
+        .getToasts()
+        .some(
+          (notification) =>
+            'title' in notification &&
+            notification.title === 'Copied to clipboard'
+        ),
+      true
+    )
+    assert.deepEqual(clipboardWrites, [
+      '198.51.100.0/24',
+      '203.0.113.10,198.51.100.0/24,2001:db8::1',
+    ])
 
     await act(async () => root.unmount())
     container.remove()

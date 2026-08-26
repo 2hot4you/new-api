@@ -232,8 +232,7 @@ export function ModelLimitsCell(props: ModelLimitsCellProps) {
           size='sm'
           className='h-7 gap-1.5 px-2 text-xs'
           iconClassName='size-3.5'
-          tooltip={t('Copy all models')}
-          successTooltip={t('Copied!')}
+          notify
           aria-label={t('Copy all models')}
         >
           {t('Copy all models')}
@@ -241,27 +240,31 @@ export function ModelLimitsCell(props: ModelLimitsCellProps) {
       }
     >
       {modelGroups.map((group) => (
-        <section key={group.key} className='space-y-1.5'>
+        <section
+          key={group.key}
+          data-model-provider-group
+          className='overflow-hidden rounded-lg border'
+        >
           <div
             data-provider-icon={group.providerIcon || ''}
-            className='text-muted-foreground flex items-center gap-2 px-1 text-xs font-medium'
+            data-model-provider-header
+            className='bg-muted/50 text-muted-foreground flex items-center gap-2 border-b px-2.5 py-2 text-xs font-medium'
           >
             <span className='shrink-0' aria-hidden='true'>
               {getLobeIcon(group.providerIcon, 18)}
             </span>
             <span>{group.providerName}</span>
           </div>
-          <div className='space-y-1'>
+          <div data-model-provider-rows className='divide-y'>
             {group.rows.map((row) => (
               <CopyButton
                 key={row.key}
                 value={row.model}
                 variant='ghost'
                 size='sm'
-                className='bg-muted/30 h-auto w-full min-w-0 justify-start gap-2 rounded-lg border p-2 font-normal'
+                className='hover:bg-muted/40 h-auto w-full min-w-0 justify-start gap-2 rounded-none px-2.5 py-2 font-normal'
                 iconClassName='hidden'
-                tooltip={t('Copy model {{model}}', { model: row.model })}
-                successTooltip={t('Copied!')}
+                notify
                 aria-label={t('Copy model {{model}}', { model: row.model })}
               >
                 <span className='shrink-0' aria-hidden='true'>
@@ -329,6 +332,19 @@ export function IpRestrictionsCell(props: { apiKey: ApiKey }) {
           </span>
         </span>
       }
+      headerAction={
+        <CopyButton
+          value={ips.join(',')}
+          variant='outline'
+          size='sm'
+          className='h-7 gap-1.5 px-2 text-xs'
+          iconClassName='size-3.5'
+          notify
+          aria-label={t('Copy all IPs')}
+        >
+          {t('Copy all IPs')}
+        </CopyButton>
+      }
     >
       {ipRows.map(({ key, value: ip }) => (
         <CopyButton
@@ -336,10 +352,9 @@ export function IpRestrictionsCell(props: { apiKey: ApiKey }) {
           value={ip}
           variant='outline'
           size='sm'
-          className='h-auto max-w-full gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs'
+          className='bg-muted/60 hover:bg-muted h-auto max-w-full gap-1.5 rounded-full border-transparent px-2.5 py-1 font-mono text-xs'
           iconClassName='hidden'
-          tooltip={t('Copy IP {{ip}}', { ip })}
-          successTooltip={t('Copied!')}
+          notify
           aria-label={t('Copy IP {{ip}}', { ip })}
         >
           <span data-ip-restriction-value={ip} className='break-all'>

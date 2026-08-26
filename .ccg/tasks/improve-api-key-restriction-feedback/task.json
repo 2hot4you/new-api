@@ -1,0 +1,12 @@
+{
+  "id": "improve-api-key-restriction-feedback",
+  "title": "优化 API 密钥限制弹层的边框与复制反馈",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-26T13:55:00+08:00",
+  "branch": "develop"
+}
