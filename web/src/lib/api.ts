@@ -63,7 +63,6 @@ export async function getUserGroups(): Promise<{
       desc: string
       ratio: number | string
       icon?: string
-      recommendation?: number
       display_order?: number
     }
   >
