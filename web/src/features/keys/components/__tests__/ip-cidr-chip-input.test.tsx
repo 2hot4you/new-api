@@ -163,7 +163,8 @@ async function renderInput(
 async function renderPreloadedInput(
   value: string,
   onChange: (value: string) => void,
-  resetKey = 'first-record'
+  resetKey = 'first-record',
+  onDraftStateChange?: (state: { hasDraft: boolean; isValid: boolean }) => void
 ): Promise<void> {
   if (!host) {
     host = document.createElement('div')
@@ -177,6 +178,7 @@ async function renderPreloadedInput(
           value={value}
           onChange={onChange}
           resetKey={resetKey}
+          onDraftStateChange={onDraftStateChange}
         />
       </I18nextProvider>
     )
@@ -269,7 +271,7 @@ describe('IP CIDR chip input', () => {
     assert.deepEqual(values, ['2001:db8::1'])
   })
 
-  test('normalizes and deduplicates preloaded valid entries without changing them on mount', async () => {
+  test('normalizes and deduplicates preloaded valid entries into the controlled value', async () => {
     const values: string[] = []
     await renderPreloadedInput(
       '2001:0DB8:0:0::1\n2001:db8::1\nlegacy-address',
@@ -282,10 +284,13 @@ describe('IP CIDR chip input', () => {
       ),
       ['2001:db8::1', 'legacy-address']
     )
-    assert.deepEqual(values, [])
+    assert.deepEqual(values, ['2001:db8::1\nlegacy-address'])
+    await renderPreloadedInput('2001:db8::1\nlegacy-address', (value) =>
+      values.push(value)
+    )
     await addWithButton('192.0.2.1')
 
-    assert.deepEqual(values, [])
+    assert.deepEqual(values, ['2001:db8::1\nlegacy-address'])
     assert.equal(
       document.querySelector<HTMLElement>('[role="alert"]')?.textContent,
       'Remove invalid saved entries before adding another IP address'
@@ -322,7 +327,25 @@ describe('IP CIDR chip input', () => {
       ),
       ['2001:db8::1', '198.51.100.0/24']
     )
-    assert.deepEqual(values, [])
+    assert.deepEqual(values, ['2001:db8::1\n198.51.100.0/24'])
+  })
+
+  test('keeps an uncommitted draft after removing an existing chip', async () => {
+    const values: string[] = []
+    const draftStates: Array<{ hasDraft: boolean; isValid: boolean }> = []
+    await renderPreloadedInput(
+      '192.0.2.1',
+      (value) => values.push(value),
+      'first-record',
+      (state) => draftStates.push(state)
+    )
+
+    await changeInput('2001:db8::1')
+    await act(async () => findButton('Remove 192.0.2.1').click())
+
+    assert.equal(getInput().value, '2001:db8::1')
+    assert.deepEqual(draftStates.at(-1), { hasDraft: true, isValid: true })
+    assert.deepEqual(values, [''])
   })
 
   test('shows invalid address, prefix, and zone identifier feedback without adding entries', async () => {

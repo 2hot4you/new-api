@@ -788,4 +788,34 @@ describe('API keys mutate drawer IP restrictions', () => {
       true
     )
   })
+
+  test('blocks legacy invalid restrictions until removal leaves a canonical payload', async () => {
+    const apiKey = makeLegacyApiKey({
+      allow_ips: '2001:0DB8:0:0::1\n2001:db8::1\nlegacy-address',
+    })
+    const updatedPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures([], { apiKey, updatedPayloads })
+    await renderCreateDrawer(undefined, apiKey)
+
+    await act(async () => findButton('Advanced Settings', true).click())
+    assert.equal(findButton('Save changes', true).disabled, true)
+    await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'renamed')
+    assert.equal(findButton('Save changes', true).disabled, true)
+
+    const removeLegacyButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove legacy-address"]'
+    )
+    assert.ok(removeLegacyButton, 'Expected legacy IP removal button')
+    await act(async () => removeLegacyButton.click())
+    assert.equal(findButton('Save changes', true).disabled, false)
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => updatedPayloads.length === 1,
+        'API key was not updated after removing the legacy IP restriction'
+      )
+    )
+
+    assert.equal(updatedPayloads[0]?.allow_ips, '2001:db8::1')
+  })
 })

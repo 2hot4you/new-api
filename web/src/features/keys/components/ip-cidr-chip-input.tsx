@@ -50,7 +50,6 @@ type IpCidrChipInputProps = Omit<
 
 type IpCidrEntry = {
   key: string
-  rawValue: string
   value: string
   valid: boolean
 }
@@ -91,7 +90,6 @@ function getEntries(value: string): IpCidrEntry[] {
         return [
           {
             key: `invalid-${index}-${rawValue}`,
-            rawValue,
             value: rawValue,
             valid: false,
           },
@@ -102,7 +100,6 @@ function getEntries(value: string): IpCidrEntry[] {
       return [
         {
           key: normalized,
-          rawValue,
           value: normalized,
           valid: true,
         },
@@ -134,17 +131,28 @@ export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
     const [draft, setDraft] = useState('')
     const [error, setError] = useState<string | null>(null)
     const entries = useMemo(() => getEntries(value), [value])
+    const serializedEntries = entries.map((entry) => entry.value).join('\n')
     const hasLegacyInvalidEntries = entries.some((entry) => !entry.valid)
-    const callbacksRef = useRef({ onDraftStateChange, onValidityChange })
+    const callbacksRef = useRef({
+      onChange,
+      onDraftStateChange,
+      onValidityChange,
+    })
+    const hasLegacyInvalidEntriesRef = useRef(hasLegacyInvalidEntries)
+    hasLegacyInvalidEntriesRef.current = hasLegacyInvalidEntries
 
     useEffect(() => {
-      callbacksRef.current = { onDraftStateChange, onValidityChange }
-    }, [onDraftStateChange, onValidityChange])
+      callbacksRef.current = {
+        onChange,
+        onDraftStateChange,
+        onValidityChange,
+      }
+    }, [onChange, onDraftStateChange, onValidityChange])
 
     const updateDraft = (nextDraft: string, nextError: string | null) => {
       setDraft(nextDraft)
       setError(nextError)
-      const isValid = isDraftValid(nextDraft)
+      const isValid = !hasLegacyInvalidEntries && isDraftValid(nextDraft)
       callbacksRef.current.onValidityChange?.(isValid)
       callbacksRef.current.onDraftStateChange?.({
         hasDraft: nextDraft.trim().length > 0,
@@ -155,12 +163,25 @@ export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
     useEffect(() => {
       setDraft('')
       setError(null)
-      callbacksRef.current.onValidityChange?.(true)
+      const isValid = !hasLegacyInvalidEntriesRef.current
+      callbacksRef.current.onValidityChange?.(isValid)
       callbacksRef.current.onDraftStateChange?.({
         hasDraft: false,
-        isValid: true,
+        isValid,
       })
     }, [resetKey])
+
+    useEffect(() => {
+      const isValid = !hasLegacyInvalidEntries && isDraftValid(draft)
+      callbacksRef.current.onValidityChange?.(isValid)
+      callbacksRef.current.onDraftStateChange?.({
+        hasDraft: draft.trim().length > 0,
+        isValid,
+      })
+      if (serializedEntries !== value) {
+        callbacksRef.current.onChange(serializedEntries)
+      }
+    }, [draft, hasLegacyInvalidEntries, serializedEntries, value])
 
     const addCandidates = (candidates: string[]) => {
       if (candidates.length === 0) {
@@ -237,7 +258,6 @@ export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
                         .map((candidate) => candidate.value)
                         .join('\n')
                     )
-                    updateDraft('', null)
                   }}
                 >
                   <span aria-hidden='true'>×</span>

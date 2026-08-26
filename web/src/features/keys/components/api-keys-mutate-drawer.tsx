@@ -407,7 +407,7 @@ export function ApiKeysMutateDrawer({
   const handleIpDraftStateChange = useCallback(
     (state: { hasDraft: boolean; isValid: boolean }) => {
       setIpDraftState(state)
-      if (!state.hasDraft) {
+      if (!state.hasDraft && state.isValid) {
         form.clearErrors('allow_ips')
         return
       }
@@ -475,7 +475,7 @@ export function ApiKeysMutateDrawer({
           <form
             id='api-key-form'
             onSubmit={(event) => {
-              if (ipDraftState.hasDraft) {
+              if (ipDraftState.hasDraft || !ipDraftState.isValid) {
                 event.preventDefault()
                 showIpDraftError()
                 return
@@ -801,14 +801,17 @@ export function ApiKeysMutateDrawer({
           <Button
             type='button'
             onClick={() => {
-              if (ipDraftState.hasDraft) {
+              if (ipDraftState.hasDraft || !ipDraftState.isValid) {
                 showIpDraftError()
                 return
               }
               void form.handleSubmit(onSubmit, onInvalid)()
             }}
             disabled={
-              !isFormInitialized || isSubmitting || ipDraftState.hasDraft
+              !isFormInitialized ||
+              isSubmitting ||
+              ipDraftState.hasDraft ||
+              !ipDraftState.isValid
             }
             className='w-full sm:w-auto'
           >
