@@ -1,0 +1,12 @@
+{
+  "id": "refine-rankings-and-key-restrictions",
+  "title": "完善分组成功率展示、令牌模型图标与 IP/CIDR 输入",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并推送 develop",
+  "createdAt": "2026-08-26T09:45:07Z",
+  "branch": "develop"
+}
