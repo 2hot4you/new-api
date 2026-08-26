@@ -30,7 +30,6 @@ import {
   PulseSection,
   RankingsHero,
 } from './components'
-import { useGroupSuccess } from './hooks/use-group-success'
 import { useRankings } from './hooks/use-rankings'
 import type { RankingPeriod } from './types'
 
@@ -48,7 +47,6 @@ export function Rankings() {
     : 'week'
 
   const rankingsQuery = useRankings(period)
-  const groupSuccessQuery = useGroupSuccess(period)
   const snapshot = rankingsQuery.data?.data
 
   const handlePeriodChange = (next: RankingPeriod) => {
@@ -105,9 +103,8 @@ export function Rankings() {
 
               <GroupSuccessSection
                 period={period}
-                groups={groupSuccessQuery.data?.data.groups ?? []}
-                isLoading={groupSuccessQuery.isLoading}
-                error={groupSuccessQuery.error}
+                groups={snapshot.group_success}
+                isAvailable={snapshot.group_success_available}
               />
 
               <PulseSection

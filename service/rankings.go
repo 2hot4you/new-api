@@ -7,7 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 const (
@@ -21,12 +24,14 @@ const (
 )
 
 type RankingsResponse struct {
-	Models             []RankedModel      `json:"models"`
-	Vendors            []RankedVendor     `json:"vendors"`
-	TopMovers          []RankingMover     `json:"top_movers"`
-	TopDroppers        []RankingMover     `json:"top_droppers"`
-	ModelsHistory      ModelHistorySeries `json:"models_history"`
-	VendorShareHistory VendorShareSeries  `json:"vendor_share_history"`
+	Models                []RankedModel              `json:"models"`
+	Vendors               []RankedVendor             `json:"vendors"`
+	TopMovers             []RankingMover             `json:"top_movers"`
+	TopDroppers           []RankingMover             `json:"top_droppers"`
+	ModelsHistory         ModelHistorySeries         `json:"models_history"`
+	VendorShareHistory    VendorShareSeries          `json:"vendor_share_history"`
+	GroupSuccess          []perfmetrics.GroupSummary `json:"group_success"`
+	GroupSuccessAvailable bool                       `json:"group_success_available"`
 }
 
 type RankedModel struct {
@@ -209,14 +214,87 @@ func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*Rankings
 	vendorHistory := buildVendorShareHistory(currentBuckets, vendors, totalTokens, meta, config)
 	movers, droppers := buildRankingMovers(rankedModels)
 
-	return &RankingsResponse{
+	response := &RankingsResponse{
 		Models:             limitRankedModels(rankedModels, rankingLeaderboardLimit),
 		Vendors:            vendors,
 		TopMovers:          movers,
 		TopDroppers:        droppers,
 		ModelsHistory:      modelHistory,
 		VendorShareHistory: vendorHistory,
-	}, nil
+	}
+	addRankingGroupSuccess(response, config)
+
+	return response, nil
+}
+
+func rankingConfiguredGroups(
+	activeRatios map[string]float64,
+	metadata []ratio_setting.GroupMetadata,
+) []string {
+	groups := make([]string, 0, len(activeRatios))
+	seen := make(map[string]struct{}, len(activeRatios))
+	for _, entry := range metadata {
+		if _, active := activeRatios[entry.Name]; !active {
+			continue
+		}
+		groups = append(groups, entry.Name)
+		seen[entry.Name] = struct{}{}
+	}
+
+	remaining := make([]string, 0, len(activeRatios)-len(groups))
+	for group := range activeRatios {
+		if _, included := seen[group]; !included {
+			remaining = append(remaining, group)
+		}
+	}
+	sort.Strings(remaining)
+	return append(groups, remaining...)
+}
+
+func addRankingGroupSuccess(response *RankingsResponse, config rankingPeriodConfig) {
+	groups := rankingConfiguredGroups(
+		ratio_setting.GetGroupRatioCopy(),
+		ratio_setting.GetGroupMetadataCopy(),
+	)
+	if err := applyRankingGroupSuccess(
+		response,
+		int(config.duration.Hours()),
+		groups,
+		perfmetrics.QuerySummaryAll,
+	); err != nil {
+		common.SysError("failed to build rankings group success summary: " + err.Error())
+	}
+}
+
+func applyRankingGroupSuccess(
+	response *RankingsResponse,
+	hours int,
+	groups []string,
+	query func(int, []string) (perfmetrics.SummaryAllResult, error),
+) error {
+	response.GroupSuccessAvailable = false
+	response.GroupSuccess = []perfmetrics.GroupSummary{}
+
+	result, err := query(hours, groups)
+	if err != nil {
+		return err
+	}
+
+	byGroup := make(map[string]perfmetrics.GroupSummary, len(result.Groups))
+	for _, summary := range result.Groups {
+		byGroup[summary.Group] = summary
+	}
+
+	response.GroupSuccess = make([]perfmetrics.GroupSummary, 0, len(groups))
+	for _, group := range groups {
+		summary, ok := byGroup[group]
+		if !ok {
+			summary = perfmetrics.GroupSummary{Group: group}
+		}
+		response.GroupSuccess = append(response.GroupSuccess, summary)
+	}
+	response.GroupSuccessAvailable = true
+	return nil
 }
 
 func rankingTimeRange(config rankingPeriodConfig, now time.Time) (int64, int64) {

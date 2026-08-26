@@ -20,12 +20,10 @@ import { CircleAlert, ShieldCheck } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Skeleton } from '@/components/ui/skeleton'
 import { getSuccessRateTextClass } from '@/features/performance-metrics/lib/format'
-import type { PerfGroupSummary } from '@/features/performance-metrics/types'
 import { cn } from '@/lib/utils'
 
-import type { RankingPeriod } from '../types'
+import type { RankingGroupSuccess, RankingPeriod } from '../types'
 
 const PERIOD_DESCRIPTIONS: Record<RankingPeriod, string> = {
   today: 'the last 24 hours',
@@ -36,12 +34,13 @@ const PERIOD_DESCRIPTIONS: Record<RankingPeriod, string> = {
 
 type GroupSuccessSectionProps = {
   period: RankingPeriod
-  groups: PerfGroupSummary[]
-  isLoading?: boolean
-  error?: unknown
+  groups: RankingGroupSuccess[]
+  isAvailable?: boolean
 }
 
-function isMeasured(group: PerfGroupSummary): group is PerfGroupSummary & {
+function isMeasured(
+  group: RankingGroupSuccess
+): group is RankingGroupSuccess & {
   success_rate: number
 } {
   return group.request_count > 0 && Number.isFinite(group.success_rate)
@@ -60,11 +59,12 @@ function formatRequestCount(count: number): string {
 export function GroupSuccessSection(props: GroupSuccessSectionProps) {
   const { t } = useTranslation()
   const periodDescription = t(PERIOD_DESCRIPTIONS[props.period])
+  const isAvailable = props.isAvailable ?? true
   const groups = useMemo(() => {
-    const measured: Array<PerfGroupSummary & { success_rate: number }> = []
-    const withoutRequests: PerfGroupSummary[] = []
+    const measured: Array<RankingGroupSuccess & { success_rate: number }> = []
+    const withoutRequests: RankingGroupSuccess[] = []
 
-    for (const group of props.groups) {
+    for (const group of props.groups ?? []) {
       if (isMeasured(group)) {
         measured.push(group)
       } else {
@@ -79,11 +79,6 @@ export function GroupSuccessSection(props: GroupSuccessSectionProps) {
 
     return [...measured, ...withoutRequests]
   }, [props.groups])
-
-  const errorMessage =
-    props.error instanceof Error
-      ? props.error.message
-      : t('Unable to load group success rates')
 
   return (
     <section
@@ -104,16 +99,7 @@ export function GroupSuccessSection(props: GroupSuccessSectionProps) {
         </p>
       </header>
 
-      {props.isLoading ? (
-        <div
-          className='space-y-3 px-5 py-5'
-          aria-label={t('Loading group success rates')}
-        >
-          {[0, 1, 2].map((row) => (
-            <Skeleton key={row} className='h-10 w-full rounded-md' />
-          ))}
-        </div>
-      ) : props.error ? (
+      {!isAvailable ? (
         <div
           className='text-muted-foreground flex items-start gap-3 px-5 py-6 text-sm'
           role='alert'
@@ -121,9 +107,9 @@ export function GroupSuccessSection(props: GroupSuccessSectionProps) {
           <CircleAlert className='mt-0.5 size-4 shrink-0 text-amber-500' />
           <div>
             <p className='text-foreground font-medium'>
-              {t('Unable to load group success rates')}
+              {t('Group success rates are temporarily unavailable')}
             </p>
-            <p className='mt-1'>{errorMessage}</p>
+            <p className='mt-1'>{t('Other rankings are still available')}</p>
           </div>
         </div>
       ) : groups.length === 0 ? (

@@ -17,11 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { after, describe, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { Window } from 'happy-dom'
 
 const domWindow = new Window()
+const testDirectory = fileURLToPath(new URL('.', import.meta.url))
 for (const key of [
   'window',
   'document',
@@ -115,5 +119,19 @@ describe('GroupSuccessSection', () => {
 
     await act(async () => root.unmount())
     container.remove()
+  })
+
+  test('uses the rankings snapshot instead of a second performance-summary request', () => {
+    const rankingsIndex = readFileSync(
+      resolve(testDirectory, '../../index.tsx'),
+      'utf8'
+    )
+
+    assert.doesNotMatch(rankingsIndex, /getPerfMetricsSummary|useGroupSuccess/)
+    assert.match(rankingsIndex, /snapshot\.group_success/)
+    assert.equal(
+      existsSync(resolve(testDirectory, '../../hooks/use-group-success.ts')),
+      false
+    )
   })
 })

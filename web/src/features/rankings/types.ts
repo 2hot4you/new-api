@@ -123,6 +123,12 @@ export type VendorShareSeries = {
   buckets: number
 }
 
+export type RankingGroupSuccess = {
+  group: string
+  request_count: number
+  success_rate: number | null
+}
+
 export type RankingsSnapshot = {
   // Overall (all categories) ------------------------------------------------
   models: ModelRanking[]
@@ -135,4 +141,7 @@ export type RankingsSnapshot = {
   models_history: ModelHistorySeries
   /** 100%-stacked area history of token share by vendor over the period. */
   vendor_share_history: VendorShareSeries
+  /** Group success summaries are unavailable when metrics aggregation fails. */
+  group_success: RankingGroupSuccess[]
+  group_success_available: boolean
 }
