@@ -21,9 +21,11 @@ import { PieChart } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { getLobeIcon } from '@/lib/lobe-icon'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { VCHART_OPTION } from '@/lib/vchart'
 
+import { decorateChartTooltipIcons } from '../lib/chart-tooltip-icons'
 import { formatShare, formatTokens } from '../lib/format'
 import type { RankingPeriod, VendorRanking, VendorShareSeries } from '../types'
 import { VendorLink } from './entity-links'
@@ -127,6 +129,13 @@ export function MarketShareSection(props: MarketShareSectionProps) {
       return (order.get(a.vendor) ?? 999) - (order.get(b.vendor) ?? 999)
     })
   }, [props.history])
+  const vendorIcons = useMemo(
+    () =>
+      new Map(
+        props.rows.map((vendor) => [vendor.vendor, vendor.vendor_icon] as const)
+      ),
+    [props.rows]
+  )
 
   const spec = useMemo(() => {
     if (orderedPoints.length === 0) return null
@@ -166,6 +175,12 @@ export function MarketShareSection(props: MarketShareSectionProps) {
         },
       ],
       tooltip: {
+        updateElement: (
+          tooltipElement: HTMLElement,
+          actualTooltip: { content?: Array<{ key?: string }> }
+        ) => {
+          decorateChartTooltipIcons(tooltipElement, actualTooltip, vendorIcons)
+        },
         mark: {
           content: [
             {
@@ -204,7 +219,7 @@ export function MarketShareSection(props: MarketShareSectionProps) {
       },
       animationAppear: { duration: 500 },
     }
-  }, [chartGridColor, chartTextColor, colourMap, orderedPoints])
+  }, [chartGridColor, chartTextColor, colourMap, orderedPoints, vendorIcons])
 
   const visible = props.rows.slice(0, MAX_VENDORS_IN_LIST)
   const half = Math.ceil(visible.length / 2)
@@ -260,10 +275,8 @@ export function MarketShareSection(props: MarketShareSectionProps) {
           </div>
         ) : (
           <div className='grid grid-cols-1 gap-x-8 px-5 pt-1 pb-4 md:grid-cols-2'>
-            <VendorList rows={left} colourMap={colourMap} />
-            {right.length > 0 && (
-              <VendorList rows={right} colourMap={colourMap} />
-            )}
+            <VendorList rows={left} />
+            {right.length > 0 && <VendorList rows={right} />}
           </div>
         )}
       </div>
@@ -271,10 +284,7 @@ export function MarketShareSection(props: MarketShareSectionProps) {
   )
 }
 
-function VendorList(props: {
-  rows: VendorRanking[]
-  colourMap: Record<string, string>
-}) {
+function VendorList(props: { rows: VendorRanking[] }) {
   return (
     <ul>
       {props.rows.map((vendor) => (
@@ -283,12 +293,12 @@ function VendorList(props: {
             {vendor.rank}.
           </span>
           <span
-            aria-hidden
-            className='size-2.5 shrink-0 rounded-full'
-            style={{
-              backgroundColor: props.colourMap[vendor.vendor] ?? '#94a3b8',
-            }}
-          />
+            data-ranking-vendor-icon={vendor.vendor_icon ?? ''}
+            aria-hidden='true'
+            className='inline-flex size-5 shrink-0 items-center justify-center'
+          >
+            {getLobeIcon(vendor.vendor_icon, 18)}
+          </span>
           <VendorLink
             vendor={vendor.vendor}
             className='text-foreground min-w-0 flex-1 truncate text-sm font-medium'

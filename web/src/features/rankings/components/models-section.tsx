@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { VCHART_OPTION } from '@/lib/vchart'
 
+import { decorateChartTooltipIcons } from '../lib/chart-tooltip-icons'
 import { formatTokens } from '../lib/format'
 import type { ModelHistorySeries, ModelRanking, RankingPeriod } from '../types'
 import { ModelLeaderboard } from './model-leaderboard'
@@ -76,6 +77,13 @@ export function ModelsSection(props: ModelsSectionProps) {
     () => props.rows.reduce((s, r) => s + r.total_tokens, 0),
     [props.rows]
   )
+  const modelIcons = useMemo(
+    () =>
+      new Map(
+        props.rows.map((model) => [model.model_name, model.model_icon] as const)
+      ),
+    [props.rows]
+  )
 
   const spec = useMemo(() => {
     if (orderedPoints.length === 0) return null
@@ -110,6 +118,12 @@ export function ModelsSection(props: ModelsSectionProps) {
         },
       ],
       tooltip: {
+        updateElement: (
+          tooltipElement: HTMLElement,
+          actualTooltip: { content?: Array<{ key?: string }> }
+        ) => {
+          decorateChartTooltipIcons(tooltipElement, actualTooltip, modelIcons)
+        },
         mark: {
           content: [
             {
@@ -161,7 +175,7 @@ export function ModelsSection(props: ModelsSectionProps) {
       },
       animationAppear: { duration: 500 },
     }
-  }, [chartGridColor, chartTextColor, orderedPoints, t])
+  }, [chartGridColor, chartTextColor, modelIcons, orderedPoints, t])
 
   return (
     <section className='bg-card overflow-hidden rounded-lg border'>

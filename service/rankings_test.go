@@ -4,11 +4,32 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBuildRankedModelsIncludesConfiguredModelIcon(t *testing.T) {
+	rows := buildRankedModels(
+		[]model.RankingQuotaTotal{{ModelName: "claude-sonnet-4-6", TotalTokens: 42}},
+		42,
+		nil,
+		nil,
+		map[string]rankingModelMeta{
+			"claude-sonnet-4-6": {
+				vendor:     "Anthropic",
+				vendorIcon: "Anthropic.Color",
+				modelIcon:  "Claude.Color",
+			},
+		},
+		false,
+	)
+
+	require.Len(t, rows, 1)
+	assert.Equal(t, "Claude.Color", rows[0].ModelIcon)
+}
 
 func TestRankingConfiguredGroupsPreservesMetadataOrder(t *testing.T) {
 	groups := rankingConfiguredGroups(

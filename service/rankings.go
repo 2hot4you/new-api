@@ -47,6 +47,7 @@ type RankedModel struct {
 	Rank         int     `json:"rank"`
 	PreviousRank *int    `json:"previous_rank,omitempty"`
 	ModelName    string  `json:"model_name"`
+	ModelIcon    string  `json:"model_icon,omitempty"`
 	Vendor       string  `json:"vendor"`
 	VendorIcon   string  `json:"vendor_icon,omitempty"`
 	Category     string  `json:"category"`
@@ -131,6 +132,7 @@ type rankingCacheItem struct {
 type rankingModelMeta struct {
 	vendor     string
 	vendorIcon string
+	modelIcon  string
 }
 
 type vendorAggregate struct {
@@ -360,7 +362,10 @@ func buildRankingModelMeta() map[string]rankingModelMeta {
 
 	meta := make(map[string]rankingModelMeta)
 	for _, pricing := range model.GetPricing() {
-		item := rankingModelMeta{vendor: rankingUnknownVendor}
+		item := rankingModelMeta{
+			vendor:    rankingUnknownVendor,
+			modelIcon: pricing.Icon,
+		}
 		if vendor, ok := vendorByID[pricing.VendorID]; ok {
 			item.vendor = vendor.Name
 			item.vendorIcon = vendor.Icon
@@ -396,6 +401,7 @@ func buildRankedModels(totals []model.RankingQuotaTotal, totalTokens int64, prev
 			Rank:         idx + 1,
 			PreviousRank: previousRank,
 			ModelName:    item.ModelName,
+			ModelIcon:    modelMeta.modelIcon,
 			Vendor:       modelMeta.vendor,
 			VendorIcon:   modelMeta.vendorIcon,
 			Category:     "all",

@@ -43,6 +43,7 @@ export type ModelRanking = {
   /** Previous rank in the same period; undefined means "new". */
   previous_rank?: number
   model_name: string
+  model_icon?: string
   vendor: string
   vendor_icon?: string
   category: RankingCategoryId
