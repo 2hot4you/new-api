@@ -70,16 +70,20 @@ const initialMetadata = JSON.stringify([
   { name: 'vip', icon: 'DeepSeek.Color', recommendation: 4 },
 ])
 
-function changeInput(input: HTMLInputElement, value: string) {
-  const valueSetter = Object.getOwnPropertyDescriptor(
-    domWindow.HTMLInputElement.prototype,
-    'value'
-  )?.set
-  assert.ok(valueSetter)
-  valueSetter.call(input, value)
-  input.dispatchEvent(
-    new domWindow.Event('input', { bubbles: true }) as unknown as Event
-  )
+async function changeInput(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    const inputWindow = input.ownerDocument.defaultView
+    assert.ok(inputWindow)
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      inputWindow.HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(valueSetter)
+    valueSetter.call(input, value)
+    input.dispatchEvent(
+      new inputWindow.Event('input', { bubbles: true }) as unknown as Event
+    )
+  })
 }
 
 async function mountEditor(calls: Array<[string, string]>) {
@@ -187,35 +191,26 @@ describe('group pricing metadata editing', () => {
       calls.map(([field]) => field),
       ['GroupMetadata']
     )
-    assert.deepEqual(
-      JSON.parse(calls[0]?.[1] ?? '[]').map(
-        (item: { name: string }) => item.name
-      ),
-      ['vip', 'default']
-    )
+    assert.deepEqual(JSON.parse(calls[0]?.[1] ?? '[]'), [
+      { name: 'vip', icon: 'DeepSeek.Color' },
+      { name: 'default', icon: 'OpenAI.Color' },
+    ])
   })
 
-  test('accepts one decimal recommendation and rejects invalid values', async () => {
+  test('does not render a recommendation control for legacy metadata', async () => {
     const calls: Array<[string, string]> = []
     ;({ host, root } = await mountEditor(calls))
 
-    const recommendation = document.querySelector<HTMLInputElement>(
-      'input[aria-label="Recommendation: default"]'
+    assert.equal(
+      document.querySelector('input[aria-label^="Recommendation:"]'),
+      null
     )
-    assert.ok(recommendation)
-    for (const value of ['-1', '6', '5.1', '3.81', 'not-a-number']) {
-      await act(async () => changeInput(recommendation, value))
-    }
-    assert.equal(calls.length, 0)
-
-    await act(async () => changeInput(recommendation, '3'))
-    await act(async () => changeInput(recommendation, '3.'))
-    await act(async () => changeInput(recommendation, '3.8'))
-    assert.deepEqual(
-      calls.map(([field]) => field),
-      ['GroupMetadata', 'GroupMetadata', 'GroupMetadata']
+    assert.equal(
+      [...document.querySelectorAll('span')].some(
+        (element) => element.textContent === 'Recommendation'
+      ),
+      false
     )
-    assert.equal(JSON.parse(calls.at(-1)?.[1] ?? '[]')[0]?.recommendation, 3.8)
   })
 
   test('uses a pointer/touch sortable handle and preserves exact icon keys', async () => {
@@ -261,7 +256,6 @@ describe('group pricing metadata editing', () => {
     for (const label of [
       'Group name: default',
       'Icon: default',
-      'Recommendation: default',
       'Ratio: default',
       'Top-up ratio: default',
       'Description: default',
@@ -289,22 +283,6 @@ describe('group pricing metadata editing', () => {
     assert.equal(iconInput.value, 'DeepSeek.ColorX')
   })
 
-  test('keeps the recommendation input mounted and focused while metadata syncs', async () => {
-    ;({ host, root } = await mountFocusPersistenceHarness())
-
-    const recommendationInput = document.querySelector<HTMLInputElement>(
-      'input[aria-label="Recommendation: default"]'
-    )
-    assert.ok(recommendationInput)
-    recommendationInput.focus()
-
-    await act(async () => changeInput(recommendationInput, '3.8'))
-
-    assert.equal(recommendationInput.isConnected, true)
-    assert.equal(document.activeElement, recommendationInput)
-    assert.equal(recommendationInput.value, '3.8')
-  })
-
   test('serializes structural add, rename, and delete changes across legacy maps', async () => {
     const calls: Array<[string, string]> = []
     ;({ host, root } = await mountEditor(calls))
@@ -318,7 +296,14 @@ describe('group pricing metadata editing', () => {
       calls.map(([field]) => field),
       ['GroupRatio', 'UserUsableGroups', 'TopupGroupRatio', 'GroupMetadata']
     )
-    assert.equal(JSON.parse(calls[3]?.[1] ?? '[]').at(-1)?.name, 'group_1')
+    const addedMetadata = JSON.parse(calls[3]?.[1] ?? '[]')
+    assert.equal(addedMetadata.at(-1)?.name, 'group_1')
+    assert.equal(
+      addedMetadata.some((entry: object) =>
+        Object.hasOwn(entry, 'recommendation')
+      ),
+      false
+    )
 
     calls.length = 0
     const newGroupName = [

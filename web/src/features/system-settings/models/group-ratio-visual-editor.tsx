@@ -100,13 +100,11 @@ type GroupPricingRow = {
   selectable: boolean
   description: string
   icon: string
-  recommendation: string
 }
 
 type GroupMetadataEntry = {
   name: string
   icon: string
-  recommendation: number
 }
 
 type RegistryEntry = {
@@ -152,16 +150,6 @@ function parseNestedRatioMap(
   })
 }
 
-function isValidRecommendation(value: number): boolean {
-  const scaledValue = value * 10
-  return (
-    Number.isFinite(value) &&
-    value >= 0 &&
-    value <= 5 &&
-    Math.abs(scaledValue - Math.round(scaledValue)) < 1e-9
-  )
-}
-
 function parseGroupMetadata(value: string): GroupMetadataEntry[] {
   const entries = safeJsonParse<unknown[]>(value, {
     fallback: [],
@@ -180,14 +168,10 @@ function parseGroupMetadata(value: string): GroupMetadataEntry[] {
     if (!name || names.has(name)) return []
     names.add(name)
     const icon = (entry as GroupMetadataEntry).icon
-    const recommendation = Number((entry as GroupMetadataEntry).recommendation)
     return [
       {
         name,
         icon: typeof icon === 'string' ? icon : '',
-        recommendation: isValidRecommendation(recommendation)
-          ? recommendation
-          : 0,
       },
     ]
   })
@@ -223,7 +207,6 @@ function buildGroupPricingRows(
     selectable: Object.hasOwn(usableMap, name),
     description: String(usableMap[name] ?? ''),
     icon: metadataByName.get(name)?.icon ?? '',
-    recommendation: (metadataByName.get(name)?.recommendation ?? 0).toFixed(1),
   }))
 }
 
@@ -244,13 +227,9 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     if (topup !== '' && Number.isFinite(Number(topup))) {
       topupGroupRatio[name] = Number(topup)
     }
-    const recommendation = Number(row.recommendation)
     groupMetadata.push({
       name,
       icon: row.icon.trim(),
-      recommendation: isValidRecommendation(recommendation)
-        ? recommendation
-        : 0,
     })
   }
 
@@ -565,7 +544,7 @@ function GroupPricingSortableRow({
       dragListener={false}
       dragControls={dragControls}
       data-group-pricing-sortable
-      className='grid min-w-[1100px] grid-cols-[minmax(12rem,2fr)_minmax(11rem,1.5fr)_8rem_7rem_7rem_8rem_minmax(12rem,2fr)_auto] items-center gap-2 rounded-md border p-2'
+      className='grid min-w-[1020px] grid-cols-[minmax(12rem,2fr)_minmax(11rem,1.5fr)_7rem_7rem_8rem_minmax(12rem,2fr)_auto] items-center gap-2 rounded-md border p-2'
     >
       <div className='flex min-w-0 items-center gap-1'>
         <Button
@@ -622,17 +601,6 @@ function GroupPricingSortableRow({
           onChange={(event) => onUpdate(row._id, 'icon', event.target.value)}
         />
       </div>
-      <Input
-        type='text'
-        inputMode='decimal'
-        pattern='(?:[0-4](?:\.[0-9]?)?|5(?:\.0?)?)?'
-        value={row.recommendation}
-        placeholder='0.0'
-        aria-label={`${t('Recommendation')}: ${groupLabel}`}
-        onChange={(event) =>
-          onUpdate(row._id, 'recommendation', event.target.value)
-        }
-      />
       <Input
         type='number'
         min={0}
@@ -763,19 +731,10 @@ function GroupPricingTable({
       field: Exclude<keyof GroupPricingRow, '_id'>,
       value: string | number | boolean
     ) => {
-      if (
-        field === 'recommendation' &&
-        typeof value === 'string' &&
-        value !== '' &&
-        !/^(?:[0-4](?:\.[0-9]?)?|5(?:\.0?)?)$/.test(value)
-      ) {
-        return
-      }
-
       const nextRows = rows.map((row) =>
         row._id === id ? { ...row, [field]: value } : row
       )
-      if (field === 'icon' || field === 'recommendation') {
+      if (field === 'icon') {
         emitMetadataRows(nextRows)
         return
       }
@@ -802,7 +761,6 @@ function GroupPricingTable({
         selectable: true,
         description: '',
         icon: '',
-        recommendation: '0.0',
       },
     ])
   }, [emitRows, rows])
@@ -862,11 +820,10 @@ function GroupPricingTable({
       <CardContent>
         <div className='space-y-3'>
           <div className='overflow-x-auto'>
-            <div className='min-w-[1100px]'>
-              <div className='text-muted-foreground grid grid-cols-[minmax(12rem,2fr)_minmax(11rem,1.5fr)_8rem_7rem_7rem_8rem_minmax(12rem,2fr)_auto] gap-2 px-2 pb-2 text-xs font-medium'>
+            <div className='min-w-[1020px]'>
+              <div className='text-muted-foreground grid grid-cols-[minmax(12rem,2fr)_minmax(11rem,1.5fr)_7rem_7rem_8rem_minmax(12rem,2fr)_auto] gap-2 px-2 pb-2 text-xs font-medium'>
                 <span>{t('Group name')}</span>
                 <span>{t('Icon')}</span>
-                <span>{t('Recommendation')}</span>
                 <span>{t('Ratio')}</span>
                 <span>{t('Top-up ratio')}</span>
                 <span className='text-center'>{t('User selectable')}</span>

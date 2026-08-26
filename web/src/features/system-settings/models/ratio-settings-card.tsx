@@ -45,6 +45,28 @@ import {
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
 
+// eslint-disable-next-line react-refresh/only-export-components -- shared with the metadata normalization regression test
+export const normalizeGroupMetadataString = (value: string) => {
+  const normalized = normalizeJsonString(value)
+
+  try {
+    const parsed = JSON.parse(normalized)
+    if (!Array.isArray(parsed)) return normalized
+
+    return JSON.stringify(
+      parsed.map((item) => {
+        if (!item || typeof item !== 'object') return {}
+        return {
+          name: item.name,
+          icon: item.icon,
+        }
+      })
+    )
+  } catch {
+    return normalized
+  }
+}
+
 function formatJsonValidationError(
   t: Translate,
   error?: JsonValidationError,
@@ -139,13 +161,7 @@ const createGroupSchema = (t: Translate) =>
             typeof item === 'object' &&
             item !== null &&
             typeof item.name === 'string' &&
-            typeof item.icon === 'string' &&
-            Number.isFinite(item.recommendation) &&
-            item.recommendation >= 0 &&
-            item.recommendation <= 5 &&
-            Math.abs(
-              item.recommendation * 10 - Math.round(item.recommendation * 10)
-            ) < 1e-9
+            typeof item.icon === 'string'
         ),
       predicateMessage: 'Expected an array of group display metadata',
     }),
@@ -228,7 +244,9 @@ export function RatioSettingsCard({
     UserUsableGroups: normalizeJsonString(groupDefaults.UserUsableGroups),
     GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
     AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
-    GroupMetadata: normalizeJsonString(groupDefaults.GroupMetadata ?? '[]'),
+    GroupMetadata: normalizeGroupMetadataString(
+      groupDefaults.GroupMetadata ?? '[]'
+    ),
     MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
     DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
     GroupSpecialUsableGroup: normalizeJsonString(
@@ -268,7 +286,9 @@ export function RatioSettingsCard({
       UserUsableGroups: formatJsonForTextarea(groupDefaults.UserUsableGroups),
       GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
-      GroupMetadata: formatJsonForTextarea(groupDefaults.GroupMetadata ?? '[]'),
+      GroupMetadata: formatJsonForTextarea(
+        normalizeGroupMetadataString(groupDefaults.GroupMetadata ?? '[]')
+      ),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
@@ -317,7 +337,9 @@ export function RatioSettingsCard({
       UserUsableGroups: normalizeJsonString(groupDefaults.UserUsableGroups),
       GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
       AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
-      GroupMetadata: normalizeJsonString(groupDefaults.GroupMetadata ?? '[]'),
+      GroupMetadata: normalizeGroupMetadataString(
+        groupDefaults.GroupMetadata ?? '[]'
+      ),
       MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
       DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
       GroupSpecialUsableGroup: normalizeJsonString(
@@ -332,7 +354,9 @@ export function RatioSettingsCard({
       UserUsableGroups: formatJsonForTextarea(groupDefaults.UserUsableGroups),
       GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
-      GroupMetadata: formatJsonForTextarea(groupDefaults.GroupMetadata ?? '[]'),
+      GroupMetadata: formatJsonForTextarea(
+        normalizeGroupMetadataString(groupDefaults.GroupMetadata ?? '[]')
+      ),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
@@ -390,7 +414,7 @@ export function RatioSettingsCard({
         UserUsableGroups: normalizeJsonString(values.UserUsableGroups),
         GroupGroupRatio: normalizeJsonString(values.GroupGroupRatio),
         AutoGroups: normalizeJsonString(values.AutoGroups),
-        GroupMetadata: normalizeJsonString(values.GroupMetadata),
+        GroupMetadata: normalizeGroupMetadataString(values.GroupMetadata),
         MaxTokenAutoGroups: values.MaxTokenAutoGroups,
         DefaultUseAutoGroup: values.DefaultUseAutoGroup,
         GroupSpecialUsableGroup: normalizeJsonString(
