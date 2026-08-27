@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -596,6 +597,30 @@ def prompt_required(label: str, default: str = "") -> str:
         print("该字段不能为空。")
 
 
+def read_clipboard_prompt(pbpaste_path: str = "/usr/bin/pbpaste") -> str:
+    try:
+        completed = subprocess.run(
+            [pbpaste_path],
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+            errors="strict",
+            timeout=10,
+        )
+    except FileNotFoundError as error:
+        raise ValueError("未找到 macOS pbpaste，无法读取系统剪贴板") from error
+    except subprocess.TimeoutExpired as error:
+        raise ValueError("读取系统剪贴板超时") from error
+    except UnicodeDecodeError as error:
+        raise ValueError("剪贴板内容不是有效的 UTF-8 文本") from error
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or "未知错误"
+        raise ValueError("读取系统剪贴板失败：{}".format(message))
+    if not completed.stdout.strip():
+        raise ValueError("剪贴板中没有 Prompt 文本")
+    return completed.stdout
+
+
 def prompt_int(label: str, default: int, minimum: int, maximum: int) -> int:
     while True:
         raw = input("{} [{}]: ".format(label, default)).strip()
@@ -656,7 +681,21 @@ def collect_request(operation: str) -> Tuple[str, Dict[str, Any]]:
         "选择模型",
         [(name, name) for name in MODELS],
     )
-    prompt = prompt_required("Prompt")
+    while True:
+        input(
+            "请先把完整 Prompt 复制到 macOS 系统剪贴板，"
+            "准备好后按回车读取（不要粘贴到终端）: "
+        )
+        try:
+            prompt = read_clipboard_prompt()
+            break
+        except ValueError as error:
+            print("Prompt 读取失败：{}".format(error))
+    print(
+        "已读取 Prompt：{} 个字符，{} 行".format(
+            len(prompt), prompt.count("\n") + 1
+        )
+    )
     size = prompt_size(model)
     quality = choose("选择 quality", [("medium", "medium"), ("low", "low")])
     background = choose(

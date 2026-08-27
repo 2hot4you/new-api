@@ -1,5 +1,7 @@
 import json
+import subprocess
 import unittest
+from unittest import mock
 
 import image2_probe
 
@@ -91,6 +93,35 @@ class ValidationTests(unittest.TestCase):
 
     def test_accepts_documented_ratio_values(self):
         self.assertEqual(image2_probe.validate_size("gpt-image-2-1k", "16:9"), "16:9")
+
+
+class PromptInputTests(unittest.TestCase):
+    def test_clipboard_prompt_preserves_long_multiline_text_without_truncation(self):
+        prompt = "第一行\n" + ("长文本" * 5000) + "\n最后一行"
+        completed = subprocess.CompletedProcess(
+            args=["/usr/bin/pbpaste"],
+            returncode=0,
+            stdout=prompt,
+            stderr="",
+        )
+
+        with mock.patch.object(image2_probe.subprocess, "run", return_value=completed):
+            result = image2_probe.read_clipboard_prompt("/usr/bin/pbpaste")
+
+        self.assertEqual(result, prompt)
+        self.assertEqual(len(result), len(prompt))
+
+    def test_clipboard_prompt_rejects_empty_or_whitespace_only_content(self):
+        completed = subprocess.CompletedProcess(
+            args=["/usr/bin/pbpaste"],
+            returncode=0,
+            stdout=" \n\t",
+            stderr="",
+        )
+
+        with mock.patch.object(image2_probe.subprocess, "run", return_value=completed):
+            with self.assertRaisesRegex(ValueError, "剪贴板中没有 Prompt"):
+                image2_probe.read_clipboard_prompt("/usr/bin/pbpaste")
 
 
 class ReportSafetyTests(unittest.TestCase):
