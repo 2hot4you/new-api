@@ -1,12 +1,12 @@
 {
   "id": "add-performance-samples-and-key-routes",
   "title": "补充性能样本量并在 API 密钥页展示接入地址",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "fullstack",
-  "currentPhase": "review",
-  "nextAction": "完成最终验证并提交",
+  "currentPhase": "completed",
+  "nextAction": "已完成，归档任务",
   "createdAt": "2026-08-27T03:00:00Z",
   "branch": "develop"
 }
