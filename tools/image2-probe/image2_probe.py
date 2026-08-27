@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""Interactive probe for the Cangyuan gpt-image-2 async API.
-
-The API key is held in memory for one process only. Shareable Markdown reports
-redact authorization values and credential-like URL query parameters.
-"""
+"""Interactive terminal probe for the Cangyuan gpt-image-2 async API."""
 
 import dataclasses
 import datetime as dt
 import getpass
-import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -18,7 +12,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -66,7 +59,6 @@ SENSITIVE_VALUE_NAMES = {
     "x-goog-signature",
 }
 MAX_JSON_RESPONSE_BYTES = 10 * 1024 * 1024
-MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 
 
 @dataclasses.dataclass
@@ -86,14 +78,6 @@ class Exchange:
 
 
 @dataclasses.dataclass
-class DownloadResult:
-    path: str = ""
-    content_type: str = ""
-    byte_count: int = 0
-    sha256: str = ""
-
-
-@dataclasses.dataclass
 class ProbeRun:
     sequence: int
     operation: str
@@ -103,7 +87,7 @@ class ProbeRun:
     task_id: str = ""
     final_status: str = ""
     exchanges: List[Exchange] = dataclasses.field(default_factory=list)
-    download: Optional[DownloadResult] = None
+    result_urls: List[str] = dataclasses.field(default_factory=list)
 
 
 class RecordingRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -221,6 +205,31 @@ def extract_status(payload: Any) -> str:
             if status:
                 return status
     return ""
+
+
+def extract_result_urls(payload: Any) -> List[str]:
+    result_urls: List[str] = []
+    seen = set()
+
+    def visit(value: Any, field_name: str = "") -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                visit(item, str(key))
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item, field_name)
+            return
+        if field_name.lower() not in {"url", "result_url", "resulturl"}:
+            return
+        if not isinstance(value, str) or not value.startswith(("http://", "https://")):
+            return
+        if value not in seen:
+            seen.add(value)
+            result_urls.append(value)
+
+    visit(payload)
+    return result_urls
 
 
 def classify_status(status: str) -> str:
@@ -356,88 +365,6 @@ def request_json(
     return exchange, decode_json_body(exchange.response_body)
 
 
-def content_extension(content_type: str) -> str:
-    normalized = content_type.split(";", 1)[0].strip().lower()
-    return {
-        "image/png": ".png",
-        "image/jpeg": ".jpg",
-        "image/webp": ".webp",
-        "image/gif": ".gif",
-        "image/avif": ".avif",
-    }.get(normalized, ".bin")
-
-
-def safe_filename(value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
-    return cleaned[:120] or "image2-result"
-
-
-def download_content(
-    task_id: str,
-    api_key: str,
-    output_dir: Path,
-    timeout: float = 300.0,
-) -> Tuple[Exchange, Optional[DownloadResult]]:
-    path = "/v1/images/{}/content".format(urllib.parse.quote(task_id, safe=""))
-    url = BASE_URL + path
-    headers = {
-        "Accept": "image/*,application/octet-stream;q=0.9,*/*;q=0.1",
-        "Authorization": "Bearer " + api_key,
-    }
-    exchange = Exchange("下载任务结果", "GET", url, headers)
-    handler = RecordingRedirectHandler()
-    opener = urllib.request.build_opener(handler)
-    request = urllib.request.Request(url, headers=headers, method="GET")
-    partial_path = output_dir / (safe_filename(task_id) + ".part")
-    digest = hashlib.sha256()
-    byte_count = 0
-    started = time.monotonic()
-    try:
-        with opener.open(request, timeout=timeout) as response:
-            exchange.status = response.status
-            exchange.response_headers = dict(response.headers.items())
-            exchange.effective_url = response.geturl()
-            content_type = response.headers.get("Content-Type", "application/octet-stream")
-            with partial_path.open("wb") as output:
-                os.chmod(partial_path, 0o600)
-                while True:
-                    chunk = response.read(128 * 1024)
-                    if not chunk:
-                        break
-                    byte_count += len(chunk)
-                    if byte_count > MAX_DOWNLOAD_BYTES:
-                        raise ValueError("下载结果超过 100 MiB 安全上限")
-                    output.write(chunk)
-                    digest.update(chunk)
-            final_path = output_dir / (
-                safe_filename(task_id) + content_extension(content_type)
-            )
-            partial_path.replace(final_path)
-            exchange.response_body = "<binary body saved to {}>".format(final_path)
-            result = DownloadResult(
-                path=str(final_path),
-                content_type=content_type,
-                byte_count=byte_count,
-                sha256=digest.hexdigest(),
-            )
-            return exchange, result
-    except urllib.error.HTTPError as error:
-        raw = error.read(MAX_JSON_RESPONSE_BYTES + 1)
-        exchange.status = error.code
-        exchange.response_headers = dict(error.headers.items())
-        exchange.response_body = raw.decode("utf-8", errors="replace")
-        exchange.effective_url = error.geturl()
-        exchange.error = "下载接口返回 HTTP {}".format(error.code)
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
-        exchange.error = str(error)
-    finally:
-        exchange.elapsed_seconds = time.monotonic() - started
-        exchange.redirects = handler.redirects
-        if partial_path.exists():
-            partial_path.unlink()
-    return exchange, None
-
-
 def pretty_json(value: Any) -> str:
     return json.dumps(redact_value(value), ensure_ascii=False, indent=2)
 
@@ -522,14 +449,19 @@ def render_exchange(exchange: Exchange) -> str:
     return "\n".join(sections)
 
 
-def render_report(runs: List[ProbeRun]) -> str:
+def render_terminal_records(runs: List[ProbeRun]) -> str:
     lines = [
-        "# gpt-image-2 upstream probe report",
+        "========== gpt-image-2 测试记录开始 ==========",
         "",
-        "- Generated: `{}`".format(dt.datetime.now().astimezone().isoformat(timespec="seconds")),
+        "- 输出时间: `{}`".format(
+            dt.datetime.now().astimezone().isoformat(timespec="seconds")
+        ),
         "- Base URL: `{}`".format(BASE_URL),
         "- Authorization: `Bearer REDACTED`",
-        "- Note: credential-like response URL query values are redacted.",
+        (
+            "- 说明: 请求与响应记录中的凭证参数会脱敏，"
+            "结果 URL 在每次任务末尾原样输出。"
+        ),
     ]
     for run in runs:
         lines.extend(
@@ -550,26 +482,17 @@ def render_report(runs: List[ProbeRun]) -> str:
         )
         for exchange in run.exchanges:
             lines.extend(["", render_exchange(exchange)])
-        if run.download is not None:
+        if run.result_urls:
             lines.extend(
                 [
                     "",
-                    "### Downloaded file summary",
+                    "### 结果 URL（原样）",
                     "",
-                    "- Path: `{}`".format(run.download.path),
-                    "- Content-Type: `{}`".format(run.download.content_type),
-                    "- Bytes: `{}`".format(run.download.byte_count),
-                    "- SHA-256: `{}`".format(run.download.sha256),
                 ]
             )
+            lines.extend("- {}".format(url) for url in run.result_urls)
+    lines.extend(["", "========== gpt-image-2 测试记录结束 =========="])
     return "\n".join(lines) + "\n"
-
-
-def write_report(output_dir: Path, runs: List[ProbeRun]) -> Path:
-    report_path = output_dir / "image2-probe-report.md"
-    report_path.write_text(render_report(runs), encoding="utf-8")
-    os.chmod(report_path, 0o600)
-    return report_path
 
 
 def choose(title: str, options: List[Tuple[str, str]], default: int = 1) -> str:
@@ -742,7 +665,7 @@ def poll_task(
     api_key: str,
     interval: int,
     timeout_seconds: int,
-) -> None:
+) -> Any:
     path_segment = "generations" if run.operation == "generation" else "edits"
     path = "/v1/images/{}/{}".format(path_segment, urllib.parse.quote(run.task_id, safe=""))
     deadline = time.monotonic() + timeout_seconds
@@ -767,7 +690,7 @@ def poll_task(
             consecutive_errors += 1
             if consecutive_errors >= 5:
                 run.final_status = "polling_error"
-                return
+                return None
         else:
             consecutive_errors = 0
         permanent_http_error = (
@@ -777,15 +700,16 @@ def poll_task(
         )
         if permanent_http_error:
             run.final_status = "polling_http_{}".format(exchange.status)
-            return
+            return None
         if classification == "success":
             run.final_status = status
-            return
+            return payload
         if classification == "failure":
             run.final_status = status
-            return
+            return payload
         time.sleep(interval)
     run.final_status = "polling_timeout"
+    return None
 
 
 def run_probe(
@@ -794,7 +718,6 @@ def run_probe(
     api_key: str,
     interval: int,
     timeout_seconds: int,
-    output_dir: Path,
 ) -> Optional[ProbeRun]:
     model, body = collect_request(operation)
     if not confirm_paid_request(body):
@@ -827,11 +750,11 @@ def run_probe(
     run.task_id = extract_task_id(payload)
     if not run.task_id:
         run.final_status = "task_id_not_detected"
-        print("未从创建响应中识别出任务 ID；响应已写入报告。")
+        print("未从创建响应中识别出任务 ID；完整响应稍后输出到终端。")
         return run
     print("任务 ID：{}".format(run.task_id))
     try:
-        poll_task(run, api_key, interval, timeout_seconds)
+        final_payload = poll_task(run, api_key, interval, timeout_seconds)
     except KeyboardInterrupt:
         run.final_status = "polling_interrupted"
         print("\n已停止轮询；上游任务不会被取消，也不会自动重试提交。")
@@ -839,33 +762,20 @@ def run_probe(
     if classify_status(run.final_status) != "success":
         print("任务未成功结束：{}".format(run.final_status))
         return run
-    print("任务完成，开始检查 content 下载接口。")
-    download_exchange, download = download_content(run.task_id, api_key, output_dir)
-    run.exchanges.append(download_exchange)
-    run.download = download
-    if download is not None:
-        print(
-            "下载完成：{} bytes，SHA-256 {}".format(
-                download.byte_count, download.sha256
-            )
-        )
+    run.result_urls = extract_result_urls(final_payload)
+    if run.result_urls:
+        print("任务完成，获得 {} 个结果 URL：".format(len(run.result_urls)))
+        for result_url in run.result_urls:
+            print(result_url)
     else:
-        print("下载失败，详细响应已写入报告。")
+        print("任务完成，但最终响应中没有识别到结果 URL。")
     return run
-
-
-def create_output_dir() -> Path:
-    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    output_dir = Path.cwd() / "image2-probe-output" / timestamp
-    output_dir.mkdir(parents=True, exist_ok=False)
-    os.chmod(output_dir, 0o700)
-    return output_dir
 
 
 def read_api_key() -> str:
     while True:
         value = getpass.getpass(
-            "请输入上游 API Key（本次运行内存使用，不会写入报告或磁盘）: "
+            "请输入上游 API Key（仅在本次运行内存中使用，不会写入磁盘）: "
         ).strip()
         if value:
             return value
@@ -877,11 +787,9 @@ def main() -> int:
     print("Base URL: {}".format(BASE_URL))
     print("注意：生成 POST 不自动重试；发送前必须输入 YES 确认。")
     api_key = read_api_key()
-    output_dir = create_output_dir()
     runs: List[ProbeRun] = []
     interval = 3
     timeout_seconds = 15 * 60
-    report_path = output_dir / "image2-probe-report.md"
     try:
         while True:
             action = choose(
@@ -890,8 +798,8 @@ def main() -> int:
                     ("generation", "测试文生图"),
                     ("edit", "测试图片编辑"),
                     ("settings", "修改轮询设置"),
-                    ("report", "立即生成当前报告"),
-                    ("exit", "退出并生成最终报告"),
+                    ("records", "在终端重新输出全部测试记录"),
+                    ("exit", "退出并输出最终测试记录"),
                 ],
             )
             if action in {"generation", "edit"}:
@@ -901,30 +809,29 @@ def main() -> int:
                     api_key,
                     interval,
                     timeout_seconds,
-                    output_dir,
                 )
                 if run is not None:
                     runs.append(run)
-                    report_path = write_report(output_dir, runs)
-                    print("当前报告已更新：{}".format(report_path))
+                    print(render_terminal_records([run]))
             elif action == "settings":
                 interval = prompt_int("轮询间隔（秒）", interval, 1, 60)
                 timeout_seconds = prompt_int(
                     "最长轮询时间（秒）", timeout_seconds, 30, 7200
                 )
-            elif action == "report":
-                report_path = write_report(output_dir, runs)
-                print("报告已生成：{}".format(report_path))
+            elif action == "records":
+                if runs:
+                    print(render_terminal_records(runs))
+                else:
+                    print("当前还没有测试记录。")
             else:
                 break
     except KeyboardInterrupt:
-        print("\n收到中断，正在保存已经采集的结果。")
+        print("\n收到中断，正在输出已经采集的测试记录。")
     finally:
         if runs:
-            report_path = write_report(output_dir, runs)
-            print("最终报告：{}".format(report_path))
+            print(render_terminal_records(runs))
         else:
-            print("本次没有发送请求，未生成报告。")
+            print("本次没有发送请求。")
     return 0
 
 

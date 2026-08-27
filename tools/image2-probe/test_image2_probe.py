@@ -79,6 +79,27 @@ class ProviderResponseTests(unittest.TestCase):
         for status in (200, 400, 401, 403, 422):
             self.assertFalse(image2_probe.is_retryable_poll_status(status))
 
+    def test_extracts_all_unique_result_urls_from_completed_response(self):
+        payload = {
+            "status": "completed",
+            "data": [
+                {"url": "https://files.example.com/one.png?token=first"},
+                {"url": "https://files.example.com/two.png?token=second"},
+                {"url": "https://files.example.com/one.png?token=first"},
+            ],
+            "metadata": {"result_url": "https://files.example.com/three.webp"},
+            "unrelated": "not-a-url",
+        }
+
+        self.assertEqual(
+            image2_probe.extract_result_urls(payload),
+            [
+                "https://files.example.com/one.png?token=first",
+                "https://files.example.com/two.png?token=second",
+                "https://files.example.com/three.webp",
+            ],
+        )
+
 
 class ValidationTests(unittest.TestCase):
     def test_validates_exact_dimensions_against_model_pixel_limit(self):
@@ -175,6 +196,27 @@ class ReportSafetyTests(unittest.TestCase):
             "https://cdn.example.com/result.png?signature=REDACTED&expires=99",
         )
         self.assertNotIn("secret", image2_probe.render_headers(headers))
+
+
+class TerminalOutputTests(unittest.TestCase):
+    def test_terminal_records_include_original_clickable_result_url(self):
+        result_url = "https://files.example.com/result.png?token=temporary-secret"
+        run = image2_probe.ProbeRun(
+            sequence=1,
+            operation="generation",
+            model="gpt-image-2-1k",
+            request_body={"model": "gpt-image-2-1k", "prompt": "hello"},
+            started_at="2026-08-27T00:00:00+08:00",
+            task_id="task_123",
+            final_status="completed",
+            result_urls=[result_url],
+        )
+
+        output = image2_probe.render_terminal_records([run])
+
+        self.assertIn("结果 URL（原样）", output)
+        self.assertIn(result_url, output)
+        self.assertNotIn("image2-probe-report.md", output)
 
 
 if __name__ == "__main__":
