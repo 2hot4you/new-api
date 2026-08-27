@@ -1,0 +1,13 @@
+{
+  "id": "make-image2-probe-terminal-only",
+  "title": "将 Image2 测试器改为纯终端输出",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "tooling",
+  "currentPhase": "completed",
+  "nextAction": "已验证并提交，等待用户运行真实上游测试",
+  "createdAt": "2026-08-27T15:35:00+08:00",
+  "branch": "develop",
+  "completedAt": "2026-08-27T16:11:50+08:00"
+}
