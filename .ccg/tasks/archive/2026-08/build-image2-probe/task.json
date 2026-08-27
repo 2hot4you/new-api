@@ -1,0 +1,13 @@
+{
+  "id": "build-image2-probe",
+  "title": "构建 Image2 上游交互测试与报告脚本",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "tooling",
+  "currentPhase": "completed",
+  "nextAction": "等待用户运行测试并返回脱敏报告",
+  "createdAt": "2026-08-27T03:40:00Z",
+  "completedAt": "2026-08-27T07:45:00Z",
+  "branch": "develop"
+}
