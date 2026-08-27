@@ -1,0 +1,13 @@
+{
+  "id": "fix-image2-probe-prompt-input",
+  "title": "修复 Image2 测试器长 Prompt 输入截断",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "tooling",
+  "currentPhase": "completed",
+  "nextAction": "等待用户使用剪贴板运行上游测试",
+  "createdAt": "2026-08-27T08:10:00Z",
+  "completedAt": "2026-08-27T08:22:00Z",
+  "branch": "develop"
+}
