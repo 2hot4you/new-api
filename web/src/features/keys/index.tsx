@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
+import { useApiInfo } from '@/features/dashboard/hooks/use-status-data'
 
+import { ApiKeyApiRoutes } from './components/api-key-api-routes'
 import { ApiKeysDialogs } from './components/api-keys-dialogs'
 import { ApiKeysPrimaryButtons } from './components/api-keys-primary-buttons'
 import { ApiKeysProvider } from './components/api-keys-provider'
@@ -27,10 +29,16 @@ import { ApiKeysTable } from './components/api-keys-table'
 
 export function ApiKeys() {
   const { t } = useTranslation()
+  const { items: apiRoutes } = useApiInfo()
   return (
     <ApiKeysProvider>
       <SectionPageLayout fixedContent>
-        <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
+        <SectionPageLayout.Title>
+          <span className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5'>
+            <span className='shrink-0'>{t('API Keys')}</span>
+            <ApiKeyApiRoutes routes={apiRoutes} />
+          </span>
+        </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <ApiKeysPrimaryButtons />
         </SectionPageLayout.Actions>

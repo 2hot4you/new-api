@@ -1,6 +1,7 @@
 package perfmetrics
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -89,6 +90,35 @@ func TestQuerySummaryAllBuildsWeightedGroupSummaries(t *testing.T) {
 			assert.Equal(t, test.want, result.Groups)
 		})
 	}
+}
+
+func TestQuerySummaryAllExposesExactModelSampleCounts(t *testing.T) {
+	setupSummaryTestState(t)
+	const now = int64(2_000_001_600)
+	useFixedQueryClock(t, now)
+	rows := []model.PerfMetric{
+		{ModelName: "model-a", Group: "default", BucketTs: now - 3600, RequestCount: 3, SuccessCount: 2},
+		{ModelName: "model-a", Group: "default", BucketTs: now, RequestCount: 2, SuccessCount: 1},
+	}
+	require.NoError(t, model.DB.Create(&rows).Error)
+
+	result, err := QuerySummaryAll(24, nil)
+
+	require.NoError(t, err)
+	require.Len(t, result.Models, 1)
+	assert.Equal(t, int64(5), result.Models[0].RequestCount)
+	assert.Equal(t, int64(3), result.Models[0].SuccessCount)
+	payload, err := json.Marshal(result.Models[0])
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"model_name":"model-a",
+		"avg_latency_ms":0,
+		"success_rate":60,
+		"avg_tps":0,
+		"recent_success_rates":[66.67,50],
+		"request_count":5,
+		"success_count":3
+	}`, string(payload))
 }
 
 func TestQuerySummaryAllAllowsAtMostOneYear(t *testing.T) {

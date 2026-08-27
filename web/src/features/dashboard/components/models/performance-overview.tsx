@@ -34,54 +34,10 @@ import {
 import type { PerfModelSummary } from '@/features/performance-metrics/types'
 import { cn } from '@/lib/utils'
 
+import { buildPerformanceSummary } from './performance-overview-summary'
+
 const PERFORMANCE_WINDOW_HOURS = 24
 const TOP_MODEL_LIMIT = 6
-
-type WeightedMetric = 'avg_latency_ms' | 'avg_tps' | 'success_rate'
-
-type PerformanceSummary = {
-  totalRequests: number
-  avgLatencyMs: number
-  avgTps: number
-  successRate: number
-}
-
-function simpleAverage(
-  rows: PerfModelSummary[],
-  metric: WeightedMetric,
-  isValid: (value: number) => boolean
-): number {
-  let total = 0
-  let count = 0
-
-  for (const row of rows) {
-    const value = Number(row[metric])
-    if (!isValid(value)) continue
-    total += value
-    count++
-  }
-
-  return count > 0 ? total / count : Number.NaN
-}
-
-function buildPerformanceSummary(rows: PerfModelSummary[]): PerformanceSummary {
-  return {
-    totalRequests: rows.length,
-    avgLatencyMs: Math.round(
-      simpleAverage(
-        rows,
-        'avg_latency_ms',
-        (value) => Number.isFinite(value) && value > 0
-      )
-    ),
-    avgTps: simpleAverage(
-      rows,
-      'avg_tps',
-      (value) => Number.isFinite(value) && value > 0
-    ),
-    successRate: simpleAverage(rows, 'success_rate', Number.isFinite),
-  }
-}
 
 export function PerformanceOverview() {
   const { t } = useTranslation()
@@ -141,6 +97,9 @@ export function PerformanceOverview() {
               icon={HeartPulse}
               label={t('Success rate')}
               value={formatUptimePct(summary.successRate)}
+              detail={`${summary.successCount} / ${t('{{count}} requests', {
+                count: summary.totalRequests,
+              })}`}
               valueClassName={getSuccessRateTextClass(summary.successRate)}
               tone='success'
             />
@@ -179,6 +138,7 @@ function InlineMetric(props: {
   icon: React.ComponentType<{ className?: string }>
   label: string
   value: string
+  detail?: string
   valueClassName?: string
   tone: IconBadgeTone
 }) {
@@ -198,11 +158,17 @@ function InlineMetric(props: {
       >
         {props.value}
       </span>
+      {props.detail && (
+        <span className='text-muted-foreground font-mono text-[10px] tabular-nums'>
+          {props.detail}
+        </span>
+      )}
     </div>
   )
 }
 
 function ModelBadge(props: { model: PerfModelSummary }) {
+  const { t } = useTranslation()
   const model = props.model
 
   return (
@@ -224,6 +190,9 @@ function ModelBadge(props: { model: PerfModelSummary }) {
         )}
       >
         {formatUptimePct(model.success_rate)}
+      </span>
+      <span className='text-muted-foreground font-mono text-[10px] tabular-nums'>
+        {t('{{count}} requests', { count: model.request_count ?? 0 })}
       </span>
     </span>
   )

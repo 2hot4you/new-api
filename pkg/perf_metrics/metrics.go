@@ -199,6 +199,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 			AvgTps:             math.Round(avgTps*100) / 100,
 			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 3),
 			RequestCount:       total.requestCount,
+			SuccessCount:       total.successCount,
 		})
 	}
 	sort.Slice(models, func(i, j int) bool {
