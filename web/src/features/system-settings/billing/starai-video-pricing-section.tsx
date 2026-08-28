@@ -35,6 +35,12 @@ const schema = z.object({
   standard_4k_video: z.coerce.number().min(0),
   fast_720p: z.coerce.number().min(0),
   fast_720p_video: z.coerce.number().min(0),
+  mini_720p: z.coerce.number().min(0),
+  mini_720p_video: z.coerce.number().min(0),
+  seedance_25_720p: z.coerce.number().min(0),
+  seedance_25_720p_video: z.coerce.number().min(0),
+  seedance_25_1080p: z.coerce.number().min(0),
+  seedance_25_1080p_video: z.coerce.number().min(0),
 })
 
 type Values = z.infer<typeof schema>
@@ -79,6 +85,36 @@ const fields: Array<{ name: FieldName; label: string; description: string }> = [
   {
     name: 'fast_720p_video',
     label: 'Seedance 2.0 Fast · 720p · Video',
+    description: 'Contains reference video input',
+  },
+  {
+    name: 'mini_720p',
+    label: 'Seedance 2.0 Mini · 720p · Text/Image',
+    description: 'No reference video input',
+  },
+  {
+    name: 'mini_720p_video',
+    label: 'Seedance 2.0 Mini · 720p · Video',
+    description: 'Contains reference video input',
+  },
+  {
+    name: 'seedance_25_720p',
+    label: 'Seedance 2.5 · 720p · Text/Image',
+    description: 'No reference video input',
+  },
+  {
+    name: 'seedance_25_720p_video',
+    label: 'Seedance 2.5 · 720p · Video',
+    description: 'Contains reference video input',
+  },
+  {
+    name: 'seedance_25_1080p',
+    label: 'Seedance 2.5 · 1080p · Text/Image',
+    description: 'No reference video input',
+  },
+  {
+    name: 'seedance_25_1080p_video',
+    label: 'Seedance 2.5 · 1080p · Video',
     description: 'Contains reference video input',
   },
 ]

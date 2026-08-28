@@ -1,6 +1,6 @@
 ---
-title: Seedance 2.0
-description: Seedance 2.0 标准版与 Fast 版的请求字段、默认值和验证规则。
+title: Seedance
+description: Seedance 标准版、Fast、Mini 与 2.5 的请求字段、默认值和验证规则。
 audience: user
 apiVersion: v1
 lastReviewed: 2026-08-10
@@ -11,18 +11,18 @@ sidebar_position: 2
 import ParameterTable from '../../src/components/ParameterTable';
 
 export const seedanceParameters = [
-  { name: 'model', type: 'string', required: true, description: '两个受支持的 Seedance 模型 ID 之一。' },
+  { name: 'model', type: 'string', required: true, description: '四个受支持的 Seedance 模型 ID 之一。' },
   { name: 'content', type: 'object[]', required: '条件', defaultValue: '[]', description: '有顺序的文本、图片、视频和音频输入。必须提供文本或至少一张图片/一个视频。' },
   { name: 'prompt', type: 'string', required: '条件', description: '文本提示词的便捷字段；提供后会作为一个 text 项追加到 content。' },
   { name: 'generate_audio', type: 'boolean', required: false, defaultValue: 'true', description: '是否生成与画面配套的音频。' },
-  { name: 'resolution', type: 'string', required: false, defaultValue: '720p', description: '标准版支持 480p、720p、1080p、4k；Fast 版只支持 480p、720p。' },
+  { name: 'resolution', type: 'string', required: false, defaultValue: '720p', description: '标准版支持到 4k；Fast/Mini 支持到 720p；2.5 支持到 1080p。' },
   { name: 'ratio', type: 'string', required: false, defaultValue: 'adaptive', description: '输出宽高比；可选值见下文。' },
-  { name: 'duration', type: 'integer', required: false, defaultValue: '5', description: '固定 4–15 秒，或使用 -1 让模型选择时长。' },
+  { name: 'duration', type: 'integer', required: false, defaultValue: '5', description: '标准/Fast/Mini 为 4–15 秒，2.5 为 4–30 秒；也可使用 -1 让模型选择时长。' },
   { name: 'watermark', type: 'boolean', required: false, defaultValue: 'false', description: '是否在生成视频上添加水印。' },
   { name: 'tools', type: 'object[]', required: false, defaultValue: '[]', description: '当前仅接受 {"type":"web_search"}。' },
 ];
 
-# Seedance 2.0
+# Seedance
 
 创建端点为 `POST /v1/videos`。兼容路径 `POST /v1/video/generations` 使用相同的 Seedance 请求字段；本页和示例统一使用 `/v1/videos`，便于在同一路径下查询任务与下载结果。
 
@@ -32,8 +32,10 @@ export const seedanceParameters = [
 | --- | --- | --- |
 | 标准版 | `doubao-seedance-2-0-260128` | `480p`、`720p`、`1080p`、`4k` |
 | Fast | `doubao-seedance-2-0-fast-260128` | `480p`、`720p` |
+| Mini | `doubao-seedance-2-0-mini-260615` | `480p`、`720p` |
+| 2.5（最长 `30` 秒） | `doubao-seedance-2-5-260628` | `480p`、`720p`、`1080p` |
 
-Fast 版不支持 `1080p` 和 `4k`，这些组合会在创建阶段被拒绝。
+Fast/Mini 不支持 `1080p` 和 `4k`；2.5 不支持 `4k`。这些组合会在创建阶段被拒绝。
 
 ## 请求参数
 
@@ -41,7 +43,7 @@ Fast 版不支持 `1080p` 和 `4k`，这些组合会在创建阶段被拒绝。
 
 `ratio` 的完整可选值是 `adaptive`、`16:9`、`4:3`、`1:1`、`3:4`、`9:16` 和 `21:9`。
 
-`duration` 必须是 `-1`，或 `4` 到 `15` 之间的整数。`0`、`3` 和 `16` 都是无效值。默认值是 `5`。
+`duration` 必须是 `-1`，或所选模型范围内的整数：标准/Fast/Mini 为 `4`–`15`，2.5 为 `4`–`30`。默认值是 `5`。
 
 `tools` 目前只支持以下一项；任何其他 `type` 都会被拒绝：
 
@@ -88,6 +90,6 @@ Fast 版不支持 `1080p` 和 `4k`，这些组合会在创建阶段被拒绝。
 }
 ```
 
-用 `GET /v1/videos/{task_id}` 查询，状态为 `queued`、`in_progress`、`completed` 或 `failed`。完成后使用 `GET /v1/videos/{task_id}/content` 获取视频。请遵守[异步任务](../api-basics/async-tasks)中的退避、总超时和“不自动重试付费 POST”规则。
+用 `GET /v1/videos/{task_id}` 查询，状态为 `queued`、`in_progress`、`completed` 或 `failed`。完成后响应会提供经过严格校验的火山 TOS 签名视频 URL；签名会过期，请及时使用。请遵守[异步任务](../api-basics/async-tasks)中的退避、总超时和“不自动重试付费 POST”规则。
 
 多模态输入的角色和互斥规则较严格，请在提交前阅读[多模态输入指南](../guides/seedance-multimodal)。

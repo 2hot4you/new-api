@@ -13,6 +13,8 @@ const (
 	ImagineModelFamilyUnknown          ImagineModelFamily = ""
 	ImagineModelFamilySeedanceStandard ImagineModelFamily = "seedance_standard"
 	ImagineModelFamilySeedanceFast     ImagineModelFamily = "seedance_fast"
+	ImagineModelFamilySeedanceMini     ImagineModelFamily = "seedance_mini"
+	ImagineModelFamilySeedance25       ImagineModelFamily = "seedance_25"
 	ImagineModelFamilyGrokImage        ImagineModelFamily = "grok_image"
 	ImagineModelFamilyGrokImageQuality ImagineModelFamily = "grok_image_quality"
 	ImagineModelFamilyGrokImage20      ImagineModelFamily = "grok_image_20"
@@ -28,6 +30,10 @@ func GetImagineModelFamily(modelName string) ImagineModelFamily {
 		return ImagineModelFamilySeedanceStandard
 	case "doubao-seedance-2-0-fast-260128":
 		return ImagineModelFamilySeedanceFast
+	case "doubao-seedance-2-0-mini-260615":
+		return ImagineModelFamilySeedanceMini
+	case "doubao-seedance-2-5-260628":
+		return ImagineModelFamilySeedance25
 	case "grok-imagine-image":
 		return ImagineModelFamilyGrokImage
 	case "grok-imagine-image-quality":

@@ -1,0 +1,12 @@
+{
+  "id": "adapt-starai-seedance-models",
+  "title": "适配 StarAI Seedance Mini 与 2.5 并透传火山视频 URL",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "等待用户确认后提交与推送",
+  "createdAt": "2026-08-28T16:00:00+08:00",
+  "branch": "develop"
+}

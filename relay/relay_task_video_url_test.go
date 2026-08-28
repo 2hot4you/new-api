@@ -1,10 +1,8 @@
 package relay
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -13,7 +11,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -21,28 +18,33 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestTaskModel2DtoUsesSignedPlaybackURLForSuccessfulStarAITask(t *testing.T) {
+func TestTaskModel2DtoPassesThroughSignedTOSURLForSuccessfulStarAITask(t *testing.T) {
+	resultURL := "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/result.mp4?X-Tos-Signature=upstream-signed"
 	task := &model.Task{
 		TaskID:   "task_public_result",
 		UserId:   42,
 		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)),
 		Status:   model.TaskStatusSuccess,
 		PrivateData: model.TaskPrivateData{
-			ResultURL: "https://private.example/video.mp4?signature=upstream-secret",
+			ResultURL: resultURL,
 		},
-		Data: json.RawMessage(`{"data":{"result_url":"https://private.example/result.mp4","content":{"video_url":"https://private.example/content.mp4"}}}`),
 	}
 
 	result := TaskModel2Dto(task)
-	parsed, err := url.Parse(result.ResultURL)
-	require.NoError(t, err)
-	assert.Equal(t, "/v1/videos/task_public_result/content", parsed.Path)
-	assert.NotContains(t, result.ResultURL, "upstream-secret")
-	assert.NotContains(t, string(result.Data), "private.example")
-	assert.Contains(t, string(result.Data), "task_public_result")
-	userID, err := service.VerifyVideoPlaybackSignature(task.TaskID, parsed.Query().Get("user_id"), parsed.Query().Get("expires"), parsed.Query().Get("signature"), time.Now())
-	require.NoError(t, err)
-	assert.Equal(t, task.UserId, userID)
+	assert.Equal(t, resultURL, result.ResultURL)
+}
+
+func TestTaskModel2DtoDoesNotExposeUnsignedStarAIResultURL(t *testing.T) {
+	task := &model.Task{
+		TaskID:   "task_unsigned_result",
+		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)),
+		Status:   model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			ResultURL: "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/result.mp4",
+		},
+	}
+
+	assert.Empty(t, TaskModel2Dto(task).ResultURL)
 }
 
 func TestTaskModel2DtoPreservesNonStarAIResultURL(t *testing.T) {

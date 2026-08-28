@@ -58,8 +58,9 @@ func TestBeginStarAICOSUploadScopesAuthorizationToOneUserObject(t *testing.T) {
 }
 
 func TestValidateStarAICOSUploadEnforcesTypeAndProviderSizeLimits(t *testing.T) {
-	require.NoError(t, ValidateStarAICOSUpload("reference.HEIC", "image/heic", "image", 1024))
+	require.Error(t, ValidateStarAICOSUpload("reference.HEIC", "image/heic", "image", 1024))
 	require.Error(t, ValidateStarAICOSUpload("payload.zip", "application/zip", "image", 1024))
-	require.Error(t, ValidateStarAICOSUpload("clip.mp4", "video/mp4", "video", 200*1024*1024+1))
+	require.NoError(t, ValidateStarAICOSUpload("clip.mp4", "video/mp4", "video", 50*1024*1024))
+	require.Error(t, ValidateStarAICOSUpload("clip.mp4", "video/mp4", "video", 50*1024*1024+1))
 	require.Error(t, ValidateStarAICOSUpload("voice.mp3", "video/mp4", "audio", 1024))
 }

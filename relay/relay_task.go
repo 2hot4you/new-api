@@ -611,8 +611,10 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	isStarAI := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
 	isMoliiGrok := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
 	if isStarAI && task.Status == model.TaskStatusSuccess {
-		resultURL = service.BuildSignedVideoProxyURL(task.TaskID, task.UserId)
-		taskData = service.RewriteStarAIVideoResponseURLs(task.Data, resultURL)
+		resultURL = ""
+		if service.IsSignedStarAIPrivateTOSURL(task.PrivateData.ResultURL) {
+			resultURL = strings.TrimSpace(task.PrivateData.ResultURL)
+		}
 	}
 	if isMoliiGrok {
 		resultURL = ""

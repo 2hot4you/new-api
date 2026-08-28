@@ -19,6 +19,8 @@ func TestTaskAdaptorAndEndpointRegistration(t *testing.T) {
 	assert.Equal(t, []string{
 		"doubao-seedance-2-0-260128",
 		"doubao-seedance-2-0-fast-260128",
+		"doubao-seedance-2-0-mini-260615",
+		"doubao-seedance-2-5-260628",
 	}, adaptor.GetModelList())
 	assert.False(t, relay.TaskAdaptorAllowsRetry(platform))
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, common.GetEndpointTypesByChannelType(constant.ChannelTypeStarAI, adaptor.GetModelList()[0]))

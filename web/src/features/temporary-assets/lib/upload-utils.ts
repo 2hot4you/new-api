@@ -17,8 +17,6 @@ const extensionTypes: Record<string, AssetType> = {
   tif: 'image',
   tiff: 'image',
   gif: 'image',
-  heic: 'image',
-  heif: 'image',
   mp4: 'video',
   mov: 'video',
   wav: 'audio',

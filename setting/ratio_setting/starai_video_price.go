@@ -10,14 +10,20 @@ import (
 // StarAIVideoPriceSetting stores direct platform-currency prices per 1M tokens.
 // molii uses a 1:1 CNY/USD platform value, so no exchange-rate conversion applies.
 type StarAIVideoPriceSetting struct {
-	Standard720p       float64 `json:"standard_720p"`
-	Standard720pVideo  float64 `json:"standard_720p_video"`
-	Standard1080p      float64 `json:"standard_1080p"`
-	Standard1080pVideo float64 `json:"standard_1080p_video"`
-	Standard4K         float64 `json:"standard_4k"`
-	Standard4KVideo    float64 `json:"standard_4k_video"`
-	Fast720p           float64 `json:"fast_720p"`
-	Fast720pVideo      float64 `json:"fast_720p_video"`
+	Standard720p         float64 `json:"standard_720p"`
+	Standard720pVideo    float64 `json:"standard_720p_video"`
+	Standard1080p        float64 `json:"standard_1080p"`
+	Standard1080pVideo   float64 `json:"standard_1080p_video"`
+	Standard4K           float64 `json:"standard_4k"`
+	Standard4KVideo      float64 `json:"standard_4k_video"`
+	Fast720p             float64 `json:"fast_720p"`
+	Fast720pVideo        float64 `json:"fast_720p_video"`
+	Mini720p             float64 `json:"mini_720p"`
+	Mini720pVideo        float64 `json:"mini_720p_video"`
+	Seedance25720p       float64 `json:"seedance_25_720p"`
+	Seedance25720pVideo  float64 `json:"seedance_25_720p_video"`
+	Seedance251080p      float64 `json:"seedance_25_1080p"`
+	Seedance251080pVideo float64 `json:"seedance_25_1080p_video"`
 }
 
 // StarAIVideoPriceRow is a public, read-only view of one resolution tier.
@@ -40,14 +46,20 @@ type StarAIVideoPricing struct {
 }
 
 var starAIVideoPriceSetting = StarAIVideoPriceSetting{
-	Standard720p:       46,
-	Standard720pVideo:  28,
-	Standard1080p:      51,
-	Standard1080pVideo: 31,
-	Standard4K:         26,
-	Standard4KVideo:    16,
-	Fast720p:           37,
-	Fast720pVideo:      22,
+	Standard720p:         46,
+	Standard720pVideo:    28,
+	Standard1080p:        51,
+	Standard1080pVideo:   31,
+	Standard4K:           26,
+	Standard4KVideo:      16,
+	Fast720p:             37,
+	Fast720pVideo:        22,
+	Mini720p:             23,
+	Mini720pVideo:        14,
+	Seedance25720p:       70,
+	Seedance25720pVideo:  42,
+	Seedance251080p:      77,
+	Seedance251080pVideo: 46,
 }
 
 func init() {
@@ -84,6 +96,24 @@ func GetStarAIVideoPrice(model, resolution string, hasVideo bool) (float64, bool
 			price = starAIVideoPriceSetting.Fast720pVideo
 		} else {
 			price = starAIVideoPriceSetting.Fast720p
+		}
+	case "doubao-seedance-2-0-mini-260615":
+		if hasVideo {
+			price = starAIVideoPriceSetting.Mini720pVideo
+		} else {
+			price = starAIVideoPriceSetting.Mini720p
+		}
+	case "doubao-seedance-2-5-260628":
+		if strings.EqualFold(strings.TrimSpace(resolution), "1080p") {
+			if hasVideo {
+				price = starAIVideoPriceSetting.Seedance251080pVideo
+			} else {
+				price = starAIVideoPriceSetting.Seedance251080p
+			}
+		} else if hasVideo {
+			price = starAIVideoPriceSetting.Seedance25720pVideo
+		} else {
+			price = starAIVideoPriceSetting.Seedance25720p
 		}
 	default:
 		return 0, false
@@ -128,6 +158,17 @@ func GetStarAIVideoPricing(model string) (*StarAIVideoPricing, bool) {
 			},
 		}
 		pricing.UnsupportedResolutions = []string{"1080p", "4K"}
+	case "doubao-seedance-2-0-mini-260615":
+		pricing.Rows = []StarAIVideoPriceRow{{
+			Resolutions: []string{"480p", "720p"}, WithoutVideo: starAIVideoPriceSetting.Mini720p, WithVideo: starAIVideoPriceSetting.Mini720pVideo,
+		}}
+		pricing.UnsupportedResolutions = []string{"1080p", "4K"}
+	case "doubao-seedance-2-5-260628":
+		pricing.Rows = []StarAIVideoPriceRow{
+			{Resolutions: []string{"480p", "720p"}, WithoutVideo: starAIVideoPriceSetting.Seedance25720p, WithVideo: starAIVideoPriceSetting.Seedance25720pVideo},
+			{Resolutions: []string{"1080p"}, WithoutVideo: starAIVideoPriceSetting.Seedance251080p, WithVideo: starAIVideoPriceSetting.Seedance251080pVideo},
+		}
+		pricing.UnsupportedResolutions = []string{"4K"}
 	default:
 		return nil, false
 	}

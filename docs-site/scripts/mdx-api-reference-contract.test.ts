@@ -170,6 +170,8 @@ describe('ordinary MDX API reference contract', () => {
     expect(schema.properties.model.enum).toEqual([
       'doubao-seedance-2-0-260128',
       'doubao-seedance-2-0-fast-260128',
+      'doubao-seedance-2-0-mini-260615',
+      'doubao-seedance-2-5-260628',
     ]);
     expect(schema.properties.content.items.$ref).toBe('#/components/schemas/SeedanceContentItem');
     expect(schema.properties.resolution.default).toBe('720p');

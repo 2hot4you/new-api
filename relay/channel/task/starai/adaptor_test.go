@@ -1,14 +1,13 @@
 package starai
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -36,7 +35,7 @@ func newTaskContext(t *testing.T, request relaycommon.TaskSubmitReq) (*gin.Conte
 		TaskRelayInfo: &relaycommon.TaskRelayInfo{},
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelType:    constant.ChannelTypeStarAI,
-			ChannelBaseUrl: "https://ai-api.lfxqai.com",
+			ChannelBaseUrl: "https://openapi.starcube.art",
 			ApiKey:         "starai-secret",
 		},
 	}
@@ -47,7 +46,7 @@ func TestChannelRegistrationConstants(t *testing.T) {
 	assert.Equal(t, 61, constant.ChannelTypeStarAI)
 	assert.Equal(t, "Molii Volcengine Imagine API", constant.GetChannelTypeName(constant.ChannelTypeStarAI))
 	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeStarAI)
-	assert.Equal(t, "https://ai-api.lfxqai.com", constant.ChannelBaseURLs[constant.ChannelTypeStarAI])
+	assert.Equal(t, "https://openapi.starcube.art", constant.ChannelBaseURLs[constant.ChannelTypeStarAI])
 }
 
 func TestBuildRequestPreservesMetadataCapabilitiesAndMappedModel(t *testing.T) {
@@ -364,6 +363,20 @@ func TestEstimateBillingUsesResolutionAndVideoInputTier(t *testing.T) {
 			wantKey:   "seedance-720p-video-input",
 			wantRatio: 22.0 / 37.0,
 		},
+		{
+			name:      "mini 720p without video",
+			model:     "doubao-seedance-2-0-mini-260615",
+			body:      `{"model":"doubao-seedance-2-0-mini-260615","content":[{"type":"text","text":"prompt"}],"resolution":"720p"}`,
+			wantKey:   "seedance-720p-no-video-input",
+			wantRatio: 1,
+		},
+		{
+			name:      "seedance 2.5 1080p with video",
+			model:     "doubao-seedance-2-5-260628",
+			body:      `{"model":"doubao-seedance-2-5-260628","content":[{"type":"video_url","video_url":{"url":"https://example.com/reference.mp4"},"role":"reference_video"}],"resolution":"1080p"}`,
+			wantKey:   "seedance-1080p-video-input",
+			wantRatio: 46.0 / 70.0,
+		},
 	}
 
 	for _, test := range tests {
@@ -491,7 +504,7 @@ func TestBuildRequestURLAndHeaders(t *testing.T) {
 	adaptor.Init(info)
 	requestURL, err := adaptor.BuildRequestURL(info)
 	require.NoError(t, err)
-	assert.Equal(t, "https://ai-api.lfxqai.com/v1/video/generations", requestURL)
+	assert.Equal(t, "https://openapi.starcube.art/v1/video/generations", requestURL)
 
 	req := httptest.NewRequest(http.MethodPost, requestURL, nil)
 	require.NoError(t, adaptor.BuildRequestHeader(ctx, req, info))
@@ -618,6 +631,11 @@ func TestParseTaskResultStatusAndFields(t *testing.T) {
 			"data":{
 				"status":"succeeded",
 				"content":{"video_url":"https://example.com/nested.mp4"},
+				"duration":4,
+				"resolution":"1080p",
+				"ratio":"16:9",
+				"framespersecond":24,
+				"seed":12345,
 				"usage":{"completion_tokens":731025,"total_tokens":731026},
 				"error":{"message":"nested reason"}
 			}
@@ -631,6 +649,8 @@ func TestParseTaskResultStatusAndFields(t *testing.T) {
 	assert.Equal(t, "outer reason", result.Reason)
 	assert.Equal(t, 731025, result.CompletionTokens)
 	assert.Equal(t, 731026, result.TotalTokens)
+	assert.Equal(t, 4.0, result.ActualDurationSeconds)
+	assert.Equal(t, "1080p", result.ActualResolution)
 
 	nestedZero := []byte(`{"code":"success","usage":{"completion_tokens":90,"total_tokens":100},"data":{"status":"SUCCESS","usage":{"completion_tokens":70,"total_tokens":80},"data":{"usage":{"completion_tokens":0,"total_tokens":0}}}}`)
 	result, err = (&TaskAdaptor{}).ParseTaskResult(nestedZero)
@@ -650,7 +670,7 @@ func TestValidateRejectsMetadataDurationOutsideBillingBoundary(t *testing.T) {
 		Prompt: "prompt",
 		Model:  ModelList[0],
 		Metadata: map[string]any{
-			"duration": maxDurationSeconds + 1,
+			"duration": 16,
 		},
 	})
 	adaptor := &TaskAdaptor{}
@@ -659,6 +679,45 @@ func TestValidateRejectsMetadataDurationOutsideBillingBoundary(t *testing.T) {
 	require.NotNil(t, taskErr)
 	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
 	assert.Equal(t, "invalid_seconds", taskErr.Code)
+}
+
+func TestValidateEnforcesModelSpecificDurationAndResolutionLimits(t *testing.T) {
+	tests := []struct {
+		name       string
+		model      string
+		duration   int
+		resolution string
+		wantCode   string
+	}{
+		{name: "mini accepts 15 seconds", model: "doubao-seedance-2-0-mini-260615", duration: 15, resolution: "720p"},
+		{name: "mini rejects 16 seconds", model: "doubao-seedance-2-0-mini-260615", duration: 16, resolution: "720p", wantCode: "invalid_seconds"},
+		{name: "mini rejects 1080p", model: "doubao-seedance-2-0-mini-260615", duration: 5, resolution: "1080p", wantCode: "invalid_request"},
+		{name: "seedance 2.5 accepts 30 seconds", model: "doubao-seedance-2-5-260628", duration: 30, resolution: "1080p"},
+		{name: "seedance 2.5 rejects 31 seconds", model: "doubao-seedance-2-5-260628", duration: 31, resolution: "1080p", wantCode: "invalid_seconds"},
+		{name: "seedance 2.5 rejects 4k", model: "doubao-seedance-2-5-260628", duration: 5, resolution: "4k", wantCode: "invalid_request"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{Model: test.model})
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", strings.NewReader(fmt.Sprintf(
+				`{"model":%q,"content":[{"type":"text","text":"prompt"}],"duration":%d,"resolution":%q}`,
+				test.model, test.duration, test.resolution,
+			)))
+			ctx.Request.Header.Set("Content-Type", "application/json")
+			info.OriginModelName = test.model
+			info.UpstreamModelName = test.model
+			adaptor := &TaskAdaptor{}
+			adaptor.Init(info)
+
+			taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
+			if test.wantCode == "" {
+				require.Nil(t, taskErr)
+				return
+			}
+			require.NotNil(t, taskErr)
+			assert.Equal(t, test.wantCode, taskErr.Code)
+		})
+	}
 }
 
 func TestValidateEnforcesDocumentedMediaAndModelRules(t *testing.T) {
@@ -714,6 +773,7 @@ func TestValidateEnforcesDocumentedMediaAndModelRules(t *testing.T) {
 }
 
 func TestConvertToOpenAIVideoUsesPublicID(t *testing.T) {
+	resultURL := "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/result.mp4?X-Tos-Signature=upstream-signed"
 	task := &model.Task{
 		TaskID:     "task_public",
 		UserId:     42,
@@ -722,7 +782,10 @@ func TestConvertToOpenAIVideoUsesPublicID(t *testing.T) {
 		CreatedAt:  10,
 		UpdatedAt:  20,
 		Properties: model.Properties{OriginModelName: ModelList[0]},
-		Data:       []byte(`{"code":"success","data":{"task_id":"task_public","status":"SUCCESS","result_url":"https://example.com/video.mp4","usage":{"completion_tokens":8,"total_tokens":9,"tool_usage":{"web_search":2}}}}`),
+		PrivateData: model.TaskPrivateData{
+			ResultURL: resultURL,
+		},
+		Data: []byte(`{"code":"success","data":{"task_id":"task_public","status":"SUCCESS","result_url":"https://example.com/video.mp4","usage":{"completion_tokens":8,"total_tokens":9,"tool_usage":{"web_search":2}}}}`),
 	}
 	body, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
 	require.NoError(t, err)
@@ -731,13 +794,25 @@ func TestConvertToOpenAIVideoUsesPublicID(t *testing.T) {
 	assert.Equal(t, "task_public", video.ID)
 	assert.Equal(t, "task_public", video.TaskID)
 	assert.Equal(t, dto.VideoStatusCompleted, video.Status)
-	playbackURL, err := url.Parse(video.Metadata["url"].(string))
-	require.NoError(t, err)
-	assert.Equal(t, "/v1/videos/task_public/content", playbackURL.Path)
-	_, err = service.VerifyVideoPlaybackSignature("task_public", playbackURL.Query().Get("user_id"), playbackURL.Query().Get("expires"), playbackURL.Query().Get("signature"), time.Now())
-	require.NoError(t, err)
+	assert.Equal(t, resultURL, video.Metadata["url"])
 	require.NotNil(t, video.Usage)
 	assert.Equal(t, 8, video.Usage.CompletionTokens)
 	assert.Equal(t, 9, video.Usage.TotalTokens)
 	assert.Equal(t, 2, video.Usage.ToolUsage.WebSearch)
+}
+
+func TestConvertToOpenAIVideoDoesNotExposeUnsignedResultURL(t *testing.T) {
+	task := &model.Task{
+		TaskID: "task_unsigned",
+		Status: model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			ResultURL: "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/result.mp4",
+		},
+	}
+	body, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
+	require.NoError(t, err)
+	var video dto.OpenAIVideo
+	require.NoError(t, common.Unmarshal(body, &video))
+	_, hasURL := video.Metadata["url"]
+	assert.False(t, hasURL)
 }

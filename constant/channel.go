@@ -126,7 +126,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //58
 	"",                                          //59
 	"",                                          //60
-	"https://ai-api.lfxqai.com",                 //61
+	"https://openapi.starcube.art",              //61
 	"https://api.wxiai.com/xai",                 //62
 }
 

@@ -29,6 +29,8 @@ func TestDashboardListModelsIncludesTaskOnlyStarAIModels(t *testing.T) {
 	assert.Equal(t, []string{
 		"doubao-seedance-2-0-260128",
 		"doubao-seedance-2-0-fast-260128",
+		"doubao-seedance-2-0-mini-260615",
+		"doubao-seedance-2-5-260628",
 	}, response.Data[strconv.Itoa(constant.ChannelTypeStarAI)])
 }
 
@@ -53,6 +55,8 @@ func TestChannelListModelsIncludesStarAIGlobalModels(t *testing.T) {
 	wanted := map[string]bool{
 		"doubao-seedance-2-0-260128":      false,
 		"doubao-seedance-2-0-fast-260128": false,
+		"doubao-seedance-2-0-mini-260615": false,
+		"doubao-seedance-2-5-260628":      false,
 	}
 	for _, item := range response.Data {
 		if _, ok := wanted[item.Id]; !ok {

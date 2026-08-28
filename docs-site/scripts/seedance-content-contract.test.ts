@@ -180,16 +180,21 @@ describe('Seedance and temporary asset documentation contract', () => {
     }
   });
 
-  test('model pages document both registered models and their resolution boundary', async () => {
+  test('model pages document every registered model and its resolution boundary', async () => {
     const overview = await page('docs/models/overview.mdx');
     const seedance = await page('docs/models/seedance-2.mdx');
     const combined = `${overview}\n${seedance}`;
 
     expect(combined).toContain('doubao-seedance-2-0-260128');
     expect(combined).toContain('doubao-seedance-2-0-fast-260128');
+    expect(combined).toContain('doubao-seedance-2-0-mini-260615');
+    expect(combined).toContain('doubao-seedance-2-5-260628');
     expect(seedance).toMatch(/标准版[^\n]*(?:480p|`480p`)[^\n]*(?:720p|`720p`)[^\n]*(?:1080p|`1080p`)[^\n]*(?:4k|`4k`)/i);
     expect(seedance).toMatch(/Fast[^\n]*(?:480p|`480p`)[^\n]*(?:720p|`720p`)/i);
     expect(seedance).toMatch(/Fast[^。\n]*(?:不支持|不可使用)[^。\n]*(?:1080p|`1080p`)[^。\n]*(?:4k|`4k`)/i);
+    expect(seedance).toMatch(/Mini[^\n]*(?:480p|`480p`)[^\n]*(?:720p|`720p`)/i);
+    expect(seedance).toMatch(/2\.5[^\n]*(?:1080p|`1080p`)/i);
+    expect(seedance).toMatch(/2\.5[^\n]*(?:30|`30`)/i);
   });
 
   test('Seedance parameter guide records defaults, enums, and supported tools', async () => {

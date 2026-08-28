@@ -264,6 +264,12 @@ describe('PricingUnitInput', () => {
             standard_4k_video: 1,
             fast_720p: 1,
             fast_720p_video: 1,
+            mini_720p: 1,
+            mini_720p_video: 1,
+            seedance_25_720p: 1,
+            seedance_25_720p_video: 1,
+            seedance_25_1080p: 1,
+            seedance_25_1080p_video: 1,
           }}
         />
       ),
@@ -297,6 +303,18 @@ describe('PricingUnitInput', () => {
     assert.equal(
       formItem.querySelector('[data-slot="form-description"]')?.textContent,
       '输入不包含参考视频'
+    )
+
+    assert.ok(
+      [...container.querySelectorAll('label')].some(
+        (item) =>
+          item.textContent === 'Seedance 2.0 Mini · 480p/720p · 文本/图片输入'
+      )
+    )
+    assert.ok(
+      [...container.querySelectorAll('label')].some(
+        (item) => item.textContent === 'Seedance 2.5 · 1080p · 视频输入'
+      )
     )
 
     await act(async () => root.unmount())

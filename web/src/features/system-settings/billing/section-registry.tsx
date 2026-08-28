@@ -81,6 +81,14 @@ const buildUnifiedModelPricing = (settings: BillingSettings) => (
           standard_4k_video: settings['starai_video_price.standard_4k_video'],
           fast_720p: settings['starai_video_price.fast_720p'],
           fast_720p_video: settings['starai_video_price.fast_720p_video'],
+          mini_720p: settings['starai_video_price.mini_720p'],
+          mini_720p_video: settings['starai_video_price.mini_720p_video'],
+          seedance_25_720p: settings['starai_video_price.seedance_25_720p'],
+          seedance_25_720p_video:
+            settings['starai_video_price.seedance_25_720p_video'],
+          seedance_25_1080p: settings['starai_video_price.seedance_25_1080p'],
+          seedance_25_1080p_video:
+            settings['starai_video_price.seedance_25_1080p_video'],
         }}
       />
     }

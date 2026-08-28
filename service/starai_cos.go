@@ -52,9 +52,9 @@ type StarAICOSUploadAuthorization struct {
 func starAICOSFileRules(assetType string) (map[string]struct{}, int64) {
 	switch assetType {
 	case "image":
-		return map[string]struct{}{".jpg": {}, ".jpeg": {}, ".png": {}, ".webp": {}, ".bmp": {}, ".tif": {}, ".tiff": {}, ".gif": {}, ".heic": {}, ".heif": {}}, 30 * 1024 * 1024
+		return map[string]struct{}{".jpg": {}, ".jpeg": {}, ".png": {}, ".webp": {}, ".bmp": {}, ".tif": {}, ".tiff": {}, ".gif": {}}, 30 * 1024 * 1024
 	case "video":
-		return map[string]struct{}{".mp4": {}, ".mov": {}}, 200 * 1024 * 1024
+		return map[string]struct{}{".mp4": {}, ".mov": {}}, 50 * 1024 * 1024
 	case "audio":
 		return map[string]struct{}{".wav": {}, ".mp3": {}}, 15 * 1024 * 1024
 	default:

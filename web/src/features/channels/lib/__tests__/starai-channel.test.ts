@@ -54,10 +54,10 @@ describe('Molii Volcengine Imagine API channel', () => {
     assert.equal(MODEL_FETCHABLE_TYPES.has(CHANNEL_TYPE_STARAI), false)
   })
 
-  test('registers the default URL, key hint, and exactly two Seedance models', () => {
+  test('registers the default URL, key hint, and supported Seedance models', () => {
     const config = getChannelTypeConfig(CHANNEL_TYPE_STARAI)
 
-    assert.equal(config.defaultBaseUrl, 'https://ai-api.lfxqai.com')
+    assert.equal(config.defaultBaseUrl, 'https://openapi.starcube.art')
     assert.equal(config.icon, 'Doubao')
     assert.equal(
       getKeyPromptForType(CHANNEL_TYPE_STARAI),

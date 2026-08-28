@@ -65,10 +65,15 @@ type usage struct {
 }
 
 type nestedTaskPayload struct {
-	Status     string `json:"status"`
-	Message    string `json:"message"`
-	FailReason string `json:"fail_reason"`
-	Content    struct {
+	Status          string  `json:"status"`
+	Message         string  `json:"message"`
+	FailReason      string  `json:"fail_reason"`
+	Duration        float64 `json:"duration"`
+	Resolution      string  `json:"resolution"`
+	Ratio           string  `json:"ratio"`
+	FramesPerSecond int     `json:"framespersecond"`
+	Seed            int64   `json:"seed"`
+	Content         struct {
 		VideoURL string `json:"video_url"`
 	} `json:"content"`
 	Usage *usage `json:"usage"`
@@ -146,7 +151,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		}
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
-	if err := validateDuration(payload.Duration); err != nil {
+	if err := validateDuration(payload.Model, payload.Duration); err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_seconds", http.StatusBadRequest)
 	}
 	if err := validatePayload(payload); err != nil {
@@ -175,7 +180,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
-	if err := validateDuration(payload.Duration); err != nil {
+	if err := validateDuration(payload.Model, payload.Duration); err != nil {
 		return nil, err
 	}
 	if err := validatePayload(payload); err != nil {
@@ -303,14 +308,16 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	}
 
 	result := &relaycommon.TaskInfo{
-		Code:             0,
-		TaskID:           firstNonEmpty(starResp.Data.TaskID, stringValue(starResp.Data.ID), starResp.TaskID, stringValue(starResp.ID)),
-		Status:           mapStatus(status),
-		Reason:           reason,
-		Url:              resultURL,
-		Progress:         firstNonEmpty(stringValue(starResp.Data.Progress), stringValue(starResp.Progress), defaultProgress(status)),
-		CompletionTokens: resultUsage.CompletionTokens,
-		TotalTokens:      resultUsage.TotalTokens,
+		Code:                  0,
+		TaskID:                firstNonEmpty(starResp.Data.TaskID, stringValue(starResp.Data.ID), starResp.TaskID, stringValue(starResp.ID)),
+		Status:                mapStatus(status),
+		Reason:                reason,
+		Url:                   resultURL,
+		Progress:              firstNonEmpty(stringValue(starResp.Data.Progress), stringValue(starResp.Progress), defaultProgress(status)),
+		CompletionTokens:      resultUsage.CompletionTokens,
+		TotalTokens:           resultUsage.TotalTokens,
+		ActualDurationSeconds: starResp.Data.Data.Duration,
+		ActualResolution:      starResp.Data.Data.Resolution,
 	}
 	return result, nil
 }
@@ -331,9 +338,9 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	video.SetProgressStr(originTask.Progress)
 	video.CreatedAt = originTask.CreatedAt
 	video.CompletedAt = originTask.UpdatedAt
-	resultAvailable := firstNonEmpty(starResp.Data.ResultURL, starResp.Data.Data.Content.VideoURL, starResp.ResultURL, originTask.GetResultURL()) != ""
-	if resultAvailable {
-		video.SetMetadata("url", service.BuildSignedVideoProxyURL(originTask.TaskID, originTask.UserId))
+	resultURL := strings.TrimSpace(originTask.GetResultURL())
+	if service.IsSignedStarAIPrivateTOSURL(resultURL) {
+		video.SetMetadata("url", resultURL)
 	}
 	resultUsage := firstUsage(starResp)
 	if resultUsage != nil {
@@ -399,7 +406,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	// Reverse the configured absolute price into an OtherRatio so the value in
 	// the StarAI form remains authoritative even if the generic ratio changes.
 	priceRatio := price / (2 * modelRatio)
-	width, height := seedanceDimensions(payload.Resolution, payload.Ratio)
+	width, height := seedanceDimensions(billedModel, payload.Resolution, payload.Ratio)
 	seconds := 5
 	if payload.Duration != nil && *payload.Duration > 0 {
 		seconds = *payload.Duration
@@ -425,7 +432,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	}
 }
 
-func seedanceDimensions(resolution, ratio string) (int, int) {
+func seedanceDimensions(model, resolution, ratio string) (int, int) {
 	// StarAI documents exact values for 480p/720p. 1080p uses the
 	// corresponding standard canvas. adaptive cannot be known before task
 	// completion, so it deliberately falls back to the common 16:9 canvas.
@@ -437,6 +444,11 @@ func seedanceDimensions(resolution, ratio string) (int, int) {
 		"720p":  {"16:9": {1280, 720}, "4:3": {1112, 834}, "1:1": {960, 960}, "3:4": {834, 1112}, "9:16": {720, 1280}, "21:9": {1470, 630}},
 		"1080p": {"16:9": {1920, 1080}, "4:3": {1440, 1080}, "1:1": {1080, 1080}, "3:4": {1080, 1440}, "9:16": {1080, 1920}, "21:9": {2520, 1080}},
 		"4k":    {"16:9": {3840, 2160}, "4:3": {2880, 2160}, "1:1": {2160, 2160}, "3:4": {2160, 2880}, "9:16": {2160, 3840}, "21:9": {5040, 2160}},
+	}
+	if model == ModelSeedance25 && strings.EqualFold(strings.TrimSpace(resolution), "480p") {
+		table["480p"] = map[string][2]int{
+			"16:9": {854, 480}, "4:3": {640, 480}, "1:1": {480, 480}, "3:4": {480, 640}, "9:16": {480, 854}, "21:9": {1120, 480},
+		}
 	}
 	byRatio, ok := table[strings.ToLower(strings.TrimSpace(resolution))]
 	if !ok {
@@ -554,12 +566,13 @@ func (a *TaskAdaptor) resolveTemporaryAssets(c *gin.Context, payload *requestPay
 	return nil
 }
 
-func validateDuration(duration *int) error {
+func validateDuration(model string, duration *int) error {
 	if duration == nil {
 		return nil
 	}
-	if *duration != -1 && (*duration < 4 || *duration > maxDurationSeconds) {
-		return fmt.Errorf("duration must be -1 or between 4 and %d", maxDurationSeconds)
+	maxDuration := capabilitiesForModel(model).maxDuration
+	if *duration != -1 && (*duration < 4 || *duration > maxDuration) {
+		return fmt.Errorf("duration must be -1 or between 4 and %d", maxDuration)
 	}
 	return nil
 }
@@ -605,11 +618,12 @@ func applyTopLevelFields(c *gin.Context, payload *requestPayload) error {
 }
 
 func validatePayload(payload *requestPayload) error {
+	payload.Resolution = strings.ToLower(strings.TrimSpace(payload.Resolution))
 	if payload.Resolution != "480p" && payload.Resolution != "720p" && payload.Resolution != "1080p" && payload.Resolution != "4k" {
 		return fmt.Errorf("resolution must be one of 480p, 720p, 1080p, or 4k")
 	}
-	if payload.Model == ModelList[1] && (payload.Resolution == "1080p" || payload.Resolution == "4k") {
-		return fmt.Errorf("%s is not supported by %s", payload.Resolution, ModelList[1])
+	if _, ok := capabilitiesForModel(payload.Model).supportedResolution[payload.Resolution]; !ok {
+		return fmt.Errorf("%s is not supported by %s", payload.Resolution, payload.Model)
 	}
 	validRatios := map[string]struct{}{"16:9": {}, "4:3": {}, "1:1": {}, "3:4": {}, "9:16": {}, "21:9": {}, "adaptive": {}}
 	if _, ok := validRatios[payload.Ratio]; !ok {

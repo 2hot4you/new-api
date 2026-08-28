@@ -283,6 +283,12 @@ export type BillingSettings = {
   'starai_video_price.standard_4k_video': number
   'starai_video_price.fast_720p': number
   'starai_video_price.fast_720p_video': number
+  'starai_video_price.mini_720p': number
+  'starai_video_price.mini_720p_video': number
+  'starai_video_price.seedance_25_720p': number
+  'starai_video_price.seedance_25_720p_video': number
+  'starai_video_price.seedance_25_1080p': number
+  'starai_video_price.seedance_25_1080p_video': number
   'molii_grok_price.image_standard_input': number
   'molii_grok_price.image_standard_1k': number
   'molii_grok_price.image_standard_2k': number

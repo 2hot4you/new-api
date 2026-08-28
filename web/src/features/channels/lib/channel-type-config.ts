@@ -173,10 +173,10 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 61,
     name: CHANNEL_TYPES[61],
     icon: 'Doubao',
-    defaultBaseUrl: 'https://ai-api.lfxqai.com',
+    defaultBaseUrl: 'https://openapi.starcube.art',
     supportedModels: [...STARAI_MODELS],
     hints: {
-      baseUrl: 'Default: https://ai-api.lfxqai.com',
+      baseUrl: 'Default: https://openapi.starcube.art',
       key: 'Enter API key for this channel',
       models: STARAI_MODELS.join(','),
     },

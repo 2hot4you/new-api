@@ -150,7 +150,7 @@ export function TemporaryAssets() {
     enabled: false,
     limits: {
       image: 30 * 1024 * 1024,
-      video: 200 * 1024 * 1024,
+      video: 50 * 1024 * 1024,
       audio: 15 * 1024 * 1024,
     },
   })

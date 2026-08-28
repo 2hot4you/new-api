@@ -22,6 +22,12 @@ func TestDefaultStarAIVideoPrices(t *testing.T) {
 		{"doubao-seedance-2-0-260128", "4k", true, 16},
 		{"doubao-seedance-2-0-fast-260128", "720p", false, 37},
 		{"doubao-seedance-2-0-fast-260128", "720p", true, 22},
+		{"doubao-seedance-2-0-mini-260615", "480p", false, 23},
+		{"doubao-seedance-2-0-mini-260615", "720p", true, 14},
+		{"doubao-seedance-2-5-260628", "480p", false, 70},
+		{"doubao-seedance-2-5-260628", "720p", true, 42},
+		{"doubao-seedance-2-5-260628", "1080p", false, 77},
+		{"doubao-seedance-2-5-260628", "1080p", true, 46},
 	}
 	for _, tt := range tests {
 		got, ok := GetStarAIVideoPrice(tt.model, tt.resolution, tt.hasVideo)
@@ -47,6 +53,19 @@ func TestStarAIVideoPricingMatrix(t *testing.T) {
 	require.Len(t, fast.Rows, 1)
 	assert.Equal(t, StarAIVideoPriceRow{Resolutions: []string{"480p", "720p"}, WithoutVideo: 37, WithVideo: 22}, fast.Rows[0])
 	assert.Equal(t, []string{"1080p", "4K"}, fast.UnsupportedResolutions)
+
+	mini, ok := GetStarAIVideoPricing("doubao-seedance-2-0-mini-260615")
+	require.True(t, ok)
+	require.Len(t, mini.Rows, 1)
+	assert.Equal(t, StarAIVideoPriceRow{Resolutions: []string{"480p", "720p"}, WithoutVideo: 23, WithVideo: 14}, mini.Rows[0])
+	assert.Equal(t, []string{"1080p", "4K"}, mini.UnsupportedResolutions)
+
+	seedance25, ok := GetStarAIVideoPricing("doubao-seedance-2-5-260628")
+	require.True(t, ok)
+	require.Len(t, seedance25.Rows, 2)
+	assert.Equal(t, StarAIVideoPriceRow{Resolutions: []string{"480p", "720p"}, WithoutVideo: 70, WithVideo: 42}, seedance25.Rows[0])
+	assert.Equal(t, StarAIVideoPriceRow{Resolutions: []string{"1080p"}, WithoutVideo: 77, WithVideo: 46}, seedance25.Rows[1])
+	assert.Equal(t, []string{"4K"}, seedance25.UnsupportedResolutions)
 
 	_, ok = GetStarAIVideoPricing("unrelated-model")
 	assert.False(t, ok)

@@ -24,6 +24,8 @@ var currentMarketplaceCatalogModelNames = []string{
 	"qwen3.5-plus",
 	"doubao-seedance-2-0-260128",
 	"doubao-seedance-2-0-fast-260128",
+	"doubao-seedance-2-0-mini-260615",
+	"doubao-seedance-2-5-260628",
 	"grok-imagine-image",
 	"grok-imagine-image-quality",
 	"grok-imagine-image-2.0",
@@ -252,6 +254,14 @@ func TestBackfillLocalMarketplaceMetadataUsesValidatedLocalCapabilities(t *testi
 
 	fast := loadMarketplaceRow(t, db, "doubao-seedance-2-0-fast-260128")
 	require.Equal(t, []string{"480p", "720p"}, fast.SupportedResolutions)
+
+	mini := loadMarketplaceRow(t, db, "doubao-seedance-2-0-mini-260615")
+	require.Equal(t, []string{"480p", "720p"}, mini.SupportedResolutions)
+	require.Equal(t, 15, mini.MaxDuration)
+
+	seedance25 := loadMarketplaceRow(t, db, "doubao-seedance-2-5-260628")
+	require.Equal(t, []string{"480p", "720p", "1080p"}, seedance25.SupportedResolutions)
+	require.Equal(t, 30, seedance25.MaxDuration)
 
 	image := loadMarketplaceRow(t, db, "grok-imagine-image-quality")
 	require.Equal(t, []string{"1k", "2k"}, image.SupportedResolutions)

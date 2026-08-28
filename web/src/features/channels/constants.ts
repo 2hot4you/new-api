@@ -28,6 +28,8 @@ export const CHANNEL_TYPE_MOLII_GROK_AIGC = 62
 export const STARAI_MODELS = [
   'doubao-seedance-2-0-260128',
   'doubao-seedance-2-0-fast-260128',
+  'doubao-seedance-2-0-mini-260615',
+  'doubao-seedance-2-5-260628',
 ] as const
 
 export const MOLII_GROK_AIGC_MODELS = [

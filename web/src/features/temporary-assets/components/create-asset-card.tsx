@@ -228,7 +228,7 @@ export function CreateAssetCard(props: CreateAssetCardProps) {
                 ref={fileInputRef}
                 type='file'
                 className='sr-only'
-                accept='.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif,.heic,.heif,.mp4,.mov,.wav,.mp3'
+                accept='.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif,.mp4,.mov,.wav,.mp3'
                 disabled={!props.uploadConfig.enabled || submitting}
                 onChange={(event) => selectFile(event.target.files?.[0])}
               />
@@ -277,7 +277,7 @@ export function CreateAssetCard(props: CreateAssetCardProps) {
                     </span>
                     <span className='text-xs'>
                       {t(
-                        'Images up to 30 MB, videos up to 200 MB, audio up to 15 MB'
+                        'Images up to 30 MB, videos up to 50 MB, audio up to 15 MB'
                       )}
                     </span>
                   </div>

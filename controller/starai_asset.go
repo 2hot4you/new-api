@@ -377,7 +377,7 @@ func GetStarAICOSUploadConfig(c *gin.Context) {
 		"success": true,
 		"data": gin.H{
 			"enabled": config.Enabled && config.Validate() == nil,
-			"limits":  gin.H{"image": 30 * 1024 * 1024, "video": 200 * 1024 * 1024, "audio": 15 * 1024 * 1024},
+			"limits":  gin.H{"image": 30 * 1024 * 1024, "video": 50 * 1024 * 1024, "audio": 15 * 1024 * 1024},
 		},
 	})
 }

@@ -18,7 +18,7 @@ import {
 describe('temporary asset upload helpers', () => {
   test('infers the asset type from MIME first and extension as fallback', () => {
     assert.equal(inferAssetType('clip.mov', 'video/quicktime'), 'video')
-    assert.equal(inferAssetType('reference.HEIC', ''), 'image')
+    assert.equal(inferAssetType('reference.HEIC', ''), undefined)
     assert.equal(
       inferAssetType('voice.mp3', 'application/octet-stream'),
       'audio'
