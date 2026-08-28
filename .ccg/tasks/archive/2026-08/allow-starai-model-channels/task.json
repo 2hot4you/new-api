@@ -1,0 +1,12 @@
+{
+  "id": "allow-starai-model-channels",
+  "title": "Allow multiple model-specific StarAI channels",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "Completed",
+  "createdAt": "2026-08-28T00:00:00Z",
+  "branch": "develop"
+}
