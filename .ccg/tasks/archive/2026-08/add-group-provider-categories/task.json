@@ -1,0 +1,12 @@
+{
+  "id": "add-group-provider-categories",
+  "title": "为计费分组关联模型供应商并在 API 密钥页按供应商分类",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交推送",
+  "createdAt": "2026-08-28T00:00:00Z",
+  "branch": "develop"
+}
