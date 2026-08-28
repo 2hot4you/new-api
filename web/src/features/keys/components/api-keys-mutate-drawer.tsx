@@ -226,6 +226,7 @@ export function ApiKeysMutateDrawer({
           desc: info.desc || key,
           ratio: info.ratio,
           icon: info.icon,
+          providers: info.providers,
           successRate: getGroupSuccessRate(key, groupSuccessRates),
         })),
     [groupsData, groupSuccessRates]

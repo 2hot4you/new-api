@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { Code2, Eye, HelpCircle } from 'lucide-react'
 import { memo, useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
@@ -52,6 +53,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { getVendors } from '@/features/models/api'
 
 import {
   SettingsForm,
@@ -90,6 +92,15 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   const { t } = useTranslation()
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
   const [guideOpen, setGuideOpen] = useState(false)
+  const { data: vendorsData } = useQuery({
+    queryKey: ['vendors', 'group-pricing'],
+    queryFn: () => getVendors({ page_size: 1000 }),
+    staleTime: 5 * 60 * 1000,
+  })
+  const vendors = useMemo(
+    () => vendorsData?.data?.items ?? [],
+    [vendorsData?.data?.items]
+  )
 
   const handleFieldChange = useCallback(
     (field: keyof GroupFormValues, value: string) => {
@@ -174,6 +185,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               groupGroupRatio={form.watch('GroupGroupRatio')}
               autoGroups={form.watch('AutoGroups')}
               groupMetadata={form.watch('GroupMetadata')}
+              vendors={vendors}
               maxTokenAutoGroupsField={
                 <FormField
                   control={form.control}

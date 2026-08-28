@@ -64,6 +64,12 @@ export async function getUserGroups(): Promise<{
       ratio: number | string
       icon?: string
       display_order?: number
+      providers?: Array<{
+        id: number
+        name: string
+        icon?: string
+        display_order?: number
+      }>
     }
   >
 }> {

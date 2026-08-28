@@ -10,8 +10,9 @@ import (
 )
 
 type GroupMetadata struct {
-	Name string `json:"name"`
-	Icon string `json:"icon"`
+	Name      string `json:"name"`
+	Icon      string `json:"icon"`
+	VendorIDs []int  `json:"vendor_ids,omitempty"`
 }
 
 type groupMetadataStore struct {
@@ -43,7 +44,11 @@ func (store *groupMetadataStore) UnmarshalJSON(value []byte) error {
 func (store *groupMetadataStore) copy() []GroupMetadata {
 	store.mutex.RLock()
 	defer store.mutex.RUnlock()
-	return append([]GroupMetadata(nil), store.entries...)
+	entries := append([]GroupMetadata(nil), store.entries...)
+	for index := range entries {
+		entries[index].VendorIDs = append([]int(nil), entries[index].VendorIDs...)
+	}
+	return entries
 }
 
 func (store *groupMetadataStore) jsonString() string {
@@ -72,6 +77,16 @@ func parseGroupMetadata(value []byte) ([]GroupMetadata, error) {
 		}
 		if utf8.RuneCountInString(entry.Icon) > 128 {
 			return nil, fmt.Errorf("group metadata icon must be at most 128 characters: %s", entry.Name)
+		}
+		vendorIDs := make(map[int]struct{}, len(entry.VendorIDs))
+		for _, vendorID := range entry.VendorIDs {
+			if vendorID <= 0 {
+				return nil, fmt.Errorf("group metadata vendor id must be positive: %s", entry.Name)
+			}
+			if _, exists := vendorIDs[vendorID]; exists {
+				return nil, fmt.Errorf("group metadata vendor ids must be unique: %s", entry.Name)
+			}
+			vendorIDs[vendorID] = struct{}{}
 		}
 		seen[entry.Name] = struct{}{}
 	}

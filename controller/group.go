@@ -57,6 +57,21 @@ func GetUserGroups(c *gin.Context) {
 			order    int
 		}{metadata: metadata, order: order}
 	}
+
+	type groupProvider struct {
+		ID           int    `json:"id"`
+		Name         string `json:"name"`
+		Icon         string `json:"icon"`
+		DisplayOrder int    `json:"display_order"`
+	}
+	vendorIDs := make([]int, 0)
+	for _, configured := range metadataByName {
+		vendorIDs = append(vendorIDs, configured.metadata.VendorIDs...)
+	}
+	orderedVendors, err := model.GetVendorsByIDsInDisplayOrder(vendorIDs)
+	if err != nil {
+		orderedVendors = nil
+	}
 	sort.Slice(entries, func(i, j int) bool {
 		left, leftConfigured := metadataByName[entries[i].name]
 		right, rightConfigured := metadataByName[entries[j].name]
@@ -79,6 +94,27 @@ func GetUserGroups(c *gin.Context) {
 		if configured, ok := metadataByName[entry.name]; ok {
 			if configured.metadata.Icon != "" {
 				group["icon"] = configured.metadata.Icon
+			}
+			if len(configured.metadata.VendorIDs) > 0 {
+				configuredVendorIDs := make(map[int]struct{}, len(configured.metadata.VendorIDs))
+				for _, vendorID := range configured.metadata.VendorIDs {
+					configuredVendorIDs[vendorID] = struct{}{}
+				}
+				providers := make([]groupProvider, 0, len(configuredVendorIDs))
+				for _, vendor := range orderedVendors {
+					if _, selected := configuredVendorIDs[vendor.Id]; !selected {
+						continue
+					}
+					providers = append(providers, groupProvider{
+						ID:           vendor.Id,
+						Name:         vendor.Name,
+						Icon:         vendor.Icon,
+						DisplayOrder: vendor.DisplayOrder,
+					})
+				}
+				if len(providers) > 0 {
+					group["providers"] = providers
+				}
 			}
 		}
 		usableGroups[entry.name] = group

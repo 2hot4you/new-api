@@ -5924,6 +5924,11 @@
     "One group uses fixed routing": "Một nhóm sử dụng định tuyến cố định",
     "{{count}} groups will be tried in order": "{{count}} nhóm sẽ được thử theo thứ tự",
     "Use system default order": "Dùng thứ tự mặc định của hệ thống",
-    "Selected group priority": "Ưu tiên nhóm đã chọn"
+    "Selected group priority": "Ưu tiên nhóm đã chọn",
+    "Model vendors": "Nhà cung cấp mô hình",
+    "Select model vendors": "Chọn nhà cung cấp mô hình",
+    "No model vendors found": "Không tìm thấy nhà cung cấp mô hình",
+    "Missing vendor #{{id}}": "Không tìm thấy nhà cung cấp #{{id}}",
+    "Uncategorized": "Chưa phân loại"
   }
 }

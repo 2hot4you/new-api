@@ -41,6 +41,7 @@ const domGlobals = [
   'requestAnimationFrame',
   'cancelAnimationFrame',
   'getComputedStyle',
+  'customElements',
 ] as const
 
 for (const key of domGlobals) {
@@ -101,6 +102,7 @@ function Harness(props: {
   initialGroups?: string[]
   initialMode?: 'inherit' | 'custom'
   maxCount?: number
+  optionSet?: typeof options
 }) {
   const [groups, setGroups] = useState(
     props.initialGroups ?? ['vip', 'default']
@@ -114,8 +116,11 @@ function Harness(props: {
       <AutoGroupOrderEditor
         value={groups}
         mode={mode}
-        options={options}
-        globalOptions={globalOptions}
+        options={props.optionSet ?? options}
+        globalOptions={
+          props.optionSet?.filter((option) => option.value !== 'auto') ??
+          globalOptions
+        }
         maxCount={props.maxCount ?? 3}
         onChange={(value) => {
           setGroups(value.groups)
@@ -140,6 +145,7 @@ async function renderHarness(
     initialGroups?: string[]
     initialMode?: 'inherit' | 'custom'
     maxCount?: number
+    optionSet?: typeof options
   } = {}
 ) {
   const container = document.createElement('div')
@@ -359,6 +365,147 @@ describe('direct API key group selection', () => {
     assert.equal(
       container.textContent?.includes('One group uses fixed routing'),
       false
+    )
+  })
+
+  test('groups options by provider order with shared selection and uncategorized fallback', async () => {
+    const providerOptions = [
+      {
+        value: 'shared',
+        label: 'Shared Claude',
+        desc: 'Primary Claude group',
+        providers: [
+          {
+            id: 2,
+            name: 'Anthropic',
+            icon: 'Anthropic.Color',
+            display_order: 2,
+          },
+          {
+            id: 1,
+            name: 'OpenAI',
+            icon: 'OpenAI.Color',
+            display_order: 1,
+          },
+        ],
+      },
+      {
+        value: 'openai',
+        label: 'OpenAI Backup',
+        desc: 'Secondary route',
+        providers: [
+          {
+            id: 1,
+            name: 'OpenAI',
+            icon: 'OpenAI.Color',
+            display_order: 1,
+          },
+        ],
+      },
+      {
+        value: 'legacy',
+        label: 'Legacy',
+        desc: 'No provider configured',
+      },
+    ]
+    const container = await renderHarness({
+      initialGroups: [],
+      optionSet: providerOptions,
+    })
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[role="combobox"]'
+    )
+    assert.ok(trigger)
+    await act(async () => trigger.click())
+
+    const sections = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-group-provider-section]'
+      ),
+    ]
+    assert.deepEqual(
+      sections.map((section) => section.dataset.groupProviderSection),
+      ['OpenAI', 'Anthropic', 'Uncategorized']
+    )
+    assert.equal(
+      sections[0]
+        ?.querySelector('[data-provider-icon-key]')
+        ?.getAttribute('data-provider-icon-key'),
+      'OpenAI.Color'
+    )
+    assert.deepEqual(
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-group-selection-checkbox="shared"]'
+        ),
+      ].length,
+      2
+    )
+
+    const firstShared = document.querySelector<HTMLElement>(
+      '[data-group-selection-checkbox="shared"]'
+    )
+    assert.ok(firstShared)
+    await act(async () => firstShared.click())
+    assert.equal(output(container, 'order'), 'shared')
+    assert.deepEqual(
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-group-selection-checkbox="shared"]'
+        ),
+      ].map((option) => option.getAttribute('aria-checked')),
+      ['true', 'true']
+    )
+  })
+
+  test('matches provider names when searching categorized groups', async () => {
+    const providerOptions = [
+      {
+        value: 'claude-primary',
+        label: 'Primary',
+        desc: 'Official route',
+        providers: [
+          {
+            id: 1,
+            name: 'Anthropic',
+            icon: 'Anthropic.Color',
+            display_order: 1,
+          },
+        ],
+      },
+      { value: 'legacy', label: 'Legacy', desc: 'No provider configured' },
+    ]
+    const container = await renderHarness({
+      initialGroups: [],
+      optionSet: providerOptions,
+    })
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[role="combobox"]'
+    )
+    assert.ok(trigger)
+    await act(async () => trigger.click())
+    const search = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Search groups..."]'
+    )
+    assert.ok(search)
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        domWindow.HTMLInputElement.prototype,
+        'value'
+      )?.set
+      assert.ok(valueSetter)
+      valueSetter.call(search, 'Anthropic')
+      search.dispatchEvent(
+        new domWindow.Event('input', { bubbles: true }) as unknown as Event
+      )
+    })
+
+    assert.ok(
+      document.querySelector('[data-group-selection-checkbox="claude-primary"]')
+    )
+    assert.equal(
+      document.querySelector('[data-group-selection-checkbox="legacy"]'),
+      null
     )
   })
 })

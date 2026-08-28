@@ -44,6 +44,7 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { MultiSelect, type Option } from '@/components/multi-select'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -76,6 +77,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import type { Vendor } from '@/features/models/types'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { safeJsonParse } from '../utils/json-parser'
@@ -87,6 +89,7 @@ type GroupRatioVisualEditorProps = {
   groupGroupRatio: string
   autoGroups: string
   groupMetadata: string
+  vendors?: Vendor[]
   maxTokenAutoGroupsField: ReactNode
   groupSpecialUsableGroup: string
   onChange: (field: string, value: string) => void
@@ -100,11 +103,13 @@ type GroupPricingRow = {
   selectable: boolean
   description: string
   icon: string
+  vendorIds: number[]
 }
 
 type GroupMetadataEntry = {
   name: string
   icon: string
+  vendor_ids?: number[]
 }
 
 type RegistryEntry = {
@@ -168,10 +173,21 @@ function parseGroupMetadata(value: string): GroupMetadataEntry[] {
     if (!name || names.has(name)) return []
     names.add(name)
     const icon = (entry as GroupMetadataEntry).icon
+    const rawVendorIDs = (entry as GroupMetadataEntry).vendor_ids
+    const vendorIds = Array.isArray(rawVendorIDs)
+      ? [
+          ...new Set(
+            rawVendorIDs.filter(
+              (vendorID) => Number.isInteger(vendorID) && vendorID > 0
+            )
+          ),
+        ]
+      : []
     return [
       {
         name,
         icon: typeof icon === 'string' ? icon : '',
+        vendor_ids: vendorIds,
       },
     ]
   })
@@ -196,6 +212,15 @@ function isGroupMetadataStructurallyValid(value: string): boolean {
     }
     const name = metadata.name.trim()
     if (!name || names.has(name)) return false
+    if (metadata.vendor_ids !== undefined) {
+      if (!Array.isArray(metadata.vendor_ids)) return false
+      const vendorIDs = new Set<number>()
+      for (const vendorID of metadata.vendor_ids) {
+        if (!Number.isInteger(vendorID) || Number(vendorID) <= 0) return false
+        if (vendorIDs.has(Number(vendorID))) return false
+        vendorIDs.add(Number(vendorID))
+      }
+    }
     names.add(name)
   }
   return true
@@ -231,6 +256,7 @@ function buildGroupPricingRows(
     selectable: Object.hasOwn(usableMap, name),
     description: String(usableMap[name] ?? ''),
     icon: metadataByName.get(name)?.icon ?? '',
+    vendorIds: metadataByName.get(name)?.vendor_ids ?? [],
   }))
 }
 
@@ -251,10 +277,14 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     if (topup !== '' && Number.isFinite(Number(topup))) {
       topupGroupRatio[name] = Number(topup)
     }
-    groupMetadata.push({
+    const metadata: GroupMetadataEntry = {
       name,
       icon: row.icon.trim(),
-    })
+    }
+    if (row.vendorIds.length > 0) {
+      metadata.vendor_ids = [...row.vendorIds]
+    }
+    groupMetadata.push(metadata)
   }
 
   return {
@@ -357,6 +387,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   groupGroupRatio,
   autoGroups,
   groupMetadata,
+  vendors = [],
   maxTokenAutoGroupsField,
   groupSpecialUsableGroup,
   onChange,
@@ -431,6 +462,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         userUsableGroups={userUsableGroups}
         topupGroupRatio={topupGroupRatio}
         groupMetadata={groupMetadata}
+        vendors={vendors}
         onChange={onChange}
         onShowDetail={setDetailGroup}
       />
@@ -524,6 +556,7 @@ type GroupPricingTableProps = {
   userUsableGroups: string
   topupGroupRatio: string
   groupMetadata: string
+  vendors: Vendor[]
   onChange: (field: string, value: string) => void
   onShowDetail: (name: string) => void
 }
@@ -533,14 +566,83 @@ type GroupPricingSortableRowProps = {
   index: number
   count: number
   duplicateNames: string[]
+  vendors: Vendor[]
   onUpdate: (
     id: string,
     field: Exclude<keyof GroupPricingRow, '_id'>,
-    value: string | number | boolean
+    value: string | number | boolean | number[]
   ) => void
   onMove: (id: string, direction: 'up' | 'down') => void
   onRemove: (id: string) => void
   onShowDetail: (name: string) => void
+}
+
+type GroupVendorSelectorProps = {
+  groupLabel: string
+  vendorIds: number[]
+  vendors: Vendor[]
+  onChange: (vendorIds: number[]) => void
+}
+
+function GroupVendorSelector(props: GroupVendorSelectorProps) {
+  const { t } = useTranslation()
+  const options = useMemo<Option[]>(() => {
+    const vendorByID = new Map(
+      props.vendors.map((vendor) => [vendor.id, vendor])
+    )
+    const sortedVendors = [...props.vendors].sort(
+      (left, right) =>
+        (left.display_order ?? Number.MAX_SAFE_INTEGER) -
+          (right.display_order ?? Number.MAX_SAFE_INTEGER) || left.id - right.id
+    )
+    const items: Option[] = sortedVendors.map((vendor) => ({
+      value: String(vendor.id),
+      label: vendor.name,
+      icon: (
+        <span
+          data-vendor-icon-key={vendor.icon ?? ''}
+          className='shrink-0'
+          aria-hidden='true'
+        >
+          {getLobeIcon(vendor.icon || vendor.name, 16)}
+        </span>
+      ),
+    }))
+    for (const vendorID of props.vendorIds) {
+      if (vendorByID.has(vendorID)) continue
+      items.push({
+        value: String(vendorID),
+        label: t('Missing vendor #{{id}}', { id: vendorID }),
+        icon: (
+          <AlertTriangle
+            className='text-destructive size-4 shrink-0'
+            aria-hidden='true'
+          />
+        ),
+        selectable: false,
+      })
+    }
+    return items
+  }, [props.vendorIds, props.vendors, t])
+
+  return (
+    <div className='min-w-0' data-group-provider-selector={props.groupLabel}>
+      <MultiSelect
+        options={options}
+        selected={props.vendorIds.map(String)}
+        onChange={(values) =>
+          props.onChange(
+            values
+              .map((value) => Number(value))
+              .filter((value) => Number.isInteger(value) && value > 0)
+          )
+        }
+        placeholder={t('Select model vendors')}
+        emptyText={t('No model vendors found')}
+        maxVisibleChips={2}
+      />
+    </div>
+  )
 }
 
 function GroupPricingSortableRow({
@@ -548,6 +650,7 @@ function GroupPricingSortableRow({
   index,
   count,
   duplicateNames,
+  vendors,
   onUpdate,
   onMove,
   onRemove,
@@ -568,7 +671,7 @@ function GroupPricingSortableRow({
       dragListener={false}
       dragControls={dragControls}
       data-group-pricing-sortable
-      className='grid min-w-[1020px] grid-cols-[minmax(12rem,2fr)_minmax(11rem,1.5fr)_7rem_7rem_8rem_minmax(12rem,2fr)_auto] items-center gap-2 rounded-md border p-2'
+      className='grid min-w-[1280px] grid-cols-[minmax(12rem,2fr)_minmax(14rem,2fr)_minmax(11rem,1.5fr)_7rem_7rem_8rem_minmax(12rem,2fr)_auto] items-center gap-2 rounded-md border p-2'
     >
       <div className='flex min-w-0 items-center gap-1'>
         <Button
@@ -608,6 +711,12 @@ function GroupPricingSortableRow({
           ↓
         </Button>
       </div>
+      <GroupVendorSelector
+        groupLabel={groupLabel}
+        vendorIds={row.vendorIds}
+        vendors={vendors}
+        onChange={(vendorIds) => onUpdate(row._id, 'vendorIds', vendorIds)}
+      />
       <div className='flex min-w-0 items-center gap-2'>
         <span
           className='shrink-0'
@@ -693,6 +802,7 @@ function GroupPricingTable({
   userUsableGroups,
   topupGroupRatio,
   groupMetadata,
+  vendors,
   onChange,
   onShowDetail,
 }: GroupPricingTableProps) {
@@ -760,12 +870,12 @@ function GroupPricingTable({
     (
       id: string,
       field: Exclude<keyof GroupPricingRow, '_id'>,
-      value: string | number | boolean
+      value: string | number | boolean | number[]
     ) => {
       const nextRows = rows.map((row) =>
         row._id === id ? { ...row, [field]: value } : row
       )
-      if (field === 'icon') {
+      if (field === 'icon' || field === 'vendorIds') {
         emitMetadataRows(nextRows)
         return
       }
@@ -792,6 +902,7 @@ function GroupPricingTable({
         selectable: true,
         description: '',
         icon: '',
+        vendorIds: [],
       },
     ])
   }, [emitRows, rows])
@@ -851,9 +962,10 @@ function GroupPricingTable({
       <CardContent>
         <div className='space-y-3'>
           <div className='overflow-x-auto'>
-            <div className='min-w-[1020px]'>
-              <div className='text-muted-foreground grid grid-cols-[minmax(12rem,2fr)_minmax(11rem,1.5fr)_7rem_7rem_8rem_minmax(12rem,2fr)_auto] gap-2 px-2 pb-2 text-xs font-medium'>
+            <div className='min-w-[1280px]'>
+              <div className='text-muted-foreground grid grid-cols-[minmax(12rem,2fr)_minmax(14rem,2fr)_minmax(11rem,1.5fr)_7rem_7rem_8rem_minmax(12rem,2fr)_auto] gap-2 px-2 pb-2 text-xs font-medium'>
                 <span>{t('Group name')}</span>
+                <span>{t('Model vendors')}</span>
                 <span>{t('Icon')}</span>
                 <span>{t('Ratio')}</span>
                 <span>{t('Top-up ratio')}</span>
@@ -880,6 +992,7 @@ function GroupPricingTable({
                       index={index}
                       count={rows.length}
                       duplicateNames={duplicateNames}
+                      vendors={vendors}
                       onUpdate={updateRow}
                       onMove={moveRow}
                       onRemove={removeRow}

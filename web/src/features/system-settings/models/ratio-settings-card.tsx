@@ -55,20 +55,33 @@ const normalizeGroupMetadataString = (value: string) => {
     const isValidMetadataEntry = (item: unknown) => {
       if (!item || typeof item !== 'object') return false
       const entry = item as Record<string, unknown>
+      const vendorIDs = entry.vendor_ids
+      const validVendorIDs =
+        vendorIDs === undefined ||
+        (Array.isArray(vendorIDs) &&
+          vendorIDs.every(
+            (vendorID) => Number.isInteger(vendorID) && Number(vendorID) > 0
+          ) &&
+          new Set(vendorIDs).size === vendorIDs.length)
       return (
         typeof entry.name === 'string' &&
         entry.name.trim() !== '' &&
-        (entry.icon === undefined || typeof entry.icon === 'string')
+        (entry.icon === undefined || typeof entry.icon === 'string') &&
+        validVendorIDs
       )
     }
     if (!parsed.every(isValidMetadataEntry)) return normalized
 
     return JSON.stringify(
       parsed.map((item: Record<string, unknown>) => {
-        return {
+        const normalized: Record<string, unknown> = {
           name: item.name,
           icon: item.icon ?? '',
         }
+        if (Array.isArray(item.vendor_ids) && item.vendor_ids.length > 0) {
+          normalized.vendor_ids = item.vendor_ids
+        }
+        return normalized
       })
     )
   } catch {

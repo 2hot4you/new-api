@@ -5924,6 +5924,11 @@
     "One group uses fixed routing": "Одна группа использует фиксированную маршрутизацию",
     "{{count}} groups will be tried in order": "{{count}} групп будут проверены по порядку",
     "Use system default order": "Использовать системный порядок",
-    "Selected group priority": "Приоритет выбранных групп"
+    "Selected group priority": "Приоритет выбранных групп",
+    "Model vendors": "Поставщики моделей",
+    "Select model vendors": "Выберите поставщиков моделей",
+    "No model vendors found": "Поставщики моделей не найдены",
+    "Missing vendor #{{id}}": "Поставщик #{{id}} не найден",
+    "Uncategorized": "Без категории"
   }
 }

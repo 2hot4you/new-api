@@ -5924,6 +5924,11 @@
     "One group uses fixed routing": "One group uses fixed routing",
     "{{count}} groups will be tried in order": "{{count}} groups will be tried in order",
     "Use system default order": "Use system default order",
-    "Selected group priority": "Selected group priority"
+    "Selected group priority": "Selected group priority",
+    "Model vendors": "Model vendors",
+    "Select model vendors": "Select model vendors",
+    "No model vendors found": "No model vendors found",
+    "Missing vendor #{{id}}": "Missing vendor #{{id}}",
+    "Uncategorized": "Uncategorized"
   }
 }

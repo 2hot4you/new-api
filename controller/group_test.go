@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,9 +18,13 @@ import (
 
 func TestGetUserGroupsJoinsMetadataAndAssignsStableDisplayOrder(t *testing.T) {
 	db := openTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Vendor{}))
 	user := &model.User{Id: 401, Username: "group-metadata-user", Group: "default"}
 	require.NoError(t, db.Create(user).Error)
+	google := &model.Vendor{Name: "Google", Icon: "Google.Color", Status: 1, DisplayOrder: 2}
+	anthropic := &model.Vendor{Name: "Anthropic", Icon: "Anthropic.Color", Status: 1, DisplayOrder: 1}
+	require.NoError(t, db.Create(google).Error)
+	require.NoError(t, db.Create(anthropic).Error)
 
 	originalRatios := ratio_setting.GroupRatio2JSONString()
 	originalUsableGroups := setting.UserUsableGroups2JSONString()
@@ -32,7 +37,7 @@ func TestGetUserGroupsJoinsMetadataAndAssignsStableDisplayOrder(t *testing.T) {
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"auto":1,"default":1,"vip":2,"zeta":3}`))
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP","zeta":"Zeta","auto":"Auto"}`))
 	require.NoError(t, ratio_setting.UpdateGroupMetadataByJSONString(`[
-		{"name":"vip","icon":"DeepSeek.Color","recommendation":3.8},
+		{"name":"vip","icon":"DeepSeek.Color","vendor_ids":[`+fmt.Sprint(google.Id)+`,999999,`+fmt.Sprint(anthropic.Id)+`],"recommendation":3.8},
 		{"name":"auto","icon":"OpenAI.Color","recommendation":0}
 	]`))
 
@@ -62,6 +67,20 @@ func TestGetUserGroupsJoinsMetadataAndAssignsStableDisplayOrder(t *testing.T) {
 	assert.Equal(t, "VIP", groups["vip"]["desc"])
 	assert.Equal(t, "DeepSeek.Color", groups["vip"]["icon"])
 	assert.Equal(t, float64(0), groups["vip"]["display_order"])
+	assert.Equal(t, []any{
+		map[string]any{
+			"id":            float64(anthropic.Id),
+			"name":          "Anthropic",
+			"icon":          "Anthropic.Color",
+			"display_order": float64(1),
+		},
+		map[string]any{
+			"id":            float64(google.Id),
+			"name":          "Google",
+			"icon":          "Google.Color",
+			"display_order": float64(2),
+		},
+	}, groups["vip"]["providers"])
 	_, hasVIPRecommendation := groups["vip"]["recommendation"]
 	assert.False(t, hasVIPRecommendation)
 
@@ -74,4 +93,6 @@ func TestGetUserGroupsJoinsMetadataAndAssignsStableDisplayOrder(t *testing.T) {
 	assert.Equal(t, float64(3), groups["zeta"]["display_order"])
 	_, hasDefaultIcon := groups["default"]["icon"]
 	assert.False(t, hasDefaultIcon)
+	_, hasDefaultProviders := groups["default"]["providers"]
+	assert.False(t, hasDefaultProviders)
 }

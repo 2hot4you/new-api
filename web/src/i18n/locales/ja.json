@@ -5924,6 +5924,11 @@
     "One group uses fixed routing": "1グループは固定ルーティングを使用します",
     "{{count}} groups will be tried in order": "{{count}} グループを順番に試行します",
     "Use system default order": "システム既定の順序を使用",
-    "Selected group priority": "選択したグループの優先順位"
+    "Selected group priority": "選択したグループの優先順位",
+    "Model vendors": "モデルプロバイダー",
+    "Select model vendors": "モデルプロバイダーを選択",
+    "No model vendors found": "モデルプロバイダーが見つかりません",
+    "Missing vendor #{{id}}": "プロバイダー #{{id}} が見つかりません",
+    "Uncategorized": "未分類"
   }
 }

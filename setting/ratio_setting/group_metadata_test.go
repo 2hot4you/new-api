@@ -33,6 +33,8 @@ func TestUpdateGroupMetadataRejectsInvalidEntries(t *testing.T) {
 		{name: "empty name", value: `[{"name":"","icon":"OpenAI.Color"}]`},
 		{name: "duplicate name", value: `[{"name":"default","icon":"OpenAI.Color"},{"name":"default","icon":"DeepSeek.Color"}]`},
 		{name: "icon longer than 128 characters", value: `[{"name":"default","icon":"` + strings.Repeat("a", 129) + `"}]`},
+		{name: "non-positive vendor id", value: `[{"name":"default","icon":"OpenAI.Color","vendor_ids":[0]}]`},
+		{name: "duplicate vendor id", value: `[{"name":"default","icon":"OpenAI.Color","vendor_ids":[2,2]}]`},
 	}
 
 	for _, test := range tests {
@@ -40,6 +42,30 @@ func TestUpdateGroupMetadataRejectsInvalidEntries(t *testing.T) {
 			assert.Error(t, UpdateGroupMetadataByJSONString(test.value))
 		})
 	}
+}
+
+func TestUpdateGroupMetadataPreservesVendorAssociations(t *testing.T) {
+	original := GroupMetadata2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, UpdateGroupMetadataByJSONString(original))
+	})
+
+	require.NoError(t, UpdateGroupMetadataByJSONString(`[
+		{"name":"vip","icon":"Claude.Color","vendor_ids":[7,3]},
+		{"name":"default","icon":"OpenAI.Color"}
+	]`))
+
+	metadata := GetGroupMetadataCopy()
+	require.Len(t, metadata, 2)
+	assert.Equal(t, []int{7, 3}, metadata[0].VendorIDs)
+	assert.Empty(t, metadata[1].VendorIDs)
+
+	metadata[0].VendorIDs[0] = 99
+	assert.Equal(t, []int{7, 3}, GetGroupMetadataCopy()[0].VendorIDs)
+	assert.JSONEq(t, `[
+		{"name":"vip","icon":"Claude.Color","vendor_ids":[7,3]},
+		{"name":"default","icon":"OpenAI.Color"}
+	]`, GroupMetadata2JSONString())
 }
 
 func TestUpdateGroupMetadataDropsRetiredRecommendation(t *testing.T) {

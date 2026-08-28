@@ -5924,6 +5924,11 @@
     "One group uses fixed routing": "Un groupe utilise un routage fixe",
     "{{count}} groups will be tried in order": "{{count}} groupes seront essayés dans l’ordre",
     "Use system default order": "Utiliser l’ordre par défaut du système",
-    "Selected group priority": "Priorité des groupes sélectionnés"
+    "Selected group priority": "Priorité des groupes sélectionnés",
+    "Model vendors": "Fournisseurs de modèles",
+    "Select model vendors": "Sélectionner les fournisseurs de modèles",
+    "No model vendors found": "Aucun fournisseur de modèles trouvé",
+    "Missing vendor #{{id}}": "Fournisseur #{{id}} introuvable",
+    "Uncategorized": "Non classé"
   }
 }

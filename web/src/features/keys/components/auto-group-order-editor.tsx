@@ -51,6 +51,19 @@ export type ApiKeyGroupOption = {
   ratio?: number | string
   icon?: string
   successRate?: number | null
+  providers?: ApiKeyGroupProvider[]
+}
+
+export type ApiKeyGroupProvider = {
+  id: number
+  name: string
+  icon?: string
+  display_order?: number
+}
+
+type ApiKeyGroupProviderSection = {
+  provider?: ApiKeyGroupProvider
+  options: ApiKeyGroupOption[]
 }
 
 type AutoGroupOrderEditorProps = Omit<ComponentProps<'div'>, 'onChange'> & {
@@ -213,14 +226,55 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
     if (!search) return options
     return options.filter((option) => {
       const ratio = String(option.ratio ?? '').toLowerCase()
+      const providerMatches = option.providers?.some((provider) =>
+        provider.name.toLowerCase().includes(search)
+      )
       return (
         option.value.toLowerCase().includes(search) ||
         option.label.toLowerCase().includes(search) ||
         option.desc?.toLowerCase().includes(search) ||
-        ratio.includes(search)
+        ratio.includes(search) ||
+        providerMatches
       )
     })
   }, [options, searchValue])
+  const providerSections = useMemo<ApiKeyGroupProviderSection[]>(() => {
+    const providersByID = new Map<number, ApiKeyGroupProvider>()
+    for (const option of filteredOptions) {
+      for (const provider of option.providers ?? []) {
+        const current = providersByID.get(provider.id)
+        if (
+          !current ||
+          (provider.display_order ?? Number.MAX_SAFE_INTEGER) <
+            (current.display_order ?? Number.MAX_SAFE_INTEGER)
+        ) {
+          providersByID.set(provider.id, provider)
+        }
+      }
+    }
+    const providers = [...providersByID.values()].sort(
+      (left, right) =>
+        (left.display_order ?? Number.MAX_SAFE_INTEGER) -
+          (right.display_order ?? Number.MAX_SAFE_INTEGER) ||
+        left.name.localeCompare(right.name) ||
+        left.id - right.id
+    )
+    const sections: ApiKeyGroupProviderSection[] = providers.map(
+      (provider) => ({
+        provider,
+        options: filteredOptions.filter((option) =>
+          option.providers?.some((candidate) => candidate.id === provider.id)
+        ),
+      })
+    )
+    const uncategorized = filteredOptions.filter(
+      (option) => !option.providers || option.providers.length === 0
+    )
+    if (uncategorized.length > 0) {
+      sections.push({ options: uncategorized })
+    }
+    return sections
+  }, [filteredOptions])
 
   const emitCustomGroups = (groups: string[]) => {
     props.onChange({ groups, mode: 'custom' })
@@ -330,56 +384,93 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
             aria-label={t('Select groups')}
             className='max-h-[360px] overflow-y-auto p-1'
           >
-            {filteredOptions.length === 0 && (
+            {providerSections.length === 0 && (
               <p className='text-muted-foreground py-6 text-center text-sm'>
                 {t('No group found.')}
               </p>
             )}
-            {filteredOptions.map((option) => {
-              const selected = selectedValues.includes(option.value)
-              const disabled = !selected && selectedValues.length >= maxCount
+            {providerSections.map((section) => {
+              const sectionLabel = section.provider?.name ?? t('Uncategorized')
               return (
-                <button
-                  key={option.value}
-                  type='button'
-                  role='checkbox'
-                  aria-checked={selected}
-                  aria-label={t('Select {{group}}', {
-                    group: option.label,
-                  })}
-                  disabled={disabled}
-                  data-group-selection-checkbox={option.value}
-                  onClick={() => handleToggle(option.value)}
-                  className='hover:bg-accent focus-visible:ring-ring flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50'
+                <section
+                  key={section.provider?.id ?? 'uncategorized'}
+                  data-group-provider-section={sectionLabel}
+                  aria-label={sectionLabel}
+                  className='not-first:border-t'
                 >
-                  <span
-                    aria-hidden='true'
-                    className={cn(
-                      'border-input mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border',
-                      selected &&
-                        'bg-primary text-primary-foreground border-primary'
-                    )}
-                  >
-                    {selected && <Check className='size-3' strokeWidth={3} />}
-                  </span>
-                  {option.icon && (
-                    <span className='mt-0.5 shrink-0' aria-hidden='true'>
-                      {getLobeIcon(option.icon, 20)}
-                    </span>
-                  )}
-                  <span className='min-w-0 flex-1'>
-                    <span className='block truncate font-medium'>
-                      {option.label}
-                    </span>
-                    {option.desc && (
-                      <span className='text-muted-foreground block truncate text-xs'>
-                        {option.desc}
+                  <div className='bg-muted/40 text-muted-foreground flex items-center gap-2 px-3 py-2 text-xs font-medium'>
+                    {section.provider && (
+                      <span
+                        data-provider-icon-key={section.provider.icon ?? ''}
+                        className='shrink-0'
+                        aria-hidden='true'
+                      >
+                        {getLobeIcon(
+                          section.provider.icon || section.provider.name,
+                          16
+                        )}
                       </span>
                     )}
-                  </span>
-                  <GroupRatioBadge ratio={option.ratio} />
-                  <GroupSuccessRateBadge successRate={option.successRate} />
-                </button>
+                    <span className='min-w-0 flex-1 truncate'>
+                      {sectionLabel}
+                    </span>
+                    <Badge variant='outline' className='px-1.5 text-[10px]'>
+                      {section.options.length}
+                    </Badge>
+                  </div>
+                  {section.options.map((option) => {
+                    const selected = selectedValues.includes(option.value)
+                    const disabled =
+                      !selected && selectedValues.length >= maxCount
+                    return (
+                      <button
+                        key={`${section.provider?.id ?? 'uncategorized'}-${option.value}`}
+                        type='button'
+                        role='checkbox'
+                        aria-checked={selected}
+                        aria-label={t('Select {{group}}', {
+                          group: option.label,
+                        })}
+                        disabled={disabled}
+                        data-group-selection-checkbox={option.value}
+                        onClick={() => handleToggle(option.value)}
+                        className='hover:bg-accent focus-visible:ring-ring flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50'
+                      >
+                        <span
+                          aria-hidden='true'
+                          className={cn(
+                            'border-input mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border',
+                            selected &&
+                              'bg-primary text-primary-foreground border-primary'
+                          )}
+                        >
+                          {selected && (
+                            <Check className='size-3' strokeWidth={3} />
+                          )}
+                        </span>
+                        {option.icon && (
+                          <span className='mt-0.5 shrink-0' aria-hidden='true'>
+                            {getLobeIcon(option.icon, 20)}
+                          </span>
+                        )}
+                        <span className='min-w-0 flex-1'>
+                          <span className='block truncate font-medium'>
+                            {option.label}
+                          </span>
+                          {option.desc && (
+                            <span className='text-muted-foreground block truncate text-xs'>
+                              {option.desc}
+                            </span>
+                          )}
+                        </span>
+                        <GroupRatioBadge ratio={option.ratio} />
+                        <GroupSuccessRateBadge
+                          successRate={option.successRate}
+                        />
+                      </button>
+                    )
+                  })}
+                </section>
               )
             })}
           </div>

@@ -5924,6 +5924,11 @@
     "One group uses fixed routing": "单个分组使用固定路由",
     "{{count}} groups will be tried in order": "将按顺序尝试 {{count}} 个分组",
     "Use system default order": "使用系统默认顺序",
-    "Selected group priority": "已选分组优先级"
+    "Selected group priority": "已选分组优先级",
+    "Model vendors": "模型归属厂商",
+    "Select model vendors": "选择模型归属厂商",
+    "No model vendors found": "未找到模型厂商",
+    "Missing vendor #{{id}}": "供应商 #{{id}} 已不存在",
+    "Uncategorized": "未分类"
   }
 }

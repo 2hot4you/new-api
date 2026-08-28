@@ -88,7 +88,16 @@ async function changeInput(input: HTMLInputElement, value: string) {
 
 async function mountEditor(
   calls: Array<[string, string]>,
-  groupMetadata = initialMetadata
+  groupMetadata = initialMetadata,
+  vendors: Array<{
+    id: number
+    name: string
+    icon: string
+    status: number
+    created_time: number
+    updated_time: number
+    display_order: number
+  }> = []
 ) {
   const host = document.createElement('div')
   document.body.append(host)
@@ -103,6 +112,7 @@ async function mountEditor(
           groupGroupRatio='{}'
           autoGroups='[]'
           groupMetadata={groupMetadata}
+          vendors={vendors}
           maxTokenAutoGroupsField={null}
           groupSpecialUsableGroup='{}'
           onChange={(field, value) => calls.push([field, value])}
@@ -308,6 +318,61 @@ describe('group pricing metadata editing', () => {
     assert.equal(iconInput.isConnected, true)
     assert.equal(document.activeElement, iconInput)
     assert.equal(iconInput.value, 'DeepSeek.ColorX')
+  })
+
+  test('renders configured model vendors and preserves vendor ids in metadata updates', async () => {
+    const calls: Array<[string, string]> = []
+    ;({ host, root } = await mountEditor(
+      calls,
+      JSON.stringify([
+        {
+          name: 'default',
+          icon: 'OpenAI.Color',
+          vendor_ids: [2, 999],
+        },
+        { name: 'vip', icon: 'DeepSeek.Color', vendor_ids: [1] },
+      ]),
+      [
+        {
+          id: 1,
+          name: 'Anthropic',
+          icon: 'Anthropic.Color',
+          status: 1,
+          created_time: 1,
+          updated_time: 1,
+          display_order: 1,
+        },
+        {
+          id: 2,
+          name: 'OpenAI',
+          icon: 'OpenAI.Color',
+          status: 1,
+          created_time: 1,
+          updated_time: 1,
+          display_order: 2,
+        },
+      ]
+    ))
+
+    const selector = document.querySelector<HTMLElement>(
+      '[data-group-provider-selector="default"]'
+    )
+    assert.ok(selector)
+    assert.equal(selector.textContent?.includes('OpenAI'), true)
+    assert.equal(selector.textContent?.includes('Missing vendor #999'), true)
+    assert.equal(
+      selector.querySelector('[data-vendor-icon-key="OpenAI.Color"]') !== null,
+      true
+    )
+
+    const iconInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Icon: default"]'
+    )
+    assert.ok(iconInput)
+    await changeInput(iconInput, 'OpenAI')
+
+    const metadata = JSON.parse(calls.at(-1)?.[1] ?? '[]')
+    assert.deepEqual(metadata[0]?.vendor_ids, [2, 999])
   })
 
   test('serializes structural add, rename, and delete changes across legacy maps', async () => {

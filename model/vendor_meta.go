@@ -86,6 +86,20 @@ func GetAllVendors(offset int, limit int) ([]*Vendor, error) {
 	return vendors, err
 }
 
+// GetVendorsByIDsInDisplayOrder resolves existing vendors in the
+// administrator-managed marketplace order. Soft-deleted vendors are omitted.
+func GetVendorsByIDsInDisplayOrder(ids []int) ([]*Vendor, error) {
+	if len(ids) == 0 {
+		return []*Vendor{}, nil
+	}
+	var vendors []*Vendor
+	err := DB.Where("id IN ?", ids).
+		Order("display_order ASC").
+		Order("id ASC").
+		Find(&vendors).Error
+	return vendors, err
+}
+
 // SearchVendors 按关键字搜索供应商
 func SearchVendors(keyword string, offset int, limit int) ([]*Vendor, int64, error) {
 	db := DB.Model(&Vendor{})
