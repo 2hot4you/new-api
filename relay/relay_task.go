@@ -144,17 +144,6 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 // 控制器负责 defer Refund 和成功后 Settle。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
 	info.InitChannelMeta(c)
-	if info.ChannelType == constant.ChannelTypeStarAI {
-		enabledChannel, err := model.GetUniqueEnabledChannelByType(constant.ChannelTypeStarAI)
-		if err != nil || enabledChannel.Id != info.ChannelId {
-			enabledChannelID := 0
-			if enabledChannel != nil {
-				enabledChannelID = enabledChannel.Id
-			}
-			common.SysLog(fmt.Sprintf("task channel configuration rejected: type=%d selected_channel_id=%d enabled_channel_id=%d error=%v", info.ChannelType, info.ChannelId, enabledChannelID, err))
-			return nil, service.TaskErrorWrapperLocal(errors.New("selected channel is unavailable"), "channel_configuration_unavailable", http.StatusServiceUnavailable)
-		}
-	}
 
 	// 1. 确定 platform → 创建适配器 → 验证请求
 	platform := constant.TaskPlatform(c.GetString("platform"))

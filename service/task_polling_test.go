@@ -39,11 +39,13 @@ type sunoFailurePollingAdaptor struct {
 type starAISecurityPollingAdaptor struct {
 	responseBody []byte
 	parsedBody   []byte
+	fetchedKey   string
 }
 
 func (a *starAISecurityPollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
 
-func (a *starAISecurityPollingAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+func (a *starAISecurityPollingAdaptor) FetchTask(_ string, key string, _ map[string]any, _ string) (*http.Response, error) {
+	a.fetchedKey = key
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(bytes.NewReader(a.responseBody)),
@@ -548,6 +550,7 @@ func TestUpdateVideoSingleTaskKeepsRawStarAIURLAndPersistsOnlySafeResponse(t *te
 		upstreamTaskID = "starai_private_upstream_id"
 		signature      = "starai-signed-query-secret"
 		channelKey     = "sk-starai-channel-secret"
+		pollingKey     = "sk-starai-original-task-key"
 	)
 	resultURL := "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/result.mp4?X-Amz-Signature=" + signature
 	responseBody := []byte(`{
@@ -576,6 +579,7 @@ func TestUpdateVideoSingleTaskKeepsRawStarAIURLAndPersistsOnlySafeResponse(t *te
 		Progress:  "50%",
 		PrivateData: model.TaskPrivateData{
 			UpstreamTaskID: upstreamTaskID,
+			Key:            pollingKey,
 		},
 	}
 	require.NoError(t, model.DB.Create(task).Error)
@@ -585,6 +589,7 @@ func TestUpdateVideoSingleTaskKeepsRawStarAIURLAndPersistsOnlySafeResponse(t *te
 	})
 	require.NoError(t, err)
 
+	assert.Equal(t, pollingKey, adaptor.fetchedKey)
 	assert.Contains(t, string(adaptor.parsedBody), signature, "the adaptor must parse the original response")
 	assert.Equal(t, resultURL, task.PrivateData.ResultURL, "the original signed URL must remain available for downloading")
 	assert.EqualValues(t, model.TaskStatusSuccess, task.Status)

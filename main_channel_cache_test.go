@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestInitializeChannelCacheAtStartupWarnsWithMemoryCacheDisabled(t *testing.T) {
+func TestInitializeChannelCacheAtStartupAcceptsMultipleStarAIChannelsWithMemoryCacheDisabled(t *testing.T) {
 	previousDB := model.DB
 	previousMemoryCacheEnabled := common.MemoryCacheEnabled
 	previousRedisEnabled := common.RedisEnabled
@@ -61,9 +61,6 @@ func TestInitializeChannelCacheAtStartupWarnsWithMemoryCacheDisabled(t *testing.
 	})
 
 	require.NotPanics(t, initializeChannelCacheAtStartup)
-	assert.Contains(t, output.String(), "expected exactly one enabled channel")
-	assert.Contains(t, output.String(), "found 2")
-	assert.Contains(t, output.String(), "startup will continue")
 	assert.NotContains(t, output.String(), "channels synced from database")
 }
 

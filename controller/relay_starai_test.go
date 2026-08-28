@@ -2,16 +2,15 @@ package controller
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
@@ -52,46 +51,24 @@ func TestOrdinaryTaskSubmitPolicyRetainsAutomaticRetry(t *testing.T) {
 	assert.True(t, shouldRetryTaskRelayForPlatform(ctx, platform, 1, taskErr, 3))
 }
 
-func TestStarAITaskSubmissionRejectsNonUniqueOrMismatchedSelectedChannelBeforeBilling(t *testing.T) {
-	tests := []struct {
-		name          string
-		selectedIndex int
-		channels      int
-	}{
-		{name: "no enabled channel", selectedIndex: 0, channels: 0},
-		{name: "selected channel differs from unique enabled channel", selectedIndex: 1, channels: 1},
-		{name: "multiple enabled channels", selectedIndex: 0, channels: 2},
-	}
+func TestStarAITaskSubmissionDoesNotRejectSelectedChannelWhenSeveralAreEnabled(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	seedChannelForSingleStarAITest(t, db, constant.ChannelTypeStarAI, common.ChannelStatusEnabled, "standard")
+	selected := seedChannelForSingleStarAITest(t, db, constant.ChannelTypeStarAI, common.ChannelStatusEnabled, "mini")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			db := setupSingleStarAIChannelTestDB(t)
-			channels := make([]*model.Channel, 0, 2)
-			for i := 0; i < 2; i++ {
-				status := common.ChannelStatusManuallyDisabled
-				if i < tt.channels {
-					status = common.ChannelStatusEnabled
-				}
-				channels = append(channels, seedChannelForSingleStarAITest(t, db, constant.ChannelTypeStarAI, status, fmt.Sprintf("channel-%d", i)))
-			}
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(ctx, constant.ContextKeyChannelType, constant.ChannelTypeStarAI)
+	common.SetContextKey(ctx, constant.ContextKeyChannelId, selected.Id)
+	common.SetContextKey(ctx, constant.ContextKeyChannelKey, selected.Key)
+	info := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{}}
 
-			gin.SetMode(gin.TestMode)
-			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
-			common.SetContextKey(ctx, constant.ContextKeyChannelType, constant.ChannelTypeStarAI)
-			common.SetContextKey(ctx, constant.ContextKeyChannelId, channels[tt.selectedIndex].Id)
-			info := &relaycommon.RelayInfo{}
+	result, taskErr := relay.RelayTaskSubmit(ctx, info)
 
-			result, taskErr := relay.RelayTaskSubmit(ctx, info)
-
-			require.Nil(t, result)
-			require.NotNil(t, taskErr)
-			assert.Equal(t, http.StatusServiceUnavailable, taskErr.StatusCode)
-			assert.Equal(t, "channel_configuration_unavailable", taskErr.Code)
-			assert.NotContains(t, taskErr.Message, "StarAI")
-			assert.NotContains(t, taskErr.Message, "Molii")
-			assert.Nil(t, info.Billing)
-			assert.Zero(t, info.PriceData.Quota)
-		})
-	}
+	require.Nil(t, result)
+	require.NotNil(t, taskErr)
+	assert.NotEqual(t, "channel_configuration_unavailable", taskErr.Code)
+	assert.Equal(t, selected.Id, info.ChannelId)
 }

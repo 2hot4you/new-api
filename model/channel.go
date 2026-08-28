@@ -728,24 +728,6 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 	channelStatusLock.Lock()
 	defer channelStatusLock.Unlock()
 
-	if status == common.ChannelStatusEnabled {
-		candidate, err := GetChannelById(channelId, false)
-		if err != nil {
-			return false
-		}
-		if candidate.Type == constant.ChannelTypeStarAI {
-			enabled, uniqueErr := GetUniqueEnabledChannelByType(constant.ChannelTypeStarAI)
-			if uniqueErr != nil && !errors.Is(uniqueErr, ErrNoEnabledChannel) {
-				common.SysLog(fmt.Sprintf("enabled channel status update rejected: type=%d channel_id=%d error=%v", candidate.Type, channelId, uniqueErr))
-				return false
-			}
-			if uniqueErr == nil && enabled.Id != channelId {
-				common.SysLog(fmt.Sprintf("enabled channel status update rejected: type=%d channel_id=%d", candidate.Type, channelId))
-				return false
-			}
-		}
-	}
-
 	if common.MemoryCacheEnabled {
 		channelCache, _ := CacheGetChannel(channelId)
 		if channelCache == nil {
@@ -1154,30 +1136,6 @@ func GetFirstEnabledChannelByType(channelType int) (*Channel, error) {
 	err := DB.Where("type = ? AND status = ?", channelType, common.ChannelStatusEnabled).
 		Order("id").First(&channel).Error
 	return &channel, err
-}
-
-var (
-	ErrNoEnabledChannel        = errors.New("enabled channel is not configured")
-	ErrMultipleEnabledChannels = errors.New("enabled channel configuration is ambiguous")
-)
-
-// GetUniqueEnabledChannelByType returns the enabled channel only when the
-// channel type has exactly one enabled record. Limiting the query to two rows
-// keeps the invariant check cheap while still distinguishing 0, 1, and 2+.
-func GetUniqueEnabledChannelByType(channelType int) (*Channel, error) {
-	channels := make([]Channel, 0, 2)
-	if err := DB.Where("type = ? AND status = ?", channelType, common.ChannelStatusEnabled).
-		Order("id").Limit(2).Find(&channels).Error; err != nil {
-		return nil, err
-	}
-	switch len(channels) {
-	case 0:
-		return nil, ErrNoEnabledChannel
-	case 1:
-		return &channels[0], nil
-	default:
-		return nil, ErrMultipleEnabledChannels
-	}
 }
 
 // Count channels of specific type

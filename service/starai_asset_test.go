@@ -124,6 +124,67 @@ func TestResolveStarAIAssetURIMarksUpstreamNotFoundExpired(t *testing.T) {
 	require.Positive(t, stored.VerifiedAt)
 }
 
+func TestResolveStarAIAssetURIUsesSourceURLAcrossDifferentChannelKeys(t *testing.T) {
+	useStarAIAssetRedis(t)
+	var upstreamRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamRequests.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+	binding := &StarAIAssetBinding{
+		UpstreamID: "asset-created-by-another-key",
+		ChannelID:  11,
+		UserID:     42,
+		AssetType:  "image",
+		SourceURL:  "https://cdn.example.com/reference.png",
+		SourceKind: "url",
+		Status:     "ACTIVE",
+	}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+
+	resolved, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{
+		ChannelID: 22,
+		BaseURL:   server.URL,
+		APIKey:    "different-key",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "https://cdn.example.com/reference.png", resolved)
+	require.Zero(t, upstreamRequests.Load(), "an upstream asset ID must not be queried with a different channel key")
+}
+
+func TestResolveStarAIAssetURIUsesSourceURLAfterChannelKeyRotation(t *testing.T) {
+	useStarAIAssetRedis(t)
+	var upstreamRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamRequests.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+	binding := &StarAIAssetBinding{
+		UpstreamID:            "asset-created-by-old-key",
+		ChannelID:             11,
+		ChannelKeyFingerprint: StarAIChannelKeyFingerprint("old-key"),
+		UserID:                42,
+		AssetType:             "image",
+		SourceURL:             "https://cdn.example.com/reference.png",
+		SourceKind:            "url",
+		Status:                "ACTIVE",
+	}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+
+	resolved, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{
+		ChannelID: 11,
+		BaseURL:   server.URL,
+		APIKey:    "new-key",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "https://cdn.example.com/reference.png", resolved)
+	require.Zero(t, upstreamRequests.Load(), "an upstream asset ID must not be queried after its channel key changes")
+}
+
 func mustResolveUnchanged(t *testing.T, value string) string {
 	t.Helper()
 	got, err := ResolveStarAIAssetURI(context.Background(), value, 42, StarAIAssetVerificationConfig{})

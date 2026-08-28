@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -26,22 +28,24 @@ var (
 )
 
 type StarAIAssetBinding struct {
-	ID          string `json:"id"`
-	UpstreamID  string `json:"upstream_id"`
-	UserID      int    `json:"user_id"`
-	TokenID     int    `json:"token_id"`
-	AssetType   string `json:"asset_type"`
-	Name        string `json:"name"`
-	SourceURL   string `json:"source_url"`
-	SourceKind  string `json:"source_kind,omitempty"`
-	COSKey      string `json:"cos_key,omitempty"`
-	FileName    string `json:"file_name,omitempty"`
-	ContentType string `json:"content_type,omitempty"`
-	FileSize    int64  `json:"file_size,omitempty"`
-	Status      string `json:"status"`
-	CreatedAt   int64  `json:"created_at"`
-	ExpiresAt   int64  `json:"expires_at"`
-	VerifiedAt  int64  `json:"verified_at"`
+	ID                    string `json:"id"`
+	UpstreamID            string `json:"upstream_id"`
+	ChannelID             int    `json:"channel_id,omitempty"`
+	ChannelKeyFingerprint string `json:"channel_key_fingerprint,omitempty"`
+	UserID                int    `json:"user_id"`
+	TokenID               int    `json:"token_id"`
+	AssetType             string `json:"asset_type"`
+	Name                  string `json:"name"`
+	SourceURL             string `json:"source_url"`
+	SourceKind            string `json:"source_kind,omitempty"`
+	COSKey                string `json:"cos_key,omitempty"`
+	FileName              string `json:"file_name,omitempty"`
+	ContentType           string `json:"content_type,omitempty"`
+	FileSize              int64  `json:"file_size,omitempty"`
+	Status                string `json:"status"`
+	CreatedAt             int64  `json:"created_at"`
+	ExpiresAt             int64  `json:"expires_at"`
+	VerifiedAt            int64  `json:"verified_at"`
 }
 
 type StarAIAssetStats struct {
@@ -56,9 +60,10 @@ type StarAIAssetStats struct {
 }
 
 type StarAIAssetVerificationConfig struct {
-	BaseURL string
-	APIKey  string
-	Proxy   string
+	ChannelID int
+	BaseURL   string
+	APIKey    string
+	Proxy     string
 }
 
 type starAIAssetVerificationResponse struct {
@@ -84,6 +89,11 @@ func NormalizeStarAIAssetStatus(status string) string {
 	default:
 		return strings.ToUpper(strings.TrimSpace(status))
 	}
+}
+
+func StarAIChannelKeyFingerprint(key string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(key)))
+	return hex.EncodeToString(sum[:])
 }
 
 func starAIAssetKey(id string) string       { return "starai:asset:" + id }
@@ -319,6 +329,21 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 	binding, err := GetStarAIAssetBinding(id, userID)
 	if err != nil {
 		return "", err
+	}
+	keyChanged := binding.ChannelKeyFingerprint != "" &&
+		binding.ChannelKeyFingerprint != StarAIChannelKeyFingerprint(config.APIKey)
+	if config.ChannelID > 0 && (binding.ChannelID != config.ChannelID || keyChanged) {
+		if binding.COSKey != "" {
+			resolved, resolveErr := GetStarAICOSPreviewURL(ctx, binding.COSKey)
+			if resolveErr != nil {
+				return "", fmt.Errorf("%w: source URL unavailable", ErrStarAIAssetVerify)
+			}
+			return resolved, nil
+		}
+		if sourceURL := strings.TrimSpace(binding.SourceURL); sourceURL != "" {
+			return sourceURL, nil
+		}
+		return "", fmt.Errorf("%w: source URL unavailable", ErrStarAIAssetVerify)
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
 	if baseURL == "" || strings.TrimSpace(config.APIKey) == "" {

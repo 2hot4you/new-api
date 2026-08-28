@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -48,49 +47,6 @@ type OpenAIModel struct {
 	} `json:"permission"`
 	Root   string `json:"root"`
 	Parent string `json:"parent"`
-}
-
-const singleEnabledChannelErrorMessage = "only one enabled channel is allowed for this channel type"
-
-var singleEnabledStarAIChannelMutationMu sync.Mutex
-
-func validateEnabledStarAIChannelCandidates(candidateIDs []int) error {
-	desiredIDs := make(map[int]struct{}, len(candidateIDs))
-	unsavedCandidates := 0
-	for _, id := range candidateIDs {
-		if id == 0 {
-			unsavedCandidates++
-			continue
-		}
-		desiredIDs[id] = struct{}{}
-	}
-	if unsavedCandidates+len(desiredIDs) > 1 {
-		return errors.New(singleEnabledChannelErrorMessage)
-	}
-	if unsavedCandidates == 0 && len(desiredIDs) == 0 {
-		return nil
-	}
-
-	enabled, err := model.GetUniqueEnabledChannelByType(constant.ChannelTypeStarAI)
-	if errors.Is(err, model.ErrNoEnabledChannel) {
-		return nil
-	}
-	if err != nil {
-		common.SysLog(fmt.Sprintf("enabled channel uniqueness check failed: type=%d error=%v", constant.ChannelTypeStarAI, err))
-		return errors.New(singleEnabledChannelErrorMessage)
-	}
-	if _, ok := desiredIDs[enabled.Id]; ok && unsavedCandidates == 0 {
-		return nil
-	}
-	return errors.New(singleEnabledChannelErrorMessage)
-}
-
-func rejectEnabledStarAIChannelConflict(c *gin.Context, candidateIDs []int) bool {
-	if err := validateEnabledStarAIChannelCandidates(candidateIDs); err != nil {
-		common.ApiErrorMsg(c, singleEnabledChannelErrorMessage)
-		return true
-	}
-	return false
 }
 
 type OpenAIModelsResponse struct {
@@ -702,9 +658,6 @@ func getVertexArrayKeys(keys string) ([]string, error) {
 }
 
 func AddChannel(c *gin.Context) {
-	singleEnabledStarAIChannelMutationMu.Lock()
-	defer singleEnabledStarAIChannelMutationMu.Unlock()
-
 	addChannelRequest := AddChannelRequest{}
 	err := c.ShouldBindJSON(&addChannelRequest)
 	if err != nil {
@@ -798,16 +751,6 @@ func AddChannel(c *gin.Context) {
 			localChannel.Name = fmt.Sprintf("%s %s", localChannel.Name, keyPrefix)
 		}
 		channels = append(channels, *localChannel)
-	}
-	starAIEnabledCandidates := make([]int, 0, len(channels))
-	for i := range channels {
-		if channels[i].Type == constant.ChannelTypeStarAI &&
-			(channels[i].Status == 0 || channels[i].Status == common.ChannelStatusEnabled) {
-			starAIEnabledCandidates = append(starAIEnabledCandidates, 0)
-		}
-	}
-	if rejectEnabledStarAIChannelConflict(c, starAIEnabledCandidates) {
-		return
 	}
 	err = model.BatchInsertChannels(channels)
 	if err != nil {
@@ -920,9 +863,6 @@ func DisableTagChannels(c *gin.Context) {
 }
 
 func EnableTagChannels(c *gin.Context) {
-	singleEnabledStarAIChannelMutationMu.Lock()
-	defer singleEnabledStarAIChannelMutationMu.Unlock()
-
 	channelTag := ChannelTag{}
 	err := c.ShouldBindJSON(&channelTag)
 	if err != nil || channelTag.Tag == "" {
@@ -930,20 +870,6 @@ func EnableTagChannels(c *gin.Context) {
 			"success": false,
 			"message": "参数错误",
 		})
-		return
-	}
-	channels, err := model.GetChannelsByTag(channelTag.Tag, false, false)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	starAIEnabledCandidates := make([]int, 0, len(channels))
-	for _, channel := range channels {
-		if channel.Type == constant.ChannelTypeStarAI {
-			starAIEnabledCandidates = append(starAIEnabledCandidates, channel.Id)
-		}
-	}
-	if rejectEnabledStarAIChannelConflict(c, starAIEnabledCandidates) {
 		return
 	}
 	err = model.EnableChannelByTag(channelTag.Tag)
@@ -1083,9 +1009,6 @@ type ChannelStatusBatchRequest struct {
 }
 
 func UpdateChannel(c *gin.Context) {
-	singleEnabledStarAIChannelMutationMu.Lock()
-	defer singleEnabledStarAIChannelMutationMu.Unlock()
-
 	channel := PatchChannel{}
 	rawBody, err := c.GetRawData()
 	if err != nil {
@@ -1150,10 +1073,6 @@ func UpdateChannel(c *gin.Context) {
 	managementCredentialsChanged :=
 		channel.MoliiGrokManagementAccessToken != originChannel.MoliiGrokManagementAccessToken ||
 			channel.MoliiGrokManagementUserID != originChannel.MoliiGrokManagementUserID
-	if channel.Type == constant.ChannelTypeStarAI && originChannel.Status == common.ChannelStatusEnabled &&
-		rejectEnabledStarAIChannelConflict(c, []int{originChannel.Id}) {
-		return
-	}
 	originProxy := originChannel.GetSetting().Proxy
 	proxyChanged := false
 	if _, settingProvided := requestData["setting"]; settingProvided {
@@ -1301,9 +1220,6 @@ func UpdateChannel(c *gin.Context) {
 }
 
 func UpdateChannelStatus(c *gin.Context) {
-	singleEnabledStarAIChannelMutationMu.Lock()
-	defer singleEnabledStarAIChannelMutationMu.Unlock()
-
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
@@ -1313,16 +1229,6 @@ func UpdateChannelStatus(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil || !isManageableChannelStatus(req.Status) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
-	}
-	if req.Status == common.ChannelStatusEnabled {
-		channel, channelErr := model.GetChannelById(id, false)
-		if channelErr != nil {
-			common.ApiErrorMsg(c, "channel is unavailable")
-			return
-		}
-		if channel.Type == constant.ChannelTypeStarAI && rejectEnabledStarAIChannelConflict(c, []int{id}) {
-			return
-		}
 	}
 	changed := model.UpdateChannelStatus(id, "", req.Status, "manual operation")
 	if changed {
@@ -1341,29 +1247,10 @@ func UpdateChannelStatus(c *gin.Context) {
 }
 
 func BatchUpdateChannelStatus(c *gin.Context) {
-	singleEnabledStarAIChannelMutationMu.Lock()
-	defer singleEnabledStarAIChannelMutationMu.Unlock()
-
 	req := ChannelStatusBatchRequest{}
 	if err := c.ShouldBindJSON(&req); err != nil || len(req.Ids) == 0 || !isManageableChannelStatus(req.Status) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
-	}
-	if req.Status == common.ChannelStatusEnabled {
-		channels, err := model.GetChannelsByIds(req.Ids)
-		if err != nil {
-			common.ApiErrorMsg(c, "channel configuration is unavailable")
-			return
-		}
-		starAIEnabledCandidates := make([]int, 0, len(channels))
-		for _, channel := range channels {
-			if channel.Type == constant.ChannelTypeStarAI {
-				starAIEnabledCandidates = append(starAIEnabledCandidates, channel.Id)
-			}
-		}
-		if rejectEnabledStarAIChannelConflict(c, starAIEnabledCandidates) {
-			return
-		}
 	}
 	changedCount := 0
 	for _, id := range req.Ids {
@@ -1611,9 +1498,6 @@ func GetTagModels(c *gin.Context) {
 //	suffix         - string appended to the original name (default "_复制")
 //	reset_balance  - bool, when true will reset balance & used_quota to 0 (default true)
 func CopyChannel(c *gin.Context) {
-	singleEnabledStarAIChannelMutationMu.Lock()
-	defer singleEnabledStarAIChannelMutationMu.Unlock()
-
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "invalid id"})
@@ -1647,11 +1531,6 @@ func CopyChannel(c *gin.Context) {
 		clone.Balance = 0
 		clone.UsedQuota = 0
 	}
-	if clone.Type == constant.ChannelTypeStarAI && clone.Status == common.ChannelStatusEnabled &&
-		rejectEnabledStarAIChannelConflict(c, []int{0}) {
-		return
-	}
-
 	if err := clone.ValidateSettings(); err != nil {
 		common.SysError("failed to validate cloned channel: " + err.Error())
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to copy channel: invalid channel settings"})

@@ -250,8 +250,18 @@ func isDashboardAssetRequest(c *gin.Context) bool {
 	return strings.HasPrefix(c.Request.URL.Path, "/api/")
 }
 
-func getStarAIAssetChannel() (*model.Channel, error) {
-	return model.GetUniqueEnabledChannelByType(constant.ChannelTypeStarAI)
+func getStarAIAssetChannel(binding *service.StarAIAssetBinding) (*model.Channel, error) {
+	if binding != nil && binding.ChannelID > 0 {
+		channel, err := model.GetChannelById(binding.ChannelID, true)
+		if err != nil {
+			return nil, err
+		}
+		if channel.Type != constant.ChannelTypeStarAI {
+			return nil, errors.New("temporary asset channel type mismatch")
+		}
+		return channel, nil
+	}
+	return model.GetFirstEnabledChannelByType(constant.ChannelTypeStarAI)
 }
 
 func validatePublicAssetURL(raw string) error {
@@ -297,7 +307,7 @@ func doStarAIAssetRequest(channel *model.Channel, method, path string, body io.R
 }
 
 func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, binding *service.StarAIAssetBinding) (*service.StarAIAssetBinding, bool) {
-	channel, err := getStarAIAssetChannel()
+	channel, err := getStarAIAssetChannel(nil)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("asset channel configuration unavailable: type=%d error=%v", constant.ChannelTypeStarAI, err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "asset service is temporarily unavailable"})
@@ -321,6 +331,8 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 		initialStatus = "PROCESSING"
 	}
 	binding.UpstreamID = upstream.ID
+	binding.ChannelID = channel.Id
+	binding.ChannelKeyFingerprint = service.StarAIChannelKeyFingerprint(channel.Key)
 	binding.UserID = c.GetInt("id")
 	binding.TokenID = c.GetInt("token_id")
 	binding.AssetType = input.AssetType
@@ -430,7 +442,12 @@ func CompleteStarAICOSUpload(c *gin.Context) {
 }
 
 func refreshStarAIAsset(c *gin.Context, binding *service.StarAIAssetBinding) (*service.StarAIAssetBinding, error) {
-	channel, err := getStarAIAssetChannel()
+	// Legacy bindings predate channel ownership. Querying their upstream ID
+	// with whichever channel happens to sort first could cross API-key scopes.
+	if binding.ChannelID == 0 {
+		return binding, nil
+	}
+	channel, err := getStarAIAssetChannel(binding)
 	if err != nil {
 		return nil, err
 	}
@@ -471,7 +488,7 @@ func GetStarAIAsset(c *gin.Context) {
 	if err != nil {
 		var upstreamFailure *starAIAssetUpstreamFailure
 		if errors.As(err, &upstreamFailure) {
-			channel, channelErr := getStarAIAssetChannel()
+			channel, channelErr := getStarAIAssetChannel(binding)
 			if channelErr == nil {
 				writeStarAIAssetUpstreamFailure(c, channel, upstreamFailure)
 				return
@@ -532,7 +549,7 @@ func GetStarAIAssetForAdmin(c *gin.Context) {
 	if err != nil {
 		var upstreamFailure *starAIAssetUpstreamFailure
 		if errors.As(err, &upstreamFailure) {
-			channel, channelErr := getStarAIAssetChannel()
+			channel, channelErr := getStarAIAssetChannel(binding)
 			if channelErr == nil {
 				writeStarAIAssetUpstreamFailure(c, channel, upstreamFailure)
 				return

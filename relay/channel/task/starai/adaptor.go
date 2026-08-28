@@ -535,9 +535,11 @@ func (a *TaskAdaptor) resolveTemporaryAssets(c *gin.Context, payload *requestPay
 	}
 	userID := c.GetInt("id")
 	proxy := ""
+	channelID := 0
 	if info != nil {
 		userID = info.UserId
 		proxy = info.ChannelSetting.Proxy
+		channelID = info.ChannelId
 	}
 	for i := range payload.Content {
 		item := &payload.Content[i]
@@ -551,9 +553,10 @@ func (a *TaskAdaptor) resolveTemporaryAssets(c *gin.Context, payload *requestPay
 			}
 			originalURI := media.URL
 			resolved, err := service.ResolveStarAIAssetURI(c.Request.Context(), originalURI, userID, service.StarAIAssetVerificationConfig{
-				BaseURL: a.baseURL,
-				APIKey:  a.apiKey,
-				Proxy:   proxy,
+				ChannelID: channelID,
+				BaseURL:   a.baseURL,
+				APIKey:    a.apiKey,
+				Proxy:     proxy,
 			})
 			if err != nil {
 				return fmt.Errorf("invalid temporary asset: %w", err)

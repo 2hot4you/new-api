@@ -11,7 +11,9 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,15 +65,81 @@ func TestParseStarAIAssetUpstreamFailureFallbacks(t *testing.T) {
 	require.Equal(t, http.StatusBadGateway, starAIAssetClientStatus(failure.Status))
 }
 
-func TestCreateStarAIAssetRequiresExactlyOneEnabledChannelBeforeUpstream(t *testing.T) {
+func TestGetStarAIAssetChannelUsesFirstEnabledChannelWhenSeveralExist(t *testing.T) {
 	db := setupSingleStarAIChannelTestDB(t)
-	var upstreamCalls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		upstreamCalls.Add(1)
-		w.WriteHeader(http.StatusOK)
+
+	channels := make([]*model.Channel, 0, 2)
+	for _, name := range []string{"first", "second"} {
+		channel := &model.Channel{
+			Type:   constant.ChannelTypeStarAI,
+			Status: common.ChannelStatusEnabled,
+			Name:   name,
+			Key:    name + "-key",
+		}
+		require.NoError(t, db.Create(channel).Error)
+		channels = append(channels, channel)
+	}
+
+	selected, err := getStarAIAssetChannel(nil)
+	require.NoError(t, err)
+	require.Equal(t, channels[0].Id, selected.Id)
+	require.Equal(t, "first-key", selected.Key)
+
+	selected, err = getStarAIAssetChannel(&service.StarAIAssetBinding{ChannelID: channels[1].Id})
+	require.NoError(t, err)
+	require.Equal(t, channels[1].Id, selected.Id)
+	require.Equal(t, "second-key", selected.Key)
+}
+
+func TestCreateStarAIAssetRecordsItsChannelAndKeyOwnership(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	redisServer := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	previousRedisEnabled, previousRDB := common.RedisEnabled, common.RDB
+	common.RedisEnabled, common.RDB = true, redisClient
+	t.Cleanup(func() {
+		_ = redisClient.Close()
+		common.RedisEnabled, common.RDB = previousRedisEnabled, previousRDB
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer model-specific-key", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"asset-upstream","status":"ACTIVE"}`))
 	}))
 	t.Cleanup(server.Close)
+	baseURL := server.URL
+	channel := &model.Channel{Type: constant.ChannelTypeStarAI, Status: common.ChannelStatusEnabled, Name: "mini", Key: "model-specific-key", BaseURL: &baseURL}
+	require.NoError(t, db.Create(channel).Error)
 
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/assets", nil)
+	ctx.Set("id", 42)
+	ctx.Set("token_id", 9)
+	binding, ok := createStarAIAssetUpstream(ctx, createStarAIAssetRequest{
+		URL:       "https://cdn.example.com/reference.png",
+		AssetType: "image",
+		Name:      "reference",
+	}, &service.StarAIAssetBinding{SourceURL: "https://cdn.example.com/reference.png", SourceKind: "url"})
+
+	require.True(t, ok)
+	require.Equal(t, channel.Id, binding.ChannelID)
+	require.Equal(t, service.StarAIChannelKeyFingerprint(channel.Key), binding.ChannelKeyFingerprint)
+	stored, err := service.GetStarAIAssetBinding(binding.ID, 42)
+	require.NoError(t, err)
+	require.Equal(t, binding.ChannelID, stored.ChannelID)
+	require.Equal(t, binding.ChannelKeyFingerprint, stored.ChannelKeyFingerprint)
+}
+
+func TestRefreshLegacyStarAIAssetDoesNotQueryAnArbitraryChannelKey(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	var upstreamRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamRequests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
+	}))
+	t.Cleanup(server.Close)
 	for _, name := range []string{"first", "second"} {
 		baseURL := server.URL
 		require.NoError(t, db.Create(&model.Channel{
@@ -83,18 +151,10 @@ func TestCreateStarAIAssetRequiresExactlyOneEnabledChannelBeforeUpstream(t *test
 		}).Error)
 	}
 
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/assets", nil)
-	_, ok := createStarAIAssetUpstream(ctx, createStarAIAssetRequest{
-		URL:       "https://cdn.example.com/input.png",
-		AssetType: "image",
-	}, &service.StarAIAssetBinding{})
+	binding := &service.StarAIAssetBinding{UpstreamID: "legacy-asset", Status: "ACTIVE"}
+	refreshed, err := refreshStarAIAsset(nil, binding)
 
-	require.False(t, ok)
-	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
-	require.Zero(t, upstreamCalls.Load())
-	require.NotContains(t, recorder.Body.String(), "StarAI")
-	require.NotContains(t, recorder.Body.String(), "Molii")
+	require.NoError(t, err)
+	require.Same(t, binding, refreshed)
+	require.Zero(t, upstreamRequests.Load())
 }
