@@ -86,6 +86,7 @@ import {
   transformFormDataToPayload,
   transformApiKeyToFormDefaults,
 } from '../lib'
+import { isIpCidrValueValid } from '../lib/ip-cidr'
 import type { ApiKey } from '../types'
 import { useApiKeys } from './api-keys-provider'
 import {
@@ -290,15 +291,18 @@ export function ApiKeysMutateDrawer({
     if (initializedTarget === target) return
     if (isUpdate && currentRow) {
       if (apiKeyData?.success && apiKeyData.data) {
-        form.reset(
-          transformApiKeyToFormDefaults(
-            apiKeyData.data,
-            availableAutoGroupNames,
-            maxAutoGroups,
-            globalAutoGroups
-          )
+        const defaults = transformApiKeyToFormDefaults(
+          apiKeyData.data,
+          availableAutoGroupNames,
+          maxAutoGroups,
+          globalAutoGroups
         )
-        setIsIpValidationReady(false)
+        form.reset(defaults)
+        setIpDraftState({
+          hasDraft: false,
+          isValid: isIpCidrValueValid(defaults.allow_ips || ''),
+        })
+        setIsIpValidationReady(true)
         setInitializedTarget(target)
       }
     } else {
@@ -317,7 +321,11 @@ export function ApiKeysMutateDrawer({
         }
       }
       form.reset(defaults)
-      setIsIpValidationReady(false)
+      setIpDraftState({
+        hasDraft: false,
+        isValid: isIpCidrValueValid(defaults.allow_ips || ''),
+      })
+      setIsIpValidationReady(true)
       setInitializedTarget(target)
     }
   }, [

@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Address4, Address6 } from 'ip-address'
 import {
   forwardRef,
   useEffect,
@@ -34,6 +33,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
+import {
+  getIpCidrEntries,
+  isIpCidrDraftValid,
+  normalizeIpCidr,
+} from '../lib/ip-cidr'
+
 type IpCidrChipInputProps = Omit<
   ComponentProps<'div'>,
   'onBlur' | 'onChange' | 'value'
@@ -46,70 +51,6 @@ type IpCidrChipInputProps = Omit<
   inputRef?: Ref<HTMLInputElement>
   onValidityChange?: (valid: boolean) => void
   onDraftStateChange?: (state: { hasDraft: boolean; isValid: boolean }) => void
-}
-
-type IpCidrEntry = {
-  key: string
-  value: string
-  valid: boolean
-}
-
-function normalizeIpCidr(entry: string): string | null {
-  if (!entry || entry.includes('%')) return null
-
-  const segments = entry.split('/')
-  if (segments.length > 2 || !segments[0]) return null
-
-  try {
-    if (segments[0].includes(':')) {
-      const address = new Address6(entry)
-      return segments.length === 2
-        ? `${address.startAddress().correctForm()}/${address.subnetMask}`
-        : address.correctForm()
-    }
-
-    const address = new Address4(entry)
-    if (address.correctForm() !== segments[0]) return null
-    return segments.length === 2
-      ? `${address.startAddress().correctForm()}/${address.subnetMask}`
-      : address.correctForm()
-  } catch {
-    return null
-  }
-}
-
-function getEntries(value: string): IpCidrEntry[] {
-  const seen = new Set<string>()
-  return value
-    .split('\n')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .flatMap<IpCidrEntry>((rawValue, index) => {
-      const normalized = normalizeIpCidr(rawValue)
-      if (!normalized) {
-        return [
-          {
-            key: `invalid-${index}-${rawValue}`,
-            value: rawValue,
-            valid: false,
-          },
-        ]
-      }
-      if (seen.has(normalized)) return []
-      seen.add(normalized)
-      return [
-        {
-          key: normalized,
-          value: normalized,
-          valid: true,
-        },
-      ]
-    })
-}
-
-function isDraftValid(draft: string): boolean {
-  const entries = draft.split(/[\s,]+/).filter(Boolean)
-  return entries.every((entry) => normalizeIpCidr(entry) !== null)
 }
 
 export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
@@ -130,7 +71,7 @@ export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
     } = props
     const [draft, setDraft] = useState('')
     const [error, setError] = useState<string | null>(null)
-    const entries = useMemo(() => getEntries(value), [value])
+    const entries = useMemo(() => getIpCidrEntries(value), [value])
     const serializedEntries = entries.map((entry) => entry.value).join('\n')
     const hasLegacyInvalidEntries = entries.some((entry) => !entry.valid)
     const callbacksRef = useRef({
@@ -152,7 +93,7 @@ export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
     const updateDraft = (nextDraft: string, nextError: string | null) => {
       setDraft(nextDraft)
       setError(nextError)
-      const isValid = !hasLegacyInvalidEntries && isDraftValid(nextDraft)
+      const isValid = !hasLegacyInvalidEntries && isIpCidrDraftValid(nextDraft)
       callbacksRef.current.onValidityChange?.(isValid)
       callbacksRef.current.onDraftStateChange?.({
         hasDraft: nextDraft.trim().length > 0,
@@ -172,7 +113,7 @@ export const IpCidrChipInput = forwardRef<HTMLDivElement, IpCidrChipInputProps>(
     }, [resetKey])
 
     useEffect(() => {
-      const isValid = !hasLegacyInvalidEntries && isDraftValid(draft)
+      const isValid = !hasLegacyInvalidEntries && isIpCidrDraftValid(draft)
       callbacksRef.current.onValidityChange?.(isValid)
       callbacksRef.current.onDraftStateChange?.({
         hasDraft: draft.trim().length > 0,

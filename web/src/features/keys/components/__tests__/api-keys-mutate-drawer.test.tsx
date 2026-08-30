@@ -250,7 +250,8 @@ async function renderCreateDrawer(
   },
   currentRow?: ReturnType<typeof apiKeySchema.parse>,
   models: string[] = [],
-  closeOnChange = false
+  closeOnChange = false,
+  options: { preloadQueries?: boolean } = {}
 ): Promise<void> {
   const host = document.createElement('div')
   document.body.append(host)
@@ -258,55 +259,57 @@ async function renderCreateDrawer(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  const freshAt = Date.now() + 60_000
-  queryClient.setQueryData(
-    ['status'],
-    { default_use_auto_group: true },
-    { updatedAt: freshAt }
-  )
-  queryClient.setQueryData(
-    ['user-models'],
-    { success: true, data: models },
-    { updatedAt: freshAt }
-  )
-  queryClient.setQueryData(
-    ['user-groups'],
-    groupsData ?? {
-      success: true,
-      data: {
-        auto: {
-          desc: 'Automatic routing',
-          ratio: 'auto',
-          display_order: 2,
-        },
-        default: {
-          desc: 'Standard access',
-          ratio: 1,
-          display_order: 1,
-        },
-        vip: {
-          desc: 'Priority access',
-          ratio: 2,
-          display_order: 0,
-        },
-      },
-    },
-    { updatedAt: freshAt }
-  )
-  queryClient.setQueryData(
-    ['token-auto-groups'],
-    {
-      success: true,
-      data: { groups: ['vip', 'default'], max_count: 3 },
-    },
-    { updatedAt: freshAt }
-  )
-  if (currentRow) {
+  if (options.preloadQueries !== false) {
+    const freshAt = Date.now() + 60_000
     queryClient.setQueryData(
-      ['api-key', currentRow.id],
-      { success: true, data: currentRow },
+      ['status'],
+      { default_use_auto_group: true },
       { updatedAt: freshAt }
     )
+    queryClient.setQueryData(
+      ['user-models'],
+      { success: true, data: models },
+      { updatedAt: freshAt }
+    )
+    queryClient.setQueryData(
+      ['user-groups'],
+      groupsData ?? {
+        success: true,
+        data: {
+          auto: {
+            desc: 'Automatic routing',
+            ratio: 'auto',
+            display_order: 2,
+          },
+          default: {
+            desc: 'Standard access',
+            ratio: 1,
+            display_order: 1,
+          },
+          vip: {
+            desc: 'Priority access',
+            ratio: 2,
+            display_order: 0,
+          },
+        },
+      },
+      { updatedAt: freshAt }
+    )
+    queryClient.setQueryData(
+      ['token-auto-groups'],
+      {
+        success: true,
+        data: { groups: ['vip', 'default'], max_count: 3 },
+      },
+      { updatedAt: freshAt }
+    )
+    if (currentRow) {
+      queryClient.setQueryData(
+        ['api-key', currentRow.id],
+        { success: true, data: currentRow },
+        { updatedAt: freshAt }
+      )
+    }
   }
   renderedDrawer = { host, queryClient, root }
 
@@ -781,6 +784,31 @@ describe('API keys mutate drawer model limits', () => {
 })
 
 describe('API keys mutate drawer IP restrictions', () => {
+  test('allows empty optional restrictions after asynchronous form initialization', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer(undefined, undefined, [], false, {
+      preloadQueries: false,
+    })
+
+    await changeInput(
+      getControlByLabel<HTMLInputElement>('Name'),
+      'unrestricted'
+    )
+    assert.equal(findButton('Save changes', true).disabled, false)
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => createdPayloads.length === 1,
+        'unrestricted API key was not created'
+      )
+    )
+
+    assert.equal(createdPayloads[0]?.model_limits_enabled, false)
+    assert.equal(createdPayloads[0]?.model_limits, '')
+    assert.equal(createdPayloads[0]?.allow_ips, '')
+  })
+
   test('closes cleanly after a successful create without a repeated state update', async () => {
     const createdPayloads: Array<Record<string, unknown>> = []
     installApiFixtures(createdPayloads)
