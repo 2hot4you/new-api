@@ -754,7 +754,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   let dialogWidthClass = 'sm:max-w-lg'
   if (isTieredBilling) {
     dialogWidthClass = 'sm:max-w-4xl lg:max-w-5xl'
-  } else if (isGrokImage) {
+  } else if (isGrokImage || isGPTImage2) {
     dialogWidthClass = 'sm:max-w-6xl'
   } else if (isStarAIVideoLog || isGrokVideo) {
     dialogWidthClass = 'sm:max-w-2xl'
@@ -1230,7 +1230,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
           <GrokVideoBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />
         )}
 
-        {isGPTImage2 && <GPTImage2PreviewCard log={props.log} />}
+        {isGPTImage2 && (
+          <GPTImage2PreviewCard log={props.log} quotaPerUnit={quotaPerUnit} />
+        )}
 
         {!isGrokImage &&
           !isGPTImage2 &&
@@ -1406,30 +1408,34 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Content */}
-        {details && !isStarAIVideoLog && !isGrokImage && !isGrokVideo && (
-          <div className='space-y-1.5'>
-            <Label className='text-xs font-semibold'>{t('Content')}</Label>
-            <div className='bg-muted/30 relative min-w-0 overflow-hidden rounded-md border p-2.5'>
-              <Button
-                variant='ghost'
-                size='sm'
-                className='absolute top-1.5 right-1.5 h-5 w-5 p-0'
-                onClick={() => copyToClipboard(details)}
-                title={t('Copy to clipboard')}
-                aria-label={t('Copy to clipboard')}
-              >
-                {copiedText === details ? (
-                  <Check className='size-3 text-green-600' />
-                ) : (
-                  <Copy className='size-3' />
-                )}
-              </Button>
-              <p className='min-w-0 pr-6 text-xs leading-relaxed break-all whitespace-pre-wrap sm:wrap-break-word'>
-                {details}
-              </p>
+        {details &&
+          !isStarAIVideoLog &&
+          !isGrokImage &&
+          !isGPTImage2 &&
+          !isGrokVideo && (
+            <div className='space-y-1.5'>
+              <Label className='text-xs font-semibold'>{t('Content')}</Label>
+              <div className='bg-muted/30 relative min-w-0 overflow-hidden rounded-md border p-2.5'>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='absolute top-1.5 right-1.5 h-5 w-5 p-0'
+                  onClick={() => copyToClipboard(details)}
+                  title={t('Copy to clipboard')}
+                  aria-label={t('Copy to clipboard')}
+                >
+                  {copiedText === details ? (
+                    <Check className='size-3 text-green-600' />
+                  ) : (
+                    <Copy className='size-3' />
+                  )}
+                </Button>
+                <p className='min-w-0 pr-6 text-xs leading-relaxed break-all whitespace-pre-wrap sm:wrap-break-word'>
+                  {details}
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
       </div>
     </Dialog>
   )

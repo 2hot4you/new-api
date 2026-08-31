@@ -1,14 +1,23 @@
 package controller
 
 import (
+	"context"
+	"io"
+	"mime"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
+)
+
+var (
+	getGPTImage2PreviewObject    = service.GetGPTImage2PreviewObject
+	fetchGPTImage2PreviewContent = service.FetchCOSObject
 )
 
 func GetAllLogs(c *gin.Context) {
@@ -94,6 +103,66 @@ func GetGPTImage2Preview(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"urls": urls})
+}
+
+// DownloadGPTImage2Preview relays one owned temporary COS result with an
+// attachment disposition so browsers download it instead of navigating to a
+// cross-origin signed object URL.
+func DownloadGPTImage2Preview(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
+	targetUserID, _ := strconv.Atoi(c.Param("user_id"))
+	requestID := c.Param("request_id")
+	index, indexErr := strconv.Atoi(c.Param("index"))
+	viewerID := c.GetInt("id")
+	if targetUserID <= 0 || requestID == "" || indexErr != nil || index < 0 ||
+		(viewerID != targetUserID && c.GetInt("role") < common.RoleAdminUser) {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	object, err := getGPTImage2PreviewObject(targetUserID, requestID, index)
+	if err != nil {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+	response, err := fetchGPTImage2PreviewContent(ctx, object.ObjectKey, c.GetHeader("Range"), c.GetHeader("If-Range"))
+	if err != nil || response == nil || response.Body == nil {
+		c.AbortWithStatus(http.StatusBadGateway)
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent && response.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+		c.AbortWithStatus(http.StatusBadGateway)
+		return
+	}
+	for _, key := range []string{"Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"} {
+		if value := response.Header.Get(key); value != "" {
+			c.Header(key, value)
+		}
+	}
+	extension := ".img"
+	switch object.MIMEType {
+	case "image/png":
+		extension = ".png"
+	case "image/jpeg":
+		extension = ".jpg"
+	case "image/webp":
+		extension = ".webp"
+	}
+	c.Header("Content-Type", object.MIMEType)
+	disposition := mime.FormatMediaType("attachment", map[string]string{
+		"filename": "molii-gpt-image-2-" + strconv.Itoa(index+1) + extension,
+	})
+	if disposition == "" {
+		disposition = "attachment"
+	}
+	c.Header("Content-Disposition", disposition)
+	c.Status(response.StatusCode)
+	if response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+		return
+	}
+	_, _ = io.Copy(c.Writer, response.Body)
 }
 
 // Deprecated: SearchAllLogs 已废弃，前端未使用该接口。

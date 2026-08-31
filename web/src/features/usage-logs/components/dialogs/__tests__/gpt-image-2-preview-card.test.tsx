@@ -34,10 +34,14 @@ for (const key of [
   'Node',
   'Element',
   'Event',
+  'MouseEvent',
+  'CustomEvent',
   'MutationObserver',
   'requestAnimationFrame',
   'cancelAnimationFrame',
   'getComputedStyle',
+  'matchMedia',
+  'customElements',
 ] as const) {
   Object.defineProperty(globalThis, key, {
     configurable: true,
@@ -57,10 +61,30 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { DetailsDialog } = await import('../details-dialog')
 const { GPTImage2PreviewCard } = await import('../gpt-image-2-preview-card')
 
 const i18n = createInstance()
-await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
+await i18n.use(initReactI18next).init({
+  lng: 'zh',
+  resources: {
+    zh: {
+      translation: {
+        'Model ID': '模型 ID',
+        Operation: '操作',
+        Quality: '质量',
+        Background: '背景',
+        'Output Format': '输出格式',
+        Moderation: '内容审核',
+        Size: '尺寸',
+        User: '用户',
+        'Requested Outputs': '请求输出数',
+        'Actual Outputs': '实际输出数',
+        'Total Duration': '总耗时',
+      },
+    },
+  },
+})
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
@@ -74,9 +98,9 @@ const log: UsageLog = {
   username: '',
   token_name: '',
   model_name: 'gpt-image-2',
-  quota: 1,
-  prompt_tokens: 0,
-  completion_tokens: 0,
+  quota: 576,
+  prompt_tokens: 120,
+  completion_tokens: 300,
   use_time: 12.5,
   is_stream: false,
   channel: 1,
@@ -88,6 +112,10 @@ const log: UsageLog = {
   upstream_request_id: '',
   other: JSON.stringify({
     gpt_image_2_preview_available: true,
+    model_ratio: 1,
+    completion_ratio: 2,
+    group_ratio: 0.8,
+    user_group_ratio: -1,
     gpt_image_2: {
       version: 1,
       model: 'gpt-image-2',
@@ -106,7 +134,7 @@ const log: UsageLog = {
 
 after(() => domWindow.close())
 
-test('renders complete parameters and Molii-owned 24-hour previews', async () => {
+test('renders adaptive bilingual parameters, billing, and an authenticated download', async () => {
   const apiClient = api as unknown as {
     get: () => Promise<{ data: unknown }>
   }
@@ -132,7 +160,7 @@ test('renders complete parameters and Molii-owned 24-hour previews', async () =>
     root.render(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
-          <GPTImage2PreviewCard log={log} />
+          <GPTImage2PreviewCard log={log} quotaPerUnit={500000} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -145,25 +173,108 @@ test('renders complete parameters and Molii-owned 24-hour previews', async () =>
   for (const expected of [
     'GPT Image 2 Preview',
     '24 hours',
-    'Quality',
+    'Model ID（模型 ID）',
+    'Operation（操作）',
+    'Quality（质量）',
     'high',
-    'Background',
+    'Background（背景）',
     'transparent',
-    'Output Format',
+    'Output Format（输出格式）',
     'WEBP',
-    'Moderation',
+    'Moderation（内容审核）',
     'low',
-    'Size',
+    'Size（尺寸）',
     '1536x1024',
-    'User',
+    'User（用户）',
     'customer-42',
-    'Requested Outputs',
-    'Actual Outputs',
-    'Total Duration',
+    'Requested Outputs（请求输出数）',
+    'Actual Outputs（实际输出数）',
+    'Total Duration（总耗时）',
+    'Billing Rules and Formula',
+    'Input Tokens',
+    '120',
+    'Output Tokens',
+    '300',
+    '0.8000x',
+    '20.00%',
   ]) {
     assert.match(text, new RegExp(expected))
   }
   assert.equal(container.querySelectorAll('img').length, 3)
+
+  const mainImage = container.querySelector(
+    '[data-gpt-image-2-main]'
+  ) as unknown as HTMLImageElement | null
+  assert.ok(mainImage)
+  Object.defineProperty(mainImage, 'naturalWidth', { value: 1024 })
+  Object.defineProperty(mainImage, 'naturalHeight', { value: 1536 })
+  await act(async () =>
+    mainImage.dispatchEvent(new domWindow.Event('load') as unknown as Event)
+  )
+  assert.equal(
+    container
+      .querySelector('[data-gpt-image-2-layout]')
+      ?.getAttribute('data-media-orientation'),
+    'portrait'
+  )
+
+  const download = container.querySelector(
+    '[data-gpt-image-2-download]'
+  ) as unknown as HTMLAnchorElement | null
+  assert.ok(download)
+  assert.equal(
+    download.getAttribute('href'),
+    '/api/log/gpt-image-2-preview/7/req-image-2/download/0'
+  )
+  assert.equal(download.getAttribute('target'), null)
+
+  await act(async () => root.unmount())
+  queryClient.clear()
+  container.remove()
+  apiClient.get = originalGet
+})
+
+test('replaces the legacy content summary with structured billing in shared log details', async () => {
+  const apiClient = api as unknown as {
+    get: () => Promise<{ data: unknown }>
+  }
+  const originalGet = apiClient.get
+  apiClient.get = async () => ({
+    data: {
+      success: true,
+      data: { urls: ['https://cos.example/one.webp'] },
+    },
+  })
+  const container = domWindow.document.createElement('div')
+  domWindow.document.body.append(container)
+  const root = createRoot(
+    container as unknown as Parameters<typeof createRoot>[0]
+  )
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+
+  await act(async () => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <DetailsDialog
+            log={{ ...log, content: 'LEGACY_GPT_IMAGE_2_SUMMARY' }}
+            isAdmin={false}
+            open
+            onOpenChange={() => undefined}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+  })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  const text = domWindow.document.body.textContent ?? ''
+  assert.match(text, /Billing Rules and Formula/)
+  assert.doesNotMatch(text, /LEGACY_GPT_IMAGE_2_SUMMARY/)
 
   await act(async () => root.unmount())
   queryClient.clear()

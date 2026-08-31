@@ -91,3 +91,23 @@ func TestGPTImage2PreviewCollapsesSigningAndRedisFailures(t *testing.T) {
 	_, err = GetGPTImage2Preview(42, "req-sign-error")
 	require.ErrorIs(t, err, ErrGPTImage2PreviewNotFound)
 }
+
+func TestGPTImage2PreviewObjectLookupReturnsOnlyOwnedLiveIndexedObject(t *testing.T) {
+	useGrokImagePreviewRedis(t)
+	useStarAICOSTestConfig(t)
+	now := time.Date(2026, time.August, 31, 8, 0, 0, 0, time.UTC)
+	objects := []GPTImage2PreviewObject{
+		{ObjectKey: "users/gpt-image-2-results/42/2026/08/first.png", MIMEType: "image/png", ExpiresAt: now.Add(time.Hour).Unix()},
+		{ObjectKey: "users/gpt-image-2-results/42/2026/08/second.webp", MIMEType: "image/webp", ExpiresAt: now.Add(time.Hour).Unix()},
+	}
+	require.NoError(t, registerGPTImage2Preview(42, "req-download", objects, now))
+
+	got, err := getGPTImage2PreviewObject(42, "req-download", 1, now)
+	require.NoError(t, err)
+	assert.Equal(t, objects[1], got)
+
+	_, err = getGPTImage2PreviewObject(42, "req-download", 2, now)
+	require.ErrorIs(t, err, ErrGPTImage2PreviewNotFound)
+	_, err = getGPTImage2PreviewObject(42, "req-download", 0, now.Add(2*time.Hour))
+	require.ErrorIs(t, err, ErrGPTImage2PreviewNotFound)
+}

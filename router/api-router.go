@@ -281,6 +281,7 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
 		logRoute.GET("/grok-image-preview/:user_id/:request_id", middleware.DisableCache(), middleware.UserAuth(), controller.GetGrokImagePreview)
 		logRoute.GET("/gpt-image-2-preview/:user_id/:request_id", middleware.DisableCache(), middleware.UserAuth(), controller.GetGPTImage2Preview)
+		logRoute.GET("/gpt-image-2-preview/:user_id/:request_id/download/:index", middleware.DisableCache(), middleware.UserAuth(), controller.DownloadGPTImage2Preview)
 
 		systemTaskRoute := apiRouter.Group("/system-task")
 		systemTaskRoute.Use(middleware.RootAuth())

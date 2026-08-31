@@ -126,3 +126,17 @@ func TestGPTImage2PreviewRouteRequiresAuthentication(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, response.Code)
 	assertGrokImagePreviewNoStoreHeaders(t, response)
 }
+
+func TestGPTImage2PreviewDownloadRouteRequiresAuthentication(t *testing.T) {
+	setupGrokImagePreviewRouteTest(t)
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	SetApiRouter(engine)
+	request := httptest.NewRequest(http.MethodGet, "/api/log/gpt-image-2-preview/42/request-id/download/0", nil)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusUnauthorized, response.Code)
+	assertGrokImagePreviewNoStoreHeaders(t, response)
+}

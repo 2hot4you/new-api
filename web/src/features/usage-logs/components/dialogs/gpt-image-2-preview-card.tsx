@@ -17,23 +17,64 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { Download, ImageIcon, Info } from 'lucide-react'
+import { Calculator, Download, ImageIcon, Info } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatUseTime } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 import { getGPTImage2Preview } from '../../api'
 import type { UsageLog } from '../../data/schema'
 import { parseLogOther } from '../../lib/format'
 import { getGPTImage2LogState } from '../../lib/gpt-image-2'
+import { buildGPTImage2Billing } from '../../lib/gpt-image-2-billing'
 import { ImageDialog } from './image-dialog'
 
 interface GPTImage2PreviewCardProps {
   log: UsageLog
+  quotaPerUnit: number
+}
+
+type MediaOrientation = 'portrait' | 'landscape' | 'square' | 'unknown'
+
+function getMediaOrientation(width: number, height: number): MediaOrientation {
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return 'unknown'
+  }
+  if (Math.abs(width - height) / Math.max(width, height) < 0.04) return 'square'
+  return width > height ? 'landscape' : 'portrait'
+}
+
+function parseRequestedDimensions(size: string | undefined): {
+  width: number
+  height: number
+} | null {
+  const match = size?.trim().match(/^(\d+)x(\d+)$/i)
+  if (!match) return null
+  const width = Number(match[1])
+  const height = Number(match[2])
+  return width > 0 && height > 0 ? { width, height } : null
+}
+
+function bilingualLabel(
+  english: string,
+  translated: string,
+  language: string
+): string {
+  if (language.toLowerCase().startsWith('zh') && translated !== english) {
+    return `${english}（${translated}）`
+  }
+  return translated
 }
 
 function ParameterMetric(props: { label: string; value: string }) {
@@ -50,9 +91,13 @@ function ParameterMetric(props: { label: string; value: string }) {
 }
 
 export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [mediaDimensions, setMediaDimensions] = useState<{
+    width: number
+    height: number
+  } | null>(null)
   const other = parseLogOther(props.log.other)
   const logState = getGPTImage2LogState(props.log)
   const snapshot = logState.kind === 'current' ? logState.snapshot : null
@@ -94,6 +139,34 @@ export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
     (previewQuery.data?.success === false && !previewQuery.data.expired)
   const activeIndex = Math.min(selectedIndex, Math.max(0, urls.length - 1))
   const activeURL = urls[activeIndex]
+  const requestedDimensions = parseRequestedDimensions(snapshot?.size)
+  const dimensions = mediaDimensions ?? requestedDimensions
+  const mediaOrientation = dimensions
+    ? getMediaOrientation(dimensions.width, dimensions.height)
+    : 'unknown'
+  const billing = buildGPTImage2Billing({
+    promptTokens: props.log.prompt_tokens,
+    completionTokens: props.log.completion_tokens,
+    imageTokens: other?.image_output,
+    quota: props.log.quota,
+    quotaPerUnit: props.quotaPerUnit,
+    modelRatio: other?.model_ratio,
+    completionRatio: other?.completion_ratio,
+    imageRatio: other?.image_ratio,
+    groupRatio: other?.group_ratio,
+    userGroupRatio: other?.user_group_ratio,
+  })
+  const label = (key: string) =>
+    bilingualLabel(key, t(key), i18n.resolvedLanguage ?? i18n.language)
+  const formatPrice = (usd: number) =>
+    formatBillingCurrencyFromUSD(usd, {
+      digitsLarge: 4,
+      digitsSmall: 6,
+      abbreviate: false,
+    })
+  const downloadURL = activeURL
+    ? `/api/log/gpt-image-2-preview/${encodeURIComponent(props.log.user_id)}/${encodeURIComponent(props.log.request_id)}/download/${activeIndex}`
+    : null
 
   useEffect(() => {
     if (selectedIndex >= urls.length && urls.length > 0) setSelectedIndex(0)
@@ -102,8 +175,21 @@ export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
     }
   }, [selectedImageUrl, selectedIndex, urls])
 
+  useEffect(() => {
+    setMediaDimensions(null)
+  }, [activeURL])
+
   return (
-    <section className='grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]'>
+    <section
+      className={cn(
+        'grid min-w-0 gap-3',
+        mediaOrientation === 'portrait'
+          ? 'lg:grid-cols-[minmax(280px,0.8fr)_minmax(380px,1.2fr)]'
+          : 'lg:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.6fr)]'
+      )}
+      data-gpt-image-2-layout
+      data-media-orientation={mediaOrientation}
+    >
       <div className='bg-muted/30 min-w-0 space-y-2.5 rounded-xl border p-2.5'>
         <div className='flex items-center gap-1.5 text-xs font-semibold'>
           <ImageIcon className='size-3.5' aria-hidden='true' />
@@ -136,9 +222,29 @@ export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
             <img
               src={activeURL}
               alt={t('Generated image')}
-              className='max-h-[52vh] w-full object-contain lg:h-[clamp(14rem,36dvh,22rem)] lg:max-h-none'
+              className={cn(
+                'h-auto max-h-[58vh] max-w-full object-contain',
+                mediaOrientation === 'portrait' ? 'w-auto' : 'w-full'
+              )}
+              style={
+                dimensions
+                  ? {
+                      aspectRatio: `${dimensions.width} / ${dimensions.height}`,
+                    }
+                  : undefined
+              }
               loading='lazy'
               referrerPolicy='no-referrer'
+              data-gpt-image-2-main
+              onLoad={(event) => {
+                const image = event.currentTarget
+                if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                  setMediaDimensions({
+                    width: image.naturalWidth,
+                    height: image.naturalHeight,
+                  })
+                }
+              }}
             />
           </button>
         ) : null}
@@ -178,18 +284,10 @@ export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
           </AlertDescription>
         </Alert>
 
-        {activeURL && !showLoading && !showUnavailable ? (
+        {downloadURL && !showLoading && !showUnavailable ? (
           <Button
             className='w-full'
-            render={
-              <a
-                href={activeURL}
-                download
-                target='_blank'
-                rel='noopener noreferrer'
-                referrerPolicy='no-referrer'
-              />
-            }
+            render={<a href={downloadURL} download data-gpt-image-2-download />}
           >
             <Download data-icon='inline-start' />
             {t('Download')}
@@ -198,49 +296,147 @@ export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
 
         {snapshot ? (
           <div className='bg-muted/30 grid grid-cols-2 gap-2 rounded-xl border p-2.5'>
-            <ParameterMetric label={t('Model ID')} value={snapshot.model} />
+            <ParameterMetric label={label('Model ID')} value={snapshot.model} />
             <ParameterMetric
-              label={t('Operation')}
+              label={label('Operation')}
               value={
                 snapshot.operation === 'edit'
                   ? t('Image Editing')
                   : t('Image Generation')
               }
             />
-            <ParameterMetric label={t('Quality')} value={snapshot.quality} />
             <ParameterMetric
-              label={t('Background')}
+              label={label('Quality')}
+              value={snapshot.quality}
+            />
+            <ParameterMetric
+              label={label('Background')}
               value={snapshot.background}
             />
             <ParameterMetric
-              label={t('Output Format')}
+              label={label('Output Format')}
               value={snapshot.output_format.toUpperCase()}
             />
             <ParameterMetric
-              label={t('Moderation')}
+              label={label('Moderation')}
               value={snapshot.moderation}
             />
-            <ParameterMetric label={t('Size')} value={snapshot.size} />
+            <ParameterMetric label={label('Size')} value={snapshot.size} />
             <ParameterMetric
-              label={t('User')}
+              label={label('User')}
               value={snapshot.user || t('Not set')}
             />
             <ParameterMetric
-              label={t('Requested Outputs')}
+              label={label('Requested Outputs')}
               value={String(snapshot.requested_output_count)}
             />
             <ParameterMetric
-              label={t('Actual Outputs')}
+              label={label('Actual Outputs')}
               value={String(snapshot.output_count)}
             />
             <ParameterMetric
-              label={t('Total Duration')}
+              label={label('Total Duration')}
               value={formatUseTime(props.log.use_time)}
             />
           </div>
         ) : (
           <p className='text-muted-foreground rounded-xl border p-3 text-xs'>
             {t('Historical request parameters are unavailable')}
+          </p>
+        )}
+
+        {billing ? (
+          <div className='bg-muted/30 min-w-0 space-y-2 rounded-xl border p-2.5'>
+            <div className='flex items-center gap-1.5 text-xs font-semibold'>
+              <Calculator
+                className='size-3.5 text-violet-500'
+                aria-hidden='true'
+              />
+              {t('Billing Rules and Formula')}
+            </div>
+            <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
+              <ParameterMetric
+                label={t('Input Tokens')}
+                value={billing.inputTokens.toLocaleString('en-US')}
+              />
+              <ParameterMetric
+                label={t('Input Unit Price')}
+                value={`${formatPrice(billing.inputUnitPriceUSD)} / 1M`}
+              />
+              <ParameterMetric
+                label={t('Input Subtotal')}
+                value={formatPrice(billing.inputCostUSD)}
+              />
+              {billing.imageInputTokens > 0 ? (
+                <>
+                  <ParameterMetric
+                    label={t('Image Tokens')}
+                    value={billing.imageInputTokens.toLocaleString('en-US')}
+                  />
+                  <ParameterMetric
+                    label={t('Image Input Unit Price')}
+                    value={`${formatPrice(billing.imageInputUnitPriceUSD)} / 1M`}
+                  />
+                  <ParameterMetric
+                    label={t('Image Input Subtotal')}
+                    value={formatPrice(billing.imageInputCostUSD)}
+                  />
+                </>
+              ) : null}
+              <ParameterMetric
+                label={t('Output Tokens')}
+                value={billing.outputTokens.toLocaleString('en-US')}
+              />
+              <ParameterMetric
+                label={t('Output Unit Price')}
+                value={`${formatPrice(billing.outputUnitPriceUSD)} / 1M`}
+              />
+              <ParameterMetric
+                label={t('Output Subtotal')}
+                value={formatPrice(billing.outputCostUSD)}
+              />
+              <ParameterMetric
+                label={t('Subtotal')}
+                value={formatPrice(billing.subtotalUSD)}
+              />
+              <ParameterMetric
+                label={t('Group Ratio')}
+                value={`${billing.groupRatio.toFixed(4)}x`}
+              />
+              <ParameterMetric
+                label={t('Savings Compared with Base Price')}
+                value={`${billing.savingsPercent.toFixed(2)}%`}
+              />
+            </div>
+            <div className='space-y-1.5 rounded-md border border-violet-200 bg-violet-50/70 p-2 dark:border-violet-900 dark:bg-violet-950/20'>
+              <div className='text-xs font-medium text-violet-700 dark:text-violet-300'>
+                {t('Billing Formula')}
+              </div>
+              <p className='overflow-x-auto font-mono text-xs whitespace-nowrap'>
+                ({billing.textInputTokens.toLocaleString('en-US')} ×{' '}
+                {formatPrice(billing.inputUnitPriceUSD)} / 1M +{' '}
+                {billing.imageInputTokens > 0 ? (
+                  <>
+                    {billing.imageInputTokens.toLocaleString('en-US')} ×{' '}
+                    {formatPrice(billing.imageInputUnitPriceUSD)} / 1M +{' '}
+                  </>
+                ) : null}
+                {billing.outputTokens.toLocaleString('en-US')} ×{' '}
+                {formatPrice(billing.outputUnitPriceUSD)} / 1M) ×{' '}
+                {billing.groupRatio.toFixed(4)} ={' '}
+                {formatPrice(billing.finalCostUSD)}
+              </p>
+            </div>
+            <div className='flex items-center justify-between gap-3 border-t pt-2 text-xs'>
+              <span className='text-muted-foreground'>{t('Final Charge')}</span>
+              <span className='font-mono font-semibold'>
+                {formatPrice(billing.finalCostUSD)}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <p className='text-muted-foreground rounded-xl border p-3 text-xs'>
+            {t('Historical billing breakdown unavailable')}
           </p>
         )}
       </aside>

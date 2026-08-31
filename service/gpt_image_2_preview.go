@@ -62,13 +62,53 @@ func GetGPTImage2Preview(userID int, requestID string) ([]string, error) {
 	return getGPTImage2Preview(userID, requestID, time.Now(), SignCOSObjectURL)
 }
 
+func GetGPTImage2PreviewObject(userID int, requestID string, index int) (GPTImage2PreviewObject, error) {
+	return getGPTImage2PreviewObject(userID, requestID, index, time.Now())
+}
+
 func getGPTImage2Preview(
 	userID int,
 	requestID string,
 	now time.Time,
 	sign func(context.Context, string, time.Duration) (string, error),
 ) ([]string, error) {
-	if userID <= 0 || strings.TrimSpace(requestID) == "" || sign == nil || !common.RedisEnabled || common.RDB == nil {
+	if sign == nil {
+		return nil, ErrGPTImage2PreviewNotFound
+	}
+	objects, err := getGPTImage2PreviewObjects(userID, requestID, now)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), grokImagePreviewRedisTimeout)
+	defer cancel()
+	urls := make([]string, 0, len(objects))
+	for _, object := range objects {
+		remaining := time.Unix(object.ExpiresAt, 0).Sub(now)
+		if remaining > objectStorageMaximumSignTTL {
+			remaining = objectStorageMaximumSignTTL
+		}
+		signedURL, err := sign(ctx, object.ObjectKey, remaining)
+		if err != nil || strings.TrimSpace(signedURL) == "" {
+			return nil, ErrGPTImage2PreviewNotFound
+		}
+		urls = append(urls, signedURL)
+	}
+	return urls, nil
+}
+
+func getGPTImage2PreviewObject(userID int, requestID string, index int, now time.Time) (GPTImage2PreviewObject, error) {
+	if index < 0 {
+		return GPTImage2PreviewObject{}, ErrGPTImage2PreviewNotFound
+	}
+	objects, err := getGPTImage2PreviewObjects(userID, requestID, now)
+	if err != nil || index >= len(objects) {
+		return GPTImage2PreviewObject{}, ErrGPTImage2PreviewNotFound
+	}
+	return objects[index], nil
+}
+
+func getGPTImage2PreviewObjects(userID int, requestID string, now time.Time) ([]GPTImage2PreviewObject, error) {
+	if userID <= 0 || strings.TrimSpace(requestID) == "" || !common.RedisEnabled || common.RDB == nil {
 		return nil, ErrGPTImage2PreviewNotFound
 	}
 	client := newGrokImagePreviewRedisClient(common.RDB)
@@ -86,7 +126,6 @@ func getGPTImage2Preview(
 	if err := common.Unmarshal(body, &objects); err != nil || len(objects) < 1 || len(objects) > gptImage2MaximumImages {
 		return nil, ErrGPTImage2PreviewNotFound
 	}
-	urls := make([]string, 0, len(objects))
 	for _, object := range objects {
 		if !IsOwnedGPTImage2ResultObject(userID, object.ObjectKey) || !isGPTImage2PreviewMIME(object.MIMEType) {
 			return nil, ErrGPTImage2PreviewNotFound
@@ -95,16 +134,8 @@ func getGPTImage2Preview(
 		if remaining <= 0 {
 			return nil, ErrGPTImage2PreviewNotFound
 		}
-		if remaining > objectStorageMaximumSignTTL {
-			remaining = objectStorageMaximumSignTTL
-		}
-		signedURL, err := sign(ctx, object.ObjectKey, remaining)
-		if err != nil || strings.TrimSpace(signedURL) == "" {
-			return nil, ErrGPTImage2PreviewNotFound
-		}
-		urls = append(urls, signedURL)
 	}
-	return urls, nil
+	return objects, nil
 }
 
 func isGPTImage2PreviewMIME(mimeType string) bool {
