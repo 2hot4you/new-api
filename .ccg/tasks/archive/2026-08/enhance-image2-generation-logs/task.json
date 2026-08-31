@@ -1,0 +1,12 @@
+{
+  "id": "enhance-image2-generation-logs",
+  "title": "完善 GPT Image 2 日志详情、生成记录与结果 URL 生命周期",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交已验证的功能变更",
+  "createdAt": "2026-08-31T00:00:00Z",
+  "branch": "develop"
+}
