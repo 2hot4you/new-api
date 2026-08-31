@@ -1,0 +1,12 @@
+{
+  "id": "fix-gpt-image-2-supported-parameters",
+  "title": "补齐 gpt-image-2 模型广场支持参数",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
+  "createdAt": "2026-08-31T12:00:00+08:00",
+  "branch": "develop"
+}
