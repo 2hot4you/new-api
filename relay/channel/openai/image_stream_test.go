@@ -8,10 +8,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -131,12 +133,20 @@ func TestOpenaiImageStreamHandlerUsesCompletedEventCount(t *testing.T) {
 	c, _, resp, info := newImageTestContext(t, body, "text/event-stream", true)
 	info.PriceData.UsePrice = true
 	info.PriceData.AddOtherRatio("n", 3)
+	info.UserId = 42
+	info.RequestId = "req-stream-image-2"
+	info.StartTime = time.Now()
+	info.OriginModelName = "gpt-image-2"
+	info.GPTImage2Log = &relaycommon.GPTImage2LogSnapshot{
+		Version: 1, Model: "gpt-image-2", OutputFormat: "png", RequestedOutputCount: 3, OutputCount: 3,
+	}
 
 	usage, err := OpenaiImageStreamHandler(c, info, resp)
 
 	require.Nil(t, err)
 	require.Equal(t, 7, usage.TotalTokens)
 	require.Equal(t, 2.0, info.PriceData.OtherRatios()["n"])
+	require.Equal(t, 2, info.GPTImage2Log.OutputCount)
 }
 
 // blockingBody serves one SSE chunk, then blocks until Close (the scanner's
@@ -359,6 +369,59 @@ func TestOpenaiImageHandlerUsesPositiveActualCountForFixedPrice(t *testing.T) {
 			require.Equal(t, tt.body, recorder.Body.String())
 		})
 	}
+}
+
+func TestOpenaiImageHandlerPreservesBase64ResponseAndUpdatesGPTImage2Snapshot(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+	body := `{"data":[{"b64_json":"first"},{"b64_json":"second"}]}`
+	c, recorder, resp, info := newImageTestContext(t, body, "application/json", false)
+	info.UserId = 42
+	info.RequestId = "req-gpt-image-2"
+	info.StartTime = time.Now()
+	info.OriginModelName = "gpt-image-2"
+	info.GPTImage2Log = &relaycommon.GPTImage2LogSnapshot{
+		Version: 1, Model: "gpt-image-2", OutputFormat: "png", RequestedOutputCount: 3, OutputCount: 3,
+	}
+
+	_, relayErr := OpenaiImageHandler(c, info, resp)
+
+	require.Nil(t, relayErr)
+	require.Equal(t, body, recorder.Body.String())
+	require.Equal(t, 2, info.GPTImage2Log.OutputCount)
+	require.False(t, info.GPTImage2ResponseCompletedAt.IsZero())
+	require.False(t, info.GPTImage2PreviewAvailable, "invalid Base64 and unavailable storage stay best effort")
+}
+
+func TestPersistGPTImage2ResponsePreviewRegistersCompletedBase64Results(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		UserId: 42, RequestId: "req-persist", StartTime: time.Now(), OriginModelName: "gpt-image-2",
+		GPTImage2Log: &relaycommon.GPTImage2LogSnapshot{Version: 1, Model: "gpt-image-2", OutputFormat: "webp"},
+	}
+	images := []string{"first", "second"}
+	persisted := false
+	registered := false
+
+	persistGPTImage2ResponsePreview(context.Background(), info, images,
+		func(_ context.Context, request service.GPTImage2PersistenceRequest) ([]service.GPTImage2PreviewObject, error) {
+			persisted = true
+			require.Equal(t, images, request.Images)
+			require.Equal(t, "webp", request.OutputFormat)
+			return []service.GPTImage2PreviewObject{{ObjectKey: "users/gpt-image-2-results/42/result.webp", MIMEType: "image/webp", ExpiresAt: time.Now().Add(time.Hour).Unix()}}, nil
+		},
+		func(userID int, requestID string, objects []service.GPTImage2PreviewObject) error {
+			registered = true
+			require.Equal(t, 42, userID)
+			require.Equal(t, "req-persist", requestID)
+			require.Len(t, objects, 1)
+			return nil
+		},
+	)
+
+	require.True(t, persisted)
+	require.True(t, registered)
+	require.True(t, info.GPTImage2PreviewAvailable)
 }
 
 // TestOpenaiImageHandlersReturnJSONError covers JSON error responses for both

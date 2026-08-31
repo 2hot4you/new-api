@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils'
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
 import { parseLogOther } from '../lib/format'
+import { isGPTImage2Log } from '../lib/gpt-image-2'
 import { isGrokImageLog } from '../lib/grok-image-billing'
 import {
   getLogTypeConfig,
@@ -193,7 +194,7 @@ function MobileTokensField({ log }: { log: UsageLog }) {
   const { t } = useTranslation()
 
   if (!isDisplayableLogType(log.type)) return null
-  if (isGrokImageLog(log)) {
+  if (isGrokImageLog(log) || isGPTImage2Log(log)) {
     return (
       <div className='bg-muted/20 min-w-0 rounded-md px-2 py-1.5'>
         <span className='text-muted-foreground text-xs'>-</span>

@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -50,13 +51,77 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	}
 
 	updateOpenAIImageCount(info, gjson.GetBytes(responseBody, "data.#").Int())
+	completedImages := extractGPTImage2Base64Results(responseBody)
+	if info != nil && info.GPTImage2Log != nil {
+		if outputCount := int(gjson.GetBytes(responseBody, "data.#").Int()); outputCount > 0 {
+			info.GPTImage2Log.OutputCount = outputCount
+		}
+	}
 
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
+	markGPTImage2ResponseCompleted(info)
+	if len(completedImages) > 0 {
+		persistGPTImage2ResponsePreview(c.Request.Context(), info, completedImages, service.PersistGPTImage2Results, service.RegisterGPTImage2Preview)
+	}
 
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 	return &usageResp.Usage, nil
+}
+
+func markGPTImage2ResponseCompleted(info *relaycommon.RelayInfo) {
+	if info == nil || info.GPTImage2Log == nil || !info.GPTImage2ResponseCompletedAt.IsZero() {
+		return
+	}
+	info.GPTImage2ResponseCompletedAt = time.Now()
+}
+
+func extractGPTImage2Base64Results(responseBody []byte) []string {
+	count := gjson.GetBytes(responseBody, "data.#").Int()
+	if count <= 0 || count > 10 {
+		return nil
+	}
+	results := make([]string, 0, count)
+	for index := int64(0); index < count; index++ {
+		value := gjson.GetBytes(responseBody, "data."+strconv.FormatInt(index, 10)+".b64_json")
+		if value.Type != gjson.String {
+			continue
+		}
+		encoded := strings.TrimSpace(value.String())
+		if encoded != "" {
+			results = append(results, encoded)
+		}
+	}
+	return results
+}
+
+func persistGPTImage2ResponsePreview(
+	ctx context.Context,
+	info *relaycommon.RelayInfo,
+	images []string,
+	persist func(context.Context, service.GPTImage2PersistenceRequest) ([]service.GPTImage2PreviewObject, error),
+	register func(int, string, []service.GPTImage2PreviewObject) error,
+) {
+	if info == nil || info.GPTImage2Log == nil || info.OriginModelName != "gpt-image-2" || len(images) == 0 || persist == nil || register == nil {
+		return
+	}
+	objects, err := persist(ctx, service.GPTImage2PersistenceRequest{
+		UserID:       info.UserId,
+		RequestID:    info.RequestId,
+		CreatedAt:    info.StartTime,
+		OutputFormat: info.GPTImage2Log.OutputFormat,
+		Images:       images,
+	})
+	if err != nil {
+		logger.LogWarn(ctx, "GPT Image 2 preview persistence skipped at COS storage stage")
+		return
+	}
+	if err := register(info.UserId, info.RequestId, objects); err != nil {
+		logger.LogWarn(ctx, "GPT Image 2 preview persistence skipped at preview registry stage")
+		return
+	}
+	info.GPTImage2PreviewAvailable = true
 }
 
 // normalizeOpenAIUsage maps the OpenAI Images usage shape (input_tokens /
@@ -112,6 +177,7 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	usage := &dto.Usage{}
 	var lastStreamData []byte
 	var completedImages int64
+	completedBase64 := make([]string, 0, 4)
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		raw := common.StringToByteSlice(data)
@@ -132,6 +198,9 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 			}
 			if chunk.Type == "image_generation.completed" || chunk.Type == "image_edit.completed" {
 				completedImages++
+				if encoded := strings.TrimSpace(gjson.GetBytes(raw, "b64_json").String()); encoded != "" {
+					completedBase64 = append(completedBase64, encoded)
+				}
 			}
 		}
 		if err := writeOpenaiImageStreamChunk(c, raw); err != nil {
@@ -153,8 +222,9 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	// image by disconnecting right after the first completed event. The abort
 	// guard only blocks lowering the charge: if completed events already
 	// exceed the recorded n, bill the higher actual count regardless.
+	upstreamFinished := false
 	if info.StreamStatus != nil {
-		upstreamFinished := info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone ||
+		upstreamFinished = info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone ||
 			info.StreamStatus.EndReason == relaycommon.StreamEndReasonEOF
 		requestedN := 1.0
 		if n, ok := info.PriceData.OtherRatios()["n"]; ok {
@@ -163,6 +233,11 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 		if upstreamFinished || float64(completedImages) > requestedN {
 			updateOpenAIImageCount(info, completedImages)
 		}
+	}
+	if upstreamFinished && completedImages > 0 && info != nil && info.GPTImage2Log != nil {
+		markGPTImage2ResponseCompleted(info)
+		info.GPTImage2Log.OutputCount = int(completedImages)
+		persistGPTImage2ResponsePreview(c.Request.Context(), info, completedBase64, service.PersistGPTImage2Results, service.RegisterGPTImage2Preview)
 	}
 	return usage, nil
 }
@@ -324,6 +399,11 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 			info.StreamStatus = relaycommon.NewStreamStatus()
 		}
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+		if info.GPTImage2Log != nil && imageCount > 0 {
+			markGPTImage2ResponseCompleted(info)
+			info.GPTImage2Log.OutputCount = int(imageCount)
+			persistGPTImage2ResponsePreview(c.Request.Context(), info, extractGPTImage2Base64Results(responseBody), service.PersistGPTImage2Results, service.RegisterGPTImage2Preview)
+		}
 	}
 	return &usageResp.Usage, nil
 }

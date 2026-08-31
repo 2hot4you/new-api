@@ -5948,6 +5948,10 @@
     "Optional edit mask; with multiple images it applies to the first image": "Optional edit mask; with multiple images it applies to the first image",
     "1 ~ 32,000 characters": "1 ~ 32,000 characters",
     "auto or WIDTHxHEIGHT": "auto or WIDTHxHEIGHT",
-    "Up to 16 images": "Up to 16 images"
+    "Up to 16 images": "Up to 16 images",
+    "GPT Image 2 Preview": "GPT Image 2 Preview",
+    "Molii temporarily retains this preview for 24 hours. Download it before it expires.": "Molii temporarily retains this preview for 24 hours. Download it before it expires.",
+    "Total Duration": "Total Duration",
+    "Historical request parameters are unavailable": "Historical request parameters are unavailable"
   }
 }

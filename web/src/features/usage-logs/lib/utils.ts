@@ -24,6 +24,8 @@ import {
   getUserLogs,
   getAllGrokImageLogs,
   getUserGrokImageLogs,
+  getAllGPTImage2Logs,
+  getUserGPTImage2Logs,
   getAllMidjourneyLogs,
   getUserMidjourneyLogs,
   getAllVideoTaskLogs,
@@ -290,6 +292,11 @@ export async function fetchLogsByCategory(
       isAdmin,
     })
     if (logCategory === 'image') {
+      if (source === 'gpt-image-2') {
+        return isAdmin
+          ? await getAllGPTImage2Logs(params)
+          : await getUserGPTImage2Logs(params)
+      }
       return isAdmin
         ? await getAllGrokImageLogs(params)
         : await getUserGrokImageLogs(params)

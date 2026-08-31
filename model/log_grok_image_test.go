@@ -97,3 +97,19 @@ func TestFormatUserLogsPreservesGrokImageBilling(t *testing.T) {
 	assert.EqualValues(t, 1, billing["version"])
 	assert.EqualValues(t, 0, billing["final_cost"])
 }
+
+func TestGetUserLogsGPTImage2CategoryIsExact(t *testing.T) {
+	useGrokImageLogTestDB(t)
+	logs := []Log{
+		{UserId: 7, CreatedAt: 10, Type: LogTypeConsume, ModelName: "gpt-image-2", RequestId: "gpt-image-2"},
+		{UserId: 7, CreatedAt: 20, Type: LogTypeConsume, ModelName: "gpt-image-2-preview", RequestId: "near-match"},
+		{UserId: 7, CreatedAt: 30, Type: LogTypeConsume, ModelName: "gpt-image-1", RequestId: "other-image"},
+	}
+	require.NoError(t, LOG_DB.Create(&logs).Error)
+
+	imageLogs, total, err := GetUserLogs(7, LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "", "gpt_image_2")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, imageLogs, 1)
+	assert.Equal(t, "gpt-image-2", imageLogs[0].ModelName)
+}

@@ -138,6 +138,20 @@ export interface GrokImageBillingV1 {
   final_cost: number
 }
 
+export interface GPTImage2LogV1 {
+  version: 1
+  model: 'gpt-image-2'
+  operation: 'generation' | 'edit'
+  quality: string
+  background: string
+  output_format: 'png' | 'jpeg' | 'webp'
+  moderation: string
+  size: string
+  user?: string
+  requested_output_count: number
+  output_count: number
+}
+
 export type GrokVideoOperation =
   | 'text_to_video'
   | 'image_to_video'
@@ -173,6 +187,8 @@ export interface GrokVideoBillingV1 {
 export interface LogOtherData {
   grok_image_billing?: GrokImageBillingV1
   grok_image_preview_available?: boolean
+  gpt_image_2?: GPTImage2LogV1
+  gpt_image_2_preview_available?: boolean
   grok_video_billing?: GrokVideoBillingV1
   admin_info?: {
     is_multi_key?: boolean
@@ -438,7 +454,7 @@ export interface GetLogsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
-  log_category?: 'grok_image'
+  log_category?: 'grok_image' | 'gpt_image_2'
 }
 
 export interface GetLogsResponse {

@@ -195,7 +195,7 @@ export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
       <CommonLogsFilterBar
         table={table}
         section='drawing'
-        source='grok-image'
+        source={source === 'gpt-image-2' ? source : 'grok-image'}
         showStats={false}
       />
     )

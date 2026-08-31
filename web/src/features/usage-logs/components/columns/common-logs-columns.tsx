@@ -61,6 +61,11 @@ import {
   renderAuditContent,
 } from '../../lib/format'
 import {
+  getGPTImage2ListSummary,
+  getGPTImage2LogState,
+  isGPTImage2Log,
+} from '../../lib/gpt-image-2'
+import {
   getGrokImageBillingState,
   getGrokImageListSummary,
   isGrokImageLog,
@@ -179,6 +184,20 @@ function buildTypeDetailSegments(
       ]
     }
     const summary = getGrokImageListSummary(log)
+    return summary ? [{ text: summary }] : []
+  }
+
+  if (isGPTImage2Log(log)) {
+    const state = getGPTImage2LogState(log)
+    if (state.kind === 'history') {
+      return [
+        {
+          text: t('Historical request parameters are unavailable'),
+          muted: true,
+        },
+      ]
+    }
+    const summary = getGPTImage2ListSummary(log)
     return summary ? [{ text: summary }] : []
   }
 
@@ -779,7 +798,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         if (!isDisplayableLogType(log.type)) return null
 
-        if (isGrokImageLog(log) || isGrokVideoBillingLog(log)) {
+        if (
+          isGrokImageLog(log) ||
+          isGPTImage2Log(log) ||
+          isGrokVideoBillingLog(log)
+        ) {
           return <span className='text-muted-foreground text-xs'>-</span>
         }
 

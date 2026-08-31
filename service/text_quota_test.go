@@ -75,6 +75,26 @@ func TestCalculateTextQuotaSummaryUnifiedForClaudeSemantic(t *testing.T) {
 	require.Equal(t, 1488, chatSummary.Quota)
 }
 
+func TestCalculateTextQuotaSummaryExcludesGPTImage2PreviewPersistenceTime(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	startedAt := time.Now().Add(-time.Minute).Truncate(time.Second)
+	relayInfo := &relaycommon.RelayInfo{
+		OriginModelName:              "gpt-image-2",
+		StartTime:                    startedAt,
+		GPTImage2ResponseCompletedAt: startedAt.Add(4 * time.Second),
+		PriceData: hosttypes.PriceData{
+			ModelRatio:      1,
+			CompletionRatio: 1,
+			GroupRatioInfo:  hosttypes.GroupRatioInfo{GroupRatio: 1},
+		},
+	}
+
+	summary := calculateTextQuotaSummary(ctx, relayInfo, &dto.Usage{})
+
+	assert.EqualValues(t, 4, summary.UseTimeSeconds)
+}
+
 func TestCalculateTextQuotaSummaryUsesSplitClaudeCacheCreationRatios(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()

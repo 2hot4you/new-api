@@ -117,6 +117,20 @@ type GrokVideoBillingSnapshot struct {
 	FinalCost                float64 `json:"final_cost"`
 }
 
+type GPTImage2LogSnapshot struct {
+	Version              int    `json:"version"`
+	Model                string `json:"model"`
+	Operation            string `json:"operation"`
+	Quality              string `json:"quality"`
+	Background           string `json:"background"`
+	OutputFormat         string `json:"output_format"`
+	Moderation           string `json:"moderation"`
+	Size                 string `json:"size"`
+	User                 string `json:"user,omitempty"`
+	RequestedOutputCount int    `json:"requested_output_count"`
+	OutputCount          int    `json:"output_count"`
+}
+
 func (snapshot *GrokVideoBillingSnapshot) Clone() *GrokVideoBillingSnapshot {
 	if snapshot == nil {
 		return nil
@@ -223,9 +237,17 @@ type RelayInfo struct {
 
 	GrokImageBilling *GrokImageBillingSnapshot
 	GrokVideoBilling *GrokVideoBillingSnapshot
+	GPTImage2Log     *GPTImage2LogSnapshot
 	// GrokImagePreviewAvailable is runtime-only. It records whether trusted
 	// result URLs were saved to the temporary Redis preview index.
 	GrokImagePreviewAvailable bool
+	// GPTImage2PreviewAvailable is runtime-only. Preview object keys and signed
+	// URLs are stored outside the durable usage log.
+	GPTImage2PreviewAvailable bool
+	// GPTImage2ResponseCompletedAt captures the client-visible upstream response
+	// boundary before best-effort COS persistence begins, so usage duration does
+	// not include preview post-processing.
+	GPTImage2ResponseCompletedAt time.Time
 
 	// Input video probe data is populated before a Grok video edit is charged.
 	// It is copied into the task billing snapshot after upstream acceptance.

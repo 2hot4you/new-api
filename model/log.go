@@ -31,14 +31,18 @@ func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm
 }
 
 func applyLogCategoryFilter(tx *gorm.DB, logCategory string) *gorm.DB {
-	if logCategory != "grok_image" {
+	switch logCategory {
+	case "grok_image":
+		return tx.Where("logs.model_name IN ?", []string{
+			"grok-imagine-image",
+			"grok-imagine-image-quality",
+			"grok-imagine-image-2.0",
+		})
+	case "gpt_image_2":
+		return tx.Where("logs.model_name = ?", "gpt-image-2")
+	default:
 		return tx
 	}
-	return tx.Where("logs.model_name IN ?", []string{
-		"grok-imagine-image",
-		"grok-imagine-image-quality",
-		"grok-imagine-image-2.0",
-	})
 }
 
 func buildLogLikeCondition(column string, value string) (string, string, error) {

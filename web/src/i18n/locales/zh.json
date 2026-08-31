@@ -5948,6 +5948,10 @@
     "Optional edit mask; with multiple images it applies to the first image": "可选编辑蒙版；输入多张图片时应用于第一张",
     "1 ~ 32,000 characters": "1 ～ 32,000 个字符",
     "auto or WIDTHxHEIGHT": "auto 或 WIDTHxHEIGHT",
-    "Up to 16 images": "最多 16 张图片"
+    "Up to 16 images": "最多 16 张图片",
+    "GPT Image 2 Preview": "GPT Image 2 图片预览",
+    "Molii temporarily retains this preview for 24 hours. Download it before it expires.": "Molii 将此预览临时保留 24 小时，请在过期前下载保存。",
+    "Total Duration": "总耗时",
+    "Historical request parameters are unavailable": "历史记录暂无完整请求参数"
   }
 }

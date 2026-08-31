@@ -77,6 +77,25 @@ func GetGrokImagePreview(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"urls": urls})
 }
 
+// GetGPTImage2Preview returns short-lived signed URLs for Molii-owned GPT
+// Image 2 result objects. All lookup and authorization failures intentionally
+// share a 404 response so object existence is never disclosed.
+func GetGPTImage2Preview(c *gin.Context) {
+	targetUserID, _ := strconv.Atoi(c.Param("user_id"))
+	requestID := c.Param("request_id")
+	viewerID := c.GetInt("id")
+	if targetUserID <= 0 || requestID == "" || (viewerID != targetUserID && c.GetInt("role") < common.RoleAdminUser) {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	urls, err := service.GetGPTImage2Preview(targetUserID, requestID)
+	if err != nil {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"urls": urls})
+}
+
 // Deprecated: SearchAllLogs 已废弃，前端未使用该接口。
 func SearchAllLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{

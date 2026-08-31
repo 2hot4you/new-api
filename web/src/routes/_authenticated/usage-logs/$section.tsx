@@ -48,7 +48,7 @@ const usageLogsSearchSchema = z.object({
   startTime: z.number().optional(),
   endTime: z.number().optional(),
   source: z
-    .enum(['grok-image', 'grok-video', 'seedance'])
+    .enum(['grok-image', 'gpt-image-2', 'grok-video', 'seedance'])
     .optional()
     .catch(undefined),
 })

@@ -5948,6 +5948,10 @@
     "Optional edit mask; with multiple images it applies to the first image": "Mặt nạ chỉnh sửa tùy chọn; khi có nhiều ảnh, mặt nạ áp dụng cho ảnh đầu tiên",
     "1 ~ 32,000 characters": "1 đến 32.000 ký tự",
     "auto or WIDTHxHEIGHT": "auto hoặc WIDTHxHEIGHT",
-    "Up to 16 images": "Tối đa 16 ảnh"
+    "Up to 16 images": "Tối đa 16 ảnh",
+    "GPT Image 2 Preview": "GPT Image 2 Preview",
+    "Molii temporarily retains this preview for 24 hours. Download it before it expires.": "Molii temporarily retains this preview for 24 hours. Download it before it expires.",
+    "Total Duration": "Total Duration",
+    "Historical request parameters are unavailable": "Historical request parameters are unavailable"
   }
 }

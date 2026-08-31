@@ -5948,6 +5948,10 @@
     "Optional edit mask; with multiple images it applies to the first image": "任意の編集マスク。複数画像の場合は最初の画像に適用されます",
     "1 ~ 32,000 characters": "1 ～ 32,000 文字",
     "auto or WIDTHxHEIGHT": "auto または WIDTHxHEIGHT",
-    "Up to 16 images": "最大 16 枚"
+    "Up to 16 images": "最大 16 枚",
+    "GPT Image 2 Preview": "GPT Image 2 Preview",
+    "Molii temporarily retains this preview for 24 hours. Download it before it expires.": "Molii temporarily retains this preview for 24 hours. Download it before it expires.",
+    "Total Duration": "Total Duration",
+    "Historical request parameters are unavailable": "Historical request parameters are unavailable"
   }
 }

@@ -30,6 +30,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to ImageRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
+	info.GPTImage2Log = service.BuildGPTImage2LogSnapshot(info, imageReq)
 
 	// Relay prepares and validates the model after selecting the channel for
 	// this attempt. Copy that exact model; mapping here would apply it twice.

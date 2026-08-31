@@ -55,6 +55,7 @@ describe('generation log source registry', () => {
     assert.equal(GENERATION_LOG_DEFAULT_PATH, '/usage-logs/drawing')
     assert.deepEqual(GENERATION_LOG_SOURCES.drawing, [
       { id: 'grok-image', labelKey: 'Grok Image' },
+      { id: 'gpt-image-2', labelKey: 'GPT Image 2' },
     ])
     assert.deepEqual(GENERATION_LOG_SOURCES.task, [
       { id: 'grok-video', labelKey: 'Grok Video', platform: '62' },
@@ -64,9 +65,11 @@ describe('generation log source registry', () => {
 
   test('resolves missing, invalid, and cross-section sources to section defaults', () => {
     assert.equal(resolveUsageLogSource('drawing'), 'grok-image')
+    assert.equal(resolveUsageLogSource('drawing', 'gpt-image-2'), 'gpt-image-2')
     assert.equal(resolveUsageLogSource('drawing', 'seedance'), 'grok-image')
     assert.equal(resolveUsageLogSource('task'), 'grok-video')
     assert.equal(resolveUsageLogSource('task', 'grok-image'), 'grok-video')
+    assert.equal(resolveUsageLogSource('task', 'gpt-image-2'), 'grok-video')
     assert.equal(resolveUsageLogSource('task', 'seedance'), 'seedance')
   })
 
@@ -76,5 +79,6 @@ describe('generation log source registry', () => {
     assert.equal(getVideoPlatformForSource('grok-video'), '62')
     assert.equal(getVideoPlatformForSource('seedance'), '61')
     assert.equal(getVideoPlatformForSource('grok-image'), undefined)
+    assert.equal(getVideoPlatformForSource('gpt-image-2'), undefined)
   })
 })

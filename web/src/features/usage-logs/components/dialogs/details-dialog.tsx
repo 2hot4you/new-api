@@ -80,6 +80,7 @@ import {
   getResponseTimeColor,
   renderAuditContent,
 } from '../../lib/format'
+import { isGPTImage2Log } from '../../lib/gpt-image-2'
 import { isGrokImageLog } from '../../lib/grok-image-billing'
 import { isGrokVideoBillingLog } from '../../lib/grok-video-billing'
 import {
@@ -88,6 +89,7 @@ import {
   isTimingLogType,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import { GPTImage2PreviewCard } from './gpt-image-2-preview-card'
 import { GrokImageBillingCard } from './grok-image-billing-card'
 import { GrokImagePreviewCard } from './grok-image-preview-card'
 import { GrokVideoBillingCard } from './grok-video-billing-card'
@@ -618,6 +620,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
     (state) => state.config.currency.quotaPerUnit
   )
   const isGrokImage = isGrokImageLog(props.log)
+  const isGPTImage2 = isGPTImage2Log(props.log)
   const isGrokVideo = isGrokVideoBillingLog(props.log)
 
   const isViolation = isViolationFeeLog(other)
@@ -1227,19 +1230,27 @@ export function DetailsDialog(props: DetailsDialogProps) {
           <GrokVideoBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />
         )}
 
+        {isGPTImage2 && <GPTImage2PreviewCard log={props.log} />}
+
         {!isGrokImage &&
+          !isGPTImage2 &&
           !isGrokVideo &&
           isDisplayableType(props.log.type) &&
           other && <TokenBreakdown log={props.log} other={other} />}
 
         {/* Billing breakdown (consume type) */}
-        {isConsume && other && !isViolation && !isGrokImage && !isGrokVideo && (
-          <BillingBreakdown
-            log={props.log}
-            other={other}
-            isAdmin={props.isAdmin}
-          />
-        )}
+        {isConsume &&
+          other &&
+          !isViolation &&
+          !isGrokImage &&
+          !isGPTImage2 &&
+          !isGrokVideo && (
+            <BillingBreakdown
+              log={props.log}
+              other={other}
+              isAdmin={props.isAdmin}
+            />
+          )}
 
         {/* Tiered pricing breakdown (when billing_mode is tiered_expr) */}
         {isTieredBilling && other?.expr_b64 && (

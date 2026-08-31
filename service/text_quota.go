@@ -229,10 +229,14 @@ func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaS
 // effectiveBillingUsage; PostTextConsumeQuota performs that remap once and shares
 // the result with tiered billing, affinity observation and logging.
 func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage) textQuotaSummary {
+	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
+	if completedAt := relayInfo.GPTImage2ResponseCompletedAt; !completedAt.IsZero() && !completedAt.Before(relayInfo.StartTime) {
+		useTimeSeconds = completedAt.Unix() - relayInfo.StartTime.Unix()
+	}
 	summary := textQuotaSummary{
 		ModelName:            relayInfo.OriginModelName,
 		TokenName:            ctx.GetString("token_name"),
-		UseTimeSeconds:       time.Now().Unix() - relayInfo.StartTime.Unix(),
+		UseTimeSeconds:       useTimeSeconds,
 		CompletionRatio:      relayInfo.PriceData.CompletionRatio,
 		CacheRatio:           relayInfo.PriceData.CacheRatio,
 		ImageRatio:           relayInfo.PriceData.ImageRatio,
@@ -590,6 +594,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if grokImageContent := appendGrokImageBillingLog(other, relayInfo, summary.GroupRatio, summary.Quota); grokImageContent != "" {
 		logContent = grokImageContent
+	}
+	if gptImage2Content := appendGPTImage2Log(other, relayInfo); gptImage2Content != "" {
+		logContent = gptImage2Content
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)

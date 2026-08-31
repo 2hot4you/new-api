@@ -69,6 +69,16 @@ export function buildGrokImageLogRequest(
   }
 }
 
+export function buildGPTImage2LogRequest(
+  params: GetLogsParams,
+  isAdmin: boolean
+): LogApiRequest<GetLogsParams> {
+  return {
+    path: buildApiPath('/api/log', isAdmin),
+    params: { ...params, log_category: 'gpt_image_2' },
+  }
+}
+
 export function buildMidjourneyLogRequest(
   params: GetMidjourneyLogsParams,
   isAdmin: boolean
@@ -151,6 +161,13 @@ export const getUserGrokImageLogs = (
   params: Omit<GetLogsParams, 'username' | 'channel'> = {}
 ) => fetchLogsRequest(buildGrokImageLogRequest(params, false))
 
+export const getAllGPTImage2Logs = (params: GetLogsParams = {}) =>
+  fetchLogsRequest(buildGPTImage2LogRequest(params, true))
+
+export const getUserGPTImage2Logs = (
+  params: Omit<GetLogsParams, 'username' | 'channel'> = {}
+) => fetchLogsRequest(buildGPTImage2LogRequest(params, false))
+
 export const getLogStats = (params: GetLogStatsParams = {}) =>
   fetchLogStats('/api/log', params, true)
 
@@ -172,6 +189,24 @@ export async function getGrokImagePreview(
   try {
     const res = await api.get(
       `/api/log/grok-image-preview/${encodeURIComponent(userId)}/${encodeURIComponent(requestId)}`,
+      { skipBusinessError: true, skipErrorHandler: true }
+    )
+    return res.data
+  } catch (error: unknown) {
+    if (isAxiosError(error) && error.response?.status === 404) {
+      return { success: false, expired: true }
+    }
+    throw error
+  }
+}
+
+export async function getGPTImage2Preview(
+  userId: number,
+  requestId: string
+): Promise<GrokImagePreviewResponse> {
+  try {
+    const res = await api.get(
+      `/api/log/gpt-image-2-preview/${encodeURIComponent(userId)}/${encodeURIComponent(requestId)}`,
       { skipBusinessError: true, skipErrorHandler: true }
     )
     return res.data

@@ -280,6 +280,86 @@ func (store *objectStorageCOS) copyRemoteObjectToCOSWithStatus(ctx context.Conte
 	return &StoredObject{ObjectKey: key.ObjectKey, MIMEType: mimeType, Size: size, ExpiresAt: key.ExpiresAt}, true, nil
 }
 
+func (store *objectStorageCOS) putReaderObjectToCOSWithStatus(ctx context.Context, reader io.Reader, key ObjectKeySpec) (*StoredObject, bool, error) {
+	if err := validateObjectKeySpec(key); err != nil {
+		return nil, false, err
+	}
+	if store == nil || store.client == nil || reader == nil {
+		return nil, false, ErrObjectStorageUnavailable
+	}
+	if existing, found, err := headStoredCOSObject(ctx, store.client, key); err != nil {
+		return nil, false, err
+	} else if found {
+		return existing, false, nil
+	}
+
+	temporary, err := os.CreateTemp("", "molii-cos-upload-*")
+	if err != nil {
+		return nil, false, fmt.Errorf("prepare bounded object upload: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryName)
+	}()
+
+	maxBytes := objectStorageMaxBytes(key)
+	size, err := io.Copy(temporary, io.LimitReader(&objectStorageContextReader{ctx: ctx, reader: reader}, maxBytes+1))
+	if err != nil {
+		return nil, false, fmt.Errorf("read object upload: %w", err)
+	}
+	if size <= 0 {
+		return nil, false, errors.New("object upload is empty")
+	}
+	if size > maxBytes {
+		return nil, false, fmt.Errorf("object upload exceeds maximum size of %d bytes", maxBytes)
+	}
+	if _, err := temporary.Seek(0, io.SeekStart); err != nil {
+		return nil, false, fmt.Errorf("inspect object upload: %w", err)
+	}
+	header := make([]byte, 512)
+	headerSize, readErr := io.ReadFull(temporary, header)
+	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		return nil, false, fmt.Errorf("inspect object upload: %w", readErr)
+	}
+	mimeType, err := validateRemoteObjectMIME(http.DetectContentType(header[:headerSize]), key)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := temporary.Seek(0, io.SeekStart); err != nil {
+		return nil, false, fmt.Errorf("prepare COS upload: %w", err)
+	}
+
+	metadata := http.Header{}
+	metadata.Set("x-cos-meta-expires-at", strconv.FormatInt(key.ExpiresAt, 10))
+	conditionalHeaders := http.Header{}
+	conditionalHeaders.Set("x-cos-forbid-overwrite", "true")
+	putResponse, err := store.client.Object.Put(ctx, key.ObjectKey, temporary, &cos.ObjectPutOptions{
+		ObjectPutHeaderOptions: &cos.ObjectPutHeaderOptions{
+			ContentType:   mimeType,
+			ContentLength: size,
+			XCosMetaXXX:   &metadata,
+			XOptionHeader: &conditionalHeaders,
+		},
+	})
+	if putResponse != nil && putResponse.Body != nil {
+		defer putResponse.Body.Close()
+	}
+	if err != nil {
+		if isCOSObjectAlreadyExists(err) {
+			existing, found, headErr := headStoredCOSObject(ctx, store.client, key)
+			if headErr != nil {
+				return nil, false, headErr
+			}
+			if found {
+				return existing, false, nil
+			}
+		}
+		return nil, false, fmt.Errorf("upload object to COS: %w", err)
+	}
+	return &StoredObject{ObjectKey: key.ObjectKey, MIMEType: mimeType, Size: size, ExpiresAt: key.ExpiresAt}, true, nil
+}
+
 func isCOSObjectAlreadyExists(err error) bool {
 	response, ok := cos.IsCOSError(err)
 	if !ok || response == nil || response.Response == nil || response.Response.StatusCode != http.StatusConflict {

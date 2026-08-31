@@ -112,3 +112,17 @@ func TestGrokImagePreviewRouteUsesAuthOwnershipAndNoStoreHeaders(t *testing.T) {
 	assert.Contains(t, adminResponse.Body.String(), resultURL)
 	assertGrokImagePreviewNoStoreHeaders(t, adminResponse)
 }
+
+func TestGPTImage2PreviewRouteRequiresAuthentication(t *testing.T) {
+	setupGrokImagePreviewRouteTest(t)
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	SetApiRouter(engine)
+	request := httptest.NewRequest(http.MethodGet, "/api/log/gpt-image-2-preview/42/request-id", nil)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusUnauthorized, response.Code)
+	assertGrokImagePreviewNoStoreHeaders(t, response)
+}

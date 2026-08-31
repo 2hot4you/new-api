@@ -18,7 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 export type GenerationLogSection = 'drawing' | 'task'
-export type UsageLogSource = 'grok-image' | 'grok-video' | 'seedance'
+export type UsageLogSource =
+  | 'grok-image'
+  | 'gpt-image-2'
+  | 'grok-video'
+  | 'seedance'
 export type VideoLogSource = Extract<UsageLogSource, 'grok-video' | 'seedance'>
 
 export const GENERATION_LOG_META = {
@@ -30,7 +34,10 @@ export const GENERATION_LOG_META = {
 } as const
 
 export const GENERATION_LOG_SOURCES = {
-  drawing: [{ id: 'grok-image', labelKey: 'Grok Image' }],
+  drawing: [
+    { id: 'grok-image', labelKey: 'Grok Image' },
+    { id: 'gpt-image-2', labelKey: 'GPT Image 2' },
+  ],
   task: [
     { id: 'grok-video', labelKey: 'Grok Video', platform: '62' },
     { id: 'seedance', labelKey: 'Seedance', platform: '61' },
