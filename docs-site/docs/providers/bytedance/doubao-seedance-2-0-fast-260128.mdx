@@ -1,9 +1,9 @@
 ---
-title: "doubao-seedance-2-0-fast-260128"
+title: "Doubao Seedance 2.0 Fast"
 sidebar_position: 35
 ---
 
-# doubao-seedance-2-0-fast-260128
+# Doubao Seedance 2.0 Fast
 
 Seedance 2.0 加速版，支持文本、图片和视频参考及同步音频生成，面向低延迟创意迭代，支持 480p/720p。
 
@@ -28,13 +28,21 @@ Seedance 2.0 加速版，支持文本、图片和视频参考及同步音频生�
 
 ## 支持参数
 
-- 未声明
+- model
+- content
+- prompt
+- generate\_audio
+- resolution
+- ratio
+- duration
+- watermark
+- tools
 
 ## 兼容协议与安全调用
 
 使用环境变量 `MOLII_API_KEY`，不要把密钥写入代码或客户端。
 
-### OpenAI Video
+### Seedance Video
 
 **[POST /v1/videos](/api-reference/videos)**
 
@@ -48,10 +56,20 @@ curl --fail-with-body --silent --show-error \
   --url "${MOLII_API_BASE_URL%/}/v1/videos" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
-  --data '{"model":"doubao-seedance-2-0-fast-260128","prompt":"描述所需视频"}'
+  --data '{"model":"doubao-seedance-2-0-fast-260128","content":[{"type":"text","text":"镜头缓慢向前推进，晨雾从山谷间流过"},{"type":"image_url","image_url":{"url":"https://example.invalid/first-frame.jpg"},"role":"first_frame"}],"generate_audio":true,"resolution":"720p","ratio":"16:9","duration":5,"watermark":false}'
 ```
 
-创建视频是异步操作。保存创建响应中的任务 ID；下面的 GET 请求有单次超时且不自动重试。
+创建视频是异步操作。付费 POST 只提交一次，并保存响应中的公共任务 ID：
+
+```json
+{
+  "id": "task_public_123",
+  "object": "video",
+  "model": "doubao-seedance-2-0-fast-260128",
+  "status": "queued",
+  "progress": 0
+}
+```
 
 ```bash
 TASK_ID='task_public_123'
@@ -72,6 +90,8 @@ curl --fail-with-body --silent --show-error \
   --header "Accept: application/json"
 ```
 
+状态为 `queued` 或 `in_progress` 时继续有限轮询；`completed` 与 `failed` 为终态。
+
 **[GET /v1/videos/\{task_id\}/content](/api-reference/videos)**
 
 ```bash
@@ -82,14 +102,16 @@ curl --fail-with-body --silent --show-error \
   --max-time 300 \
   --max-redirs 0 \
   --request GET \
-  --url "${MOLII_API_BASE_URL%/}/v1/videos/$TASK_ID/content" \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/$TASK_ID/content?download=1" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
-  --dump-header ./video-content.headers \
-  --output ./video-content.bin \
+  --dump-header ./seedance-content.headers \
+  --output ./seedance-result.mp4 \
   --header "Accept: video/*"
 ```
 
-内容请求故意不使用 `--location`，不会把 Molii 凭据转发给重定向主机。检查响应头和内容类型后再保存结果，详见[视频 API](/api-reference/videos)。创建请求可能产生费用；网络结果不确定时不要重复提交 POST。
+内容请求故意不使用 `--location`，不会把 Molii 凭据转发给其他主机。`download=1` 让 Molii 返回附件下载响应。
+
+完整字段、组合限制和更多示例见 [Seedance API](/api-reference/seedance)、[多模态输入指南](/guides/seedance-multimodal)、[临时素材 API](/api-reference/assets) 与 [curl 完整流程](/examples/seedance-curl)。创建请求可能产生费用；网络结果不确定时不要重复提交 POST。
 
 ## 调用提示
 

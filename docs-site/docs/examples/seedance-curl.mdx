@@ -130,7 +130,7 @@ download_remaining="$(( download_deadline - $(date +%s) ))"
 if download_code="$(curl --silent --show-error \
   --connect-timeout 10 \
   --max-time "$download_remaining" \
-  --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id/content" \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/$task_id/content?download=1" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --dump-header "$headers_file" \
   --output "$body_file" \
@@ -149,4 +149,4 @@ case "$content_type" in
 esac
 ```
 
-对于轮询 GET，传输失败、`429` 和 `5xx` 可以在截止时间内重试。下载 GET 不跟随 `3xx`；它只把 API Key 发送到配置的 Molii Base URL，并把任何重定向视为错误。对于付费 POST，超时只表示客户端没有拿到确定响应，不表示服务端没有受理，因此脚本不会重发。
+对于轮询 GET，传输失败、`429` 和 `5xx` 可以在截止时间内重试。下载请求使用 `download=1` 获取附件响应，但仍不跟随 `3xx`；它只把 API Key 发送到配置的 Molii Base URL，并把任何重定向视为错误。对于付费 POST，超时只表示客户端没有拿到确定响应，不表示服务端没有受理，因此脚本不会重发。

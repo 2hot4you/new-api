@@ -197,6 +197,50 @@ describe('Seedance and temporary asset documentation contract', () => {
     expect(seedance).toMatch(/2\.5[^\n]*(?:30|`30`)/i);
   });
 
+  test('Bytedance Provider pages expose all Seedance models with complete parameters and examples', async () => {
+    const provider = await page('docs/providers/bytedance/index.mdx');
+    const modelIds = [
+      'doubao-seedance-2-0-260128',
+      'doubao-seedance-2-0-fast-260128',
+      'doubao-seedance-2-0-mini-260615',
+      'doubao-seedance-2-5-260628',
+    ];
+
+    for (const modelId of modelIds) {
+      expect(provider).toContain(modelId);
+      const modelPage = await page(`docs/providers/bytedance/${modelId}.mdx`);
+      expect(modelPage).not.toContain('## 支持参数\n\n- 未声明');
+      expect(modelPage).toContain('content');
+      expect(modelPage).toContain('generate_audio');
+      expect(modelPage).toContain('resolution');
+      expect(modelPage).toContain('duration');
+      expect(modelPage).toContain('POST /v1/videos');
+      expect(modelPage).toContain('/api-reference/seedance');
+      expect(modelPage).toContain('/examples/seedance-curl');
+    }
+  });
+
+  test('Seedance API reference uses the public video workflow and covers customer scenarios', async () => {
+    const reference = await page('docs/api-reference/seedance.mdx');
+
+    expect(reference).toContain('POST /v1/videos');
+    expect(reference).toContain('GET /v1/videos/{task_id}');
+    expect(reference).toContain('GET /v1/videos/{task_id}/content');
+    expect(reference).toMatch(/\/v1\/video\/generations[^\n]*(?:兼容|旧版)/);
+    for (const scenario of ['纯文本', '首帧', '首尾帧', '多模态', '视频编辑', '视频延长', '联网搜索']) {
+      expect(reference).toContain(scenario);
+    }
+    for (const role of ['first_frame', 'last_frame', 'reference_image', 'reference_video', 'reference_audio']) {
+      expect(reference).toContain(role);
+    }
+    for (const status of ['queued', 'in_progress', 'completed', 'failed']) {
+      expect(reference).toContain(status);
+    }
+    expect(reference).toContain('/v1/assets');
+    expect(reference).toContain('asset://');
+    expect(reference).not.toMatch(/StarAI|lfxqai|channel_id|upstream_id/iu);
+  });
+
   test('Seedance parameter guide records defaults, enums, and supported tools', async () => {
     const seedance = await page('docs/models/seedance-2.mdx');
 

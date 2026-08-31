@@ -1528,7 +1528,7 @@
     },
     {
       "id": "doubao-seedance-2-0-260128",
-      "display_name": "doubao-seedance-2-0-260128",
+      "display_name": "Doubao Seedance 2.0",
       "description": "新一代多模态视频生成模型，支持文本、图片和视频参考，擅长复杂运动、真实物理、精准控制及同步音频生成。",
       "vendor_id": 2,
       "display_order": 34,
@@ -1581,7 +1581,7 @@
     },
     {
       "id": "doubao-seedance-2-0-fast-260128",
-      "display_name": "doubao-seedance-2-0-fast-260128",
+      "display_name": "Doubao Seedance 2.0 Fast",
       "description": "Seedance 2.0 加速版，支持文本、图片和视频参考及同步音频生成，面向低延迟创意迭代，支持 480p/720p。",
       "vendor_id": 2,
       "display_order": 35,
@@ -1629,6 +1629,105 @@
       "max_input_images": 9,
       "min_duration": 4,
       "max_duration": 15
+    },
+    {
+      "id": "doubao-seedance-2-0-mini-260615",
+      "display_name": "Doubao Seedance 2.0 Mini",
+      "description": "面向高性价比视频生成场景的 Seedance 2.0 Mini，支持文本、图片、视频和音频参考，输出 480p/720p 视频。",
+      "description_en": "A cost-efficient Seedance 2.0 video generation model supporting text, image, video, and audio references with 480p and 720p output.",
+      "vendor_id": 2,
+      "display_order": 36,
+      "supported_endpoint_types": [
+        "openai-video"
+      ],
+      "release_date": "2026-06-15",
+      "input_modalities": [
+        "text",
+        "image",
+        "video",
+        "audio"
+      ],
+      "output_modalities": [
+        "video"
+      ],
+      "capabilities": [
+        "video_generation",
+        "video_editing"
+      ],
+      "supported_resolutions": [
+        "480p",
+        "720p"
+      ],
+      "supported_aspect_ratios": [
+        "16:9",
+        "4:3",
+        "1:1",
+        "3:4",
+        "9:16",
+        "21:9",
+        "adaptive"
+      ],
+      "output_formats": [
+        "url"
+      ],
+      "reference_modalities": [
+        "image",
+        "video",
+        "audio"
+      ],
+      "max_input_images": 9,
+      "min_duration": 4,
+      "max_duration": 15
+    },
+    {
+      "id": "doubao-seedance-2-5-260628",
+      "display_name": "Doubao Seedance 2.5",
+      "description": "Seedance 2.5 视频生成模型，支持文本、图片、视频和音频参考、视频编辑与更长时长输出，最高支持 1080p。",
+      "description_en": "An advanced Seedance video generation model supporting multimodal references, video editing, and outputs up to 1080p and 30 seconds.",
+      "vendor_id": 2,
+      "display_order": 37,
+      "supported_endpoint_types": [
+        "openai-video"
+      ],
+      "release_date": "2026-06-28",
+      "input_modalities": [
+        "text",
+        "image",
+        "video",
+        "audio"
+      ],
+      "output_modalities": [
+        "video"
+      ],
+      "capabilities": [
+        "video_generation",
+        "video_editing"
+      ],
+      "supported_resolutions": [
+        "480p",
+        "720p",
+        "1080p"
+      ],
+      "supported_aspect_ratios": [
+        "16:9",
+        "4:3",
+        "1:1",
+        "3:4",
+        "9:16",
+        "21:9",
+        "adaptive"
+      ],
+      "output_formats": [
+        "url"
+      ],
+      "reference_modalities": [
+        "image",
+        "video",
+        "audio"
+      ],
+      "max_input_images": 9,
+      "min_duration": 4,
+      "max_duration": 30
     }
   ]
 }

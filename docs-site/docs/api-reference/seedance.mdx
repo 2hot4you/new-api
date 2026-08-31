@@ -1,62 +1,407 @@
 ---
 title: Seedance API
-description: Seedance 多模态视频生成和兼容任务查询接口。
+description: Molii Volcengine Imagine 中四个 Seedance 模型的参数、多模态输入、异步任务与临时素材说明。
 audience: user
 apiVersion: v1
-lastReviewed: 2026-08-10
-sourceCommit: d396320dd9c0
+lastReviewed: 2026-09-01
+sourceCommit: 4b5799a5a
 sidebar_position: 5
 ---
 
 # Seedance API
 
-Seedance 支持文字、首尾帧、参考图片、参考视频和参考音频组合生成。创建任务使用多模态 `content` 数组，查询返回公共任务状态、火山签名视频地址和最终计费摘要。
+Seedance 支持纯文本、首尾帧、参考图片、参考视频和参考音频组合生成。新接入统一使用 `POST /v1/videos` 创建任务，再通过同一组路径查询和下载结果。
 
-| 模型 ID | 定位 | 分辨率 |
-| --- | --- | --- |
-| `doubao-seedance-2-0-260128` | 标准版 | `480p`、`720p`、`1080p`、`4k` |
-| `doubao-seedance-2-0-fast-260128` | Fast 版 | `480p`、`720p` |
-| `doubao-seedance-2-0-mini-260615` | Mini 版 | `480p`、`720p` |
-| `doubao-seedance-2-5-260628` | 2.5 版 | `480p`、`720p`、`1080p` |
+兼容路径 `POST /v1/video/generations` 和 `GET /v1/video/generations/{task_id}` 继续可用，但属于旧版兼容入口；新客户端不应依赖其响应结构。
 
-## `POST /v1/video/generations`
+## 模型与边界
 
-创建 Seedance 多模态异步视频任务。该路径的真实请求结构是 `content` 数组，而不是 Grok 的 `image`、`aspect_ratio` 请求结构。
+| 模型 ID | 定位 | 分辨率 | 时长 |
+| --- | --- | --- | --- |
+| `doubao-seedance-2-0-260128` | 标准版 | `480p`、`720p`、`1080p`、`4k` | `4`–`15` 秒 |
+| `doubao-seedance-2-0-fast-260128` | Fast 版 | `480p`、`720p` | `4`–`15` 秒 |
+| `doubao-seedance-2-0-mini-260615` | Mini 版 | `480p`、`720p` | `4`–`15` 秒 |
+| `doubao-seedance-2-5-260628` | 2.5 版 | `480p`、`720p`、`1080p` | `4`–`30` 秒 |
 
-### 鉴权
+四个模型都接受文本、图片、视频和音频参考。具体输出能力以模型页展示为准；不支持的分辨率或时长会在创建阶段被拒绝。
 
-需要 `Authorization: Bearer $MOLII_API_KEY`。
+## 创建视频
 
-### 请求参数
+```http
+POST /v1/videos
+Authorization: Bearer $MOLII_API_KEY
+Content-Type: application/json
+```
 
-请求体类型为 `application/json`。
+### 顶层参数
 
 | 参数 | 类型 | 必填 | 默认值 | 可选值/范围 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `model` | string | 是 | 无 | 四个 Seedance 模型 ID | 生成模型 |
+| `model` | string | 是 | 无 | 上表中的模型 ID | 生成模型 |
 | `content` | object[] | 条件必填 | `[]` | 见下文 | 有顺序的文本和媒体输入 |
 | `prompt` | string | 条件必填 | 无 | 非空字符串 | 纯文本便捷字段 |
-| `generate_audio` | boolean | 否 | `true` | `true`、`false` | 是否生成同步音频 |
-| `resolution` | string | 否 | `720p` | `480p`、`720p`、`1080p`、`4k` | Fast/Mini 仅到 720p；2.5 仅到 1080p；标准版支持 4k |
+| `generate_audio` | boolean | 否 | `true` | `true`、`false` | 是否请求生成同步音频 |
+| `resolution` | string | 否 | `720p` | `480p`、`720p`、`1080p`、`4k` | 必须符合所选模型边界 |
 | `ratio` | string | 否 | `adaptive` | `16:9`、`4:3`、`1:1`、`3:4`、`9:16`、`21:9`、`adaptive` | 输出比例 |
-| `duration` | integer | 否 | `5` | `4`–`30` 或 `-1` | 标准/Fast/Mini 最长 15 秒；2.5 最长 30 秒；`-1` 为智能时长 |
+| `duration` | integer | 否 | `5` | 模型范围内整数或 `-1` | `-1` 表示智能时长 |
 | `watermark` | boolean | 否 | `false` | `true`、`false` | 是否请求添加水印 |
-| `tools` | object[] | 否 | `[]` | 当前仅 `web_search` | 可用工具 |
+| `tools` | object[] | 否 | `[]` | 当前仅 `[{"type":"web_search"}]` | 可用工具 |
 
-`content` 与 `prompt` 至少提供一种有效输入。若同时提供 `prompt` 和 `content` 中的 `text`，两段文字会一并发送，通常不建议重复。
+`content` 与 `prompt` 至少提供一种有效输入。若同时提供 `prompt` 和 `content` 中的 `text`，两段文字都会进入请求，通常不建议重复。
 
-#### Content 项
+### Content 多模态项
 
-| `type` | 载荷 | `role` | 数量和约束 |
+| `type` | 载荷字段 | `role` | 数量与约束 |
 | --- | --- | --- | --- |
 | `text` | `text` | 无 | 非空文本 |
-| `image_url` | `image_url.url` | `first_frame`、`last_frame`、`reference_image` | 图片总数最多 9；省略 role 按首帧处理 |
-| `video_url` | `video_url.url` | 必须为 `reference_video` | 最多 3 个 |
-| `audio_url` | `audio_url.url` | 必须为 `reference_audio` | 最多 3 个；不能脱离图片或视频单独使用 |
+| `image_url` | `image_url.url` | `first_frame`、`last_frame`、`reference_image` | 图片总数最多 9 张 |
+| `video_url` | `video_url.url` | `reference_video` | 最多 3 个 |
+| `audio_url` | `audio_url.url` | `reference_audio` | 最多 3 个，不能脱离图片或视频单独使用 |
 
-首尾帧模式要求正好一个首帧、最多一个尾帧，并且不能与 `reference_image`、`reference_video`、`reference_audio` 混用。多模态参考图必须使用 `reference_image`。
+帧模式必须有一个 `first_frame`，可以再提供一个 `last_frame`；帧模式不能与 `reference_image`、`reference_video` 或 `reference_audio` 混用。多模态参考图片必须明确使用 `reference_image`。
 
-图片地址可使用公网 URL、受支持的 Data URL 或 `asset://` 临时素材 URI；视频使用公网 URL 或 `asset://`；音频可使用公网 URL、受支持的 Data URL 或 `asset://`。素材必须在排队和生成期间保持可访问。
+媒体地址可使用公网 URL；图片和音频还可使用受支持的 Data URL。图片、视频和音频都可使用当前账户创建的 `asset://` 临时素材 URI。
+
+## 创建请求示例
+
+以下示例共用环境变量：
+
+```bash
+export MOLII_API_BASE_URL="https://your-molii-host.example"
+export MOLII_API_KEY="replace-with-your-key"
+```
+
+### 纯文本生成
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "model": "doubao-seedance-2-0-260128",
+    "content": [{"type": "text", "text": "清晨的海边木栈道，镜头平稳向前移动，环境声音自然同步"}],
+    "generate_audio": true,
+    "resolution": "720p",
+    "ratio": "16:9",
+    "duration": 5,
+    "watermark": false
+  }'
+```
+
+### 首帧图生视频
+
+```json
+{
+  "model": "doubao-seedance-2-0-fast-260128",
+  "content": [
+    {"type": "text", "text": "镜头缓慢拉远，云层从山谷中流过"},
+    {
+      "type": "image_url",
+      "image_url": {"url": "https://cdn.example.com/first-frame.jpg"},
+      "role": "first_frame"
+    }
+  ],
+  "resolution": "720p",
+  "ratio": "adaptive",
+  "duration": 6,
+  "generate_audio": true,
+  "watermark": false
+}
+```
+
+### 首尾帧生视频
+
+```json
+{
+  "model": "doubao-seedance-2-0-mini-260615",
+  "content": [
+    {"type": "text", "text": "从白天自然过渡到灯火初上的夜景，运镜连续平稳"},
+    {"type": "image_url", "image_url": {"url": "https://cdn.example.com/first.jpg"}, "role": "first_frame"},
+    {"type": "image_url", "image_url": {"url": "https://cdn.example.com/last.jpg"}, "role": "last_frame"}
+  ],
+  "resolution": "720p",
+  "ratio": "16:9",
+  "duration": 8,
+  "generate_audio": false,
+  "watermark": false
+}
+```
+
+### 多模态参考生成
+
+```json
+{
+  "model": "doubao-seedance-2-5-260628",
+  "content": [
+    {"type": "text", "text": "使用图片中的产品外观和视频中的镜头节奏，全程使用参考音频作为背景音乐"},
+    {"type": "image_url", "image_url": {"url": "https://cdn.example.com/product.png"}, "role": "reference_image"},
+    {"type": "video_url", "video_url": {"url": "https://cdn.example.com/camera.mp4"}, "role": "reference_video"},
+    {"type": "audio_url", "audio_url": {"url": "https://cdn.example.com/music.mp3"}, "role": "reference_audio"}
+  ],
+  "generate_audio": true,
+  "resolution": "1080p",
+  "ratio": "16:9",
+  "duration": 12,
+  "watermark": false
+}
+```
+
+### 视频编辑
+
+视频编辑没有额外专用字段，通过参考视频、参考图片和文本说明保留与修改的内容：
+
+```json
+{
+  "model": "doubao-seedance-2-0-260128",
+  "content": [
+    {"type": "text", "text": "将视频中的白色礼盒替换成参考图片中的蓝色礼盒，保持原有运镜和光线"},
+    {"type": "image_url", "image_url": {"url": "https://cdn.example.com/blue-box.png"}, "role": "reference_image"},
+    {"type": "video_url", "video_url": {"url": "https://cdn.example.com/source.mp4"}, "role": "reference_video"}
+  ],
+  "resolution": "720p",
+  "ratio": "16:9",
+  "duration": 5,
+  "generate_audio": true,
+  "watermark": false
+}
+```
+
+### 视频延长与镜头续写
+
+```json
+{
+  "model": "doubao-seedance-2-5-260628",
+  "content": [
+    {"type": "text", "text": "延续视频 1 的运动方向进入室内，再自然衔接视频 2 中的展厅镜头"},
+    {"type": "video_url", "video_url": {"url": "https://cdn.example.com/segment-1.mp4"}, "role": "reference_video"},
+    {"type": "video_url", "video_url": {"url": "https://cdn.example.com/segment-2.mp4"}, "role": "reference_video"}
+  ],
+  "resolution": "1080p",
+  "ratio": "16:9",
+  "duration": 20,
+  "generate_audio": true,
+  "watermark": false
+}
+```
+
+### 联网搜索
+
+```json
+{
+  "model": "doubao-seedance-2-0-260128",
+  "content": [{"type": "text", "text": "生成一段介绍今天上海天气特点的城市短片"}],
+  "generate_audio": true,
+  "resolution": "720p",
+  "ratio": "9:16",
+  "duration": 8,
+  "watermark": false,
+  "tools": [{"type": "web_search"}]
+}
+```
+
+将任一 JSON 请求体放入上方纯文本示例的 `--data` 即可提交。
+
+### 创建成功响应
+
+```json
+{
+  "id": "task_public_789",
+  "task_id": "task_public_789",
+  "object": "video",
+  "model": "doubao-seedance-2-5-260628",
+  "status": "queued",
+  "progress": 0,
+  "created_at": 1788192000
+}
+```
+
+保存 `id`。创建 POST 可能产生费用，网络超时不代表服务端未受理，不要自动重复提交。
+
+## 查询任务
+
+```http
+GET /v1/videos/{task_id}
+Authorization: Bearer $MOLII_API_KEY
+```
+
+```bash
+TASK_ID="task_public_789"
+
+curl --fail-with-body --silent --show-error \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/${TASK_ID}" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: application/json"
+```
+
+| `status` | 含义 | 是否继续轮询 |
+| --- | --- | --- |
+| `queued` | 已受理或排队中 | 是 |
+| `in_progress` | 正在生成 | 是 |
+| `completed` | 成功终态 | 否 |
+| `failed` | 失败终态 | 否 |
+
+处理中响应：
+
+```json
+{
+  "id": "task_public_789",
+  "task_id": "task_public_789",
+  "object": "video",
+  "model": "doubao-seedance-2-5-260628",
+  "status": "in_progress",
+  "progress": 42,
+  "created_at": 1788192000
+}
+```
+
+成功响应：
+
+```json
+{
+  "id": "task_public_789",
+  "task_id": "task_public_789",
+  "object": "video",
+  "model": "doubao-seedance-2-5-260628",
+  "status": "completed",
+  "progress": 100,
+  "created_at": 1788192000,
+  "completed_at": 1788192068,
+  "usage": {
+    "completion_tokens": 432000,
+    "total_tokens": 432000,
+    "tool_usage": {"web_search": 0}
+  },
+  "metadata": {
+    "url": "https://signed-media.example.com/result.mp4?signature=temporary"
+  }
+}
+```
+
+失败响应：
+
+```json
+{
+  "id": "task_public_789",
+  "task_id": "task_public_789",
+  "object": "video",
+  "model": "doubao-seedance-2-5-260628",
+  "status": "failed",
+  "progress": 100,
+  "error": {
+    "code": "video_task_failed",
+    "message": "Video generation task failed"
+  }
+}
+```
+
+轮询 GET 可对传输错误、`429` 和暂时性 `5xx` 退避重试，但必须设置总截止时间。完整的有界轮询实现见 [curl 示例](/examples/seedance-curl)。
+
+## 获取与下载结果
+
+`metadata.url` 是短期签名地址，不应当作永久资源 URL。推荐通过 Molii 内容端点获取结果：
+
+```http
+GET /v1/videos/{task_id}/content
+```
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --max-redirs 0 \
+  --url "${MOLII_API_BASE_URL%/}/v1/videos/${TASK_ID}/content?download=1" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Accept: video/*" \
+  --output seedance-result.mp4
+```
+
+不要在携带 API Key 时自动跟随跨主机重定向。下载后应验证 HTTP 状态和 `Content-Type: video/*`。
+
+## 临时素材
+
+临时素材把公网图片、视频或音频转换成当前账户可引用的 `asset://` URI。素材有过期时间，不是永久文件存储。
+
+创建素材：
+
+```http
+POST /v1/assets
+```
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets" \
+  --header "Authorization: Bearer $MOLII_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "url": "https://cdn.example.com/reference.mp4",
+    "asset_type": "video",
+    "name": "reference-video-01"
+  }'
+```
+
+```json
+{"id": "asset-molii-example123"}
+```
+
+查询并等待素材就绪：
+
+```http
+GET /v1/assets/{id}
+```
+
+```json
+{
+  "id": "asset-molii-example123",
+  "asset_type": "video",
+  "name": "reference-video-01",
+  "status": "SUCCESS",
+  "created_at": 1788192000,
+  "expires_at": 1788278400
+}
+```
+
+引用素材：
+
+```json
+{
+  "type": "video_url",
+  "video_url": {"url": "asset://asset-molii-example123"},
+  "role": "reference_video"
+}
+```
+
+删除素材：
+
+```http
+DELETE /v1/assets/{id}
+```
+
+只有成功状态且未过期的素材可用于新任务。公共素材 ID 与创建它的用户绑定，不要跨账户共享或自行构造。完整状态、URL 安全规则和错误码见[临时素材 API](/api-reference/assets)与[生命周期指南](/guides/temporary-assets)。
+
+## 错误与安全重试
+
+- `400 invalid_request`：内容组合、role、比例、模型能力或工具不合法。
+- `400 invalid_seconds`：时长不在所选模型边界内，且不是 `-1`。
+- `400 temporary_asset_not_ready`：临时素材仍在处理。
+- `400 temporary_asset_expired`：临时素材已过期。
+- `401`/`403`：修复鉴权、模型权限或账户归属问题。
+- `404`：任务或素材不存在，或不属于当前用户。
+- `429`、暂时性 `5xx`：仅查询 GET 可在截止时间内退避重试。
+
+上线前请同时阅读[异步任务](/api-basics/async-tasks)、[错误与重试](/api-basics/errors-retries)和[多模态输入指南](/guides/seedance-multimodal)。
+
+## `POST /v1/video/generations`
+
+Seedance 创建任务的旧版兼容入口。它接受与 `POST /v1/videos` 相同的多模态请求体；新接入应优先使用 `/v1/videos`。
+
+### 鉴权
+
+使用 `Authorization: Bearer $MOLII_API_KEY`。密钥只应保存在服务端安全配置中。
+
+### 请求参数
+
+请求体字段、默认值、模型边界和 `content` 规则与本页“创建视频”章节完全相同。`model` 必填，`content` 与 `prompt` 至少提供一种有效输入。
 
 ### 请求示例
 
@@ -66,32 +411,18 @@ curl --fail-with-body --silent --show-error \
   --url "${MOLII_API_BASE_URL%/}/v1/video/generations" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
-  --header "Accept: application/json" \
   --data '{
     "model": "doubao-seedance-2-0-260128",
-    "content": [
-      {
-        "type": "text",
-        "text": "镜头缓慢向前推进，云层从山峰之间流过"
-      },
-      {
-        "type": "image_url",
-        "image_url": {"url": "https://example.invalid/first-frame.jpg"},
-        "role": "first_frame"
-      }
-    ],
-    "generate_audio": true,
+    "content": [{"type": "text", "text": "晨雾中的竹林，镜头缓慢向前移动"}],
     "resolution": "720p",
-    "ratio": "adaptive",
+    "ratio": "16:9",
     "duration": 5,
-    "watermark": false,
-    "tools": [{"type": "web_search"}]
+    "generate_audio": true,
+    "watermark": false
   }'
 ```
 
 ### 成功响应
-
-HTTP `200`：
 
 ```json
 {
@@ -100,35 +431,27 @@ HTTP `200`：
   "object": "video",
   "model": "doubao-seedance-2-0-260128",
   "status": "queued",
-  "progress": 0,
-  "created_at": 1785744000
+  "progress": 0
 }
 ```
 
-必须保存 `id`。查询、预览和下载只能使用 Molii 返回的公共任务 ID，不要构造或记录供应商任务标识。
+保存公共任务 ID。客户端不得构造或记录供应商任务标识。
 
 ### 错误与重试
 
-- `400 invalid_request`：内容组合、role、比例、模型能力或工具不合法。
-- `400 invalid_seconds`：时长不符合所选模型的 4–15 秒或 4–30 秒边界，且不是 `-1`。
-- `400 temporary_asset_not_ready`：临时素材仍在处理。
-- `400 temporary_asset_expired`：临时素材已过期。
-- `401`/`403`：修复鉴权或模型权限。
-- 创建 POST 不承诺幂等；任何网络超时都不得自动重放。
+字段组合错误返回 `400`，鉴权或权限问题返回 `401`/`403`，限流返回 `429`。该 POST 不承诺幂等；网络结果不确定时不要自动重放。
 
 ### 计费
 
-创建时按模型、分辨率、时长、媒体输入和工具使用进行预扣；任务终态后按实际服务用量结算。查询响应中的 `usage` 是模型用量，不是固定人民币金额。
-
-失败任务由异步账务流程退款。账务仍在处理时 `billing.state` 为 `refund_pending`；已退款为 `refunded`；成功结算为 `settled`。
+兼容入口与推荐入口使用相同的预扣和终态结算规则，不会因为路径不同产生第二套价格。查询响应中的 `usage` 是模型用量。
 
 ## `GET /v1/video/generations/{task_id}`
 
-查询 Seedance 任务的兼容视图。该视图适合读取通用状态、结果入口、视频参数和公开计费摘要。
+查询 Seedance 任务的旧版兼容视图。新客户端建议使用 `GET /v1/videos/{task_id}` 获取统一的小写状态结构。
 
 ### 鉴权
 
-需要 `Authorization: Bearer $MOLII_API_KEY`，任务必须属于当前用户。
+使用 `Authorization: Bearer $MOLII_API_KEY`，且任务必须属于当前用户。
 
 ### 请求参数
 
@@ -149,8 +472,6 @@ curl --fail-with-body --silent --show-error \
 
 ### 成功响应
 
-处理中：
-
 ```json
 {
   "code": "success",
@@ -165,54 +486,12 @@ curl --fail-with-body --silent --show-error \
 }
 ```
 
-完成后可能包含：
-
-```json
-{
-  "code": "success",
-  "message": "",
-  "data": {
-    "task_id": "task_public_789",
-    "status": "SUCCESS",
-    "progress": "100%",
-    "fail_reason": "",
-    "result_url": "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/example.mp4?X-Tos-Signature=example",
-    "video_params": {
-      "resolution": "720p",
-      "ratio": "16:9",
-      "seconds": 6,
-      "has_video": false
-    },
-    "billing": {
-      "state": "settled",
-      "mode": "seedance",
-      "model": "doubao-seedance-2-0-260128",
-      "final_cost": 0.2,
-      "group_ratio": 1,
-      "detail_available": true
-    }
-  }
-}
-```
-
-| 状态 | 含义 | 是否继续轮询 |
-| --- | --- | --- |
-| `SUBMITTED`、`QUEUED` | 已提交或排队 | 是 |
-| `IN_PROGRESS` | 生成中 | 是 |
-| `SUCCESS` | 成功终态 | 否 |
-| `FAILURE` | 失败终态 | 否 |
-
-响应可能增加其他公开字段，客户端应忽略不认识的字段。完成后直接使用响应中的火山 TOS 签名 URL 获取视频；该地址会过期，不应长期缓存，也不能直接把查询 JSON 保存为视频。
+兼容状态为 `SUBMITTED`、`QUEUED`、`IN_PROGRESS`、`SUCCESS` 或 `FAILURE`。只有 `SUCCESS` 与 `FAILURE` 是终态。
 
 ### 错误与重试
 
-- `404`：任务不存在或不属于当前用户。
-- `429`、暂时性 `5xx` 和传输错误：GET 可按 3–5 秒间隔轮询并逐步退避。
-- 只有 `SUCCESS` 与 `FAILURE` 是兼容视图终态；设置总截止时间。
-- 结果地址过期时重新查询任务，获取当前任务保存的结果地址。
+`404` 表示任务不存在或不属于当前用户。传输错误、`429` 和暂时性 `5xx` 可在总截止时间内退避重试；其他 `4xx` 应先修复请求。
 
 ### 计费
 
-查询本身不产生第二次生成费用。`billing.final_cost` 是服务端公开的最终费用摘要；`detail_available:false` 或 `state:unavailable` 表示缺少可靠明细，客户端不能自行猜价。
-
-状态为 `refund_pending` 时继续查询即可，不要在客户端重复退款或重新提交任务。
+查询不产生第二次生成费用。最终用量与结算以任务终态数据和平台账单为准；客户端不应根据缺失字段自行猜价。

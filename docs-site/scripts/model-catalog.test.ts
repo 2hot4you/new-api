@@ -171,7 +171,34 @@ describe('model catalog', () => {
     expect(video).toContain('**[GET /v1/videos/\\{task_id\\}/content](/api-reference/videos)**');
   });
 
-  test('links all 52 snapshot endpoint declarations to their protocol references', async () => {
+  test('generates a complete Seedance model page even when the catalog omits supported parameters', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'molii-seedance-catalog-'));
+    temporaryDirectories.push(outputRoot);
+    const raw = rawCatalog();
+    raw.data[4].model_name = 'doubao-seedance-2-5-260628';
+    raw.data[4].display_name = 'Doubao Seedance 2.5';
+    delete raw.data[4].supported_parameters;
+    raw.data[4].supported_resolutions = ['480p', '720p', '1080p'];
+    raw.data[4].min_duration = 4;
+    raw.data[4].max_duration = 30;
+    const catalog = sanitizeCatalogResponse(raw);
+
+    await generateCatalogDocs({ catalog, outputRoot });
+
+    const page = await readFile(join(outputRoot, 'providers', 'second-provider', 'doubao-seedance-2-5-260628.mdx'), 'utf8');
+    for (const parameter of ['model', 'content', 'prompt', 'generate_audio', 'resolution', 'ratio', 'duration', 'watermark', 'tools']) {
+      expect(page).toContain(`- ${parameter.replaceAll('_', '\\_')}`);
+    }
+    expect(page).toContain('"type":"image_url"');
+    expect(page).toContain('"role":"first_frame"');
+    expect(page).toContain('/v1/videos/$TASK_ID/content?download=1');
+    expect(page).toContain('/api-reference/seedance');
+    expect(page).toContain('/guides/seedance-multimodal');
+    expect(page).toContain('/api-reference/assets');
+    expect(page).toContain('/examples/seedance-curl');
+  });
+
+  test('links all 54 snapshot endpoint declarations to their protocol references', async () => {
     const outputRoot = await mkdtemp(join(tmpdir(), 'molii-catalog-references-'));
     temporaryDirectories.push(outputRoot);
     const catalog = JSON.parse(await readFile(new URL('../data/development-model-catalog.json', import.meta.url), 'utf8'));
@@ -189,7 +216,7 @@ describe('model catalog', () => {
       }
     }
 
-    expect(coveredEndpointDeclarations).toBe(52);
+    expect(coveredEndpointDeclarations).toBe(54);
   });
 
   test('rejects a reserved model route before it can overwrite a Provider overview', async () => {

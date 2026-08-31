@@ -57,6 +57,27 @@ const endpointReferences = {
   'openai-video': '/api-reference/videos',
 };
 
+const seedanceSupportedParameters = [
+  'model',
+  'content',
+  'prompt',
+  'generate_audio',
+  'resolution',
+  'ratio',
+  'duration',
+  'watermark',
+  'tools',
+];
+
+function isSeedanceModel(model) {
+  return model.id.startsWith('doubao-seedance');
+}
+
+function supportedParameters(model) {
+  if (model.supported_parameters?.length) return model.supported_parameters;
+  return isSeedanceModel(model) ? seedanceSupportedParameters : [];
+}
+
 function endpointDeclaration(method, path, type) {
   return `**[${method} ${path}](${endpointReferences[type]})**`;
 }
@@ -120,6 +141,64 @@ function endpointSections(model) {
         : '';
       sections.push(`### Images\n\n${endpointDeclaration('POST', '/v1/images/generations', type)}\n\n${postCurl('/v1/images/generations', { model: model.id, prompt: '描述所需图片' }, bearerHeaders)}${edits}`);
     } else if (type === 'openai-video') {
+      if (isSeedanceModel(model)) {
+        const status = getCurl('/v1/videos/$TASK_ID', 30);
+        const content = getCurl('/v1/videos/$TASK_ID/content?download=1', 300, {
+          accept: 'video/*',
+          extraOptions: [
+            '  --dump-header ./seedance-content.headers \\',
+            '  --output ./seedance-result.mp4 \\',
+          ],
+        });
+        const payload = {
+          model: model.id,
+          content: [
+            { type: 'text', text: '镜头缓慢向前推进，晨雾从山谷间流过' },
+            { type: 'image_url', image_url: { url: 'https://example.invalid/first-frame.jpg' }, role: 'first_frame' },
+          ],
+          generate_audio: true,
+          resolution: '720p',
+          ratio: '16:9',
+          duration: 5,
+          watermark: false,
+        };
+        sections.push(`### Seedance Video
+
+${endpointDeclaration('POST', '/v1/videos', type)}
+
+${postCurl('/v1/videos', payload, bearerHeaders)}
+
+创建视频是异步操作。付费 POST 只提交一次，并保存响应中的公共任务 ID：
+
+\`\`\`json
+{
+  "id": "task_public_123",
+  "object": "video",
+  "model": "${model.id}",
+  "status": "queued",
+  "progress": 0
+}
+\`\`\`
+
+\`\`\`bash
+TASK_ID='task_public_123'
+\`\`\`
+
+${endpointDeclaration('GET', '/v1/videos/\\{task_id\\}', type)}
+
+${status}
+
+状态为 \`queued\` 或 \`in_progress\` 时继续有限轮询；\`completed\` 与 \`failed\` 为终态。
+
+${endpointDeclaration('GET', '/v1/videos/\\{task_id\\}/content', type)}
+
+${content}
+
+内容请求故意不使用 \`--location\`，不会把 Molii 凭据转发给其他主机。\`download=1\` 让 Molii 返回附件下载响应。
+
+完整字段、组合限制和更多示例见 [Seedance API](/api-reference/seedance)、[多模态输入指南](/guides/seedance-multimodal)、[临时素材 API](/api-reference/assets) 与 [curl 完整流程](/examples/seedance-curl)。创建请求可能产生费用；网络结果不确定时不要重复提交 POST。`);
+        continue;
+      }
       const status = getCurl('/v1/videos/$TASK_ID', 30);
       const content = getCurl('/v1/videos/$TASK_ID/content', 300, {
         accept: 'video/*',
@@ -162,12 +241,15 @@ function modelPage(model, provider) {
       : model.id.startsWith('doubao-seedance')
         ? '\n\n延伸阅读：[Seedance 2.0 深度指南](/models/seedance-2)。'
         : '';
-  return `---\ntitle: ${yamlScalar(model.display_name)}\nsidebar_position: ${model.display_order}\n---\n\n# ${title}\n\n${escapeMdx(model.description || model.description_en || '该模型的公开调用说明。')}\n\n${details.map(([name, value]) => `- **${name}：** ${value}`).join('\n')}\n\n## 能力\n\n${markdownList(model.capabilities ?? [])}\n\n## 支持参数\n\n${markdownList(model.supported_parameters ?? [])}\n\n## 兼容协议与安全调用\n\n使用环境变量 \`MOLII_API_KEY\`，不要把密钥写入代码或客户端。\n\n${endpointSections(model)}\n\n## 调用提示\n\n同步接口在返回响应后完成。异步接口请保留任务 ID 并轮询结果；网络超时不表示请求未受理，提交前先查询任务，避免重复付费请求。\n\n通用接口参考：[模型列表](/api-reference/models)、[认证](/api-basics/authentication)。${guide}\n`;
+  return `---\ntitle: ${yamlScalar(model.display_name)}\nsidebar_position: ${model.display_order}\n---\n\n# ${title}\n\n${escapeMdx(model.description || model.description_en || '该模型的公开调用说明。')}\n\n${details.map(([name, value]) => `- **${name}：** ${value}`).join('\n')}\n\n## 能力\n\n${markdownList(model.capabilities ?? [])}\n\n## 支持参数\n\n${markdownList(supportedParameters(model))}\n\n## 兼容协议与安全调用\n\n使用环境变量 \`MOLII_API_KEY\`，不要把密钥写入代码或客户端。\n\n${endpointSections(model)}\n\n## 调用提示\n\n同步接口在返回响应后完成。异步接口请保留任务 ID 并轮询结果；网络超时不表示请求未受理，提交前先查询任务，避免重复付费请求。\n\n通用接口参考：[模型列表](/api-reference/models)、[认证](/api-basics/authentication)。${guide}\n`;
 }
 
 function providerIndex(provider, models) {
   const rows = models.map((model) => `- [${escapeMdx(model.display_name)}](./${modelSlug(model.id)}) — ${inlineCode(model.id)}`).join('\n');
-  return `---\ntitle: ${yamlScalar(provider.name)}\nsidebar_position: 1\n---\n\n# ${escapeMdx(provider.name)}\n\n${escapeMdx(provider.description || '该 Provider 的公开模型目录。')}\n\n## 模型\n\n${rows || '暂无公开模型。'}\n`;
+  const guide = provider.name === 'ByteDance'
+    ? '\n\n## 接入指南\n\nSeedance 模型统一使用异步视频接口。先阅读 [Seedance API](/api-reference/seedance)，再按场景查看[多模态输入](/guides/seedance-multimodal)、[临时素材](/guides/temporary-assets)和[curl 完整示例](/examples/seedance-curl)。'
+    : '';
+  return `---\ntitle: ${yamlScalar(provider.name)}\nsidebar_position: 1\n---\n\n# ${escapeMdx(provider.name)}\n\n${escapeMdx(provider.description || '该 Provider 的公开模型目录。')}\n\n## 模型\n\n${rows || '暂无公开模型。'}${guide}\n`;
 }
 
 async function writeGeneratedTree(catalog, temporaryRoot) {

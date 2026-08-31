@@ -1,20 +1,21 @@
 ---
-title: "Doubao Seedance 2.0"
-sidebar_position: 34
+title: "Doubao Seedance 2.0 Mini"
+sidebar_position: 36
 ---
 
-# Doubao Seedance 2.0
+# Doubao Seedance 2.0 Mini
 
-新一代多模态视频生成模型，支持文本、图片和视频参考，擅长复杂运动、真实物理、精准控制及同步音频生成。
+面向高性价比视频生成场景的 Seedance 2.0 Mini，支持文本、图片、视频和音频参考，输出 480p/720p 视频。
 
-- **模型 ID：** `doubao-seedance-2-0-260128`
+- **模型 ID：** `doubao-seedance-2-0-mini-260615`
 - **Provider：** ByteDance
 - **输入模态：** text、image、video、audio
-- **输出模态：** video、audio
-- **发布日期：** 2026-01-28
+- **输出模态：** video
+- **英文简介：** A cost-efficient Seedance 2.0 video generation model supporting text\, image\, video\, and audio references with 480p and 720p output.
+- **发布日期：** 2026-06-15
 - **最大输入图片数：** 9
 - **视频时长范围：** 4–15 秒
-- **支持分辨率：** 480p、720p、1080p、4k
+- **支持分辨率：** 480p、720p
 - **支持宽高比：** 16\:9、4\:3、1\:1、3\:4、9\:16、21\:9、adaptive
 - **输出格式：** url
 - **参考输入模态：** image、video、audio
@@ -23,8 +24,6 @@ sidebar_position: 34
 
 - video\_generation
 - video\_editing
-- audio\_generation
-- web\_search
 
 ## 支持参数
 
@@ -56,7 +55,7 @@ curl --fail-with-body --silent --show-error \
   --url "${MOLII_API_BASE_URL%/}/v1/videos" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Content-Type: application/json" \
-  --data '{"model":"doubao-seedance-2-0-260128","content":[{"type":"text","text":"镜头缓慢向前推进，晨雾从山谷间流过"},{"type":"image_url","image_url":{"url":"https://example.invalid/first-frame.jpg"},"role":"first_frame"}],"generate_audio":true,"resolution":"720p","ratio":"16:9","duration":5,"watermark":false}'
+  --data '{"model":"doubao-seedance-2-0-mini-260615","content":[{"type":"text","text":"镜头缓慢向前推进，晨雾从山谷间流过"},{"type":"image_url","image_url":{"url":"https://example.invalid/first-frame.jpg"},"role":"first_frame"}],"generate_audio":true,"resolution":"720p","ratio":"16:9","duration":5,"watermark":false}'
 ```
 
 创建视频是异步操作。付费 POST 只提交一次，并保存响应中的公共任务 ID：
@@ -65,7 +64,7 @@ curl --fail-with-body --silent --show-error \
 {
   "id": "task_public_123",
   "object": "video",
-  "model": "doubao-seedance-2-0-260128",
+  "model": "doubao-seedance-2-0-mini-260615",
   "status": "queued",
   "progress": 0
 }
