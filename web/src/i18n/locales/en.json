@@ -5936,6 +5936,8 @@
     "No model vendors found": "No model vendors found",
     "Missing vendor #{{id}}": "Missing vendor #{{id}}",
     "Uncategorized": "Uncategorized",
+    "Model test": "Model test",
+    "API playground": "API playground",
     "Background mode for the generated image": "Background mode for the generated image",
     "File format of the generated image": "File format of the generated image",
     "Compression level used only for JPEG or WebP output": "Compression level used only for JPEG or WebP output",

@@ -16,9 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { GitBranch, Sparkles, KeyRound } from 'lucide-react'
-import { useState } from 'react'
+import {
+  Gauge,
+  GitBranch,
+  KeyRound,
+  MessageSquareCode,
+  Sparkles,
+} from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { GroupBadge } from '@/components/group-badge'
@@ -36,9 +43,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatDynamicPricingTierLabel } from '@/features/pricing/lib/dynamic-price'
+import { getUserGroups } from '@/lib/api'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
+import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ALL_VALUE } from '../../constants'
@@ -102,6 +111,20 @@ function getGroupRatio(other: LogOtherData | null): number | null {
     return groupRatio
   }
 
+  return null
+}
+
+type TokenContextSource = 'model-test' | 'playground'
+
+function getTokenContextSource(
+  tokenName: string,
+  group: string
+): TokenContextSource | null {
+  if (tokenName === '模型测试') return 'model-test'
+  if (tokenName === 'playground' || tokenName.startsWith('playground-')) {
+    return 'playground'
+  }
+  if (group === 'playground') return 'playground'
   return null
 }
 
@@ -342,6 +365,15 @@ function buildTypeDetailSegments(
 
 export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
   const { t } = useTranslation()
+  const userGroupsQuery = useQuery({
+    queryKey: ['user-groups'],
+    queryFn: getUserGroups,
+    staleTime: 5 * 60 * 1000,
+  })
+  const userGroups =
+    userGroupsQuery.data?.success && userGroupsQuery.data.data
+      ? userGroupsQuery.data.data
+      : {}
   const columns: ColumnDef<UsageLog>[] = [
     {
       accessorKey: 'created_at',
@@ -608,6 +640,55 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       let group = log.group
       if (!group) group = other?.group || ''
       const groupRatio = getGroupRatio(other)
+      const source = getTokenContextSource(tokenName, group)
+      const groupIcon = group ? userGroups[group]?.icon : undefined
+      let contextContent: ReactNode = null
+
+      if (source === 'model-test') {
+        contextContent = (
+          <span
+            className='text-muted-foreground inline-flex min-w-0 items-center gap-1'
+            data-usage-log-token-context='model-test'
+          >
+            <Gauge className='size-3.5 shrink-0' aria-hidden='true' />
+            <span className='truncate'>{t('Model test')}</span>
+          </span>
+        )
+      } else if (source === 'playground') {
+        contextContent = (
+          <span
+            className='text-muted-foreground inline-flex min-w-0 items-center gap-1'
+            data-usage-log-token-context='playground'
+          >
+            <MessageSquareCode
+              className='size-3.5 shrink-0'
+              aria-hidden='true'
+            />
+            <span className='truncate'>{t('API playground')}</span>
+          </span>
+        )
+      } else if (group) {
+        contextContent = (
+          <span className='inline-flex min-w-0 items-center gap-1'>
+            {sensitiveVisible && groupIcon ? (
+              <span
+                className='inline-flex shrink-0 items-center'
+                data-usage-log-group-icon={group}
+                data-icon-key={groupIcon}
+              >
+                {getLobeIcon(groupIcon, 14)}
+              </span>
+            ) : null}
+            <GroupBadge
+              group={group}
+              label={sensitiveVisible ? undefined : '••••'}
+              type='text'
+              size='sm'
+              className='min-w-0 truncate text-xs leading-none [&>span]:leading-none'
+            />
+          </span>
+        )
+      }
 
       return (
         <div className='flex max-w-[200px] flex-col gap-0.5'>
@@ -630,18 +711,10 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               )}
             </Tooltip>
           </TooltipProvider>
-          {(group || groupRatio != null) && (
-            <span className='block max-w-full truncate text-xs leading-none'>
-              {group ? (
-                <GroupBadge
-                  group={group}
-                  label={sensitiveVisible ? undefined : '••••'}
-                  type='text'
-                  size='sm'
-                  className='inline align-baseline text-xs leading-none [&>span]:leading-none'
-                />
-              ) : null}
-              {group && groupRatio != null ? ' ' : null}
+          {(source || group || groupRatio != null) && (
+            <span className='flex max-w-full items-center gap-1 truncate text-xs leading-none'>
+              {contextContent}
+              {contextContent && groupRatio != null ? ' ' : null}
               {groupRatio != null ? (
                 <span className='text-muted-foreground/60 relative top-px align-baseline tabular-nums'>
                   {formatRatioCompact(groupRatio)}x

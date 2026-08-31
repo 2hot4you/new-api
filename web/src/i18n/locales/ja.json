@@ -5936,6 +5936,8 @@
     "No model vendors found": "モデルプロバイダーが見つかりません",
     "Missing vendor #{{id}}": "プロバイダー #{{id}} が見つかりません",
     "Uncategorized": "未分類",
+    "Model test": "モデルテスト",
+    "API playground": "API プレイグラウンド",
     "Background mode for the generated image": "生成画像の背景モード",
     "File format of the generated image": "生成画像のファイル形式",
     "Compression level used only for JPEG or WebP output": "JPEG または WebP 出力でのみ使用する圧縮レベル",

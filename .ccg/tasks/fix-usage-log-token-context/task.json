@@ -1,0 +1,12 @@
+{
+  "id": "fix-usage-log-token-context",
+  "title": "完善使用日志令牌下方的分组图标与系统来源名称",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-31T07:06:48Z",
+  "branch": "develop"
+}

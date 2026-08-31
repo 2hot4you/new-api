@@ -5936,6 +5936,8 @@
     "No model vendors found": "Aucun fournisseur de modèles trouvé",
     "Missing vendor #{{id}}": "Fournisseur #{{id}} introuvable",
     "Uncategorized": "Non classé",
+    "Model test": "Test de modèle",
+    "API playground": "Bac à sable API",
     "Background mode for the generated image": "Mode d’arrière-plan de l’image générée",
     "File format of the generated image": "Format de fichier de l’image générée",
     "Compression level used only for JPEG or WebP output": "Niveau de compression utilisé uniquement pour les sorties JPEG ou WebP",

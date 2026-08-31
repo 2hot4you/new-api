@@ -5936,6 +5936,8 @@
     "No model vendors found": "Không tìm thấy nhà cung cấp mô hình",
     "Missing vendor #{{id}}": "Không tìm thấy nhà cung cấp #{{id}}",
     "Uncategorized": "Chưa phân loại",
+    "Model test": "Kiểm tra mô hình",
+    "API playground": "Sân chơi API",
     "Background mode for the generated image": "Chế độ nền của ảnh được tạo",
     "File format of the generated image": "Định dạng tệp của ảnh được tạo",
     "Compression level used only for JPEG or WebP output": "Mức nén chỉ dùng cho đầu ra JPEG hoặc WebP",

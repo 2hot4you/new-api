@@ -5936,6 +5936,8 @@
     "No model vendors found": "Поставщики моделей не найдены",
     "Missing vendor #{{id}}": "Поставщик #{{id}} не найден",
     "Uncategorized": "Без категории",
+    "Model test": "Тест модели",
+    "API playground": "API-песочница",
     "Background mode for the generated image": "Режим фона создаваемого изображения",
     "File format of the generated image": "Формат файла создаваемого изображения",
     "Compression level used only for JPEG or WebP output": "Уровень сжатия только для вывода JPEG или WebP",

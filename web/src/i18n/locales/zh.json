@@ -5936,6 +5936,8 @@
     "No model vendors found": "未找到模型厂商",
     "Missing vendor #{{id}}": "供应商 #{{id}} 已不存在",
     "Uncategorized": "未分类",
+    "Model test": "模型测试",
+    "API playground": "操练场",
     "Background mode for the generated image": "生成图片的背景模式",
     "File format of the generated image": "生成图片的文件格式",
     "Compression level used only for JPEG or WebP output": "压缩等级，仅用于 JPEG 或 WebP 输出",
