@@ -1,0 +1,12 @@
+{
+  "id": "create-volcengine-imagine-customer-guide",
+  "title": "整理 Molii Volcengine Imagine API 客户交付指南",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "等待用户审阅后再同步更新 Docusaurus",
+  "createdAt": "2026-09-01T00:00:00Z",
+  "branch": "develop"
+}

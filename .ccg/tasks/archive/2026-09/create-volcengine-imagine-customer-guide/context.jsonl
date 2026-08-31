@@ -1,0 +1,6 @@
+{"path":"docs/Molii-Volcengine-Imagine-API-客户交付指南.md","purpose":"本阶段客户交付版 Markdown"}
+{"path":"relay/channel/task/starai/adaptor.go","purpose":"请求参数、校验、响应转换与用量字段依据"}
+{"path":"relay/channel/task/starai/constants.go","purpose":"四个模型的分辨率和时长边界"}
+{"path":"controller/starai_asset.go","purpose":"临时素材公共接口与响应结构"}
+{"path":"router/video-router.go","purpose":"公共视频和素材路由"}
+{"path":"model/model_marketplace_backfill.go","purpose":"模型能力与描述依据"}
