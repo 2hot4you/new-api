@@ -1,0 +1,12 @@
+{
+  "id": "refine-gpt-image2-log-details",
+  "title": "优化 GPT Image 2 日志预览、计费明细与下载",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交变更",
+  "createdAt": "2026-08-31T03:50:00Z",
+  "branch": "develop"
+}
