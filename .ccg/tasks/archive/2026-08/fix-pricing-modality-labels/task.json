@@ -1,0 +1,12 @@
+{
+  "id": "fix-pricing-modality-labels",
+  "title": "修复模型详情页输入输出模态中文文案",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已完成并验证",
+  "createdAt": "2026-08-31T00:00:00+08:00",
+  "branch": "develop"
+}
