@@ -112,6 +112,54 @@ describe('independent model directory detail page', () => {
     queryClient.clear()
   })
 
+  test('renders localized modality names instead of pricing unit translations', async () => {
+    const zhI18n = createInstance()
+    await zhI18n.use(initReactI18next).init({
+      lng: 'zh',
+      resources: {
+        zh: {
+          translation: {
+            Input: '输入',
+            Output: '输出',
+            Text: '文本',
+            Image: '图片',
+            image: '张',
+          },
+        },
+      },
+    })
+    const container = document.createElement('div')
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { enabled: false, retry: false } },
+    })
+
+    container.innerHTML = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={zhI18n}>
+          <ModelDetailsContent
+            model={model('gpt-image-2', {
+              input_modalities: ['text', 'image'],
+              output_modalities: ['image'],
+            })}
+            groupRatio={{ default: 1 }}
+            usableGroup={{ default: { desc: 'Default', ratio: 1 } }}
+            endpointMap={{}}
+            autoGroups={[]}
+            priceRate={1}
+            usdExchangeRate={1}
+            tokenUnit='M'
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+
+    assert.match(container.textContent ?? '', /输入: 文本 · 图片/)
+    assert.match(container.textContent ?? '', /输出: 图片/)
+    assert.doesNotMatch(container.textContent ?? '', /输入: text · 张/)
+
+    queryClient.clear()
+  })
+
   test('selects same-vendor related models newest first and excludes the current model', () => {
     const current = model('current', { release_date: '2026-08-10' })
     const related = getRelatedModels(current, [

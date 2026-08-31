@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { getModelModalityLabelKey } from '../lib/model-helpers'
 import type { ModelCapability, PricingModel } from '../types'
 
 const CAPABILITY_LABEL_KEYS: Record<ModelCapability, string> = {
@@ -45,14 +46,6 @@ const CAPABILITY_LABEL_KEYS: Record<ModelCapability, string> = {
   video_generation: 'Video generation',
   video_editing: 'Video editing',
   audio_generation: 'Audio generation',
-}
-
-const MODALITY_LABEL_KEYS: Record<string, string> = {
-  text: 'Text',
-  image: 'Image',
-  audio: 'Audio',
-  video: 'Video',
-  file: 'File',
 }
 
 const TOKEN_FORMAT = new Intl.NumberFormat(undefined, {
@@ -99,7 +92,7 @@ function ModalityValue(props: { items: string[] }) {
   return (
     <span className='text-foreground flex min-w-0 flex-wrap gap-x-1.5 text-sm font-semibold'>
       {props.items.map((item) => (
-        <span key={item}>{t(MODALITY_LABEL_KEYS[item] ?? item)}</span>
+        <span key={item}>{t(getModelModalityLabelKey(item))}</span>
       ))}
     </span>
   )
@@ -181,9 +174,7 @@ export function ModelDetailsCapabilities(props: { model: PricingModel }) {
   }
   addMetadataRow(
     t('Reference modalities'),
-    model.reference_modalities?.map((item) =>
-      t(MODALITY_LABEL_KEYS[item] ?? item)
-    )
+    model.reference_modalities?.map((item) => t(getModelModalityLabelKey(item)))
   )
   let coreSpecsGridClass = 'grid-cols-1'
   if (coreSpecs.length >= 3) {

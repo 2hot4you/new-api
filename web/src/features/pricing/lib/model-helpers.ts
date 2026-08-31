@@ -23,6 +23,22 @@ import type { PricingModel } from '../types'
 // Model Helper Utilities
 // ----------------------------------------------------------------------------
 
+const MODEL_MODALITY_LABEL_KEYS: Record<string, string> = {
+  text: 'Text',
+  image: 'Image',
+  audio: 'Audio',
+  video: 'Video',
+  file: 'File',
+}
+
+/**
+ * Resolve model modality values to their descriptive translation keys.
+ * Lowercase keys such as `image` may also be used as pricing units.
+ */
+export function getModelModalityLabelKey(modality: string): string {
+  return MODEL_MODALITY_LABEL_KEYS[modality] ?? modality
+}
+
 /**
  * Get available groups for a model
  */

@@ -51,7 +51,11 @@ import { parseTags } from '../lib/filters'
 import { isGrokImageModel, isGrokImagineModel } from '../lib/grok-model'
 import { getPricingModelDescription } from '../lib/model-description'
 import { getModelInputModalities } from '../lib/model-directory'
-import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
+import {
+  getAvailableGroups,
+  getModelModalityLabelKey,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import { isOpenAIVideoModel } from '../lib/video-model'
 import type { PriceType, PricingModel, TokenUnit } from '../types'
@@ -366,13 +370,18 @@ function ModelHeader(props: { model: PricingModel }) {
         <div className='text-muted-foreground mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs'>
           {inputModalities.length > 0 && (
             <span>
-              {t('Input')}: {inputModalities.map((item) => t(item)).join(' · ')}
+              {t('Input')}:{' '}
+              {inputModalities
+                .map((item) => t(getModelModalityLabelKey(item)))
+                .join(' · ')}
             </span>
           )}
           {outputModalities.length > 0 && (
             <span>
               {t('Output')}:{' '}
-              {outputModalities.map((item) => t(item)).join(' · ')}
+              {outputModalities
+                .map((item) => t(getModelModalityLabelKey(item)))
+                .join(' · ')}
             </span>
           )}
         </div>
