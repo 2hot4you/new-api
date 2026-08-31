@@ -28,7 +28,7 @@ import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { getGPTImage2Preview } from '../../api'
+import { downloadGPTImage2Preview, getGPTImage2Preview } from '../../api'
 import type { UsageLog } from '../../data/schema'
 import { parseLogOther } from '../../lib/format'
 import { getGPTImage2LogState } from '../../lib/gpt-image-2'
@@ -90,6 +90,31 @@ function ParameterMetric(props: { label: string; value: string }) {
   )
 }
 
+function getImageExtension(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case 'image/png':
+      return 'png'
+    case 'image/jpeg':
+      return 'jpg'
+    case 'image/webp':
+      return 'webp'
+    default:
+      return 'img'
+  }
+}
+
+function saveImageBlob(blob: Blob, index: number): void {
+  const objectURL = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectURL
+  anchor.download = `molii-gpt-image-2-${index + 1}.${getImageExtension(blob.type)}`
+  anchor.style.display = 'none'
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  globalThis.setTimeout(() => URL.revokeObjectURL(objectURL), 0)
+}
+
 export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
   const { t, i18n } = useTranslation()
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
@@ -98,6 +123,7 @@ export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
     width: number
     height: number
   } | null>(null)
+  const [isDownloading, setIsDownloading] = useState(false)
   const other = parseLogOther(props.log.other)
   const logState = getGPTImage2LogState(props.log)
   const snapshot = logState.kind === 'current' ? logState.snapshot : null
@@ -164,9 +190,23 @@ export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
       digitsSmall: 6,
       abbreviate: false,
     })
-  const downloadURL = activeURL
-    ? `/api/log/gpt-image-2-preview/${encodeURIComponent(props.log.user_id)}/${encodeURIComponent(props.log.request_id)}/download/${activeIndex}`
-    : null
+
+  const handleDownload = async () => {
+    if (!activeURL || isDownloading) return
+    setIsDownloading(true)
+    try {
+      const blob = await downloadGPTImage2Preview(
+        props.log.user_id,
+        props.log.request_id,
+        activeIndex
+      )
+      saveImageBlob(blob, activeIndex)
+    } catch {
+      // The shared API client displays authentication and request failures.
+    } finally {
+      setIsDownloading(false)
+    }
+  }
 
   useEffect(() => {
     if (selectedIndex >= urls.length && urls.length > 0) setSelectedIndex(0)
@@ -284,12 +324,19 @@ export function GPTImage2PreviewCard(props: GPTImage2PreviewCardProps) {
           </AlertDescription>
         </Alert>
 
-        {downloadURL && !showLoading && !showUnavailable ? (
+        {activeURL && !showLoading && !showUnavailable ? (
           <Button
+            type='button'
             className='w-full'
-            render={<a href={downloadURL} download data-gpt-image-2-download />}
+            disabled={isDownloading}
+            aria-busy={isDownloading}
+            data-gpt-image-2-download
+            onClick={() => void handleDownload()}
           >
-            <Download data-icon='inline-start' />
+            <Download
+              data-icon='inline-start'
+              className={cn(isDownloading && 'animate-pulse')}
+            />
             {t('Download')}
           </Button>
         ) : null}

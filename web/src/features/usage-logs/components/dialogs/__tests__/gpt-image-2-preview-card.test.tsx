@@ -135,18 +135,34 @@ const log: UsageLog = {
 after(() => domWindow.close())
 
 test('renders adaptive bilingual parameters, billing, and an authenticated download', async () => {
+  const apiCalls: Array<{
+    url: string
+    config?: Record<string, unknown>
+  }> = []
   const apiClient = api as unknown as {
-    get: () => Promise<{ data: unknown }>
+    get: (
+      url: string,
+      config?: Record<string, unknown>
+    ) => Promise<{ data: unknown }>
   }
   const originalGet = apiClient.get
-  apiClient.get = async () => ({
-    data: {
-      success: true,
+  apiClient.get = async (url, config) => {
+    apiCalls.push({ url, config })
+    if (url.includes('/download/')) {
+      return { data: new Blob(['image'], { type: 'image/webp' }) }
+    }
+    return {
       data: {
-        urls: ['https://cos.example/one.webp', 'https://cos.example/two.webp'],
+        success: true,
+        data: {
+          urls: [
+            'https://cos.example/one.webp',
+            'https://cos.example/two.webp',
+          ],
+        },
       },
-    },
-  })
+    }
+  }
   const container = domWindow.document.createElement('div')
   domWindow.document.body.append(container)
   const root = createRoot(
@@ -220,13 +236,23 @@ test('renders adaptive bilingual parameters, billing, and an authenticated downl
 
   const download = container.querySelector(
     '[data-gpt-image-2-download]'
-  ) as unknown as HTMLAnchorElement | null
+  ) as unknown as HTMLButtonElement | null
   assert.ok(download)
-  assert.equal(
-    download.getAttribute('href'),
-    '/api/log/gpt-image-2-preview/7/req-image-2/download/0'
-  )
-  assert.equal(download.getAttribute('target'), null)
+  assert.equal(download.tagName, 'BUTTON')
+  await act(async () => {
+    download.dispatchEvent(
+      new domWindow.MouseEvent('click', { bubbles: true }) as unknown as Event
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  const downloadCall = apiCalls.find(({ url }) => url.includes('/download/'))
+  assert.deepEqual(downloadCall, {
+    url: '/api/log/gpt-image-2-preview/7/req-image-2/download/0',
+    config: {
+      disableDuplicate: true,
+      responseType: 'blob',
+    },
+  })
 
   await act(async () => root.unmount())
   queryClient.clear()

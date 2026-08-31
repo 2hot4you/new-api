@@ -218,6 +218,21 @@ export async function getGPTImage2Preview(
   }
 }
 
+export async function downloadGPTImage2Preview(
+  userId: number,
+  requestId: string,
+  index: number
+): Promise<Blob> {
+  const res = await api.get(
+    `/api/log/gpt-image-2-preview/${encodeURIComponent(userId)}/${encodeURIComponent(requestId)}/download/${index}`,
+    {
+      disableDuplicate: true,
+      responseType: 'blob',
+    }
+  )
+  return res.data
+}
+
 // ============================================================================
 // MjProxy (Drawing) Logs API
 // ============================================================================
