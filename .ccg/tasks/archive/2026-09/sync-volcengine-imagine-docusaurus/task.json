@@ -1,0 +1,12 @@
+{
+  "id": "sync-volcengine-imagine-docusaurus",
+  "title": "同步 Volcengine Imagine 客户指南到 Docusaurus",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并推送 develop",
+  "createdAt": "2026-09-01T00:00:00Z",
+  "branch": "develop"
+}
