@@ -5935,6 +5935,17 @@
     "Select model vendors": "Выберите поставщиков моделей",
     "No model vendors found": "Поставщики моделей не найдены",
     "Missing vendor #{{id}}": "Поставщик #{{id}} не найден",
-    "Uncategorized": "Без категории"
+    "Uncategorized": "Без категории",
+    "Background mode for the generated image": "Режим фона создаваемого изображения",
+    "File format of the generated image": "Формат файла создаваемого изображения",
+    "Compression level used only for JPEG or WebP output": "Уровень сжатия только для вывода JPEG или WebP",
+    "Content moderation strictness": "Строгость модерации контента",
+    "Stream partial images as Server-Sent Events": "Передавать промежуточные изображения через Server-Sent Events",
+    "Number of partial images returned for streaming requests": "Количество промежуточных изображений для потоковых запросов",
+    "Input images for image editing": "Входные изображения для редактирования",
+    "Optional edit mask; with multiple images it applies to the first image": "Необязательная маска редактирования; при нескольких изображениях применяется к первому",
+    "1 ~ 32,000 characters": "От 1 до 32 000 символов",
+    "auto or WIDTHxHEIGHT": "auto или WIDTHxHEIGHT",
+    "Up to 16 images": "До 16 изображений"
   }
 }

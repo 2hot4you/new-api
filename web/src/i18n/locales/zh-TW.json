@@ -5935,6 +5935,17 @@
     "Select model vendors": "選擇模型歸屬供應商",
     "No model vendors found": "找不到模型供應商",
     "Missing vendor #{{id}}": "供應商 #{{id}} 已不存在",
-    "Uncategorized": "未分類"
+    "Uncategorized": "未分類",
+    "Background mode for the generated image": "生成圖片的背景模式",
+    "File format of the generated image": "生成圖片的檔案格式",
+    "Compression level used only for JPEG or WebP output": "壓縮等級，僅用於 JPEG 或 WebP 輸出",
+    "Content moderation strictness": "內容審核嚴格程度",
+    "Stream partial images as Server-Sent Events": "透過 Server-Sent Events 串流返回中間圖片",
+    "Number of partial images returned for streaming requests": "串流請求返回的中間圖片數量",
+    "Input images for image editing": "圖片編輯的輸入圖片",
+    "Optional edit mask; with multiple images it applies to the first image": "可選編輯遮罩；輸入多張圖片時套用於第一張",
+    "1 ~ 32,000 characters": "1 ～ 32,000 個字元",
+    "auto or WIDTHxHEIGHT": "auto 或 WIDTHxHEIGHT",
+    "Up to 16 images": "最多 16 張圖片"
   }
 }

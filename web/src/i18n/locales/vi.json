@@ -5935,6 +5935,17 @@
     "Select model vendors": "Chọn nhà cung cấp mô hình",
     "No model vendors found": "Không tìm thấy nhà cung cấp mô hình",
     "Missing vendor #{{id}}": "Không tìm thấy nhà cung cấp #{{id}}",
-    "Uncategorized": "Chưa phân loại"
+    "Uncategorized": "Chưa phân loại",
+    "Background mode for the generated image": "Chế độ nền của ảnh được tạo",
+    "File format of the generated image": "Định dạng tệp của ảnh được tạo",
+    "Compression level used only for JPEG or WebP output": "Mức nén chỉ dùng cho đầu ra JPEG hoặc WebP",
+    "Content moderation strictness": "Mức độ kiểm duyệt nội dung",
+    "Stream partial images as Server-Sent Events": "Truyền các ảnh trung gian qua Server-Sent Events",
+    "Number of partial images returned for streaming requests": "Số ảnh trung gian trả về cho yêu cầu truyền trực tuyến",
+    "Input images for image editing": "Ảnh đầu vào để chỉnh sửa",
+    "Optional edit mask; with multiple images it applies to the first image": "Mặt nạ chỉnh sửa tùy chọn; khi có nhiều ảnh, mặt nạ áp dụng cho ảnh đầu tiên",
+    "1 ~ 32,000 characters": "1 đến 32.000 ký tự",
+    "auto or WIDTHxHEIGHT": "auto hoặc WIDTHxHEIGHT",
+    "Up to 16 images": "Tối đa 16 ảnh"
   }
 }

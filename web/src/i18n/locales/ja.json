@@ -5935,6 +5935,17 @@
     "Select model vendors": "モデルプロバイダーを選択",
     "No model vendors found": "モデルプロバイダーが見つかりません",
     "Missing vendor #{{id}}": "プロバイダー #{{id}} が見つかりません",
-    "Uncategorized": "未分類"
+    "Uncategorized": "未分類",
+    "Background mode for the generated image": "生成画像の背景モード",
+    "File format of the generated image": "生成画像のファイル形式",
+    "Compression level used only for JPEG or WebP output": "JPEG または WebP 出力でのみ使用する圧縮レベル",
+    "Content moderation strictness": "コンテンツモデレーションの厳格さ",
+    "Stream partial images as Server-Sent Events": "部分画像を Server-Sent Events でストリーミング",
+    "Number of partial images returned for streaming requests": "ストリーミングリクエストで返す部分画像の数",
+    "Input images for image editing": "画像編集用の入力画像",
+    "Optional edit mask; with multiple images it applies to the first image": "任意の編集マスク。複数画像の場合は最初の画像に適用されます",
+    "1 ~ 32,000 characters": "1 ～ 32,000 文字",
+    "auto or WIDTHxHEIGHT": "auto または WIDTHxHEIGHT",
+    "Up to 16 images": "最大 16 枚"
   }
 }

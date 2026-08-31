@@ -501,6 +501,7 @@ export type SupportedParameter = {
     | 'integer'
     | 'boolean'
     | 'string'
+    | 'file'
     | 'object'
     | 'array'
     | 'enum'
@@ -757,6 +758,101 @@ const IMAGE_PARAMS: SupportedParameter[] = [
   },
 ]
 
+const GPT_IMAGE_2_PARAMS: SupportedParameter[] = [
+  {
+    name: 'model',
+    type: 'enum',
+    required: true,
+    descriptionKey: 'Model ID selected for this request',
+  },
+  {
+    name: 'prompt',
+    type: 'string',
+    required: true,
+    range: '1 ~ 32,000 characters',
+    descriptionKey: 'Text description of the desired image',
+  },
+  {
+    name: 'n',
+    type: 'integer',
+    defaultValue: 1,
+    range: '1 ~ 10',
+    descriptionKey: 'Number of images to generate',
+  },
+  {
+    name: 'size',
+    type: 'string',
+    defaultValue: 'auto',
+    range: 'auto or WIDTHxHEIGHT',
+    descriptionKey: 'Output image size',
+  },
+  {
+    name: 'quality',
+    type: 'enum',
+    enumValues: ['auto', 'low', 'medium', 'high'],
+    defaultValue: 'auto',
+    descriptionKey: 'Generation quality preset',
+  },
+  {
+    name: 'background',
+    type: 'enum',
+    enumValues: ['auto', 'opaque', 'transparent'],
+    defaultValue: 'auto',
+    descriptionKey: 'Background mode for the generated image',
+  },
+  {
+    name: 'output_format',
+    type: 'enum',
+    enumValues: ['png', 'jpeg', 'webp'],
+    defaultValue: 'png',
+    descriptionKey: 'File format of the generated image',
+  },
+  {
+    name: 'output_compression',
+    type: 'integer',
+    range: '0 ~ 100',
+    descriptionKey: 'Compression level used only for JPEG or WebP output',
+  },
+  {
+    name: 'moderation',
+    type: 'enum',
+    enumValues: ['auto', 'low'],
+    defaultValue: 'auto',
+    descriptionKey: 'Content moderation strictness',
+  },
+  {
+    name: 'user',
+    type: 'string',
+    descriptionKey: 'End-user identifier for abuse monitoring',
+  },
+  {
+    name: 'stream',
+    type: 'boolean',
+    defaultValue: false,
+    enumValues: ['true', 'false'],
+    descriptionKey: 'Stream partial images as Server-Sent Events',
+  },
+  {
+    name: 'partial_images',
+    type: 'integer',
+    defaultValue: 0,
+    range: '0 ~ 3',
+    descriptionKey: 'Number of partial images returned for streaming requests',
+  },
+  {
+    name: 'images / image[]',
+    type: 'array',
+    range: 'Up to 16 images',
+    descriptionKey: 'Input images for image editing',
+  },
+  {
+    name: 'mask',
+    type: 'file',
+    descriptionKey:
+      'Optional edit mask; with multiple images it applies to the first image',
+  },
+]
+
 const VIDEO_PARAMS: SupportedParameter[] = [
   {
     name: 'model',
@@ -857,7 +953,16 @@ export function buildSupportedParameters(
     ])
   }
   if (cat === 'embedding') return EMBEDDING_PARAMS
-  if (cat === 'image') return IMAGE_PARAMS
+  if (cat === 'image') {
+    if (model.model_name.toLowerCase() === 'gpt-image-2') {
+      return GPT_IMAGE_2_PARAMS.map((parameter) =>
+        parameter.name === 'model'
+          ? { ...parameter, enumValues: [model.model_name] }
+          : parameter
+      )
+    }
+    return IMAGE_PARAMS
+  }
   if (cat === 'video') {
     let resolutions = model.video_pricing?.rows.flatMap(
       (row) => row.resolutions

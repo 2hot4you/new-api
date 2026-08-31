@@ -5935,6 +5935,17 @@
     "Select model vendors": "选择模型归属厂商",
     "No model vendors found": "未找到模型厂商",
     "Missing vendor #{{id}}": "供应商 #{{id}} 已不存在",
-    "Uncategorized": "未分类"
+    "Uncategorized": "未分类",
+    "Background mode for the generated image": "生成图片的背景模式",
+    "File format of the generated image": "生成图片的文件格式",
+    "Compression level used only for JPEG or WebP output": "压缩等级，仅用于 JPEG 或 WebP 输出",
+    "Content moderation strictness": "内容审核严格程度",
+    "Stream partial images as Server-Sent Events": "通过 Server-Sent Events 流式返回中间图片",
+    "Number of partial images returned for streaming requests": "流式请求返回的中间图片数量",
+    "Input images for image editing": "图片编辑的输入图片",
+    "Optional edit mask; with multiple images it applies to the first image": "可选编辑蒙版；输入多张图片时应用于第一张",
+    "1 ~ 32,000 characters": "1 ～ 32,000 个字符",
+    "auto or WIDTHxHEIGHT": "auto 或 WIDTHxHEIGHT",
+    "Up to 16 images": "最多 16 张图片"
   }
 }

@@ -5935,6 +5935,17 @@
     "Select model vendors": "Select model vendors",
     "No model vendors found": "No model vendors found",
     "Missing vendor #{{id}}": "Missing vendor #{{id}}",
-    "Uncategorized": "Uncategorized"
+    "Uncategorized": "Uncategorized",
+    "Background mode for the generated image": "Background mode for the generated image",
+    "File format of the generated image": "File format of the generated image",
+    "Compression level used only for JPEG or WebP output": "Compression level used only for JPEG or WebP output",
+    "Content moderation strictness": "Content moderation strictness",
+    "Stream partial images as Server-Sent Events": "Stream partial images as Server-Sent Events",
+    "Number of partial images returned for streaming requests": "Number of partial images returned for streaming requests",
+    "Input images for image editing": "Input images for image editing",
+    "Optional edit mask; with multiple images it applies to the first image": "Optional edit mask; with multiple images it applies to the first image",
+    "1 ~ 32,000 characters": "1 ~ 32,000 characters",
+    "auto or WIDTHxHEIGHT": "auto or WIDTHxHEIGHT",
+    "Up to 16 images": "Up to 16 images"
   }
 }
