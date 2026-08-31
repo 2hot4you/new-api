@@ -1,0 +1,12 @@
+{
+  "id": "fix-gpt-image2-download-auth",
+  "title": "修复 GPT Image 2 预览图片下载授权失败",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "提交功能、归档任务并推送 develop",
+  "createdAt": "2026-08-31T00:00:00Z",
+  "branch": "develop"
+}
