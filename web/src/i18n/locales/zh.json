@@ -5489,6 +5489,7 @@
     "Local retention: {{hours}} hours remaining": "本地还将保留 {{hours}} 小时",
     "Click to copy asset ID": "点击复制素材 ID",
     "Asset ID copied": "素材 ID 已复制",
+    "Asset status refreshed": "素材状态已刷新",
     "No preview URL saved": "未保存预览 URL",
     "Preview failed to load": "预览加载失败",
     "This legacy asset has no saved source URL. Add it to enable preview.": "这条旧素材没有保存源 URL，补充后即可预览。",

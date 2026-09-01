@@ -5489,6 +5489,7 @@
     "Local retention: {{hours}} hours remaining": "Local retention: {{hours}} hours remaining",
     "Click to copy asset ID": "Click to copy asset ID",
     "Asset ID copied": "Asset ID copied",
+    "Asset status refreshed": "Asset status refreshed",
     "No preview URL saved": "No preview URL saved",
     "Preview failed to load": "Preview failed to load",
     "This legacy asset has no saved source URL. Add it to enable preview.": "This legacy asset has no saved source URL. Add it to enable preview.",

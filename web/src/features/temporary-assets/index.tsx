@@ -34,14 +34,6 @@ import {
 } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/compact-date-time-range-picker'
 import { api } from '@/lib/api'
 import dayjs from '@/lib/dayjs'
@@ -49,9 +41,17 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  AssetTypeFilter,
+  type AssetTypeFilterValue,
+} from './components/asset-type-filter'
+import {
   CreateAssetCard,
   type COSUploadConfig,
 } from './components/create-asset-card'
+import {
+  refreshTemporaryAsset,
+  replaceTemporaryAsset,
+} from './lib/asset-actions'
 import {
   type AssetType,
   type TemporaryAsset,
@@ -155,7 +155,7 @@ export function TemporaryAssets() {
     },
   })
   const [stats, setStats] = useState<AssetStats | null>(null)
-  const [filterType, setFilterType] = useState<'all' | AssetType>('all')
+  const [filterType, setFilterType] = useState<AssetTypeFilterValue>('all')
   const [filterID, setFilterID] = useState('')
   const [filterStart, setFilterStart] = useState<Date | undefined>()
   const [filterEnd, setFilterEnd] = useState<Date | undefined>()
@@ -163,6 +163,7 @@ export function TemporaryAssets() {
     Record<string, string>
   >({})
   const [savingSourceURLID, setSavingSourceURLID] = useState('')
+  const [refreshingIDs, setRefreshingIDs] = useState<Set<string>>(new Set())
   const isAdmin = useAuthStore(
     (state) => (state.auth.user?.role ?? 0) >= ROLE.ADMIN
   )
@@ -246,15 +247,26 @@ export function TemporaryAssets() {
     visibleIDs.length > 0 && visibleIDs.every((id) => selectedIDs.has(id))
 
   const refresh = async (id: string) => {
+    if (refreshingIDs.has(id)) return
+    setRefreshingIDs((current) => new Set(current).add(id))
     try {
-      await api.get(
-        `${isAdmin ? '/api/assets/admin' : '/api/assets/self'}/${id}`
+      const refreshedAsset = await refreshTemporaryAsset(
+        (url) => api.get(url),
+        isAdmin,
+        id
       )
-      await load(false)
+      setItems((current) => replaceTemporaryAsset(current, refreshedAsset))
+      toast.success(t('Asset status refreshed'))
     } catch (error) {
       toast.error(
         getAssetErrorMessage(error) || t('Failed to refresh asset status')
       )
+    } finally {
+      setRefreshingIDs((current) => {
+        const next = new Set(current)
+        next.delete(id)
+        return next
+      })
     }
   }
 
@@ -394,54 +406,38 @@ export function TemporaryAssets() {
               </CardAction>
             </CardHeader>
             <CardContent>
-              <div className='mb-4 grid gap-2 md:grid-cols-[11rem_minmax(12rem,1fr)_minmax(18rem,1.4fr)_auto]'>
-                <Select
+              <div className='mb-4 space-y-3'>
+                <AssetTypeFilter
                   value={filterType}
-                  onValueChange={(value) =>
-                    setFilterType(value as 'all' | AssetType)
-                  }
-                >
-                  <SelectTrigger className='w-full'>
-                    <SelectValue>
-                      {filterType === 'all'
-                        ? t('All Types')
-                        : t(getAssetTypeLabel(filterType))}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent alignItemWithTrigger={false}>
-                    <SelectGroup>
-                      <SelectItem value='all'>{t('All Types')}</SelectItem>
-                      <SelectItem value='image'>{t('Image')}</SelectItem>
-                      <SelectItem value='video'>{t('Video')}</SelectItem>
-                      <SelectItem value='audio'>{t('Audio')}</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <Input
-                  value={filterID}
-                  onChange={(event) => setFilterID(event.target.value)}
-                  placeholder={t('Filter by asset ID')}
+                  onValueChange={setFilterType}
                 />
-                <CompactDateTimeRangePicker
-                  start={filterStart}
-                  end={filterEnd}
-                  onChange={({ start, end }) => {
-                    setFilterStart(start)
-                    setFilterEnd(end)
-                  }}
-                />
-                <Button
-                  type='button'
-                  variant='outline'
-                  onClick={() => {
-                    setFilterType('all')
-                    setFilterID('')
-                    setFilterStart(undefined)
-                    setFilterEnd(undefined)
-                  }}
-                >
-                  {t('Reset')}
-                </Button>
+                <div className='grid gap-2 md:grid-cols-[minmax(12rem,1fr)_minmax(18rem,1.4fr)_auto]'>
+                  <Input
+                    value={filterID}
+                    onChange={(event) => setFilterID(event.target.value)}
+                    placeholder={t('Filter by asset ID')}
+                  />
+                  <CompactDateTimeRangePicker
+                    start={filterStart}
+                    end={filterEnd}
+                    onChange={({ start, end }) => {
+                      setFilterStart(start)
+                      setFilterEnd(end)
+                    }}
+                  />
+                  <Button
+                    type='button'
+                    variant='outline'
+                    onClick={() => {
+                      setFilterType('all')
+                      setFilterID('')
+                      setFilterStart(undefined)
+                      setFilterEnd(undefined)
+                    }}
+                  >
+                    {t('Reset')}
+                  </Button>
+                </div>
               </div>
               <div className='mb-4 flex min-h-9 flex-wrap items-center gap-2'>
                 <Button
@@ -675,9 +671,17 @@ export function TemporaryAssets() {
                                 variant='ghost'
                                 size='icon-sm'
                                 title={t('Refresh')}
+                                aria-label={t('Refresh')}
+                                disabled={refreshingIDs.has(item.id)}
                                 onClick={() => void refresh(item.id)}
                               >
-                                <RefreshCw className='size-3.5' />
+                                <RefreshCw
+                                  className={`size-3.5 ${
+                                    refreshingIDs.has(item.id)
+                                      ? 'animate-spin'
+                                      : ''
+                                  }`}
+                                />
                               </Button>
                               <Button
                                 variant='ghost'

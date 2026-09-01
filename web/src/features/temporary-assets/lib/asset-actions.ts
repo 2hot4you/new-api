@@ -1,0 +1,34 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+*/
+import type { TemporaryAsset } from './asset-utils'
+
+type AssetDetailRequester = (
+  url: string
+) => Promise<{ data?: { data?: TemporaryAsset } }>
+
+export async function refreshTemporaryAsset(
+  request: AssetDetailRequester,
+  isAdmin: boolean,
+  assetID: string
+) {
+  const endpoint = isAdmin ? '/api/assets/admin' : '/api/assets/self'
+  const response = await request(`${endpoint}/${assetID}`)
+  const refreshedAsset = response.data?.data
+  if (!refreshedAsset) throw new Error('Temporary asset response is empty')
+  return refreshedAsset
+}
+
+export function replaceTemporaryAsset(
+  items: TemporaryAsset[],
+  refreshedAsset: TemporaryAsset
+) {
+  return items.map((item) =>
+    item.id === refreshedAsset.id ? refreshedAsset : item
+  )
+}

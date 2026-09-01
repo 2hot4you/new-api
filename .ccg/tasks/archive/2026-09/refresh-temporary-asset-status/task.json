@@ -1,0 +1,12 @@
+{
+  "id": "refresh-temporary-asset-status",
+  "title": "优化临时素材刷新与类型卡片筛选",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
+  "createdAt": "2026-09-01T18:20:00+08:00",
+  "branch": "develop"
+}
