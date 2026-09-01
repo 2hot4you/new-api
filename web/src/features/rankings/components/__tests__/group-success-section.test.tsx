@@ -282,7 +282,7 @@ describe('GroupSuccessSection', () => {
 
     assert.equal(
       container.querySelector('section')?.getAttribute('aria-label'),
-      'Group success rates for the past year'
+      'Group success rates for this year'
     )
     assert.match(container.textContent ?? '', /No configured groups/)
 

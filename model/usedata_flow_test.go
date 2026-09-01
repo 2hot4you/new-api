@@ -2,10 +2,37 @@ package model
 
 import (
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGetRankingQuotaBucketsAlignsDailyBucketsToCalendarOrigin(t *testing.T) {
+	truncateTables(t)
+	location := time.FixedZone("Asia/Shanghai", 8*60*60)
+	start := time.Date(2026, time.August, 31, 0, 0, 0, 0, location).Unix()
+	end := time.Date(2026, time.September, 2, 0, 0, 0, 0, location).Unix()
+	seedFlowQuotaData(t, QuotaData{
+		ModelName: "seedance",
+		CreatedAt: time.Date(2026, time.August, 31, 23, 0, 0, 0, location).Unix(),
+		TokenUsed: 100,
+	})
+	seedFlowQuotaData(t, QuotaData{
+		ModelName: "seedance",
+		CreatedAt: time.Date(2026, time.September, 1, 1, 0, 0, 0, location).Unix(),
+		TokenUsed: 200,
+	})
+
+	rows, err := GetRankingQuotaBuckets(start, end, 24*60*60, start)
+
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, start, rows[0].Bucket)
+	require.Equal(t, int64(100), rows[0].Tokens)
+	require.Equal(t, start+24*60*60, rows[1].Bucket)
+	require.Equal(t, int64(200), rows[1].Tokens)
+}
 
 func seedFlowQuotaData(t *testing.T, quotaData QuotaData) {
 	t.Helper()

@@ -11,11 +11,18 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func resetReconciliationQuotaDataCache() {
+	model.CacheQuotaDataLock.Lock()
+	defer model.CacheQuotaDataLock.Unlock()
+	model.CacheQuotaData = make(map[string]*model.QuotaData)
+}
 
 func setupTaskBillingReconciliationTest(t *testing.T) {
 	t.Helper()
@@ -136,6 +143,85 @@ func TestTaskBillingReconciliationSettleAndTargetZero(t *testing.T) {
 			assert.Equal(t, model.LogTypeConsume, event.Type)
 		})
 	}
+}
+
+func TestTaskBillingReconciliationPublishesAsyncUsageStatistics(t *testing.T) {
+	t.Run("successful task records actual tokens and a successful performance sample", func(t *testing.T) {
+		setupTaskBillingReconciliationTest(t)
+		resetReconciliationQuotaDataCache()
+		now := time.Now().Unix()
+		seedUser(t, 320, 900)
+		seedToken(t, 320, 320, "reconcile-stat-success", 900)
+		seedChannel(t, 320)
+		task := makeTask(320, 320, 100, 320, BillingSourceWallet, 0)
+		task.Group = "ByteDance-success-test"
+		task.Properties.OriginModelName = "seedance-success-test"
+		task.PrivateData.BillingContext.OriginModelName = "seedance-success-test"
+		task.PrivateData.BillingContext.ActualTokens = 40_594
+		task.SubmitTime = now - 42
+		task.FinishTime = now
+		target := 35
+		job := seedReconciliationJob(t, task, model.TaskBillingOperationSettle, &target, now)
+
+		summary, err := runTaskBillingReconciliationOnceAt(context.Background(), "stat-success-worker", now)
+		require.NoError(t, err)
+		assert.Equal(t, 1, summary.Succeeded)
+		replayedJob := loadReconciliationJob(t, job.ID)
+		require.NoError(t, ApplyTaskBillingJob(context.Background(), &replayedJob))
+		model.SaveQuotaDataCache()
+
+		var event model.Log
+		require.NoError(t, model.LOG_DB.Where("request_id = ?", fmt.Sprintf("taskbill_%d", job.ID)).First(&event).Error)
+		assert.Equal(t, 40_594, event.CompletionTokens)
+		var eventCount int64
+		require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("request_id = ?", fmt.Sprintf("taskbill_%d", job.ID)).Count(&eventCount).Error)
+		assert.Equal(t, int64(1), eventCount)
+		bucketStart := now - now%3600
+		totals, err := model.GetRankingQuotaTotals(bucketStart, now+1)
+		require.NoError(t, err)
+		require.Len(t, totals, 1)
+		assert.Equal(t, "seedance-success-test", totals[0].ModelName)
+		assert.Equal(t, int64(40_594), totals[0].TotalTokens)
+
+		metrics, err := perfmetrics.Query(perfmetrics.QueryParams{Model: "seedance-success-test", Hours: 24})
+		require.NoError(t, err)
+		require.Len(t, metrics.Groups, 1)
+		assert.Equal(t, "ByteDance-success-test", metrics.Groups[0].Group)
+		assert.Equal(t, int64(1), metrics.Groups[0].RequestCount)
+		assert.Equal(t, 100.0, metrics.Groups[0].SuccessRate)
+	})
+
+	t.Run("failed task records a failed performance sample without token usage", func(t *testing.T) {
+		setupTaskBillingReconciliationTest(t)
+		resetReconciliationQuotaDataCache()
+		now := time.Now().Unix()
+		seedUser(t, 321, 900)
+		seedToken(t, 321, 321, "reconcile-stat-failure", 900)
+		seedChannel(t, 321)
+		task := makeTask(321, 321, 100, 321, BillingSourceWallet, 0)
+		task.Group = "ByteDance-failure-test"
+		task.Properties.OriginModelName = "seedance-failure-test"
+		task.PrivateData.BillingContext.OriginModelName = "seedance-failure-test"
+		task.SubmitTime = now - 18
+		task.FinishTime = now
+		seedReconciliationJob(t, task, model.TaskBillingOperationRefund, nil, now)
+
+		summary, err := runTaskBillingReconciliationOnceAt(context.Background(), "stat-failure-worker", now)
+		require.NoError(t, err)
+		assert.Equal(t, 1, summary.Succeeded)
+		model.SaveQuotaDataCache()
+
+		bucketStart := now - now%3600
+		totals, err := model.GetRankingQuotaTotals(bucketStart, now+1)
+		require.NoError(t, err)
+		assert.Empty(t, totals)
+		metrics, err := perfmetrics.Query(perfmetrics.QueryParams{Model: "seedance-failure-test", Hours: 24})
+		require.NoError(t, err)
+		require.Len(t, metrics.Groups, 1)
+		assert.Equal(t, "ByteDance-failure-test", metrics.Groups[0].Group)
+		assert.Equal(t, int64(1), metrics.Groups[0].RequestCount)
+		assert.Equal(t, 0.0, metrics.Groups[0].SuccessRate)
+	})
 }
 
 func TestTaskBillingReconciliationRetryBackoff(t *testing.T) {

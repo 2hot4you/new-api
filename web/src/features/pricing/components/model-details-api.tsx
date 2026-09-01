@@ -674,7 +674,7 @@ function VideoContentFormatSection() {
       type: 'video_url',
       role: 'reference_video',
       description: t(
-        'Up to 3 videos; this input selects the video-input price tier.'
+        'Up to 3 videos; each video must be 2–15 seconds and their combined duration must not exceed 15 seconds; this input selects the video-input price tier.'
       ),
     },
     {
@@ -682,7 +682,7 @@ function VideoContentFormatSection() {
       type: 'audio_url',
       role: 'reference_audio',
       description: t(
-        'Audio must be used with at least one reference image or video; audio alone does not select the video-input price tier.'
+        'Up to 3 audio files; each audio file must be 2–15 seconds and their combined duration must not exceed 15 seconds. Audio must be used with at least one reference image or video; audio alone does not select the video-input price tier.'
       ),
     },
   ]

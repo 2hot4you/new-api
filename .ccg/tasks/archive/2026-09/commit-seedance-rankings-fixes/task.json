@@ -1,0 +1,12 @@
+{
+  "id": "commit-seedance-rankings-fixes",
+  "title": "提交并推送 Seedance 文档与排行榜自然周期修复",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "release",
+  "currentPhase": "completed",
+  "nextAction": "验证、提交并推送 develop",
+  "createdAt": "2026-09-01T18:00:00+08:00",
+  "branch": "develop"
+}

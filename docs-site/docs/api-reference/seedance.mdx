@@ -55,8 +55,8 @@ Content-Type: application/json
 | --- | --- | --- | --- |
 | `text` | `text` | 无 | 非空文本 |
 | `image_url` | `image_url.url` | `first_frame`、`last_frame`、`reference_image` | 图片总数最多 9 张 |
-| `video_url` | `video_url.url` | `reference_video` | 最多 3 个 |
-| `audio_url` | `audio_url.url` | `reference_audio` | 最多 3 个，不能脱离图片或视频单独使用 |
+| `video_url` | `video_url.url` | `reference_video` | 最多 3 个；单个 2–15 秒，所有参考视频总时长不超过 15 秒 |
+| `audio_url` | `audio_url.url` | `reference_audio` | 最多 3 条；单条 2–15 秒，所有参考音频总时长不超过 15 秒；不能脱离图片或视频单独使用 |
 
 帧模式必须有一个 `first_frame`，可以再提供一个 `last_frame`；帧模式不能与 `reference_image`、`reference_video` 或 `reference_audio` 混用。多模态参考图片必须明确使用 `reference_image`。
 

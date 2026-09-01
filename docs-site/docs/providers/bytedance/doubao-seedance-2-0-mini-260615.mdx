@@ -110,6 +110,12 @@ curl --fail-with-body --silent --show-error \
 
 内容请求故意不使用 `--location`，不会把 Molii 凭据转发给其他主机。`download=1` 让 Molii 返回附件下载响应。
 
+参考媒体限制：
+
+- 最多提供 3 个参考视频；单个参考视频为 2–15 秒，所有参考视频总时长不超过 15 秒。
+- 最多提供 3 条参考音频；单条参考音频为 2–15 秒，所有参考音频总时长不超过 15 秒。
+- 参考音频不能单独作为唯一媒体输入，必须同时提供至少一张参考图片或一个参考视频。
+
 完整字段、组合限制和更多示例见 [Seedance API](/api-reference/seedance)、[多模态输入指南](/guides/seedance-multimodal)、[临时素材 API](/api-reference/assets) 与 [curl 完整流程](/examples/seedance-curl)。创建请求可能产生费用；网络结果不确定时不要重复提交 POST。
 
 ## 调用提示

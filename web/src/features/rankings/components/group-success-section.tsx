@@ -27,10 +27,10 @@ import { cn } from '@/lib/utils'
 import type { RankingGroupSuccess, RankingPeriod } from '../types'
 
 const PERIOD_DESCRIPTIONS: Record<RankingPeriod, string> = {
-  today: 'the last 24 hours',
-  week: 'the past week',
-  month: 'the past month',
-  year: 'the past year',
+  today: 'today',
+  week: 'this week',
+  month: 'this month',
+  year: 'this year',
 }
 
 type GroupSuccessSectionProps = {

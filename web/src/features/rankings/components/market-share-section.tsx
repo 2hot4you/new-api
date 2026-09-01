@@ -31,10 +31,10 @@ import type { RankingPeriod, VendorRanking, VendorShareSeries } from '../types'
 import { VendorLink } from './entity-links'
 
 const PERIOD_DESCRIPTIONS: Record<RankingPeriod, string> = {
-  today: 'Token share by model author across the last 24 hours',
-  week: 'Token share by model author across the past few weeks',
-  month: 'Token share by model author across the past month',
-  year: 'Token share by model author across the past year',
+  today: 'Token share by model author for today',
+  week: 'Token share by model author for this week',
+  month: 'Token share by model author for this month',
+  year: 'Token share by model author for this year',
 }
 
 /** Stable colour palette for vendors, used in both the share chart and the

@@ -864,7 +864,8 @@ const VIDEO_PARAMS: SupportedParameter[] = [
     name: 'content',
     type: 'array',
     required: true,
-    range: 'At least 1 item; up to 9 images, 3 videos, and 3 audio files',
+    range:
+      'At least 1 item; up to 9 images, 3 videos, and 3 audio files; each reference video or audio file must be 2–15 seconds, with a 15-second combined limit per media type',
     descriptionKey: 'Structured text, image, video, or audio reference content',
   },
   {

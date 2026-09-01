@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"gorm.io/gorm"
 )
 
@@ -120,6 +121,9 @@ func recordTaskBillingReconciliationEvent(ctx context.Context, job *model.TaskBi
 	if job == nil || task == nil {
 		return errors.New("billing event requires job and task")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	logType := model.LogTypeConsume
 	content := "asynchronous task billing settled"
 	quota := targetQuota
@@ -136,34 +140,34 @@ func recordTaskBillingReconciliationEvent(ctx context.Context, job *model.TaskBi
 	other["billing_operation"] = job.Operation
 	other["pre_consumed_quota"] = job.FromQuota
 	other["actual_quota"] = targetQuota
-
-	var userIdentity struct {
-		Username string
+	completionTokens := 0
+	if billingContext := task.PrivateData.BillingContext; billingContext != nil {
+		completionTokens = billingContext.ActualTokens
 	}
-	_ = model.DB.WithContext(ctx).Model(&model.User{}).Select("username").Where("id = ?", task.UserId).Scan(&userIdentity).Error
-	tokenName := ""
-	if task.PrivateData.TokenId > 0 {
-		var token model.Token
-		if err := model.DB.WithContext(ctx).Select("name").Where("id = ?", task.PrivateData.TokenId).First(&token).Error; err == nil {
-			tokenName = token.Name
-		}
-	}
-	return model.LOG_DB.WithContext(ctx).Create(&model.Log{
-		UserId:    task.UserId,
-		CreatedAt: common.GetTimestamp(),
-		Type:      logType,
-		Content:   content,
-		Username:  userIdentity.Username,
-		TokenName: tokenName,
-		ModelName: taskModelName(task),
-		Quota:     quota,
-		UseTime:   taskElapsedSeconds(task),
-		ChannelId: task.ChannelId,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		RequestId: fmt.Sprintf("taskbill_%d", job.ID),
-		Other:     common.MapToJsonStr(other),
-	}).Error
+	elapsedSeconds := taskElapsedSeconds(task)
+	perfmetrics.Record(perfmetrics.Sample{
+		Model:        taskModelName(task),
+		Group:        task.Group,
+		LatencyMs:    int64(elapsedSeconds) * 1000,
+		Success:      job.Operation == model.TaskBillingOperationSettle,
+		OutputTokens: int64(completionTokens),
+		GenerationMs: int64(elapsedSeconds) * 1000,
+	})
+	return model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+		UserId:           task.UserId,
+		LogType:          logType,
+		Content:          content,
+		ChannelId:        task.ChannelId,
+		ModelName:        taskModelName(task),
+		Quota:            quota,
+		CompletionTokens: completionTokens,
+		TokenId:          task.PrivateData.TokenId,
+		Group:            task.Group,
+		Other:            other,
+		UseTimeSeconds:   elapsedSeconds,
+		NodeName:         task.PrivateData.NodeName,
+		RequestId:        fmt.Sprintf("taskbill_%d", job.ID),
+	})
 }
 
 // RunTaskBillingReconciliationOnce claims and processes one bounded batch.

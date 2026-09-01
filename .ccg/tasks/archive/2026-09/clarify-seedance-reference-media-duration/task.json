@@ -1,0 +1,12 @@
+{
+  "id": "clarify-seedance-reference-media-duration",
+  "title": "补齐 Seedance 参考视频与音频时长限制说明",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend-docs",
+  "currentPhase": "completed",
+  "nextAction": "已验证，按用户要求保留未提交变更",
+  "createdAt": "2026-09-01T00:00:00+08:00",
+  "branch": "develop"
+}

@@ -217,6 +217,10 @@ describe('Seedance and temporary asset documentation contract', () => {
       expect(modelPage).toContain('POST /v1/videos');
       expect(modelPage).toContain('/api-reference/seedance');
       expect(modelPage).toContain('/examples/seedance-curl');
+      expect(modelPage).toContain('单个参考视频为 2–15 秒');
+      expect(modelPage).toContain('所有参考视频总时长不超过 15 秒');
+      expect(modelPage).toContain('单条参考音频为 2–15 秒');
+      expect(modelPage).toContain('所有参考音频总时长不超过 15 秒');
     }
   });
 
@@ -238,6 +242,8 @@ describe('Seedance and temporary asset documentation contract', () => {
     }
     expect(reference).toContain('/v1/assets');
     expect(reference).toContain('asset://');
+    expect(reference).toContain('单个 2–15 秒，所有参考视频总时长不超过 15 秒');
+    expect(reference).toContain('单条 2–15 秒，所有参考音频总时长不超过 15 秒');
     expect(reference).not.toMatch(/StarAI|lfxqai|channel_id|upstream_id/iu);
   });
 
@@ -252,6 +258,10 @@ describe('Seedance and temporary asset documentation contract', () => {
     expect(seedance).toMatch(/watermark[^\n]*false/i);
     expect(seedance).toContain('web_search');
     expect(seedance).toContain('<ParameterTable');
+    expect(seedance).toContain('单个参考视频为 2–15 秒');
+    expect(seedance).toContain('所有参考视频总时长不超过 15 秒');
+    expect(seedance).toContain('单条参考音频为 2–15 秒');
+    expect(seedance).toContain('所有参考音频总时长不超过 15 秒');
   });
 
   test('multimodal guide covers roles, counts, valid requests, and rejected combinations', async () => {
@@ -263,10 +273,21 @@ describe('Seedance and temporary asset documentation contract', () => {
     expect(multimodal).toMatch(/9[^\n]*(?:图片|图像)|(?:图片|图像)[^\n]*9/);
     expect(multimodal).toMatch(/3[^\n]*视频|视频[^\n]*3/);
     expect(multimodal).toMatch(/3[^\n]*音频|音频[^\n]*3/);
+    expect(multimodal).toContain('单个 2–15 秒，所有参考视频总时长不超过 15 秒');
+    expect(multimodal).toContain('单条 2–15 秒，所有参考音频总时长不超过 15 秒');
     expect(multimodal).toMatch(/首帧[^。\n]*尾帧[^。\n]*(?:不能|不可|互斥)[^。\n]*(?:参考|多模态)|(?:参考|多模态)[^。\n]*(?:不能|不可|互斥)[^。\n]*首帧/);
     expect(multimodal).toMatch(/音频[^。\n]*(?:不能|不可)[^。\n]*(?:单独|独立)/);
     expect(multimodal).toContain('有效示例');
     expect(multimodal).toContain('无效示例');
+  });
+
+  test('public OpenAPI describes Seedance reference media duration limits', async () => {
+    const openapi = await page('openapi/relay.public.template.yaml');
+
+    expect(openapi).toContain('单个参考视频为 2–15 秒');
+    expect(openapi).toContain('所有参考视频总时长不超过 15 秒');
+    expect(openapi).toContain('单条参考音频为 2–15 秒');
+    expect(openapi).toContain('所有参考音频总时长不超过 15 秒');
   });
 
   test('temporary asset guide documents public lifecycle without promising a fixed TTL', async () => {

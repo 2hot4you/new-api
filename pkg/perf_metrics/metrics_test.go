@@ -121,6 +121,34 @@ func TestQuerySummaryAllExposesExactModelSampleCounts(t *testing.T) {
 	}`, string(payload))
 }
 
+func TestQuerySummaryAllRangeUsesExactCalendarBounds(t *testing.T) {
+	setupSummaryTestState(t)
+	const start = int64(2_000_001_600)
+	const end = start + 2*3600 + 30*60
+	require.Equal(t, start, bucketStart(start))
+	rows := []model.PerfMetric{
+		{ModelName: "outside-before", Group: "ByteDance", BucketTs: start - 3600, RequestCount: 9, SuccessCount: 9},
+		{ModelName: "seedance", Group: "ByteDance", BucketTs: start, RequestCount: 2, SuccessCount: 1},
+		{ModelName: "outside-after", Group: "ByteDance", BucketTs: start + 3*3600, RequestCount: 7, SuccessCount: 0},
+	}
+	require.NoError(t, model.DB.Create(&rows).Error)
+	insideHotKey := bucketKey{model: "seedance", group: "ByteDance", bucketTs: start + 3600}
+	insideHot := &atomicBucket{}
+	insideHot.addCounters(counters{requestCount: 1, successCount: 1})
+	hotBuckets.Store(insideHotKey, insideHot)
+
+	result, err := QuerySummaryAllRange(start, end, []string{"ByteDance"})
+
+	require.NoError(t, err)
+	require.Len(t, result.Groups, 1)
+	assert.Equal(t, "ByteDance", result.Groups[0].Group)
+	assert.Equal(t, int64(3), result.Groups[0].RequestCount)
+	require.NotNil(t, result.Groups[0].SuccessRate)
+	assert.Equal(t, 66.67, *result.Groups[0].SuccessRate)
+	require.Len(t, result.Models, 1)
+	assert.Equal(t, "seedance", result.Models[0].ModelName)
+}
+
 func TestQuerySummaryAllAllowsAtMostOneYear(t *testing.T) {
 	setupSummaryTestState(t)
 	const fixedNow = int64(2_000_001_600) // Exactly divisible by the one-hour bucket size.

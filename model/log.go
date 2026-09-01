@@ -432,11 +432,12 @@ type RecordTaskBillingLogParams struct {
 	Other            map[string]interface{}
 	UseTimeSeconds   int
 	NodeName         string // 任务发起节点；为空时回退当前节点
+	RequestId        string
 }
 
-func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
+func RecordTaskBillingLog(params RecordTaskBillingLogParams) error {
 	if params.LogType == LogTypeConsume && !common.LogConsumeEnabled {
-		return
+		return nil
 	}
 	username, _ := GetUsernameById(params.UserId, false)
 	tokenName := ""
@@ -462,6 +463,7 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		Group:            params.Group,
 		UseTime:          params.UseTimeSeconds,
 		Other:            common.MapToJsonStr(params.Other),
+		RequestId:        params.RequestId,
 	}
 	err := createLog(log)
 	if err != nil {
@@ -478,12 +480,14 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 			ModelName: params.ModelName,
 			Quota:     params.Quota,
 			CreatedAt: createdAt,
+			TokenUsed: params.PromptTokens + params.CompletionTokens,
 			UseGroup:  params.Group,
 			TokenID:   params.TokenId,
 			ChannelID: params.ChannelId,
 			NodeName:  nodeName,
 		})
 	}
+	return err
 }
 
 func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, logCategory string) (logs []*Log, total int64, err error) {

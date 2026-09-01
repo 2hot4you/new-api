@@ -1,0 +1,12 @@
+{
+  "id": "fix-rankings-calendar-windows-and-async-metrics",
+  "title": "修复排行榜自然时间范围与异步任务统计缺口",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend-fullstack",
+  "currentPhase": "completed",
+  "nextAction": "按用户要求保留未提交改动",
+  "createdAt": "2026-09-01T16:55:00+08:00",
+  "branch": "develop"
+}

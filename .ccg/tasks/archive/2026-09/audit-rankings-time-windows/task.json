@@ -1,0 +1,12 @@
+{
+  "id": "audit-rankings-time-windows",
+  "title": "核对排行榜时间窗口与 Seedance 数据缺失",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "fullstack-diagnostics",
+  "currentPhase": "completed",
+  "nextAction": "已完成只读诊断，等待用户决定是否修改统计口径和异步任务入库链路",
+  "createdAt": "2026-09-01T00:00:00+08:00",
+  "branch": "develop"
+}

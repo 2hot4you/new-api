@@ -125,8 +125,9 @@ type rankingPeriodConfig struct {
 }
 
 type rankingCacheItem struct {
-	expiresAt time.Time
-	data      *RankingsResponse
+	periodStart int64
+	expiresAt   time.Time
+	data        *RankingsResponse
 }
 
 type rankingModelMeta struct {
@@ -158,7 +159,7 @@ func GetRankingsSnapshot(period string) (*RankingsResponse, error) {
 
 	now := time.Now()
 	rankingCacheMu.Lock()
-	if item, ok := rankingCache[config.id]; ok && now.Before(item.expiresAt) {
+	if item, ok := rankingCache[config.id]; ok && rankingCacheItemFresh(item, config, now) {
 		rankingCacheMu.Unlock()
 		return item.data, nil
 	}
@@ -170,13 +171,20 @@ func GetRankingsSnapshot(period string) (*RankingsResponse, error) {
 	}
 
 	rankingCacheMu.Lock()
+	periodStart, _ := rankingTimeRange(config, now)
 	rankingCache[config.id] = rankingCacheItem{
-		expiresAt: now.Add(rankingCacheTTL),
-		data:      data,
+		periodStart: periodStart,
+		expiresAt:   now.Add(rankingCacheTTL),
+		data:        data,
 	}
 	rankingCacheMu.Unlock()
 
 	return data, nil
+}
+
+func rankingCacheItemFresh(item rankingCacheItem, config rankingPeriodConfig, now time.Time) bool {
+	periodStart, _ := rankingTimeRange(config, now)
+	return now.Before(item.expiresAt) && item.periodStart == periodStart
 }
 
 func rankingConfig(period string) (rankingPeriodConfig, error) {
@@ -200,14 +208,14 @@ func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*Rankings
 	if err != nil {
 		return nil, err
 	}
-	currentBuckets, err := model.GetRankingQuotaBuckets(startTime, endTime, config.bucketSize)
+	currentBuckets, err := model.GetRankingQuotaBuckets(startTime, endTime, config.bucketSize, startTime)
 	if err != nil {
 		return nil, err
 	}
 
 	var previousTotals []model.RankingQuotaTotal
 	if config.hasPrevious {
-		previousStart, previousEnd := previousRankingTimeRange(config, startTime)
+		previousStart, previousEnd := previousRankingTimeRange(config, now)
 		previousTotals, err = model.GetRankingQuotaTotals(previousStart, previousEnd)
 		if err != nil {
 			return nil, err
@@ -233,7 +241,7 @@ func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*Rankings
 		ModelsHistory:      modelHistory,
 		VendorShareHistory: vendorHistory,
 	}
-	addRankingGroupSuccess(response, config)
+	addRankingGroupSuccess(response, config, now)
 
 	return response, nil
 }
@@ -262,17 +270,19 @@ func rankingConfiguredGroups(
 	return append(groups, remaining...)
 }
 
-func addRankingGroupSuccess(response *RankingsResponse, config rankingPeriodConfig) {
+func addRankingGroupSuccess(response *RankingsResponse, config rankingPeriodConfig, now time.Time) {
 	groups := rankingConfiguredGroupSuccess(
 		ratio_setting.GetGroupRatioCopy(),
 		ratio_setting.GetGroupMetadataCopy(),
 		setting.GetUserUsableGroupsCopy(),
 	)
+	startTime, endTime := rankingTimeRange(config, now)
 	if err := applyRankingGroupSuccess(
 		response,
-		int(config.duration.Hours()),
+		startTime,
+		endTime,
 		groups,
-		perfmetrics.QuerySummaryAll,
+		perfmetrics.QuerySummaryAllRange,
 	); err != nil {
 		common.SysError("failed to build rankings group success summary: " + err.Error())
 	}
@@ -303,9 +313,10 @@ func rankingConfiguredGroupSuccess(
 
 func applyRankingGroupSuccess(
 	response *RankingsResponse,
-	hours int,
+	startTime int64,
+	endTime int64,
 	groups []RankingGroupSuccess,
-	query func(int, []string) (perfmetrics.SummaryAllResult, error),
+	query func(int64, int64, []string) (perfmetrics.SummaryAllResult, error),
 ) error {
 	response.GroupSuccessAvailable = false
 	response.GroupSuccess = []RankingGroupSuccess{}
@@ -315,7 +326,7 @@ func applyRankingGroupSuccess(
 		groupNames = append(groupNames, group.Group)
 	}
 
-	result, err := query(hours, groupNames)
+	result, err := query(startTime, endTime, groupNames)
 	if err != nil {
 		return err
 	}
@@ -342,16 +353,88 @@ func applyRankingGroupSuccess(
 
 func rankingTimeRange(config rankingPeriodConfig, now time.Time) (int64, int64) {
 	endTime := now.Unix()
-	if config.duration <= 0 {
-		return 0, endTime
+	year, month, day := now.Date()
+	location := now.Location()
+	start := time.Date(year, month, day, 0, 0, 0, 0, location)
+	switch config.id {
+	case "week":
+		daysSinceMonday := (int(start.Weekday()) + 6) % 7
+		start = start.AddDate(0, 0, -daysSinceMonday)
+	case "month":
+		start = time.Date(year, month, 1, 0, 0, 0, 0, location)
+	case "year":
+		start = time.Date(year, time.January, 1, 0, 0, 0, 0, location)
+	case "today":
+		// The natural-day boundary calculated above is already correct.
+	default:
+		if config.duration <= 0 {
+			return 0, endTime
+		}
+		start = now.Add(-config.duration)
 	}
-	return now.Add(-config.duration).Unix(), endTime
+	return start.Unix(), endTime
 }
 
-func previousRankingTimeRange(config rankingPeriodConfig, currentStart int64) (int64, int64) {
-	previousEnd := currentStart - 1
-	previousStart := time.Unix(currentStart, 0).Add(-config.duration).Unix()
-	return previousStart, previousEnd
+func previousRankingTimeRange(config rankingPeriodConfig, now time.Time) (int64, int64) {
+	currentStart, _ := rankingTimeRange(config, now)
+	start := time.Unix(currentStart, 0).In(now.Location())
+	var previousStart time.Time
+	var previousEnd time.Time
+	switch config.id {
+	case "today":
+		previousStart = start.AddDate(0, 0, -1)
+		previousEnd = now.AddDate(0, 0, -1)
+	case "week":
+		previousStart = start.AddDate(0, 0, -7)
+		previousEnd = now.AddDate(0, 0, -7)
+	case "month":
+		previousStart = shiftMonthClamped(start, -1)
+		previousEnd = shiftMonthClamped(now, -1)
+	case "year":
+		previousStart = shiftMonthClamped(start, -12)
+		previousEnd = shiftMonthClamped(now, -12)
+	default:
+		previousEnd = start.Add(-time.Second)
+		previousStart = previousEnd.Add(-config.duration)
+	}
+	return previousStart.Unix(), previousEnd.Unix()
+}
+
+func shiftMonthClamped(value time.Time, months int) time.Time {
+	year, month, day := value.Date()
+	targetMonthStart := time.Date(
+		year,
+		month+time.Month(months),
+		1,
+		value.Hour(),
+		value.Minute(),
+		value.Second(),
+		value.Nanosecond(),
+		value.Location(),
+	)
+	lastDay := time.Date(
+		targetMonthStart.Year(),
+		targetMonthStart.Month()+1,
+		0,
+		value.Hour(),
+		value.Minute(),
+		value.Second(),
+		value.Nanosecond(),
+		value.Location(),
+	).Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(
+		targetMonthStart.Year(),
+		targetMonthStart.Month(),
+		day,
+		value.Hour(),
+		value.Minute(),
+		value.Second(),
+		value.Nanosecond(),
+		value.Location(),
+	)
 }
 
 func buildRankingModelMeta() map[string]rankingModelMeta {

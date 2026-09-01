@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { describe, test } from 'node:test'
 
 import { buildSupportedParameters } from '../../lib/mock-stats'
@@ -126,7 +127,7 @@ describe('Seedance API details', () => {
     assert.equal(resolution?.defaultValue, '720p')
     assert.equal(
       content?.range,
-      'At least 1 item; up to 9 images, 3 videos, and 3 audio files'
+      'At least 1 item; up to 9 images, 3 videos, and 3 audio files; each reference video or audio file must be 2–15 seconds, with a 15-second combined limit per media type'
     )
     assert.deepEqual(audio?.enumValues, ['true', 'false'])
     assert.equal(duration?.range, '-1 for smart duration, or 4–15 seconds')
@@ -142,6 +143,22 @@ describe('Seedance API details', () => {
     assert.deepEqual(watermark?.enumValues, ['true', 'false'])
     assert.equal(tools?.range, '0 or more items; each type must be web_search')
     assert.deepEqual(tools?.enumValues, ['web_search'])
+  })
+
+  test('documents reference video and audio duration limits in the content format table', async () => {
+    const source = await readFile(
+      new URL('../model-details-api.tsx', import.meta.url),
+      'utf8'
+    )
+
+    assert.match(
+      source,
+      /Up to 3 videos; each video must be 2–15 seconds and their combined duration must not exceed 15 seconds;/
+    )
+    assert.match(
+      source,
+      /Up to 3 audio files; each audio file must be 2–15 seconds and their combined duration must not exceed 15 seconds\./
+    )
   })
 
   test('uses the lowercase 4k value accepted by the video API', () => {
