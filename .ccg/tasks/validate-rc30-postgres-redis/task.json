@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "implementation",
-  "nextAction": "补充 PostgreSQL 15 与 Redis 7 CI 集成门禁",
+  "nextAction": "提交 CI 检查点并备份 development PostgreSQL",
   "createdAt": "2026-09-02T00:00:00+08:00",
   "branch": "upgrade/rc30-dev"
 }

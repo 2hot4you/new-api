@@ -52,10 +52,10 @@
 - Consumes: `TEST_POSTGRES_DSN`、`MARKETPLACE_ORDER_POSTGRES_TEST_DSN`、`MODEL_MARKETPLACE_POSTGRES_TEST_DSN`、`TEST_REDIS_DSN`。
 - Produces: PostgreSQL 首次/二次 schema 迁移和 Redis 非破坏性真实实例测试。
 
-- [ ] **Step 1: 写 gated PostgreSQL/Redis 集成测试，先在未实现完整迁移/环境时观察预期跳过或失败。**
-- [ ] **Step 2: 为 CI 后端 job 加入 PostgreSQL 15、Redis 7 服务和健康检查。**
-- [ ] **Step 3: 使用本地 Docker PostgreSQL/Redis 运行新增测试。**
-- [ ] **Step 4: 运行完整 `make test`、workflow YAML 解析和 `git diff --check`。**
+- [x] **Step 1: 写 gated PostgreSQL/Redis 集成测试，先在未实现完整迁移/环境时观察预期跳过或失败。**
+- [x] **Step 2: 为 CI 后端 job 加入 PostgreSQL 15、Redis 7 服务和健康检查。**
+- [x] **Step 3: 使用本地 Docker PostgreSQL/Redis 运行新增测试。**
+- [x] **Step 4: 运行完整 `make test`、workflow YAML 解析和 `git diff --check`。**
 - [ ] **Step 5: 提交 CI 检查点。**
 
 ### Task 3: development 备份与迁移演练
