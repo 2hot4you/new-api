@@ -40,6 +40,7 @@ import dayjs from '@/lib/dayjs'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { AssetRefreshButton } from './components/asset-refresh-button'
 import {
   AssetTypeFilter,
   type AssetTypeFilterValue,
@@ -49,6 +50,8 @@ import {
   type COSUploadConfig,
 } from './components/create-asset-card'
 import {
+  getBulkRefreshAssetIDs,
+  refreshTemporaryAssets,
   refreshTemporaryAsset,
   replaceTemporaryAsset,
 } from './lib/asset-actions'
@@ -164,6 +167,7 @@ export function TemporaryAssets() {
   >({})
   const [savingSourceURLID, setSavingSourceURLID] = useState('')
   const [refreshingIDs, setRefreshingIDs] = useState<Set<string>>(new Set())
+  const [bulkRefreshing, setBulkRefreshing] = useState(false)
   const isAdmin = useAuthStore(
     (state) => (state.auth.user?.role ?? 0) >= ROLE.ADMIN
   )
@@ -245,6 +249,10 @@ export function TemporaryAssets() {
   )
   const allVisibleSelected =
     visibleIDs.length > 0 && visibleIDs.every((id) => selectedIDs.has(id))
+  const bulkRefreshIDs = useMemo(
+    () => getBulkRefreshAssetIDs(selectedIDs, visibleIDs),
+    [selectedIDs, visibleIDs]
+  )
 
   const refresh = async (id: string) => {
     if (refreshingIDs.has(id)) return
@@ -265,6 +273,50 @@ export function TemporaryAssets() {
       setRefreshingIDs((current) => {
         const next = new Set(current)
         next.delete(id)
+        return next
+      })
+    }
+  }
+
+  const refreshCurrentAssets = async () => {
+    if (
+      bulkRefreshIDs.length === 0 ||
+      bulkRefreshing ||
+      refreshingIDs.size > 0
+    ) {
+      return
+    }
+    const targetIDs = [...bulkRefreshIDs]
+    setBulkRefreshing(true)
+    setRefreshingIDs((current) => new Set([...current, ...targetIDs]))
+    try {
+      const result = await refreshTemporaryAssets(
+        (url) => api.get(url),
+        isAdmin,
+        targetIDs
+      )
+      setItems((current) =>
+        result.refreshedAssets.reduce(replaceTemporaryAsset, current)
+      )
+      if (result.failedAssetIDs.length === 0) {
+        toast.success(
+          t('Updated {{count}} asset statuses', {
+            count: result.refreshedAssets.length,
+          })
+        )
+      } else {
+        toast.warning(
+          t('Updated {{success}} asset statuses; {{failed}} failed', {
+            success: result.refreshedAssets.length,
+            failed: result.failedAssetIDs.length,
+          })
+        )
+      }
+    } finally {
+      setBulkRefreshing(false)
+      setRefreshingIDs((current) => {
+        const next = new Set(current)
+        targetIDs.forEach((id) => next.delete(id))
         return next
       })
     }
@@ -456,6 +508,13 @@ export function TemporaryAssets() {
                     ? t('Clear selection')
                     : t('Select all (filtered)')}
                 </Button>
+                <AssetRefreshButton
+                  targetCount={bulkRefreshIDs.length}
+                  selectedCount={selectedIDs.size}
+                  refreshing={bulkRefreshing}
+                  disabled={refreshingIDs.size > 0 && !bulkRefreshing}
+                  onClick={() => void refreshCurrentAssets()}
+                />
                 {selectedIDs.size > 0 && (
                   <>
                     <span className='text-muted-foreground text-sm tabular-nums'>
@@ -672,7 +731,9 @@ export function TemporaryAssets() {
                                 size='icon-sm'
                                 title={t('Refresh')}
                                 aria-label={t('Refresh')}
-                                disabled={refreshingIDs.has(item.id)}
+                                disabled={
+                                  bulkRefreshing || refreshingIDs.has(item.id)
+                                }
                                 onClick={() => void refresh(item.id)}
                               >
                                 <RefreshCw

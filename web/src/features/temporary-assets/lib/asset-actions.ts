@@ -12,6 +12,13 @@ type AssetDetailRequester = (
   url: string
 ) => Promise<{ data?: { data?: TemporaryAsset } }>
 
+export function getBulkRefreshAssetIDs(
+  selectedIDs: Set<string>,
+  visibleIDs: string[]
+) {
+  return selectedIDs.size > 0 ? [...selectedIDs] : visibleIDs
+}
+
 export async function refreshTemporaryAsset(
   request: AssetDetailRequester,
   isAdmin: boolean,
@@ -22,6 +29,26 @@ export async function refreshTemporaryAsset(
   const refreshedAsset = response.data?.data
   if (!refreshedAsset) throw new Error('Temporary asset response is empty')
   return refreshedAsset
+}
+
+export async function refreshTemporaryAssets(
+  request: AssetDetailRequester,
+  isAdmin: boolean,
+  assetIDs: string[]
+) {
+  const results = await Promise.allSettled(
+    assetIDs.map((assetID) => refreshTemporaryAsset(request, isAdmin, assetID))
+  )
+  const refreshedAssets: TemporaryAsset[] = []
+  const failedAssetIDs: string[] = []
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      refreshedAssets.push(result.value)
+    } else {
+      failedAssetIDs.push(assetIDs[index])
+    }
+  })
+  return { refreshedAssets, failedAssetIDs }
 }
 
 export function replaceTemporaryAsset(
