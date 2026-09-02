@@ -6,7 +6,8 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "implementation",
-  "nextAction": "提交 rc.29 数据库初始化修复检查点并开始 rc.30 集成",
+  "currentPhase": "review",
+  "nextAction": "提交 rc.30 检查点并执行跨版本总审查与最终验证",
   "createdAt": "2026-09-02T00:00:00+08:00",
   "branch": "upgrade/rc30-dev"
 }
