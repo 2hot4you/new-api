@@ -34,12 +34,12 @@
 - Produces: `common.RunBackgroundTask(func())` 和进程启动前使用的同步测试配置入口。
 - Consumes: `gopool.Go` 作为生产调度器。
 
-- [ ] **Step 1: 写后台任务同步/异步行为测试，并记录当前缺少接口的失败。**
-- [ ] **Step 2: 运行 `go test ./common -run TestBackgroundTask -count=1`，确认按预期失败。**
-- [ ] **Step 3: 实现最小调度边界并接入 relay 指标、额度通知和管理审计。**
-- [ ] **Step 4: 增加 controller `TestMain`，在测试进程启动前固定为同步模式。**
-- [ ] **Step 5: 运行 `go test -race ./controller -count=1` 和相关包测试，确认组合竞态消失。**
-- [ ] **Step 6: 提交独立竞态修复检查点。**
+- [x] **Step 1: 写后台任务同步/异步行为测试，并记录当前缺少接口的失败。**
+- [x] **Step 2: 运行 `go test ./common -run TestBackgroundTask -count=1`，确认按预期失败。**
+- [x] **Step 3: 实现最小调度边界并接入 relay 指标、额度通知和管理审计。**
+- [x] **Step 4: 增加 controller `TestMain`，在测试进程启动前固定为同步模式。**
+- [x] **Step 5: 运行 `go test -race ./controller -count=1` 和相关包测试，确认组合竞态消失。**
+- [x] **Step 6: 提交独立竞态修复检查点。**
 
 ### Task 2: PostgreSQL 与 Redis CI
 
