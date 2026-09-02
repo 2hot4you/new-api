@@ -16,10 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-// @ts-expect-error Bun's test mock module has no repository TypeScript declaration.
-import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { afterAll as after, afterEach, describe, test, vi } from 'vitest'
 
 import { Window } from 'happy-dom'
 
@@ -88,7 +86,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 
-mock.module('@/components/layout', () => ({
+vi.mock('@/components/layout', () => ({
   PublicLayout: ({ children }: { children: React.ReactNode }) =>
     React.createElement(React.Fragment, null, children),
 }))

@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	hostdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
@@ -307,7 +308,7 @@ func TestMoliiGrokFailureCallsSelectedUpstreamOnceWithEligibleFallback(t *testin
 		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "grok-imagine-image", ChannelId: channel.Id, Enabled: true, Priority: channel.Priority, Weight: weight}).Error)
 	}
 	model.InitChannelCache()
-	eligibleFallback, err := model.GetRandomSatisfiedChannel("default", "grok-imagine-image", 1, "/v1/images/generations")
+	eligibleFallback, err := model.GetRandomSatisfiedChannel("default", "grok-imagine-image", 1, []hostdto.ChannelFilter{{Kind: hostdto.FilterRequestPath, RequestPath: "/v1/images/generations"}})
 	require.NoError(t, err)
 	require.Equal(t, fallbackChannel.Id, eligibleFallback.Id)
 

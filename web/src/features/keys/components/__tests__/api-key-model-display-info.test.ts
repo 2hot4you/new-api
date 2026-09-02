@@ -17,23 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 
 import type { PricingData } from '@/features/pricing/types'
 
+import { buildApiKeyModelDisplayInfo } from '../api-keys-columns'
+
 describe('API key model provider display mapping', () => {
-  test('joins restricted model IDs to the configured pricing vendor', async () => {
-    const columnsModule = await import('../api-keys-columns')
-    const buildModelDisplayInfo = (
-      columnsModule as typeof columnsModule & {
-        buildApiKeyModelDisplayInfo?: (
-          data: PricingData
-        ) => Record<string, { providerIcon?: string; providerName?: string }>
-      }
-    ).buildApiKeyModelDisplayInfo
-
-    assert.equal(typeof buildModelDisplayInfo, 'function')
-
+  test('joins restricted model IDs to the configured pricing vendor', () => {
     const pricingData = {
       success: true,
       data: [
@@ -61,7 +52,7 @@ describe('API key model provider display mapping', () => {
       auto_groups: [],
     } satisfies PricingData
 
-    assert.deepEqual(buildModelDisplayInfo?.(pricingData), {
+    assert.deepEqual(buildApiKeyModelDisplayInfo(pricingData), {
       'deepseek-v4-pro-202606': {
         modelIcon: 'DeepSeek.Color',
         providerIcon: 'DeepSeek.Provider.Color',

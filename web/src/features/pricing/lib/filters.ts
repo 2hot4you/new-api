@@ -29,6 +29,7 @@ import {
   type ContextBucketId,
   type ModelCategoryId,
 } from './model-directory'
+import { hasTaskUsageSchema } from './dynamic-price'
 
 // ----------------------------------------------------------------------------
 // Filter Utilities
@@ -84,7 +85,13 @@ export function filterByQuotaType(
 ): PricingModel[] {
   if (quotaType === QUOTA_TYPES.ALL) return models
   if (quotaType === QUOTA_TYPES.DYNAMIC) {
-    return models.filter((model) => model.billing_mode === 'tiered_expr')
+    return models.filter(
+      (model) =>
+        model.billing_mode === 'tiered_expr' && !hasTaskUsageSchema(model)
+    )
+  }
+  if (quotaType === QUOTA_TYPES.TASK) {
+    return models.filter((model) => hasTaskUsageSchema(model))
   }
   const targetType =
     quotaType === QUOTA_TYPES.TOKEN
@@ -93,6 +100,7 @@ export function filterByQuotaType(
   return models.filter(
     (m) =>
       m.quota_type === targetType &&
+      !hasTaskUsageSchema(m) &&
       (quotaType !== QUOTA_TYPES.TOKEN || m.billing_mode !== 'tiered_expr')
   )
 }
@@ -172,6 +180,10 @@ export function filterAndSortModels(
     billingType = 'request'
   } else if (filters.quotaType !== QUOTA_TYPES.ALL) {
     billingType = 'token'
+  }
+  if (filters.quotaType === QUOTA_TYPES.TASK) {
+    result = result.filter((model) => hasTaskUsageSchema(model))
+    billingType = undefined
   }
   result = filterModelsByDirectory(result, {
     vendor: filters.vendor === FILTER_ALL ? undefined : filters.vendor,

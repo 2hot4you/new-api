@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
+import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
 

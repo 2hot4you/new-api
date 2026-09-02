@@ -16,10 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-// @ts-expect-error Bun's test mock module has no repository TypeScript declaration.
-import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { afterAll as after, afterEach, describe, test, vi } from 'vitest'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Window } from 'happy-dom'
@@ -86,7 +84,7 @@ let reorderGroupProps: {
   onReorder?: (items: Model[]) => void
 } | null = null
 
-mock.module('motion/react', () => ({
+vi.doMock('motion/react', () => ({
   ...Motion,
   Reorder: {
     Group: ({

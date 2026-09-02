@@ -28,6 +28,22 @@ export type PricingVendor = {
   description?: string
 }
 
+export type BillingUsageUnit = 'second' | 'count' | 'token' | 'credit'
+
+export type BillingUsageFieldSchema = {
+  type?: 'number' | 'boolean'
+  unit?: BillingUsageUnit
+  enum?: string[]
+  description?: string | Record<string, string>
+}
+
+export type BillingUsageSchema = Record<string, BillingUsageFieldSchema>
+
+export type BillingUsageExample = {
+  label: string
+  facts: Record<string, string | number>
+}
+
 export type VideoPricingRow = {
   resolutions: string[]
   without_video: number
@@ -82,6 +98,10 @@ export type PricingModel = {
   billing_mode?: string
   /** Raw expression describing dynamic / tiered billing */
   billing_expr?: string
+  /** Task-plugin usage facts and their billing units. */
+  billing_usage_schema?: BillingUsageSchema
+  /** Display-only labeled usage vectors for pricing examples. */
+  billing_usage_examples?: BillingUsageExample[]
   /** Currency of tiered-expression coefficients when it is not system USD. */
   billing_currency?: 'CNY'
   /** Pricing version returned by backend, useful for cache busting */
@@ -98,6 +118,7 @@ export type PricingModel = {
   max_output_tokens?: number
   knowledge_cutoff?: string
   release_date?: string
+  parameter_count?: string
   input_modalities?: Modality[]
   output_modalities?: Modality[]
   capabilities?: ModelCapability[]

@@ -16,6 +16,7 @@ import (
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -32,6 +33,22 @@ type TaskPollingAdaptor interface {
 	// AdjustBillingOnComplete 在任务到达终态（成功/失败）时由轮询循环调用。
 	// 返回正数触发差额结算（补扣/退还），返回 0 保持预扣费金额不变。
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
+}
+
+type BatchTaskPollingAdaptor interface {
+	TaskPollingAdaptor
+	FetchMode() string
+	FetchBatchTasks(baseURL, key string, taskIDs []string, proxy string) (*http.Response, error)
+	ParseBatchResult(body []byte) (map[string]*BatchTaskResult, error)
+}
+
+type BatchTaskResult struct {
+	TaskInfo   relaycommon.TaskInfo
+	Action     string
+	SubmitTime int64
+	StartTime  int64
+	FinishTime int64
+	Data       any
 }
 
 type perCallTaskCompletionAdjuster interface {
@@ -267,16 +284,137 @@ func DispatchPlatformUpdate(ctx context.Context, platform constant.TaskPlatform,
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	switch platform {
-	case constant.TaskPlatformMidjourney:
+	if platform == constant.TaskPlatformMidjourney {
 		// MJ 轮询由其自身处理，这里预留入口
-	case constant.TaskPlatformSuno:
+		return
+	}
+	adaptor := GetTaskAdaptorFunc(platform)
+	if batchAdaptor, ok := adaptor.(BatchTaskPollingAdaptor); ok && batchAdaptor.FetchMode() == "batch" {
+		if err := UpdateBatchTasks(ctx, batchAdaptor, taskChannelM, taskM); err != nil {
+			common.SysLog(fmt.Sprintf("UpdateBatchTasks fail: %s", err))
+		}
+		return
+	}
+	if platform == constant.TaskPlatformSuno {
 		_ = UpdateSunoTasks(ctx, taskChannelM, taskM)
-	default:
-		if err := UpdateVideoTasks(ctx, platform, taskChannelM, taskM); err != nil {
-			common.SysLog(fmt.Sprintf("UpdateVideoTasks fail: %s", err))
+		return
+	}
+	if err := UpdateVideoTasks(ctx, platform, taskChannelM, taskM); err != nil {
+		common.SysLog(fmt.Sprintf("UpdateVideoTasks fail: %s", err))
+	}
+}
+
+func UpdateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, taskChannelM map[int][]string, taskM map[string]*model.Task) error {
+	for channelID, taskIDs := range taskChannelM {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := updateBatchTasks(ctx, adaptor, channelID, taskIDs, taskM); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("Channel #%d failed to update batch async tasks: %s", channelID, err.Error()))
 		}
 	}
+	return nil
+}
+
+func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, channelID int, taskIDs []string, taskM map[string]*model.Task) error {
+	if len(taskIDs) == 0 {
+		return nil
+	}
+	channel, err := model.CacheGetChannel(channelID)
+	if err != nil {
+		reason := fmt.Sprintf("Failed to get channel info, channel ID: %d", channelID)
+		for _, upstreamID := range taskIDs {
+			if task := getPollingTask(taskM, channelID, upstreamID); task != nil {
+				oldStatus := task.Status
+				task.Status = model.TaskStatusFailure
+				task.Progress = taskcommon.ProgressComplete
+				task.FinishTime = time.Now().Unix()
+				task.FailReason = reason
+				if _, finalizeErr := finalizePolledTaskWithBilling(ctx, task, oldStatus, nil, nil); finalizeErr != nil {
+					logger.LogError(ctx, fmt.Sprintf("Batch task %s terminal update failed: %v", task.TaskID, finalizeErr))
+				}
+			}
+		}
+		return err
+	}
+	baseURL := channel.GetBaseURL()
+	if baseURL == "" {
+		baseURL = constant.GetChannelBaseURL(channel.Type)
+	}
+	response, err := adaptor.FetchBatchTasks(baseURL, channel.Key, taskIDs, channel.GetSetting().Proxy)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("batch task query returned status %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
+	results, err := adaptor.ParseBatchResult(body)
+	if err != nil {
+		return fmt.Errorf("parse batch result: %w", err)
+	}
+	for upstreamID, responseItem := range results {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		task := getPollingTask(taskM, channelID, upstreamID)
+		if task == nil {
+			logger.LogWarn(ctx, fmt.Sprintf("Batch task response ignored: unknown task_id=%s", upstreamID))
+			continue
+		}
+		snapshot := task.Snapshot()
+		if responseItem.Action != "" {
+			task.Action = responseItem.Action
+		}
+		if responseItem.TaskInfo.Status != "" {
+			task.Status = model.TaskStatus(responseItem.TaskInfo.Status)
+		}
+		if responseItem.TaskInfo.Reason != "" {
+			task.FailReason = responseItem.TaskInfo.Reason
+		}
+		if responseItem.SubmitTime != 0 {
+			task.SubmitTime = responseItem.SubmitTime
+		}
+		if responseItem.StartTime != 0 {
+			task.StartTime = responseItem.StartTime
+		}
+		if responseItem.FinishTime != 0 {
+			task.FinishTime = responseItem.FinishTime
+		}
+		if responseItem.TaskInfo.Progress != "" {
+			task.Progress = responseItem.TaskInfo.Progress
+		}
+		if responseItem.Data != nil {
+			task.SetData(responseItem.Data)
+		}
+		if responseItem.TaskInfo.Url != "" {
+			task.PrivateData.ResultURL = responseItem.TaskInfo.Url
+		}
+		isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+		if isDone {
+			task.Progress = taskcommon.ProgressComplete
+			if task.FinishTime == 0 {
+				task.FinishTime = time.Now().Unix()
+			}
+		}
+		if isDone && snapshot.Status != task.Status {
+			won, finalizeErr := finalizePolledTaskWithBilling(ctx, task, snapshot.Status, adaptor, &responseItem.TaskInfo)
+			if finalizeErr != nil {
+				logger.LogError(ctx, fmt.Sprintf("Batch task %s terminal update failed: %v", task.TaskID, finalizeErr))
+			} else if !won {
+				logger.LogWarn(ctx, fmt.Sprintf("Batch task %s already transitioned, skip billing", task.TaskID))
+			}
+		} else if !snapshot.Equal(task.Snapshot()) {
+			if _, updateErr := task.UpdateWithStatus(snapshot.Status); updateErr != nil {
+				logger.LogError(ctx, fmt.Sprintf("Batch task %s update failed: %v", task.TaskID, updateErr))
+			}
+		}
+	}
+	return nil
 }
 
 // UpdateSunoTasks 按渠道更新所有 Suno 任务
@@ -817,21 +955,41 @@ func truncateBase64(s string) string {
 	return s[:maxKeep] + "..."
 }
 
-// settleTaskBillingOnComplete 任务完成时的统一计费调整。
-// 优先级：1. adaptor.AdjustBillingOnComplete 返回正数 → 使用 adaptor 计算的额度
-//
-//  2. taskResult.TotalTokens > 0 → 按 token 重算
-//  3. 都不满足 → 保持预扣额度不变
+// settleTaskBillingOnComplete applies the legacy synchronous settlement path.
+// Durable polling snapshots the same intent into TaskBillingJob instead; this
+// helper remains for compatibility callers and focused billing tests.
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) bool {
-	// 0. 按次计费的任务不做差额结算
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.TieredSnapshot != nil {
+		if task.Status == model.TaskStatusFailure {
+			return false
+		}
+		usageFacts := make(map[string]any, len(bc.TieredSnapshot.UsageFacts)+len(taskResult.UsageFacts))
+		for key, value := range bc.TieredSnapshot.UsageFacts {
+			usageFacts[key] = value
+		}
+		for key, value := range taskResult.UsageFacts {
+			usageFacts[key] = value
+		}
+		result, err := billingexpr.ComputeTieredQuotaWithRequest(
+			bc.TieredSnapshot,
+			billingexpr.TokenParams{},
+			billingexpr.RequestInput{Usage: usageFacts},
+		)
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("任务 %s 表达式结算失败，保留预扣额度: %v", task.TaskID, err))
+			return true
+		}
+		bc.TieredSnapshot.UsageFacts = usageFacts
+		bc.TieredSnapshot.EstimatedTier = result.MatchedTier
+		return RecalculateTaskQuota(ctx, task, result.ActualQuotaAfterGroup, "任务用量表达式结算", result.Clamp)
+	}
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		adjuster, ok := adaptor.(perCallTaskCompletionAdjuster)
 		if !ok || !adjuster.AllowPerCallCompletionAdjustment() {
 			logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
-			return true
+			return false
 		}
 	}
-	// 1. 优先让 adaptor 决定最终额度
 	actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult)
 	if isMoliiGrokFinalUsageTask(task) {
 		if !validFinalizedGrokVideoBilling(task.PrivateData.BillingContext.GrokVideoBilling) {
@@ -843,10 +1001,12 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 	if actualQuota > 0 {
 		return RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
 	}
-	// 2. 回退到 token 重算
-	if taskResult.TotalTokens > 0 {
-		return RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
+	totalTokens := taskResult.TotalTokens
+	if totalTokens == 0 && taskResult.CompletionTokens > 0 {
+		totalTokens = taskResult.CompletionTokens
 	}
-	// 3. 无调整，保持预扣额度
-	return true
+	if totalTokens > 0 {
+		return RecalculateTaskQuotaByTokens(ctx, task, totalTokens)
+	}
+	return false
 }

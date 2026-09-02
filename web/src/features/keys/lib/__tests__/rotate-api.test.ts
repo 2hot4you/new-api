@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { afterAll as after, test } from 'vitest'
 
 const { api } = await import('@/lib/api')
 const { rotateApiKey } = await import('../../api')

@@ -2,6 +2,7 @@ package model
 
 import (
 	"bytes"
+	"context"
 	"database/sql/driver"
 	"encoding/json"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"gorm.io/gorm"
@@ -19,7 +21,7 @@ type TaskStatus string
 func (t TaskStatus) ToVideoStatus() string {
 	var status string
 	switch t {
-	case TaskStatusQueued, TaskStatusSubmitted:
+	case TaskStatusNotStart, TaskStatusQueued, TaskStatusSubmitted:
 		status = dto.VideoStatusQueued
 	case TaskStatusInProgress:
 		status = dto.VideoStatusInProgress
@@ -87,7 +89,7 @@ type Properties struct {
 }
 
 func (m *Properties) Scan(val interface{}) error {
-	bytesValue, _ := val.([]byte)
+	bytesValue := jsonScanBytes(val)
 	if len(bytesValue) == 0 {
 		*m = Properties{}
 		return nil
@@ -99,20 +101,48 @@ func (m Properties) Value() (driver.Value, error) {
 	if m == (Properties{}) {
 		return nil, nil
 	}
-	return common.Marshal(m)
+	// 必须返回 string 而非 []byte:PG simple protocol 下 []byte 按 bytea 编码,
+	// 写 json 列会触发 SQLSTATE 22P02。
+	b, err := common.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
 }
 
 type TaskPrivateData struct {
-	Key            string            `json:"key,omitempty"`
-	UpstreamTaskID string            `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string            `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
-	StoredResult   *TaskStoredResult `json:"stored_result,omitempty"`
+	Key            string                 `json:"key,omitempty"`
+	UpstreamTaskID string                 `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	ResultURL      string                 `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	StoredResult   *TaskStoredResult      `json:"stored_result,omitempty"`
+	Execution      *TaskExecutionSnapshot `json:"execution,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
-	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
-	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
-	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
-	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
-	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	BillingSource       string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
+	SubscriptionId      int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
+	TokenId             int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
+	NodeName            string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
+	BillingContext      *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	ResponsesBackground bool                `json:"responses_background,omitempty"`
+}
+
+type TaskExecutionSnapshot struct {
+	RequestID   string              `json:"request_id,omitempty"`
+	RequestPath string              `json:"request_path,omitempty"`
+	TaskPlugin  *TaskPluginSnapshot `json:"task_plugin,omitempty"`
+}
+
+type TaskPluginSnapshot struct {
+	Key        string                    `json:"key"`
+	Name       string                    `json:"name"`
+	Version    string                    `json:"version"`
+	Author     *TaskPluginAuthorSnapshot `json:"author,omitempty"`
+	APIVersion int                       `json:"api_version"`
+	Generation uint64                    `json:"generation"`
+}
+
+type TaskPluginAuthorSnapshot struct {
+	Name string `json:"name"`
+	URL  string `json:"url,omitempty"`
 }
 
 // TaskStoredResult is the durable, provider-neutral metadata for a task result
@@ -133,28 +163,29 @@ func (t *Task) HasUnexpiredStoredResult(now time.Time) bool {
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 type TaskBillingContext struct {
-	ModelPrice                float64                   `json:"model_price,omitempty"`       // 模型单价
-	GroupRatio                float64                   `json:"group_ratio,omitempty"`       // 分组倍率
-	ModelRatio                float64                   `json:"model_ratio,omitempty"`       // 模型倍率
-	OtherRatios               map[string]float64        `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
-	OriginModelName           string                    `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
-	PerCallBilling            bool                      `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
-	EstimatedTokens           int                       `json:"estimated_tokens,omitempty"`
-	EstimatedPrice            float64                   `json:"estimated_price,omitempty"`
-	EstimatedWidth            int                       `json:"estimated_width,omitempty"`
-	EstimatedHeight           int                       `json:"estimated_height,omitempty"`
-	EstimatedFPS              int                       `json:"estimated_fps,omitempty"`
-	EstimatedSeconds          int                       `json:"estimated_seconds,omitempty"`
-	EstimatedResolution       string                    `json:"estimated_resolution,omitempty"`
-	EstimatedRatio            string                    `json:"estimated_ratio,omitempty"`
-	EstimatedHasVideo         bool                      `json:"estimated_has_video,omitempty"`
-	EstimatedUnitPrice        float64                   `json:"estimated_unit_price,omitempty"`
-	EstimatedInputUnitPrice   float64                   `json:"estimated_input_unit_price,omitempty"`
-	EstimatedOutputUnitPrices map[string]float64        `json:"estimated_output_unit_prices,omitempty"`
-	ActualTokens              int                       `json:"actual_tokens,omitempty"`
-	FinalUsageLogOnly         bool                      `json:"final_usage_log_only,omitempty"`
-	RequestPath               string                    `json:"request_path,omitempty"`
-	GrokVideoBilling          *GrokVideoBillingSnapshot `json:"grok_video_billing,omitempty"`
+	ModelPrice                float64                      `json:"model_price,omitempty"`       // 模型单价
+	GroupRatio                float64                      `json:"group_ratio,omitempty"`       // 分组倍率
+	ModelRatio                float64                      `json:"model_ratio,omitempty"`       // 模型倍率
+	OtherRatios               map[string]float64           `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
+	OriginModelName           string                       `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
+	PerCallBilling            bool                         `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	EstimatedTokens           int                          `json:"estimated_tokens,omitempty"`
+	EstimatedPrice            float64                      `json:"estimated_price,omitempty"`
+	EstimatedWidth            int                          `json:"estimated_width,omitempty"`
+	EstimatedHeight           int                          `json:"estimated_height,omitempty"`
+	EstimatedFPS              int                          `json:"estimated_fps,omitempty"`
+	EstimatedSeconds          int                          `json:"estimated_seconds,omitempty"`
+	EstimatedResolution       string                       `json:"estimated_resolution,omitempty"`
+	EstimatedRatio            string                       `json:"estimated_ratio,omitempty"`
+	EstimatedHasVideo         bool                         `json:"estimated_has_video,omitempty"`
+	EstimatedUnitPrice        float64                      `json:"estimated_unit_price,omitempty"`
+	EstimatedInputUnitPrice   float64                      `json:"estimated_input_unit_price,omitempty"`
+	EstimatedOutputUnitPrices map[string]float64           `json:"estimated_output_unit_prices,omitempty"`
+	ActualTokens              int                          `json:"actual_tokens,omitempty"`
+	FinalUsageLogOnly         bool                         `json:"final_usage_log_only,omitempty"`
+	RequestPath               string                       `json:"request_path,omitempty"`
+	GrokVideoBilling          *GrokVideoBillingSnapshot    `json:"grok_video_billing,omitempty"`
+	TieredSnapshot            *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
 }
 
 const GrokVideoResolutionSourceProviderPollV1 = commonRelay.GrokVideoResolutionSourceProviderPollV1
@@ -186,7 +217,7 @@ func GenerateTaskID() string {
 }
 
 func (p *TaskPrivateData) Scan(val interface{}) error {
-	bytesValue, _ := val.([]byte)
+	bytesValue := jsonScanBytes(val)
 	if len(bytesValue) == 0 {
 		return nil
 	}
@@ -197,7 +228,12 @@ func (p TaskPrivateData) Value() (driver.Value, error) {
 	if (p == TaskPrivateData{}) {
 		return nil, nil
 	}
-	return common.Marshal(p)
+	// 同 Properties.Value:string 避免 PG simple protocol 的 bytea 编码。
+	b, err := common.Marshal(p)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
 }
 
 // SyncTaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段
@@ -426,6 +462,33 @@ func HasUnfinishedSyncTasksWithError() (bool, error) {
 	return id != 0, nil
 }
 
+func GetByOnlyTaskId(taskId string) (*Task, bool, error) {
+	if taskId == "" {
+		return nil, false, nil
+	}
+	var task *Task
+	err := DB.Where("task_id = ?", taskId).First(&task).Error
+	exist, err := RecordExist(err)
+	if err != nil {
+		return nil, false, err
+	}
+	return task, exist, nil
+}
+
+func GetUniqueByOnlyTaskId(taskId string) (*Task, bool, error) {
+	if taskId == "" {
+		return nil, false, nil
+	}
+	var tasks []*Task
+	if err := DB.Where("task_id = ?", taskId).Order("id").Limit(2).Find(&tasks).Error; err != nil {
+		return nil, false, err
+	}
+	if len(tasks) != 1 {
+		return nil, false, nil
+	}
+	return tasks[0], true, nil
+}
+
 func GetByTaskId(userId int, taskId string) (*Task, bool, error) {
 	if taskId == "" {
 		return nil, false, nil
@@ -455,10 +518,34 @@ func GetByTaskIds(userId int, taskIds []any) ([]*Task, error) {
 	return task, nil
 }
 
+func GetByTaskIdsForPlatforms(userID int, platforms []constant.TaskPlatform, taskIDs []string) ([]*Task, error) {
+	if len(platforms) == 0 || len(taskIDs) == 0 {
+		return nil, nil
+	}
+	var tasks []*Task
+	err := DB.Where("user_id = ? AND platform IN ? AND task_id IN ?", userID, platforms, taskIDs).Find(&tasks).Error
+	return tasks, err
+}
+
+func GetTaskForProtocolObservation(ctx context.Context, userID int, platform constant.TaskPlatform, taskID string) (*Task, bool, error) {
+	if taskID == "" {
+		return nil, false, nil
+	}
+	var task Task
+	err := DB.WithContext(ctx).Where("user_id = ? AND platform = ? AND task_id = ?", userID, platform, taskID).First(&task).Error
+	exists, err := RecordExist(err)
+	if err != nil || !exists {
+		return nil, exists, err
+	}
+	return &task, true, nil
+}
+
 func (Task *Task) Insert() error {
-	var err error
-	err = DB.Create(Task).Error
-	return err
+	return Task.InsertWithContext(context.Background())
+}
+
+func (Task *Task) InsertWithContext(ctx context.Context) error {
+	return DB.WithContext(ctx).Create(Task).Error
 }
 
 type taskSnapshot struct {
@@ -619,7 +706,12 @@ func (t *Task) ToOpenAIVideo() *dto.OpenAIVideo {
 	openAIVideo.Model = t.Properties.OriginModelName
 	openAIVideo.SetProgressStr(t.Progress)
 	openAIVideo.CreatedAt = t.CreatedAt
-	openAIVideo.CompletedAt = t.UpdatedAt
-	openAIVideo.SetMetadata("url", t.GetResultURL())
+	if t.Status == TaskStatusSuccess {
+		if t.FinishTime != 0 {
+			openAIVideo.CompletedAt = t.FinishTime
+		} else {
+			openAIVideo.CompletedAt = t.UpdatedAt
+		}
+	}
 	return openAIVideo
 }

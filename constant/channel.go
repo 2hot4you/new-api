@@ -60,7 +60,8 @@ const (
 	ChannelTypeNewAPI         = 60
 	ChannelTypeStarAI         = 61
 	ChannelTypeMoliiGrokAIGC  = 62
-	ChannelTypeDummy          = 63 // this one is only for count, do not add any channel after this
+	ChannelTypeTaskPlugin     = 63
+	ChannelTypeDummy          = 64 // this one is only for count, do not add any channel after this
 
 )
 
@@ -128,6 +129,14 @@ var ChannelBaseURLs = []string{
 	"",                                          //60
 	"https://openapi.starcube.art",              //61
 	"https://api.wxiai.com/xai",                 //62
+	"",                                          //63
+}
+
+func GetChannelBaseURL(channelType int) string {
+	if channelType < 0 || channelType >= len(ChannelBaseURLs) {
+		return ""
+	}
+	return ChannelBaseURLs[channelType]
 }
 
 var ChannelTypeNames = map[int]string{
@@ -190,6 +199,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeNewAPI:         "New API",
 	ChannelTypeStarAI:         "Molii Volcengine Imagine API",
 	ChannelTypeMoliiGrokAIGC:  "Molii Grok Imagine API",
+	ChannelTypeTaskPlugin:     "Task Plugin",
 }
 
 func GetChannelTypeName(channelType int) string {

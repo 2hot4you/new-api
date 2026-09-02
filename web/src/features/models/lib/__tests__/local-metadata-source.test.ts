@@ -9,7 +9,7 @@ the Free Software Foundation, either version 3 of the License, or
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 
 const modelsRoot = join(import.meta.dirname, '../..')
 

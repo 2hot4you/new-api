@@ -706,27 +706,41 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (string, []byte, *taskdto.TaskError) {
+func (a *TaskAdaptor) ParseResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *taskdto.TaskError) {
 	if resp == nil || resp.Body == nil {
-		return "", nil, service.TaskErrorWrapper(errors.New("Molii Grok Imagine API request failed"), "invalid_response", http.StatusBadGateway)
+		return nil, service.TaskErrorWrapper(errors.New("Molii Grok Imagine API request failed"), "invalid_response", http.StatusBadGateway)
 	}
 	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if err != nil {
-		return "", nil, service.TaskErrorWrapper(errors.New("Molii Grok Imagine API request failed"), "read_response_body_failed", http.StatusBadGateway)
+		return nil, service.TaskErrorWrapper(errors.New("Molii Grok Imagine API request failed"), "read_response_body_failed", http.StatusBadGateway)
 	}
 	var upstream videoSubmitResponse
 	if err := common.Unmarshal(body, &upstream); err != nil || strings.TrimSpace(upstream.RequestID) == "" {
-		return "", nil, service.TaskErrorWrapper(errors.New("Molii Grok Imagine API request failed"), "invalid_response", http.StatusBadGateway)
+		return nil, service.TaskErrorWrapper(errors.New("Molii Grok Imagine API request failed"), "invalid_response", http.StatusBadGateway)
 	}
 
 	video := dto.NewOpenAIVideo()
 	video.ID = info.PublicTaskID
 	video.TaskID = info.PublicTaskID
 	video.Model = info.OriginModelName
-	c.JSON(http.StatusOK, video)
 	safeData, _ := common.Marshal(safeTaskData{Status: "submitted", Progress: 0})
-	return upstream.RequestID, safeData, nil
+	return &channel.TaskSubmitResponse{
+		UpstreamTaskID: upstream.RequestID,
+		TaskData:       safeData,
+		ClientResponse: video,
+	}, nil
+}
+
+func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (string, []byte, *taskdto.TaskError) {
+	parsed, taskErr := a.ParseResponse(c, resp, info)
+	if taskErr != nil || parsed == nil {
+		return "", nil, taskErr
+	}
+	if c != nil && parsed.ClientResponse != nil {
+		c.JSON(http.StatusOK, parsed.ClientResponse)
+	}
+	return parsed.UpstreamTaskID, parsed.TaskData, nil
 }
 
 func (a *TaskAdaptor) GetModelList() []string { return ModelList }

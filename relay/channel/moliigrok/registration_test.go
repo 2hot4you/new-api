@@ -14,7 +14,7 @@ import (
 func TestMoliiGrokChannelRegistration(t *testing.T) {
 	assert.Equal(t, 61, constant.ChannelTypeStarAI)
 	assert.Equal(t, 62, constant.ChannelTypeMoliiGrokAIGC)
-	assert.Equal(t, 63, constant.ChannelTypeDummy)
+	assert.Equal(t, 64, constant.ChannelTypeDummy)
 	require.Len(t, constant.ChannelBaseURLs, constant.ChannelTypeDummy)
 	assert.Equal(t, "https://api.wxiai.com/xai", constant.ChannelBaseURLs[constant.ChannelTypeMoliiGrokAIGC])
 	assert.Equal(t, "Molii Grok Imagine API", constant.GetChannelTypeName(constant.ChannelTypeMoliiGrokAIGC))

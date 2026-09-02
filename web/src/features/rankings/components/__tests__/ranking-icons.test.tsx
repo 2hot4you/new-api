@@ -16,10 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-// @ts-expect-error Bun's test mock module has no repository TypeScript declaration.
-import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { afterAll as after, test, vi } from 'vitest'
 
 import { Window } from 'happy-dom'
 import type { ReactNode } from 'react'
@@ -79,14 +77,14 @@ type CapturedSpec = {
 
 const specs = new Map<string, CapturedSpec>()
 
-mock.module('@visactor/react-vchart', () => ({
+vi.mock('@visactor/react-vchart', () => ({
   VChart: ({ spec }: { spec: CapturedSpec }) => {
     const id = spec.data?.[0]?.id
     if (id) specs.set(id, spec)
     return <div data-vchart={id} />
   },
 }))
-mock.module('@/lib/use-chart-theme', () => ({
+vi.mock('@/lib/use-chart-theme', () => ({
   useChartTheme: () => ({
     resolvedTheme: 'light',
     themeReady: true,

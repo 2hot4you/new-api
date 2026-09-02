@@ -18,11 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { describe, test } from 'node:test'
+import { resolve } from 'node:path'
+import { describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
 
-const themeCss = readFileSync(new URL('../theme.css', import.meta.url), 'utf8')
+const themeCss = readFileSync(resolve(process.cwd(), 'src/styles/theme.css'), 'utf8')
 
 const LIGHT_CHARCOAL_TOKENS = {
   '--primary': 'oklch(0.28 0 0)',

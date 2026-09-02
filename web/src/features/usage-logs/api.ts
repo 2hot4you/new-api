@@ -18,8 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { isAxiosError } from 'axios'
 
-import { api } from '@/lib/api'
+import { api, type ApiRequestConfig } from '@/lib/api'
 
+import { parseTaskArtifactsResponse } from './lib/task-artifacts'
 import {
   getVideoPlatformForSource,
   type UsageLogSource,
@@ -33,6 +34,7 @@ import type {
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
   GrokImagePreviewResponse,
+  TaskArtifactsResponse,
   UserInfo,
 } from './types'
 
@@ -262,3 +264,16 @@ export const getUserVideoTaskLogs = (
   params: GetTaskLogsParams,
   source: VideoLogSource
 ) => fetchLogsRequest(buildVideoTaskLogRequest(params, false, source))
+
+const taskArtifactRequestConfig = {
+  skipBusinessError: true,
+  skipErrorHandler: true,
+} satisfies ApiRequestConfig
+
+export async function getTaskArtifacts(taskId: string) {
+  const response = await api.get<TaskArtifactsResponse>(
+    `/api/task/${encodeURIComponent(taskId)}/artifacts`,
+    taskArtifactRequestConfig
+  )
+  return parseTaskArtifactsResponse(response.data)
+}

@@ -1,0 +1,12 @@
+{
+  "id": "validate-rc30-postgres-redis",
+  "title": "补齐 rc.30 PostgreSQL Redis CI 并完成开发环境升级验收",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "review",
+  "nextAction": "归档任务并合并到 develop",
+  "createdAt": "2026-09-02T00:00:00+08:00",
+  "branch": "upgrade/rc30-dev"
+}

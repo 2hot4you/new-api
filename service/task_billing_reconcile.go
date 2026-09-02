@@ -133,6 +133,10 @@ func recordTaskBillingReconciliationEvent(ctx context.Context, job *model.TaskBi
 		quota = job.FromQuota
 	}
 	other := taskBillingOther(task)
+	// Billing events are user-visible accounting records. The persisted task keeps
+	// root diagnostics, but an upstream task identifier must never be copied into
+	// the accounting log payload.
+	delete(other, "root_info")
 	other["is_task"] = true
 	other["task_id"] = task.TaskID
 	other["billing_job_id"] = job.ID

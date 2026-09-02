@@ -81,7 +81,7 @@ interface UsageLogsTableProps {
 
 export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
   const { t } = useTranslation()
-  const { isAdminView: isAdmin } = useLogsViewScope()
+  const { isAdminView: isAdmin, isRootView: isRoot } = useLogsViewScope()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
 
@@ -165,7 +165,7 @@ export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
   })
 
   const logs = data?.items || []
-  const columns = useColumnsByCategory(logCategory, isAdmin)
+  const columns = useColumnsByCategory(logCategory, isAdmin, isRoot)
   const isLoadingData = isLoading || (isFetching && !data)
 
   const { table } = useDataTable({
