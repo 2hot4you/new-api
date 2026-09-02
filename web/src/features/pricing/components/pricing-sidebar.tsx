@@ -43,6 +43,7 @@ import {
   getContextBucketId,
   getModelInputModalities,
 } from '../lib/model-directory'
+import { hasTaskUsageSchema } from '../lib/dynamic-price'
 import type {
   Modality,
   ModelCapability,
@@ -222,21 +223,32 @@ export function PricingSidebar(props: PricingSidebarProps) {
       count: countBy(
         props.models,
         (model) =>
-          model.quota_type === 0 && model.billing_mode !== 'tiered_expr'
+          model.quota_type === 0 &&
+          model.billing_mode !== 'tiered_expr' &&
+          !hasTaskUsageSchema(model)
       ),
     },
     {
       value: QUOTA_TYPES.REQUEST,
       label: quotaTypeLabels[QUOTA_TYPES.REQUEST],
-      count: countBy(props.models, (model) => model.quota_type === 1),
+      count: countBy(
+        props.models,
+        (model) => model.quota_type === 1 && !hasTaskUsageSchema(model)
+      ),
     },
     {
       value: QUOTA_TYPES.DYNAMIC,
       label: quotaTypeLabels[QUOTA_TYPES.DYNAMIC],
       count: countBy(
         props.models,
-        (model) => model.billing_mode === 'tiered_expr'
+        (model) =>
+          model.billing_mode === 'tiered_expr' && !hasTaskUsageSchema(model)
       ),
+    },
+    {
+      value: QUOTA_TYPES.TASK,
+      label: quotaTypeLabels[QUOTA_TYPES.TASK],
+      count: countBy(props.models, (model) => hasTaskUsageSchema(model)),
     },
   ].filter((option) => option.value === QUOTA_TYPES.ALL || option.count > 0)
 

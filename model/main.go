@@ -324,6 +324,7 @@ func migrateDB() error {
 		&TopUp{},
 		&QuotaData{},
 		&Task{},
+		&TaskPlugin{},
 		&TaskBillingJob{},
 		&MoliiFile{},
 		&Model{},

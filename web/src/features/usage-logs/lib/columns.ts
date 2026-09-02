@@ -32,10 +32,11 @@ import type { UsageLogsDataSource } from '../types'
  */
 export function useColumnsByCategory(
   logCategory: UsageLogsDataSource,
-  isAdmin: boolean
+  isAdmin: boolean,
+  isRoot = false
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): ColumnDef<any>[] {
-  const commonColumns = useCommonLogsColumns(isAdmin)
+  const commonColumns = useCommonLogsColumns(isAdmin, isRoot)
   const drawingColumns = useDrawingLogsColumns(isAdmin)
   const taskColumns = useTaskLogsColumns(isAdmin)
 

@@ -60,6 +60,7 @@ import { Button } from '@/components/ui/button'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
+import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
 import { formatDynamicPricingTierLabel } from '@/features/pricing/lib/dynamic-price'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
@@ -90,6 +91,7 @@ import {
   isTimingLogType,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import { PluginAuthorLink } from '../plugin-author-link'
 import { GPTImage2PreviewCard } from './gpt-image-2-preview-card'
 import { GrokImageBillingCard } from './grok-image-billing-card'
 import { GrokImagePreviewCard } from './grok-image-preview-card'
@@ -522,10 +524,12 @@ function BillingBreakdown(props: {
     })
   }
 
-  rows.push({
-    label: t('Total Cost'),
-    value: formatLogQuota(log.quota),
-  })
+  const usageFacts =
+    other.usage_facts != null &&
+    typeof other.usage_facts === 'object' &&
+    !Array.isArray(other.usage_facts)
+      ? Object.entries(other.usage_facts)
+      : []
 
   if (rows.length === 0) return null
 
@@ -534,6 +538,55 @@ function BillingBreakdown(props: {
       {rows.map((row) => (
         <DetailRow key={row.label} label={row.label} value={row.value} mono />
       ))}
+      {usageFacts.length > 0 && (
+        <>
+          <Label className='text-xs font-semibold'>
+            {t('Usage parameters')}
+          </Label>
+          {usageFacts.map(([key, value]) => (
+            <DetailRow
+              key={`usage-fact-${key}`}
+              label={key}
+              value={String(value)}
+              mono
+            />
+          ))}
+        </>
+      )}
+      <DetailRow
+        label={t('Total Cost')}
+        value={formatLogQuota(log.quota)}
+        mono
+      />
+    </DetailSection>
+  )
+}
+
+function TieredPricingDetails(props: {
+  modelName: string
+  expression: string
+  matchedTierLabel?: string
+  requestRules?: LogOtherData['request_rules']
+  hideCacheColumns: boolean
+  usageFacts?: Record<string, string | number>
+}) {
+  const { t } = useTranslation()
+  const pricingData = usePricingData(true)
+  const usageSchema = pricingData.models.find(
+    (model) => model.model_name === props.modelName
+  )?.billing_usage_schema
+
+  return (
+    <DetailSection label={t('Dynamic Pricing')}>
+      <DynamicPricingBreakdown
+        compact
+        billingExpr={props.expression}
+        matchedTierLabel={props.matchedTierLabel}
+        requestRules={props.requestRules}
+        hideCacheColumns={props.hideCacheColumns}
+        usageSchema={usageSchema}
+        usageFacts={props.usageFacts}
+      />
     </DetailSection>
   )
 }
@@ -607,6 +660,7 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
 interface DetailsDialogProps {
   log: UsageLog
   isAdmin: boolean
+  isRoot?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -1020,6 +1074,68 @@ export function DetailsDialog(props: DetailsDialogProps) {
           </DetailSection>
         )}
 
+        {props.isAdmin && adminInfo?.task_plugin ? (
+          <DetailSection label={t('Task Plugin')}>
+            <DetailRow
+              label={t('Plugin key')}
+              value={adminInfo.task_plugin.key}
+              mono
+            />
+            <DetailRow label={t('Name')} value={adminInfo.task_plugin.name} />
+            {adminInfo.task_plugin.version ? (
+              <DetailRow
+                label={t('Version')}
+                value={adminInfo.task_plugin.version}
+                mono
+              />
+            ) : null}
+            {adminInfo.task_plugin.author ? (
+              <DetailRow
+                label={t('Plugin author')}
+                value={
+                  <PluginAuthorLink
+                    author={adminInfo.task_plugin.author}
+                    showUrl
+                  />
+                }
+              />
+            ) : null}
+          </DetailSection>
+        ) : null}
+
+        {props.isRoot && other?.root_info ? (
+          <DetailSection label={t('Root Diagnostics')}>
+            {other.root_info.task_plugin ? (
+              <>
+                <DetailRow
+                  label={t('API Version')}
+                  value={String(other.root_info.task_plugin.api_version)}
+                  mono
+                />
+                <DetailRow
+                  label={t('Plugin Generation')}
+                  value={String(other.root_info.task_plugin.generation)}
+                  mono
+                />
+              </>
+            ) : null}
+            {other.root_info.upstream_task_id ? (
+              <DetailRow
+                label={t('Upstream Task ID')}
+                value={other.root_info.upstream_task_id}
+                mono
+              />
+            ) : null}
+            {other.root_info.node_name ? (
+              <DetailRow
+                label={t('Node Name')}
+                value={other.root_info.node_name}
+                mono
+              />
+            ) : null}
+          </DetailSection>
+        ) : null}
+
         {/* Top-up audit info (type=1, admin only) */}
         {showTopupAuditSection && (
           <DetailSection
@@ -1254,15 +1370,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
         {/* Tiered pricing breakdown (when billing_mode is tiered_expr) */}
         {isTieredBilling && other?.expr_b64 && (
-          <DetailSection label={t('Dynamic Pricing')}>
-            <DynamicPricingBreakdown
-              compact
-              billingExpr={decodeBillingExprB64(other.expr_b64)}
-              matchedTierLabel={other.matched_tier}
-              requestRules={other.request_rules}
-              hideCacheColumns={!hasAnyCacheTokens(other)}
-            />
-          </DetailSection>
+          <TieredPricingDetails
+            modelName={props.log.model_name}
+            expression={decodeBillingExprB64(other.expr_b64)}
+            matchedTierLabel={other.matched_tier}
+            requestRules={other.request_rules}
+            hideCacheColumns={!hasAnyCacheTokens(other)}
+            usageFacts={other.usage_facts}
+          />
         )}
 
         {/* Admin billing mode indicator for non-consume */}

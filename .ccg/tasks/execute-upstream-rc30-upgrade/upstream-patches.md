@@ -78,3 +78,33 @@ bun run typecheck                          PASS
 bun run test -- --reporter=dot             PASS (120 files, 565 tests)
 git diff --check                           PASS
 ```
+
+## v1.0.0-rc.27
+
+| 变更域 | 状态 | 处置与依据 |
+| --- | --- | --- |
+| 异步任务 JavaScript 插件系统 | adopt + rewrite | 纳入沙箱、插件注册表、内置任务插件、插件 API 与管理界面；Molii StarAI 和 Molii Grok 继续使用原生 Go 适配器，形成显式双栈。 |
+| 任务渠道类型编号 | rewrite | 保留 StarAI=61、MoliiGrok=62，TaskPlugin 使用 63、Dummy 顺延为 64，避免破坏 Molii 现有渠道数据。 |
+| 异步任务计费与批量轮询 | adopt + rewrite | 纳入插件用量 schema、批量 fetch 与持久化结算作业；保留 Molii 终态真实结算、退款、COS 资源和任务日志字段。 |
+| 任务产物访问 | adopt + rewrite | 纳入上游任务 artifact 权限与存储抽象，同时保留 Molii 已有签名代理和媒体安全边界。 |
+| 渠道与模型定价前端 | adopt + rewrite | 纳入任务插件绑定、usage schema、矩阵定价与任务筛选；保留 Molii 动态定价可读规则、人民币显示、推荐目录与视频/Grok 元数据。 |
+| 用量日志插件诊断 | adopt + rewrite | 纳入管理员插件信息、root 诊断、usage facts 与任务产物；保留 StarAI、Molii Grok、GPT Image 2 专属预览和安全日志降级。 |
+| 日志敏感字段 | rewrite | `root_info` 仅保留在受权限控制的任务详情中，不写入普通结算日志，避免泄漏上游任务 ID。 |
+| 国际化与临时素材路由 | rewrite | 以 Molii 丰富语言集为基准补齐插件键，并重新生成路由树，保留 `/temporary-assets`。 |
+
+验证结果：
+
+```text
+go test ./...                              PASS
+bun run typecheck                          PASS
+bun run test                               PASS (144 files, 783 tests)
+bun run build:check                        PASS
+bun run i18n:check                         PASS
+bun run format:plugins:check               PASS
+bun run lint:plugins                       PASS (仅上游 preserve-caught-error warnings)
+git diff --check                           PASS
+```
+
+`bun run format:check` 与 `bun run lint` 在 rc.27 工具链下会报告大量 Molii 基线文件及
+部分上游文件的既有格式/规则差异；未在本检查点做跨模块机械重写。类型检查、完整测试和
+生产构建均已通过，最终 rc.30 检查点继续评估并记录该工具链基线。

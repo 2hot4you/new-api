@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/bytedance/gopkg/util/gopool"
@@ -30,6 +31,36 @@ type taskPollingFetchAdaptor struct {
 	blockStarted chan struct{}
 	releaseBlock chan struct{}
 	blockOnce    sync.Once
+}
+
+type batchPollingAdaptor struct {
+	taskPollingFetchAdaptor
+	batchCalls int
+	batchIDs   []string
+	results    map[string]*BatchTaskResult
+}
+
+func (a *batchPollingAdaptor) FetchMode() string { return "batch" }
+
+func (a *batchPollingAdaptor) FetchBatchTasks(_ string, _ string, taskIDs []string, _ string) (*http.Response, error) {
+	a.batchCalls++
+	a.batchIDs = append([]string(nil), taskIDs...)
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader([]byte(`{}`)))}, nil
+}
+
+func (a *batchPollingAdaptor) ParseBatchResult([]byte) (map[string]*BatchTaskResult, error) {
+	if a.results != nil {
+		return a.results, nil
+	}
+	results := make(map[string]*BatchTaskResult, len(a.batchIDs))
+	for _, taskID := range a.batchIDs {
+		results[taskID] = &BatchTaskResult{TaskInfo: relaycommon.TaskInfo{
+			TaskID: taskID,
+			Status: model.TaskStatusInProgress,
+			Url:    "https://example.com/result",
+		}}
+	}
+	return results, nil
 }
 
 type sunoFailurePollingAdaptor struct {
@@ -330,6 +361,120 @@ func TestRunTaskPollingOnceReportsUnfinishedQueryFailure(t *testing.T) {
 
 	_, err := RunTaskPollingOnceWithError(context.Background(), nil)
 	require.ErrorContains(t, err, "injected unfinished query failure")
+}
+
+func TestDispatchPlatformUpdateUsesFetchMode(t *testing.T) {
+	truncate(t)
+	const channelID = 109
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_batch", "upstream_batch")
+	taskChannels := map[int][]string{channelID: {task.GetUpstreamTaskID()}}
+	tasks := map[string]*model.Task{task.GetUpstreamTaskID(): task}
+
+	batch := &batchPollingAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return batch }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	DispatchPlatformUpdate(context.Background(), "batch-plugin", taskChannels, tasks)
+	assert.Equal(t, 1, batch.batchCalls)
+	assert.Equal(t, 0, batch.fetchCount())
+	var persisted model.Task
+	require.NoError(t, model.DB.First(&persisted, task.ID).Error)
+	assert.Equal(t, "https://example.com/result", persisted.GetResultURL())
+
+	perTask := &taskPollingFetchAdaptor{}
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return perTask }
+	DispatchPlatformUpdate(context.Background(), "per-task-plugin", taskChannels, tasks)
+	assert.Equal(t, 1, perTask.fetchCount())
+
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return nil }
+	assert.NotPanics(t, func() {
+		DispatchPlatformUpdate(context.Background(), "missing-plugin", taskChannels, tasks)
+	})
+}
+
+func TestUpdateBatchTasksEnqueuesDurableTieredSettlement(t *testing.T) {
+	testCases := []struct {
+		name       string
+		status     model.TaskStatus
+		units      float64
+		operation  model.TaskBillingOperation
+		target     int
+		finalQuota int
+	}{
+		{name: "success", status: model.TaskStatusSuccess, units: 3, operation: model.TaskBillingOperationSettle, target: 3_000, finalQuota: 3_000},
+		{name: "failure", status: model.TaskStatusFailure, units: 3, operation: model.TaskBillingOperationRefund, target: 0, finalQuota: 0},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			setupTaskBillingReconciliationTest(t)
+			const userID, tokenID, channelID = 41, 41, 141
+			const initialQuota, reservedQuota, tokenRemain = 10_000, 5_000, 8_000
+			seedUser(t, userID, initialQuota)
+			seedToken(t, tokenID, userID, "sk-batch-tiered", tokenRemain)
+			seedTaskPollingChannel(t, channelID, true)
+
+			expression := `tier("actual", u("units"))`
+			task := makeTask(userID, channelID, reservedQuota, tokenID, BillingSourceWallet, 0)
+			task.TaskID = "task_batch_tiered_" + string(testCase.status)
+			task.Platform = "batch-plugin"
+			task.PrivateData.UpstreamTaskID = "upstream_batch_tiered_" + string(testCase.status)
+			task.SetData(map[string]any{"provider_payload": "must-be-preserved"})
+			task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+				ExprString:       expression,
+				ExprHash:         billingexpr.ExprHashString(expression),
+				GroupRatio:       1,
+				QuotaPerUnit:     1_000,
+				ExprVersion:      1,
+				TaskUsageBilling: true,
+			}
+			require.NoError(t, model.DB.Create(task).Error)
+
+			upstreamID := task.GetUpstreamTaskID()
+			result := &BatchTaskResult{TaskInfo: relaycommon.TaskInfo{
+				TaskID:     upstreamID,
+				Status:     string(testCase.status),
+				UsageFacts: map[string]any{"units": testCase.units},
+			}}
+			if testCase.status == model.TaskStatusFailure {
+				result.TaskInfo.Reason = "upstream failed"
+			}
+			adaptor := &batchPollingAdaptor{results: map[string]*BatchTaskResult{upstreamID: result}}
+			taskChannels := map[int][]string{channelID: {upstreamID}}
+			tasks := map[string]*model.Task{upstreamID: task}
+
+			require.NoError(t, UpdateBatchTasks(context.Background(), adaptor, taskChannels, tasks))
+			var persisted model.Task
+			require.NoError(t, model.DB.First(&persisted, task.ID).Error)
+			assert.Equal(t, testCase.status, persisted.Status)
+			assert.Equal(t, reservedQuota, persisted.Quota, "billing stays reserved until reconciliation")
+			var persistedData map[string]any
+			require.NoError(t, common.Unmarshal(persisted.Data, &persistedData))
+			assert.Equal(t, "must-be-preserved", persistedData["provider_payload"])
+
+			job := loadTaskBillingJobByTaskID(t, task.ID)
+			assert.Equal(t, testCase.operation, job.Operation)
+			if testCase.operation == model.TaskBillingOperationSettle {
+				require.NotNil(t, job.TargetQuota)
+				assert.Equal(t, testCase.target, *job.TargetQuota)
+			} else {
+				assert.Nil(t, job.TargetQuota)
+			}
+
+			summary, err := RunTaskBillingReconciliationOnce(context.Background(), "batch-test")
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.Succeeded)
+			assert.Equal(t, initialQuota+(reservedQuota-testCase.finalQuota), getUserQuota(t, userID))
+			assert.Equal(t, tokenRemain+(reservedQuota-testCase.finalQuota), getTokenRemainQuota(t, tokenID))
+
+			// Repeated terminal polling must not create or apply another billing job.
+			require.NoError(t, UpdateBatchTasks(context.Background(), adaptor, taskChannels, tasks))
+			var jobs int64
+			require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("task_id = ?", task.ID).Count(&jobs).Error)
+			assert.Equal(t, int64(1), jobs)
+		})
+	}
 }
 
 func TestUpdateVideoTasksDefaultSleepWaitsBetweenTasks(t *testing.T) {

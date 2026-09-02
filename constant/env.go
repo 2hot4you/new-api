@@ -18,6 +18,10 @@ var GenerateDefaultToken bool
 var ErrorLogEnabled bool
 var TaskQueryLimit int
 var TaskTimeoutMinutes int
+var TaskPluginProtocolTimeoutSeconds int
+var TaskPluginProtocolTickMilliseconds int
+var TaskPluginProtocolTickJitterMilliseconds int
+var TaskPluginProtocolHeartbeatSeconds int
 var StarAIResultRetentionHours int
 var StarAIAssetTTLHours int
 var MoliiGrokNewAPIBaseURL = "https://api.wxiai.com"

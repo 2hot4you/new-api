@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"math"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -18,23 +20,28 @@ import (
 
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
 // 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
-func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
+func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model.Task) {
 	tokenName := c.GetString("token_name")
 	logContent := fmt.Sprintf("操作 %s", info.Action)
 	// 支持任务仅按次计费
 	if common.StringsContains(constant.TaskPricePatches, info.OriginModelName) {
 		logContent = fmt.Sprintf("%s，按次计费", logContent)
 	} else {
+		var contents []string
 		if otherRatios := info.PriceData.OtherRatios(); len(otherRatios) > 0 {
-			var contents []string
 			for key, ra := range otherRatios {
 				if 1.0 != ra {
 					contents = append(contents, fmt.Sprintf("%s: %.2f", key, ra))
 				}
 			}
-			if len(contents) > 0 {
-				logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
+		}
+		if snap := info.TieredBillingSnapshot; snap != nil {
+			for key, value := range snap.UsageFacts {
+				contents = append(contents, fmt.Sprintf("%s: %v", key, value))
 			}
+		}
+		if len(contents) > 0 {
+			logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
 		}
 	}
 	other := make(map[string]interface{})
@@ -76,6 +83,15 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
+	if snap := info.TieredBillingSnapshot; snap != nil {
+		other["billing_mode"] = "tiered_expr"
+		other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
+		other["matched_tier"] = snap.EstimatedTier
+		if len(snap.UsageFacts) > 0 {
+			other["usage_facts"] = snap.UsageFacts
+		}
+	}
+	appendTaskLogInfo(task, other)
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
@@ -204,13 +220,48 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 				other[k] = v
 			}
 		}
+		if snap := bc.TieredSnapshot; snap != nil {
+			other["billing_mode"] = "tiered_expr"
+			other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
+			other["matched_tier"] = snap.EstimatedTier
+			if len(snap.UsageFacts) > 0 {
+				other["usage_facts"] = snap.UsageFacts
+			}
+		}
 	}
 	props := task.Properties
 	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = props.UpstreamModelName
 	}
+	appendTaskLogInfo(task, other)
 	return other
+}
+
+func appendTaskLogInfo(task *model.Task, other map[string]interface{}) {
+	if task == nil || other == nil {
+		return
+	}
+	if task.TaskID != "" {
+		other["task_id"] = task.TaskID
+	}
+	if task.PrivateData.Execution != nil {
+		AppendTaskPluginAuditInfo(other, task.PrivateData.Execution.TaskPlugin)
+	}
+	if task.PrivateData.UpstreamTaskID == "" && task.PrivateData.NodeName == "" {
+		return
+	}
+	rootInfo, ok := other["root_info"].(map[string]interface{})
+	if !ok || rootInfo == nil {
+		rootInfo = map[string]interface{}{}
+		other["root_info"] = rootInfo
+	}
+	if task.PrivateData.UpstreamTaskID != "" {
+		rootInfo["upstream_task_id"] = task.PrivateData.UpstreamTaskID
+	}
+	if task.PrivateData.NodeName != "" {
+		rootInfo["node_name"] = task.PrivateData.NodeName
+	}
 }
 
 func taskBillingContextPriceData(bc *model.TaskBillingContext) *types.PriceData {
@@ -396,6 +447,32 @@ func BuildTerminalTaskBillingJob(ctx context.Context, adaptor TaskPollingAdaptor
 		job.TargetQuota = nil
 		return job
 	}
+	if billingContext := task.PrivateData.BillingContext; billingContext != nil && billingContext.TieredSnapshot != nil {
+		snapshot := billingContext.TieredSnapshot
+		usageFacts := make(map[string]any, len(snapshot.UsageFacts)+len(taskResult.UsageFacts))
+		for key, value := range snapshot.UsageFacts {
+			usageFacts[key] = value
+		}
+		for key, value := range taskResult.UsageFacts {
+			usageFacts[key] = value
+		}
+		result, err := billingexpr.ComputeTieredQuotaWithRequest(
+			snapshot,
+			billingexpr.TokenParams{},
+			billingexpr.RequestInput{Usage: usageFacts},
+		)
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("task %s tiered billing settlement failed; keeping reserved quota: %v", task.TaskID, err))
+			return job
+		}
+		snapshot.UsageFacts = usageFacts
+		snapshot.EstimatedTier = result.MatchedTier
+		targetQuota = result.ActualQuotaAfterGroup
+		if result.Clamp != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("task %s tiered billing quota was clamped: %+v", task.TaskID, result.Clamp))
+		}
+		return job
+	}
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		adjuster, ok := adaptor.(perCallTaskCompletionAdjuster)
 		if !ok || !adjuster.AllowPerCallCompletionAdjustment() {
@@ -417,8 +494,12 @@ func BuildTerminalTaskBillingJob(ctx context.Context, adaptor TaskPollingAdaptor
 		targetQuota = actualQuota
 		return job
 	}
-	if taskResult.TotalTokens > 0 {
-		if recalculatedQuota, _, _, ok := calculateTaskQuotaByTokens(task, taskResult.TotalTokens); ok {
+	totalTokens := taskResult.TotalTokens
+	if totalTokens == 0 && taskResult.CompletionTokens > 0 {
+		totalTokens = taskResult.CompletionTokens
+	}
+	if totalTokens > 0 {
+		if recalculatedQuota, _, _, ok := calculateTaskQuotaByTokens(task, totalTokens); ok {
 			targetQuota = recalculatedQuota
 		}
 	}
@@ -459,7 +540,7 @@ func TaskBillingPublicState(task *model.Task, job *model.TaskBillingJob) string 
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 // clamps 可选：若计算 actualQuota 时发生额度饱和，将其记入日志 admin_info（仅管理员可见）。
 func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) bool {
-	if task == nil || actualQuota < 0 || (actualQuota == 0 && !taskUsesFinalUsageLog(task)) {
+	if task == nil || actualQuota < 0 {
 		return true
 	}
 	preConsumedQuota := task.Quota

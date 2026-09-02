@@ -197,29 +197,29 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *taskdto.TaskError) {
+func (a *TaskAdaptor) ParseResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *taskdto.TaskError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
+		return nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
 	}
 	_ = resp.Body.Close()
 
 	var starResp responseEnvelope
 	if err := decodeStarAIResponse(responseBody, &starResp); err != nil {
 		contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-		return "", nil, service.TaskErrorWrapper(
+		return nil, service.TaskErrorWrapper(
 			fmt.Errorf("invalid Molii Volcengine Imagine API response (status=%d, content-type=%q, bytes=%d)", resp.StatusCode, contentType, len(responseBody)),
 			"unmarshal_response_body_failed", http.StatusBadGateway,
 		)
 	}
 	if starResp.Code != nil && !isSuccessCode(starResp.Code) {
 		message := a.safeErrorMessage(responseMessage(starResp))
-		return "", nil, service.TaskErrorWrapper(fmt.Errorf("%s", message), "starai_api_error", upstreamErrorStatus(resp.StatusCode))
+		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", message), "starai_api_error", upstreamErrorStatus(resp.StatusCode))
 	}
 
 	upstreamID := firstNonEmpty(starResp.Data.TaskID, stringValue(starResp.Data.ID), starResp.TaskID, stringValue(starResp.ID))
 	if upstreamID == "" {
-		return "", nil, service.TaskErrorWrapper(fmt.Errorf("Molii Volcengine Imagine API response did not include a task ID"), "invalid_response", http.StatusBadGateway)
+		return nil, service.TaskErrorWrapper(fmt.Errorf("Molii Volcengine Imagine API response did not include a task ID"), "invalid_response", http.StatusBadGateway)
 	}
 
 	openAIVideo := dto.NewOpenAIVideo()
@@ -227,9 +227,22 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	openAIVideo.TaskID = info.PublicTaskID
 	openAIVideo.Model = info.OriginModelName
 	openAIVideo.CreatedAt = time.Now().Unix()
-	c.JSON(http.StatusOK, openAIVideo)
+	return &channel.TaskSubmitResponse{
+		UpstreamTaskID: upstreamID,
+		TaskData:       service.SanitizeStarAIResponseBody(responseBody, info.PublicTaskID),
+		ClientResponse: openAIVideo,
+	}, nil
+}
 
-	return upstreamID, service.SanitizeStarAIResponseBody(responseBody, info.PublicTaskID), nil
+func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (string, []byte, *taskdto.TaskError) {
+	parsed, taskErr := a.ParseResponse(c, resp, info)
+	if taskErr != nil || parsed == nil {
+		return "", nil, taskErr
+	}
+	if c != nil && parsed.ClientResponse != nil {
+		c.JSON(http.StatusOK, parsed.ClientResponse)
+	}
+	return parsed.UpstreamTaskID, parsed.TaskData, nil
 }
 
 func decodeStarAIResponse(body []byte, target any) error {

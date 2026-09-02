@@ -24,6 +24,7 @@ For commercial licensing, please contact support@quantumnous.com
 export const CHANNEL_TYPE_NEW_API = 60
 export const CHANNEL_TYPE_STARAI = 61
 export const CHANNEL_TYPE_MOLII_GROK_AIGC = 62
+export const CHANNEL_TYPE_TASK_PLUGIN = 63
 
 export const STARAI_MODELS = [
   'doubao-seedance-2-0-260128',
@@ -100,12 +101,13 @@ export const CHANNEL_TYPES = {
   60: 'New API',
   61: 'Molii Volcengine Imagine API',
   62: 'Molii Grok Imagine API',
+  63: 'Task Plugin',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 33, 24, 43, 3, 41, 48, 60, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15,
   46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 59, 22, 21, 44, 2,
-  5, 36, 50, 51, 52, 53, 54, 61, 62, 55, 56,
+  5, 36, 50, 51, 52, 53, 54, 61, 62, 63, 55, 56,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
@@ -126,6 +128,17 @@ export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
   }
   return ordered
 })()
+
+export function channelTypeOptionsForTaskPluginBind(
+  canBindTaskPlugin: boolean
+): { value: number; label: string }[] {
+  if (canBindTaskPlugin) {
+    return CHANNEL_TYPE_OPTIONS
+  }
+  return CHANNEL_TYPE_OPTIONS.filter(
+    (option) => option.value !== CHANNEL_TYPE_TASK_PLUGIN
+  )
+}
 
 // ============================================================================
 // Channel Status (label values are i18n keys; use t(config.label) in components)
@@ -448,6 +461,7 @@ export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   60: 'Enter API key for this channel',
   61: 'Enter API key for this channel',
   62: 'Enter API key for this channel',
+  63: 'Enter API key for this channel',
 }
 
 export const CHANNEL_TYPE_WARNINGS: Record<number, string> = {

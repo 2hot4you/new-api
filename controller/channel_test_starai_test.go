@@ -13,6 +13,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	hostdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -97,10 +98,10 @@ func TestInitChannelCacheRoutesStarAIModelsToTheirDedicatedChannels(t *testing.T
 	common.MemoryCacheEnabled = true
 	model.InitChannelCache()
 
-	selectedStandard, err := model.GetRandomSatisfiedChannel("default", "doubao-seedance-2-0-260128", 0, "/v1/video/generations")
+	selectedStandard, err := model.GetRandomSatisfiedChannel("default", "doubao-seedance-2-0-260128", 0, []hostdto.ChannelFilter{{Kind: hostdto.FilterRequestPath, RequestPath: "/v1/video/generations"}})
 	require.NoError(t, err)
 	require.Equal(t, standard.Id, selectedStandard.Id)
-	selectedMini, err := model.GetRandomSatisfiedChannel("default", "doubao-seedance-2-0-mini-260615", 0, "/v1/video/generations")
+	selectedMini, err := model.GetRandomSatisfiedChannel("default", "doubao-seedance-2-0-mini-260615", 0, []hostdto.ChannelFilter{{Kind: hostdto.FilterRequestPath, RequestPath: "/v1/video/generations"}})
 	require.NoError(t, err)
 	require.Equal(t, mini.Id, selectedMini.Id)
 }

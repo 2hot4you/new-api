@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "implementation",
-  "nextAction": "提交 rc.26 集成检查点并开始 rc.27 插件系统双栈整合",
+  "nextAction": "提交 rc.27 插件系统双栈检查点并开始 rc.28 集成",
   "createdAt": "2026-09-02T00:00:00+08:00",
   "branch": "upgrade/rc30-dev"
 }
