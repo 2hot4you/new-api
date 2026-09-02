@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { describe, test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+import { describe, test } from 'vitest'
 
 import {
   CHANNEL_TYPES,
@@ -260,7 +260,11 @@ describe('Molii Grok Imagine API channel', () => {
     const source = files
       .map((relativePath) =>
         readFileSync(
-          fileURLToPath(new URL(relativePath, import.meta.url)),
+          resolve(
+            process.cwd(),
+            'src/features/channels/lib/__tests__',
+            relativePath
+          ),
           'utf8'
         )
       )
@@ -291,8 +295,9 @@ describe('Molii Grok Imagine API channel', () => {
     }
 
     for (const [locale, expected] of Object.entries(expectedTranslations)) {
-      const localePath = fileURLToPath(
-        new URL(`../../../../i18n/locales/${locale}.json`, import.meta.url)
+      const localePath = resolve(
+        process.cwd(),
+        `src/i18n/locales/${locale}.json`
       )
       const localeData = JSON.parse(readFileSync(localePath, 'utf8')) as {
         translation: Record<string, string>
@@ -304,9 +309,7 @@ describe('Molii Grok Imagine API channel', () => {
     }
 
     const staticKeys = readFileSync(
-      fileURLToPath(
-        new URL('../../../../i18n/static-keys.ts', import.meta.url)
-      ),
+      resolve(process.cwd(), 'src/i18n/static-keys.ts'),
       'utf8'
     )
     assert.equal(staticKeys.includes(messageKey), true)

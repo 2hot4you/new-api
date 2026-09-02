@@ -304,6 +304,37 @@ func sanitizeFetchModelsError(err error, key string) error {
 	return errors.New(message)
 }
 
+// sanitizeAdvancedCustomRequestError also removes secrets embedded in custom
+// query parameter names or values before an upstream discovery error is
+// returned to an administrator.
+func sanitizeAdvancedCustomRequestError(err error, key string, requestURL string) error {
+	err = sanitizeFetchModelsError(err, key)
+	if err == nil {
+		return nil
+	}
+	parsedURL, parseErr := url.Parse(requestURL)
+	if parseErr != nil {
+		return err
+	}
+	message := err.Error()
+	for _, values := range parsedURL.Query() {
+		for _, secret := range values {
+			if secret == "" {
+				continue
+			}
+			message = strings.ReplaceAll(message, secret, "[REDACTED]")
+			message = strings.ReplaceAll(message, url.QueryEscape(secret), "[REDACTED]")
+			message = strings.ReplaceAll(message, url.PathEscape(secret), "[REDACTED]")
+		}
+	}
+	if key != "" {
+		message = strings.ReplaceAll(message, key, "[REDACTED]")
+		message = strings.ReplaceAll(message, url.QueryEscape(key), "[REDACTED]")
+		message = strings.ReplaceAll(message, url.PathEscape(key), "[REDACTED]")
+	}
+	return errors.New(message)
+}
+
 func getFetchModelsResponseBody(method string, requestURL string, channel *model.Channel, headers http.Header, requestTimeout ...time.Duration) ([]byte, error) {
 	request, err := http.NewRequest(method, requestURL, nil)
 	if err != nil {
@@ -481,7 +512,7 @@ func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string)
 
 	body, err := getFetchModelsResponseBody(http.MethodGet, url, channel, headers)
 	if err != nil {
-		return nil, sanitizeFetchModelsError(err, key)
+		return nil, sanitizeAdvancedCustomRequestError(err, key, url)
 	}
 	return parseOpenAIModelIDs(body)
 }

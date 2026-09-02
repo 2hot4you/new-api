@@ -18,7 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { describe, test } from 'node:test'
+import { resolve } from 'node:path'
+import { describe, test } from 'vitest'
 
 import { buildSupportedParameters } from '../../lib/mock-stats'
 import { buildVideoSample } from '../../lib/video-api-sample'
@@ -147,7 +148,10 @@ describe('Seedance API details', () => {
 
   test('documents reference video and audio duration limits in the content format table', async () => {
     const source = await readFile(
-      new URL('../model-details-api.tsx', import.meta.url),
+      resolve(
+        process.cwd(),
+        'src/features/pricing/components/model-details-api.tsx'
+      ),
       'utf8'
     )
 

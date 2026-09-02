@@ -18,18 +18,19 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { describe, test } from 'node:test'
+import { resolve } from 'node:path'
+import { describe, test } from 'vitest'
 
 const pricingSource = readFileSync(
-  new URL('../../index.tsx', import.meta.url),
+  resolve(process.cwd(), 'src/features/pricing/index.tsx'),
   'utf8'
 )
 const gridSource = readFileSync(
-  new URL('../model-card-grid.tsx', import.meta.url),
+  resolve(process.cwd(), 'src/features/pricing/components/model-card-grid.tsx'),
   'utf8'
 )
 const toolbarSource = readFileSync(
-  new URL('../pricing-toolbar.tsx', import.meta.url),
+  resolve(process.cwd(), 'src/features/pricing/components/pricing-toolbar.tsx'),
   'utf8'
 )
 
@@ -56,7 +57,7 @@ describe('model directory layout contract', () => {
     for (const locale of ['en', 'zh', 'zh-TW']) {
       const messages = JSON.parse(
         readFileSync(
-          new URL(`../../../../i18n/locales/${locale}.json`, import.meta.url),
+          resolve(process.cwd(), `src/i18n/locales/${locale}.json`),
           'utf8'
         )
       ).translation as Record<string, string>

@@ -338,8 +338,13 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	// 2. 退还令牌额度
 	taskAdjustTokenQuota(ctx, task, -quota)
 
-	// 3. Terminal-only tasks keep refunds as an internal balance action.
+	// 3. Legacy tasks account usage at submission, so a failed task must roll
+	// that usage back while keeping the request count. Molii terminal-only
+	// tasks account only after success and therefore have nothing to decrement.
 	if !taskUsesFinalUsageLog(task) {
+		model.UpdateUserUsedQuota(task.UserId, -quota)
+		model.UpdateChannelUsedQuota(task.ChannelId, -quota)
+
 		other := taskBillingOther(task)
 		other["task_id"] = task.TaskID
 		other["reason"] = reason
@@ -525,13 +530,17 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		return true
 	}
 
+	// Legacy tasks already counted the request during submission. Settlement
+	// therefore adjusts only the accumulated quota and never increments the
+	// request count a second time.
+	model.UpdateUserUsedQuota(task.UserId, quotaDelta)
+	model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
+
 	var logType int
 	var logQuota int
 	if quotaDelta > 0 {
 		logType = model.LogTypeConsume
 		logQuota = quotaDelta
-		model.UpdateUserUsedQuotaAndRequestCount(task.UserId, quotaDelta)
-		model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 	} else {
 		logType = model.LogTypeRefund
 		logQuota = -quotaDelta

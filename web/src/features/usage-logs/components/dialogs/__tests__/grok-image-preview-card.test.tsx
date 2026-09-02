@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { afterAll as after, afterEach, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
 
@@ -49,6 +49,10 @@ for (const key of [
     value: domWindow[key],
   })
 }
+Object.defineProperty(domWindow.HTMLElement.prototype, 'getAnimations', {
+  configurable: true,
+  value: () => [],
+})
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')

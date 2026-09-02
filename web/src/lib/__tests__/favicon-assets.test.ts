@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import { fileURLToPath } from 'node:url'
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')

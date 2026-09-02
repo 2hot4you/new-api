@@ -28,3 +28,30 @@ go test ./model -run 'TestUserUpdate|TestUpdateUserAccessToken' -count=1
 
 结果：全部通过。
 
+## v1.0.0-rc.25
+
+| 变更域 | 状态 | 处置与依据 |
+| --- | --- | --- |
+| 用户与令牌配额原子预扣、Redis mutation fence | adopt + rewrite | 纳入上游条件更新、缓存冷启动和 mutation fence；保留 Molii 默认令牌、轮换、跨分组与任务计费 token 逻辑。 |
+| 异步任务失败退款与差额结算 | adopt + rewrite | 普通任务失败时回减累计用量；差额结算只调整用量、不重复累计请求次数；StarAI/Molii Grok 继续使用终态一次性记录。 |
+| Advanced Custom 余额查询 | adopt | 纳入自定义余额响应解析、大小限制、原始响应展示及查询参数敏感值清理。 |
+| 渠道状态并发更新保护 | adopt + rewrite | 纳入状态字段白名单与按渠道轮询锁，保留 Molii 渠道字段和 Molii Grok 固定上游配置。 |
+| Relay 请求转换、reasoning effort、Claude schema | adopt | 接收上游转换与回归测试；Molii 自定义渠道测试全部继续通过。 |
+| 前端 Vitest 基线 | adopt + rewrite | 接收 Vitest、Testing Library 和 CI 入口；将 Molii 的 `web/src` 测试迁移到 Vitest，并为 Emoji Mart、VChart 及 DOM 动画 API 增加测试专用替身。 |
+| 动态计费规则命中明细 | adopt + rewrite | 在 Molii 用量详情的动态计费分解中展示 `request_rules`，保留现有日志与计费卡片。 |
+| 定价搜索防抖 | adopt + rewrite | 纳入 200ms 防抖，保留 Molii 推荐排序与目录行为。 |
+| compact model suffix 删除 | reject | Molii 的模型映射和 Imagine 能力校验仍依赖 compact suffix，保留现有实现及测试。 |
+
+验证结果：
+
+```text
+make test                                  PASS
+bun run typecheck                          PASS
+bun run test -- --reporter=dot             PASS (120 files, 565 tests)
+bun run build                              PASS
+git diff --check                           PASS
+```
+
+CCG 规定的 antigravity/Claude 外部双模型审查工具在当前主机不可用：
+`~/.claude/bin/codeagent-wrapper` 不存在，`PATH` 中也无 `codeagent-wrapper`。
+已通过完整后端测试、完整前端测试、类型检查和生产构建进行替代验证；后续版本继续保留该阻断记录。

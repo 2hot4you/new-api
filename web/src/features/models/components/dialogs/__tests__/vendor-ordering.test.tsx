@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { afterAll as after, afterEach, describe, test } from 'vitest'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Window } from 'happy-dom'

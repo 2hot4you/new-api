@@ -142,7 +142,7 @@ export function getEditableQuotaStep(): number {
     return 1
   }
 
-  return 10 ** -getCurrencyFractionDigits(0)
+  return Number(`1e-${getCurrencyFractionDigits(0)}`)
 }
 
 // ============================================================================

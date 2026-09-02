@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "implementation",
-  "nextAction": "记录 rc.24 功能等价台账并建立上游合并祖先关系",
+  "nextAction": "提交 rc.25 集成检查点并开始 rc.26 的 64 位额度与迁移审计",
   "createdAt": "2026-09-02T00:00:00+08:00",
   "branch": "upgrade/rc30-dev"
 }

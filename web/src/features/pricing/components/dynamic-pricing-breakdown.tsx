@@ -36,11 +36,13 @@ import {
   SOURCE_TIME,
   normalizeTierLabel,
   parseTiersFromExpr,
+  requestRuleGroupsFromTrace,
   splitBillingExprAndRequestRules,
   tryParseRequestRuleExpr,
   type ParsedTier,
   type RequestCondition,
   type RequestRuleGroup,
+  type RequestRuleTrace,
   type TierCondition,
 } from '../lib/billing-expr'
 import {
@@ -58,6 +60,8 @@ type DynamicPricingBreakdownProps = {
    * the usage-log details dialog to show which tier the engine selected.
    */
   matchedTierLabel?: string | null
+  /** Actual request-rule evaluation trace captured during settlement. */
+  requestRules?: RequestRuleTrace[] | null
   /**
    * Hide cache-pricing columns regardless of the per-tier values. The log
    * details dialog passes this when the actual request did not consume any
@@ -154,9 +158,10 @@ function describeGroup(
   group: RequestRuleGroup,
   t: (key: string) => string
 ): string {
-  return (group.conditions || [])
+  const description = (group.conditions || [])
     .map((c) => describeCondition(c, t))
     .join(' && ')
+  return description || group.conditionText || ''
 }
 
 function pricingStrategyTitle(strategy: DynamicPricingStrategy): string {
@@ -205,6 +210,7 @@ function usesReadableTimeRules(
 export function DynamicPricingBreakdown({
   billingExpr,
   matchedTierLabel,
+  requestRules,
   hideCacheColumns = false,
   compact = false,
 }: DynamicPricingBreakdownProps) {
@@ -228,13 +234,16 @@ export function DynamicPricingBreakdown({
   const { tiers, ruleGroups, strategy } = useMemo(() => {
     const split = splitBillingExprAndRequestRules(expr)
     const parsedTiers = parseTiersFromExpr(split.billingExpr)
-    const parsedRules = tryParseRequestRuleExpr(split.requestRuleExpr || '')
+    const parsedRules =
+      requestRules != null
+        ? requestRuleGroupsFromTrace(requestRules)
+        : tryParseRequestRuleExpr(split.requestRuleExpr || '')
     return {
       tiers: parsedTiers,
       ruleGroups: parsedRules || [],
       strategy: getDynamicPricingStrategy(expr),
     }
-  }, [expr])
+  }, [expr, requestRules])
 
   const hasTiers = tiers.length > 0
   const hasRules = ruleGroups.length > 0
@@ -515,11 +524,16 @@ export function DynamicPricingBreakdown({
             )}
           </div>
           <ul className='space-y-1.5'>
-            {ruleGroups.map((group, gi) => (
-              <li
-                key={`${describeGroup(group, t)}-${group.multiplier}`}
-                className='bg-muted/50 flex items-center justify-between gap-3 rounded-md px-3 py-2'
-              >
+            {ruleGroups.map((group, gi) => {
+              const isMatched = group.matched === true
+              return (
+                <li
+                  key={`${describeGroup(group, t)}-${group.multiplier}-${gi}`}
+                  className={cn(
+                    'bg-muted/50 flex items-center justify-between gap-3 rounded-md border border-transparent px-3 py-2',
+                    isMatched && 'border-emerald-500/40 bg-emerald-500/10'
+                  )}
+                >
                 <span
                   className={cn(
                     'text-foreground break-all',
@@ -532,12 +546,17 @@ export function DynamicPricingBreakdown({
                 </span>
                 <Badge
                   variant='secondary'
-                  className='shrink-0 bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300'
+                  className={cn(
+                    'shrink-0 bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
+                    isMatched &&
+                      'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                  )}
                 >
-                  {group.multiplier}x
+                  {group.multiplier}x{isMatched ? ` · ${t('Matched')}` : ''}
                 </Badge>
               </li>
-            ))}
+              )
+            })}
             {hasReadableTimeRules && (
               <li className='bg-muted/50 flex items-center justify-between gap-3 rounded-md px-3 py-2'>
                 <span

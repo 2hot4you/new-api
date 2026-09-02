@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { describe, test } from 'node:test'
+import { resolve } from 'node:path'
+import { describe, test } from 'vitest'
 
 import { buildGrokApiParameters } from '../grok-api-parameters'
 import type { GrokOperation } from '../grok-api-sample'
@@ -186,7 +187,7 @@ describe('Grok Imagine API parameters', () => {
     for (const locale of ['en', 'zh']) {
       const document = JSON.parse(
         readFileSync(
-          new URL(`../../../../i18n/locales/${locale}.json`, import.meta.url),
+          resolve(process.cwd(), `src/i18n/locales/${locale}.json`),
           'utf8'
         )
       ) as { translation: Record<string, string> }

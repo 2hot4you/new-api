@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
+import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
 
