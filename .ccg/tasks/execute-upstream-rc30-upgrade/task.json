@@ -1,0 +1,12 @@
+{
+  "id": "execute-upstream-rc30-upgrade",
+  "title": "分阶段整合 new-api v1.0.0-rc.30 到 Molii 开发候选",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "implementation",
+  "nextAction": "记录 rc.24 功能等价台账并建立上游合并祖先关系",
+  "createdAt": "2026-09-02T00:00:00+08:00",
+  "branch": "upgrade/rc30-dev"
+}
