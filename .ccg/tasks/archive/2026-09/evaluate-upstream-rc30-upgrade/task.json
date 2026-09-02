@@ -1,0 +1,12 @@
+{
+  "id": "evaluate-upstream-rc30-upgrade",
+  "title": "评估二开版本升级至 new-api v1.0.0-rc.30",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "等待用户确认是否创建 upgrade/rc30-dev 实施分支",
+  "createdAt": "2026-09-02T10:00:00+08:00",
+  "branch": "develop"
+}
