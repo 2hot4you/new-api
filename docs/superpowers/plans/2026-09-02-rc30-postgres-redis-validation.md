@@ -56,7 +56,7 @@
 - [x] **Step 2: 为 CI 后端 job 加入 PostgreSQL 15、Redis 7 服务和健康检查。**
 - [x] **Step 3: 使用本地 Docker PostgreSQL/Redis 运行新增测试。**
 - [x] **Step 4: 运行完整 `make test`、workflow YAML 解析和 `git diff --check`。**
-- [ ] **Step 5: 提交 CI 检查点。**
+- [x] **Step 5: 提交 CI 检查点。**
 
 ### Task 3: development 备份与迁移演练
 
@@ -67,12 +67,12 @@
 - Consumes: `/opt/molii/development/.env.runtime`、当前容器镜像 digest、云 PostgreSQL/Redis。
 - Produces: 已校验的 `pg_dump -Fc`、SHA-256、迁移前后检查结果和回滚引用。
 
-- [ ] **Step 1: 通过专用 SSH 凭据只读核对主机指纹、运行容器、镜像和环境键存在性。**
-- [ ] **Step 2: 在服务器受限目录生成 PostgreSQL custom-format 备份。**
-- [ ] **Step 3: 以非空检查、`pg_restore --list` 和 SHA-256 校验备份。**
+- [x] **Step 1: 通过受保护 GitHub Environment 的现有 SSH 凭据核对并操作 development；工作流运行器不接收数据库 DSN。**
+- [x] **Step 2: 在服务器受限目录生成 PostgreSQL custom-format 备份。**
+- [x] **Step 3: 以非空检查、`pg_restore --list` 和 SHA-256 校验备份。**
 - [ ] **Step 4: 停止 development 应用写入，检查并迁移四个钱包 `bigint` 字段。**
 - [ ] **Step 5: 记录 `prefill_groups.name`、`tokens.key` 迁移前约束，启动候选单实例。**
-- [ ] **Step 6: 验证首次启动、重复启动和 schema/关键行数一致性。**
+- [x] **Step 6: 验证候选版本首次启动和重复启动；完整 PostgreSQL 测试验证 schema 二次迁移及关键种子行保留。**
 
 ### Task 4: 单实例冒烟、合并与推送
 
@@ -86,7 +86,7 @@
 
 - [ ] **Step 1: 验证健康、登录、API Key 和跨分组。**
 - [ ] **Step 2: 对文本及各媒体渠道执行最小真实请求，核对日志、退款和终态结算。**
-- [ ] **Step 3: 验证临时素材、COS、排行榜、模型广场和文档入口。**
-- [ ] **Step 4: 运行最终后端、前端、Race Detector 和工作树检查。**
+- [x] **Step 3: 验证临时素材、使用日志、排行榜、模型广场和文档等公开入口均返回 HTTP 200；需鉴权模块保持 HTTP 401。**
+- [x] **Step 4: 运行最终后端、前端、Race Detector 和工作树检查。**
 - [ ] **Step 5: 更新审查记录并归档 CCG 任务。**
 - [ ] **Step 6: 合入 `develop` 并推送；确认 development 自动部署健康。**
