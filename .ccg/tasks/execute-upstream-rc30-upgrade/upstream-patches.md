@@ -55,3 +55,26 @@ git diff --check                           PASS
 CCG 规定的 antigravity/Claude 外部双模型审查工具在当前主机不可用：
 `~/.claude/bin/codeagent-wrapper` 不存在，`PATH` 中也无 `codeagent-wrapper`。
 已通过完整后端测试、完整前端测试、类型检查和生产构建进行替代验证；后续版本继续保留该阻断记录。
+
+## v1.0.0-rc.26
+
+| 变更域 | 状态 | 处置与依据 |
+| --- | --- | --- |
+| 钱包额度扩展到 JavaScript-safe 64 位范围 | adopt | 纳入 `MaxWalletQuota`、充值/兑换/管理员调额边界检查与原子余额上限保护；单请求费用仍保持 32 位饱和上限。 |
+| 旧 32 位用户额度 schema 启动阻断 | adopt | PostgreSQL/MySQL 启动时先检查 `users` 四个额度列，未迁移则拒绝启动；不使用跳过开关作为部署方案。迁移步骤记录于 `migration-rc26.md`。 |
+| 批量额度累加溢出保护 | adopt | 纳入批量缓存增量的机器字长溢出钳制和告警。 |
+| 充值、兑换码、余额购买订阅 | adopt | 全部改走 64 位钱包严格转换及数据库条件更新，避免并发回调越过钱包上限。 |
+| 单请求费用与媒体 token 换算 | adopt | 继续使用 32 位饱和助手，补齐渠道测试、违规费用、OpenRouter cache、图像 token 等裸转换路径。 |
+| 模型限流容量计算 | adopt | 时长和 count×duration 使用 64 位溢出保护。 |
+| vLLM `thinking_token_budget` | adopt | 纳入通用 OpenAI 请求透传字段。 |
+| 日志筛选框密码管理器误填 | adopt | 使用文本输入配合 `-webkit-text-security`，并关闭自动填充。 |
+| Bun 1.4.0 | adopt + rewrite | CI/Electron/Docker 统一固定 1.4.0；Docker 保留 Molii 的 `APP_VERSION`、VCS label 与构建参数。 |
+
+验证结果：
+
+```text
+make test                                  PASS
+bun run typecheck                          PASS
+bun run test -- --reporter=dot             PASS (120 files, 565 tests)
+git diff --check                           PASS
+```
