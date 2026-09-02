@@ -309,6 +309,7 @@ test_workflow_delivery_contract() {
   assert_contains "$content" 'bash deploy/app-version.sh' 'workflow derives a schema-safe application version'
   assert_contains "$content" 'source_ref:' 'workflow accepts an explicit candidate source ref'
   assert_contains "$content" 'ref: ${{ inputs.source_ref || github.sha }}' 'candidate source ref controls verification and image checkout'
+  assert_contains "$content" 'Candidate source refs are restricted to development deployments' 'candidate source refs cannot target production'
   assert_contains "$content" 'backup_postgres:' 'workflow exposes an explicit PostgreSQL backup gate'
   assert_contains "$content" 'verify_repeated_startup:' 'workflow exposes an explicit repeated-startup gate'
   assert_not_contains "$content" 'SQL_DSN' 'workflow does not receive the PostgreSQL secret'

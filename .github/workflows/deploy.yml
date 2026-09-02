@@ -49,7 +49,15 @@ jobs:
         id: target
         env:
           BRANCH_NAME: ${{ github.ref_name }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          BACKUP_POSTGRES: ${{ inputs.backup_postgres }}
+          VERIFY_REPEATED_STARTUP: ${{ inputs.verify_repeated_startup }}
         run: |
+          if [[ "$BRANCH_NAME" != 'develop' ]] && { [[ -n "$SOURCE_REF" ]] || [[ "$BACKUP_POSTGRES" == 'true' ]] || [[ "$VERIFY_REPEATED_STARTUP" == 'true' ]]; }; then
+            echo '::error::Candidate source refs are restricted to development deployments; development-only backup and repeated-startup controls cannot target production.'
+            exit 1
+          fi
+
           case "$BRANCH_NAME" in
             main)
               echo 'environment=production' >> "$GITHUB_OUTPUT"
