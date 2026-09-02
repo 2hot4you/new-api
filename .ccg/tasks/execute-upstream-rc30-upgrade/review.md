@@ -48,3 +48,45 @@
 - `make test`：通过（主 Go 模块与 relaykit；未配置的 MySQL/PostgreSQL 外部集成测试按设计跳过）。
 
 上线前阻断项与 rc.29 相同：必须在隔离候选环境完成真实三数据库迁移矩阵后才能发布。
+
+## 跨版本最终审查
+
+代码与能力审计：
+
+- `v1.0.0-rc.30` 已成为当前分支祖先，rc.24 至 rc.30 均保留独立合并检查点。
+- 保留 Molii 渠道编号：StarAI=61、Molii Grok=62、Task Plugin=63、Dummy=64。
+- 保留有序跨分组路由、StarAI/Molii Grok 原生适配器、任务插件双栈、临时素材、COS、GPT Image 2、任务真实结算及用量日志能力。
+- 上游删除的旧任务适配器均已由 JavaScript 任务插件替代，没有删除 Molii 原生适配器。
+
+最终验证：
+
+```text
+make test                                  PASS
+go vet ./...                               PASS
+bun run typecheck                          PASS
+bun run test                               PASS (144 files, 792 tests)
+bun run build:check                        PASS
+bun run i18n:check                         PASS
+bun run format:plugins:check               PASS
+bun run lint:plugins                       PASS (7 条上游 preserve-caught-error warning)
+git diff --check                           PASS
+```
+
+数据库与运行时验证：
+
+- 使用显式临时目录和全新 SQLite 数据库构建、启动 rc.30 候选二进制，`/api/status` 与登录加密公钥接口正常。
+- 对同一 SQLite 数据库执行第二次启动，迁移幂等且登录加密密钥没有重复生成。
+- 未连接开发或生产数据库；MySQL/PostgreSQL 的新装、上一版本升级和二次启动必须在隔离副本上完成后才能发布。
+
+并发检查：
+
+- `go test -race ./model ./middleware ./service` 通过。
+- `go test -race ./relay ./router` 通过。
+- Molii Grok、StarAI、Task Plugin 协议及计费别名配置拆分运行均通过 `-race`。
+- `controller` 组合运行暴露既有测试隔离竞态：前一个测试启动的异步指标/通知任务尚未结束，后一个测试已替换全局 Redis/DB 测试句柄。该竞态不属于 rc.30 合并路径，但完整 `controller -race` 不能标记为通过，后续应单独重构异步任务测试生命周期。
+
+审查工具限制：
+
+- CCG 要求的 antigravity 与 Claude 双模型外部审查未能执行，因为当前主机不存在 `~/.claude/bin/codeagent-wrapper`，`PATH` 中也没有该工具。已记录为环境限制，不能宣称已完成外部双模型审查。
+
+结论：代码集成候选可交付到隔离数据库验收阶段；在真实 MySQL/PostgreSQL 迁移矩阵通过前，不具备生产发布结论。

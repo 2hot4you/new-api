@@ -5,9 +5,8 @@
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "implementation",
   "currentPhase": "review",
-  "nextAction": "提交 rc.30 检查点并执行跨版本总审查与最终验证",
+  "nextAction": "完成最终审查记录并归档；隔离数据库矩阵通过后再合入 develop",
   "createdAt": "2026-09-02T00:00:00+08:00",
   "branch": "upgrade/rc30-dev"
 }
