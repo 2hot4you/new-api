@@ -11,6 +11,22 @@ on:
       - '.ccg/tasks/**'
       - 'docs/superpowers/**'
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Optional branch, tag, or commit to deploy to the selected environment
+        required: false
+        default: ''
+        type: string
+      backup_postgres:
+        description: Create and verify a server-side PostgreSQL backup before deployment
+        required: false
+        default: false
+        type: boolean
+      verify_repeated_startup:
+        description: Restart the deployed development container and verify it becomes healthy again
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -47,12 +63,6 @@ jobs:
               echo 'health_url=https://dev.molii.co/api/status' >> "$GITHUB_OUTPUT"
               echo 'image_tag=development' >> "$GITHUB_OUTPUT"
               ;;
-            upgrade/rc30-dev)
-              echo 'environment=development' >> "$GITHUB_OUTPUT"
-              echo 'deploy_dir=/opt/molii/development' >> "$GITHUB_OUTPUT"
-              echo 'health_url=https://dev.molii.co/api/status' >> "$GITHUB_OUTPUT"
-              echo 'image_tag=development-rc30-validation' >> "$GITHUB_OUTPUT"
-              ;;
             *)
               echo "::error::Unsupported deployment branch: $BRANCH_NAME"
               exit 1
@@ -68,6 +78,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -126,18 +138,23 @@ jobs:
       packages: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
+      source_sha: ${{ steps.app_version.outputs.sha }}
     env:
       REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
     steps:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Resolve application version
         id: app_version
         env:
           IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
-          GIT_SHA: ${{ github.sha }}
-        run: printf 'value=%s\n' "$(bash deploy/app-version.sh "$IMAGE_TAG" "$GIT_SHA")" >> "$GITHUB_OUTPUT"
+        run: |
+          GIT_SHA=$(git rev-parse HEAD)
+          printf 'sha=%s\n' "$GIT_SHA" >> "$GITHUB_OUTPUT"
+          printf 'value=%s\n' "$(bash deploy/app-version.sh "$IMAGE_TAG" "$GIT_SHA")" >> "$GITHUB_OUTPUT"
 
       - name: Write image version
         env:
@@ -221,15 +238,15 @@ jobs:
             docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
 
       - name: Upload development backup helper
-        if: github.ref_name == 'upgrade/rc30-dev'
+        if: inputs.backup_postgres && needs.prepare.outputs.environment == 'development'
         run: |
           scp -P "$SSH_PORT" deploy/backup-postgres.sh \
             "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/backup-postgres.sh"
 
       - name: Back up development PostgreSQL
-        if: github.ref_name == 'upgrade/rc30-dev'
+        if: inputs.backup_postgres && needs.prepare.outputs.environment == 'development'
         env:
-          BACKUP_NAME: new-api-before-rc30-${{ github.sha }}.dump
+          BACKUP_NAME: new-api-before-${{ needs.build.outputs.source_sha }}.dump
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             "chmod 700 '$DEPLOY_DIR/backup-postgres.sh' && '$DEPLOY_DIR/backup-postgres.sh' '$DEPLOY_DIR' '$BACKUP_NAME'"
@@ -247,7 +264,7 @@ jobs:
             "chmod 700 '$DEPLOY_DIR/deploy.sh' && '$DEPLOY_DIR/deploy.sh' '$DEPLOY_ENVIRONMENT' '$IMAGE_REFERENCE' '$HEALTH_URL'"
 
       - name: Verify repeated development startup
-        if: github.ref_name == 'upgrade/rc30-dev'
+        if: inputs.verify_repeated_startup && needs.prepare.outputs.environment == 'development'
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             sh -s -- "$DEPLOY_DIR" "$HEALTH_URL" <<'REMOTE'
