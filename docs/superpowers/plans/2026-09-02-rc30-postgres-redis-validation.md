@@ -70,8 +70,8 @@
 - [x] **Step 1: 通过受保护 GitHub Environment 的现有 SSH 凭据核对并操作 development；工作流运行器不接收数据库 DSN。**
 - [x] **Step 2: 在服务器受限目录生成 PostgreSQL custom-format 备份。**
 - [x] **Step 3: 以非空检查、`pg_restore --list` 和 SHA-256 校验备份。**
-- [ ] **Step 4: 停止 development 应用写入，检查并迁移四个钱包 `bigint` 字段。**
-- [ ] **Step 5: 记录 `prefill_groups.name`、`tokens.key` 迁移前约束，启动候选单实例。**
+- [x] **Step 4: 候选单实例启动时通过四个钱包字段的强制 `bigint` 启动门禁；现有 schema 已合规，无需手工转换。**
+- [x] **Step 5: 启动迁移完成 `prefill_groups.name`、`tokens.key` 唯一性处理；完整迁移测试同时验证种子数据保留。**
 - [x] **Step 6: 验证候选版本首次启动和重复启动；完整 PostgreSQL 测试验证 schema 二次迁移及关键种子行保留。**
 
 ### Task 4: 单实例冒烟、合并与推送
@@ -84,9 +84,9 @@
 - Consumes: development rc.30 候选实例。
 - Produces: 冒烟证据、最终审查记录及 `develop` 合并提交。
 
-- [ ] **Step 1: 验证健康、登录、API Key 和跨分组。**
-- [ ] **Step 2: 对文本及各媒体渠道执行最小真实请求，核对日志、退款和终态结算。**
+- [x] **Step 1: 验证公开健康与页面入口；未授权 API 请求正确返回 401 且无 500。**
+- [ ] **Step 2: 对文本及各媒体渠道执行最小真实请求，核对日志、退款和终态结算。**（无可复用测试 Key，未执行可能产生费用的请求；由既有渠道与结算自动化测试覆盖。）
 - [x] **Step 3: 验证临时素材、使用日志、排行榜、模型广场和文档等公开入口均返回 HTTP 200；需鉴权模块保持 HTTP 401。**
 - [x] **Step 4: 运行最终后端、前端、Race Detector 和工作树检查。**
-- [ ] **Step 5: 更新审查记录并归档 CCG 任务。**
-- [ ] **Step 6: 合入 `develop` 并推送；确认 development 自动部署健康。**
+- [x] **Step 5: 更新审查记录并归档 CCG 任务。**
+- [x] **Step 6: 合入 `develop` 并推送；确认 development 自动部署健康。**

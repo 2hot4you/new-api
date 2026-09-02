@@ -38,3 +38,11 @@
 - Redis 集成测试验证读写、原子增量、TTL 保留和精确测试键删除，不执行 `FLUSHDB`/`FLUSHALL`。
 - 本地首次完整复跑曾因前序单测遗留数据失败；重建四个明确命名的本地临时数据库后，CI 顺序完整通过。该现象不影响 GitHub Actions 的全新服务容器，但说明本地重复执行前必须使用新的隔离数据库。
 - 手工审查发现 `source_ref` 若不限制可能被 production 手动运行采用；已增加门禁，使候选源码、development 备份和重复启动参数仅能在 `develop` 工作流运行中使用，并补充契约测试。
+
+## 最终合并与发布
+
+- 合并提交：`e517748fb962a22f4af11419ce26c59f338ff674`，已推送至 `origin/develop`。
+- 最终工作流：[GitHub Actions 33634093981](https://github.com/2hot4you/new-api/actions/runs/33634093981)，验证、镜像构建、development 部署和通知全部成功。
+- development 报告版本：`development-e517748fb962`。
+- 合并提交上的 `make test`（包含 PostgreSQL 15/Redis 7）、Race Detector、前端类型检查、144 个测试文件/792 项测试和前端构建均通过。
+- 工作树中已有的未跟踪 `api-key-group-combobox.test.tsx` 使用 Node `node:test`，不属于本任务且会被 Vitest 自动发现；正式仓库测试在明确排除该未跟踪文件后为 144/144 通过，未修改或删除用户文件。
