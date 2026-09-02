@@ -42,6 +42,7 @@ func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
 		reconcileCatalogAfterChannelRefresh()
 		InvalidatePricingCache()
+		rebuildTaskAliasView()
 		return
 	}
 	newChannelId2channel := make(map[int]*Channel)
@@ -117,6 +118,7 @@ func InitChannelCache() {
 	// invalidating the pricing cache, otherwise the reversed order deadlocks.
 	reconcileCatalogAfterChannelRefresh()
 	InvalidatePricingCache()
+	rebuildTaskAliasView()
 	common.SysLog("channels synced from database")
 }
 
