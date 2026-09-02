@@ -47,6 +47,12 @@ jobs:
               echo 'health_url=https://dev.molii.co/api/status' >> "$GITHUB_OUTPUT"
               echo 'image_tag=development' >> "$GITHUB_OUTPUT"
               ;;
+            upgrade/rc30-dev)
+              echo 'environment=development' >> "$GITHUB_OUTPUT"
+              echo 'deploy_dir=/opt/molii/development' >> "$GITHUB_OUTPUT"
+              echo 'health_url=https://dev.molii.co/api/status' >> "$GITHUB_OUTPUT"
+              echo 'image_tag=development-rc30-validation' >> "$GITHUB_OUTPUT"
+              ;;
             *)
               echo "::error::Unsupported deployment branch: $BRANCH_NAME"
               exit 1
@@ -214,6 +220,20 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
 
+      - name: Upload development backup helper
+        if: github.ref_name == 'upgrade/rc30-dev'
+        run: |
+          scp -P "$SSH_PORT" deploy/backup-postgres.sh \
+            "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/backup-postgres.sh"
+
+      - name: Back up development PostgreSQL
+        if: github.ref_name == 'upgrade/rc30-dev'
+        env:
+          BACKUP_NAME: new-api-before-rc30-${{ github.sha }}.dump
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "chmod 700 '$DEPLOY_DIR/backup-postgres.sh' && '$DEPLOY_DIR/backup-postgres.sh' '$DEPLOY_DIR' '$BACKUP_NAME'"
+
       - name: Upload deployment assets
         run: |
           scp -P "$SSH_PORT" deploy/docker-compose.cicd.yml \
@@ -225,6 +245,36 @@ jobs:
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             "chmod 700 '$DEPLOY_DIR/deploy.sh' && '$DEPLOY_DIR/deploy.sh' '$DEPLOY_ENVIRONMENT' '$IMAGE_REFERENCE' '$HEALTH_URL'"
+
+      - name: Verify repeated development startup
+        if: github.ref_name == 'upgrade/rc30-dev'
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            sh -s -- "$DEPLOY_DIR" "$HEALTH_URL" <<'REMOTE'
+          set -eu
+          deploy_dir=$1
+          health_url=$2
+          container_name=molii-development
+
+          docker restart "$container_name" >/dev/null
+          attempt=1
+          while [ "$attempt" -le 36 ]; do
+            state=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true)
+            if [ "$state" = healthy ]; then
+              break
+            fi
+            if [ "$state" = exited ] || [ "$state" = dead ]; then
+              docker logs --tail 100 "$container_name" >&2 || true
+              exit 1
+            fi
+            sleep 5
+            attempt=$((attempt + 1))
+          done
+
+          test "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name")" = healthy
+          curl --silent --show-error --fail --max-time 15 "$health_url" | grep -Eq '"success"[[:space:]]*:[[:space:]]*true'
+          printf 'Repeated startup is healthy; previous image reference remains at %s/.rc30-previous-image\n' "$deploy_dir"
+          REMOTE
 
   notify:
     name: Notify Telegram
