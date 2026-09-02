@@ -1,12 +1,12 @@
 {
   "id": "execute-upstream-rc30-upgrade",
   "title": "分阶段整合 new-api v1.0.0-rc.30 到 Molii 开发候选",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "review",
-  "nextAction": "完成最终审查记录并归档；隔离数据库矩阵通过后再合入 develop",
+  "currentPhase": "completed",
+  "nextAction": "在隔离 MySQL/PostgreSQL 数据库完成迁移矩阵后合入 develop",
   "createdAt": "2026-09-02T00:00:00+08:00",
   "branch": "upgrade/rc30-dev"
 }
