@@ -176,12 +176,15 @@ func GlobalAPIRateLimit() func(c *gin.Context) {
 	return defNext
 }
 
-func CriticalRateLimit() func(c *gin.Context) {
+// CriticalRateLimit protects an anonymous or pre-authentication action with an
+// IP bucket isolated by purpose. Scoping prevents unrelated actions (for
+// example, registration and login) from consuming each other's allowance.
+func CriticalRateLimit(scope string) func(c *gin.Context) {
 	if common.DisableAllRateLimit {
 		return defNext
 	}
 	if common.CriticalRateLimitEnable {
-		return rateLimitFactory(common.CriticalRateLimitNum, common.CriticalRateLimitDuration, "CT")
+		return rateLimitFactory(common.CriticalRateLimitNum, common.CriticalRateLimitDuration, "CT:"+scope)
 	}
 	return defNext
 }

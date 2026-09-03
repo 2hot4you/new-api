@@ -138,6 +138,42 @@ func TestUserCriticalRateLimitUsesAuthenticatedUserScope(t *testing.T) {
 	assert.True(t, redisServer.Exists(redisUserRateLimitKey("UC:access-token", 42)))
 }
 
+func TestCriticalRateLimitUsesIndependentIPScopes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	redisServer, _ := useRateLimitMiniRedis(t)
+
+	oldEnabled := common.CriticalRateLimitEnable
+	oldNumber := common.CriticalRateLimitNum
+	oldDuration := common.CriticalRateLimitDuration
+	common.CriticalRateLimitEnable = true
+	common.CriticalRateLimitNum = 1
+	common.CriticalRateLimitDuration = 31
+	t.Cleanup(func() {
+		common.CriticalRateLimitEnable = oldEnabled
+		common.CriticalRateLimitNum = oldNumber
+		common.CriticalRateLimitDuration = oldDuration
+	})
+
+	router := gin.New()
+	require.NoError(t, router.SetTrustedProxies(nil))
+	router.GET("/login", CriticalRateLimit("auth-login"), func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	router.GET("/register", CriticalRateLimit("auth-register"), func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	remoteAddr := "192.0.2.21:12345"
+	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/login", remoteAddr).Code)
+	limitedResponse := performRateLimitRequest(router, "/login", remoteAddr)
+	assert.Equal(t, http.StatusTooManyRequests, limitedResponse.Code)
+	assert.Equal(t, "31", limitedResponse.Header().Get("Retry-After"))
+	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/register", remoteAddr).Code)
+
+	assert.True(t, redisServer.Exists(redisIPRateLimitKey("CT:auth-login", "192.0.2.21")))
+	assert.True(t, redisServer.Exists(redisIPRateLimitKey("CT:auth-register", "192.0.2.21")))
+}
+
 func TestRedisEmailVerificationRateLimiterPreservesResponseAndTTL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	redisServer, _ := useRateLimitMiniRedis(t)
