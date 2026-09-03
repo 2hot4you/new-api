@@ -1,0 +1,5 @@
+{"path":"middleware/rate-limit.go","reason":"关键接口限流键、窗口和 Retry-After 实现"}
+{"path":"router/api-router.go","reason":"登录与刷新接口中间件配置"}
+{"path":"web/src/lib/http-client.ts","reason":"401 自动刷新与跳转逻辑"}
+{"path":"web/src/lib/auth-session.ts","reason":"刷新请求去重和 429 处理"}
+{"path":"web/src/features/auth/api.ts","reason":"登录请求配置及重试行为"}

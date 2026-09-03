@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-login-429",
+  "title": "诊断登录接口 429 Too Many Requests",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "等待用户确认是否实施认证限流桶隔离与首页匿名请求修复",
+  "createdAt": "2026-09-03T03:13:50Z",
+  "branch": "develop"
+}
