@@ -1,0 +1,12 @@
+{
+  "id": "relax-application-rate-limits",
+  "title": "为所有环境实施宽松且隔离的应用层限流",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "等待部署；若环境显式覆盖旧限流变量需同步移除或更新",
+  "createdAt": "2026-09-03T03:30:00Z",
+  "branch": "develop"
+}

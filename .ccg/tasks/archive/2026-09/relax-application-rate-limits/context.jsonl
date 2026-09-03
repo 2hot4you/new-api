@@ -1,0 +1,6 @@
+{"path":"common/init.go","reason":"各类限流环境变量默认值"}
+{"path":"common/constants.go","reason":"限流运行时默认常量"}
+{"path":"middleware/rate-limit.go","reason":"Redis/内存限流键及中间件工厂"}
+{"path":"middleware/rate_limit_test.go","reason":"限流行为测试"}
+{"path":"router/api-router.go","reason":"认证、支付、密钥与日志路由限流绑定"}
+{"path":"router/channel-router.go","reason":"渠道测试敏感操作限流绑定"}
