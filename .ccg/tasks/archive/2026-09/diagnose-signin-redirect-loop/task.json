@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-signin-redirect-loop",
+  "title": "诊断首页会话过期后反复弹出登录页",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "等待用户确认是否实施首页受保护定价请求修复",
+  "createdAt": "2026-09-03T11:00:00+08:00",
+  "branch": "develop"
+}
