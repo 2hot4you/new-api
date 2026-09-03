@@ -1,0 +1,7 @@
+{"path":"web/src/features/auth/auth-layout.tsx","reason":"当前三个页面共用的认证外壳"}
+{"path":"web/src/features/auth/sign-in/index.tsx","reason":"登录页标题与辅助入口"}
+{"path":"web/src/features/auth/sign-up/index.tsx","reason":"注册页标题与辅助入口"}
+{"path":"web/src/features/auth/forgot-password/index.tsx","reason":"找回密码页结构"}
+{"path":"web/src/features/auth/sign-in/components/user-auth-form.tsx","reason":"登录、OAuth、Passkey、微信和法律同意交互"}
+{"path":"web/src/features/auth/sign-up/components/sign-up-form.tsx","reason":"注册、验证码、Turnstile 和 OAuth 交互"}
+{"path":"web/src/features/auth/forgot-password/components/forgot-password-form.tsx","reason":"找回密码表单与倒计时"}

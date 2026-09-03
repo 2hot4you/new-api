@@ -1,0 +1,12 @@
+{
+  "id": "redesign-auth-pages",
+  "title": "重构登录、注册与找回密码页面",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-09-03T06:01:52Z",
+  "branch": "develop"
+}
