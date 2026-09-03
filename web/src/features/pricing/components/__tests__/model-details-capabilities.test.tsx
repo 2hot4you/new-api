@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test } from 'vitest'
 
 import type { PricingModel } from '../../types'
 
@@ -135,7 +135,11 @@ describe('LLM model capability overview card', () => {
     )
     assert.equal(
       container.querySelectorAll('[data-model-capability-metadata]').length,
-      7
+      6
+    )
+    assert.equal(
+      container.querySelectorAll('[data-model-compact-metadata-cell]').length,
+      1
     )
     assert.match(container.textContent ?? '', /720p/)
     assert.match(container.textContent ?? '', /16:9/)
@@ -210,6 +214,34 @@ describe('LLM model capability overview card', () => {
         ?.textContent?.includes('models.dev'),
       false
     )
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('places supported parameters and model tags in one compact row', async () => {
+    const { container, root } = await renderDetails(
+      model({
+        tags: 'fast,reasoning',
+        vendor_name: 'DeepSeek',
+        supported_endpoint_types: ['openai'],
+      })
+    )
+
+    const compactRow = container.querySelector(
+      '[data-model-compact-metadata-row]'
+    )
+    assert.ok(compactRow)
+    assert.equal(
+      compactRow.querySelectorAll('[data-model-compact-metadata-cell]').length,
+      2
+    )
+    assert.match(compactRow.textContent ?? '', /Supported parameters/)
+    assert.match(compactRow.textContent ?? '', /Tags/)
+
+    const providerInfo = container.querySelector('[data-model-provider-info]')
+    assert.ok(providerInfo)
+    assert.doesNotMatch(providerInfo.textContent ?? '', /fast|reasoning/)
 
     await act(async () => root.unmount())
     container.remove()

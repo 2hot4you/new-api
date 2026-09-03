@@ -47,7 +47,6 @@ import {
   getDynamicPricingTiers,
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
-import { parseTags } from '../lib/filters'
 import { isGrokImageModel, isGrokImagineModel } from '../lib/grok-model'
 import { getPricingModelDescription } from '../lib/model-description'
 import { getModelInputModalities } from '../lib/model-directory'
@@ -217,7 +216,6 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
   const model = props.model
   const groups = normalizeCatalogItems(model.enable_groups)
   const endpoints = normalizeCatalogItems(model.supported_endpoint_types)
-  const tags = parseTags(model.tags)
   const cells: React.ReactNode[] = []
 
   if (model.vendor_name) {
@@ -246,14 +244,6 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
     cells.push(
       <CatalogInfoCell key='endpoints' label={t('Endpoints')}>
         <CatalogPillList items={endpoints} />
-      </CatalogInfoCell>
-    )
-  }
-
-  if (tags.length > 0) {
-    cells.push(
-      <CatalogInfoCell key='tags' label={t('Tags')}>
-        <CatalogPillList items={tags} />
       </CatalogInfoCell>
     )
   }

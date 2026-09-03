@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { parseTags } from '../lib/filters'
 import { getModelModalityLabelKey } from '../lib/model-helpers'
 import type { ModelCapability, PricingModel } from '../types'
 
@@ -104,6 +105,7 @@ export function ModelDetailsCapabilities(props: { model: PricingModel }) {
   const capabilities = normalizeItems(model.capabilities)
   const inputModalities = normalizeItems(model.input_modalities)
   const outputModalities = normalizeItems(model.output_modalities)
+  const tags = parseTags(model.tags)
 
   const coreSpecs: {
     key: string
@@ -146,15 +148,23 @@ export function ModelDetailsCapabilities(props: { model: PricingModel }) {
 
   const hasModalities =
     inputModalities.length > 0 || outputModalities.length > 0
-  const hasPrimaryContent =
-    coreSpecs.length > 0 || hasModalities || capabilities.length > 0
   const updatedTime = formatUpdatedTime(model.metadata_updated_time)
+  const compactMetadataRows: Array<{ label: string; values: string[] }> = []
+  const supportedParameters = normalizeItems(model.supported_parameters)
+  if (supportedParameters.length > 0) {
+    compactMetadataRows.push({
+      label: t('Supported parameters'),
+      values: supportedParameters,
+    })
+  }
+  if (tags.length > 0) {
+    compactMetadataRows.push({ label: t('Tags'), values: tags })
+  }
   const metadataRows: Array<{ label: string; values: string[] }> = []
   const addMetadataRow = (label: string, values?: readonly string[]) => {
     const normalized = normalizeItems(values)
     if (normalized.length > 0) metadataRows.push({ label, values: normalized })
   }
-  addMetadataRow(t('Supported parameters'), model.supported_parameters)
   addMetadataRow(t('Supported resolutions'), model.supported_resolutions)
   addMetadataRow(t('Supported aspect ratios'), model.supported_aspect_ratios)
   if ((model.max_input_images ?? 0) > 0) {
@@ -176,6 +186,12 @@ export function ModelDetailsCapabilities(props: { model: PricingModel }) {
     t('Reference modalities'),
     model.reference_modalities?.map((item) => t(getModelModalityLabelKey(item)))
   )
+  const hasPrimaryContent =
+    coreSpecs.length > 0 ||
+    hasModalities ||
+    capabilities.length > 0 ||
+    compactMetadataRows.length > 0 ||
+    metadataRows.length > 0
   let coreSpecsGridClass = 'grid-cols-1'
   if (coreSpecs.length >= 3) {
     coreSpecsGridClass = 'grid-cols-2 @2xl/details:grid-cols-3'
@@ -271,12 +287,41 @@ export function ModelDetailsCapabilities(props: { model: PricingModel }) {
         </div>
       )}
 
+      {compactMetadataRows.length > 0 && (
+        <div
+          className='grid gap-2 border-t p-3 sm:grid-cols-2'
+          data-model-compact-metadata-row='true'
+        >
+          {compactMetadataRows.map((row) => (
+            <div
+              key={row.label}
+              className='bg-muted/20 min-w-0 rounded-lg border px-3 py-2.5'
+              data-model-compact-metadata-cell='true'
+            >
+              <div className='text-muted-foreground text-[11px] font-medium'>
+                {row.label}
+              </div>
+              <div className='mt-1 flex flex-wrap gap-1.5'>
+                {row.values.map((value) => (
+                  <span
+                    key={value}
+                    className='bg-muted/60 text-foreground rounded px-2 py-1 font-mono text-[11px]'
+                  >
+                    {value}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {metadataRows.length > 0 && (
-        <div className='bg-border grid gap-px border-t sm:grid-cols-2'>
+        <div className='grid gap-2 border-t p-3 sm:grid-cols-2'>
           {metadataRows.map((row) => (
             <div
               key={row.label}
-              className='bg-background min-w-0 px-4 py-3'
+              className='bg-muted/20 min-w-0 rounded-lg border px-3 py-2.5'
               data-model-capability-metadata='true'
             >
               <div className='text-muted-foreground text-[11px] font-medium'>
