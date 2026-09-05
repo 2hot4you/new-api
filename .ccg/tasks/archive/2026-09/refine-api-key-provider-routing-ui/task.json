@@ -1,0 +1,12 @@
+{
+  "id": "refine-api-key-provider-routing-ui",
+  "title": "将 API 密钥分组选择改为按 Provider 分层的模型路由界面",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-09-05T00:00:00+08:00",
+  "branch": "develop"
+}
