@@ -1,0 +1,12 @@
+{
+  "id": "evaluate-api-key-routing-policy-options",
+  "title": "评估 API 密钥前端分层与按模型路由策略方案",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "architecture",
+  "currentPhase": "completed",
+  "nextAction": "等待用户选择仅前端分层或分阶段加入模型路由覆盖",
+  "createdAt": "2026-09-05T00:00:00+08:00",
+  "branch": "develop"
+}
