@@ -106,7 +106,7 @@ export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   unlimited_quota: true,
   model_limits: [],
   allow_ips: '',
-  group: DEFAULT_GROUP,
+  group: '',
   auto_groups_mode: 'inherit',
   auto_groups: [],
   cross_group_retry: true,
@@ -125,7 +125,7 @@ export function getApiKeyFormDefaultValues(
     defaultUseAutoGroup && selectedDefaultGroups.length > 0
   return {
     ...API_KEY_FORM_DEFAULT_VALUES,
-    group: useDefaultGroups ? 'auto' : DEFAULT_GROUP,
+    group: useDefaultGroups ? 'auto' : '',
     auto_groups_mode: 'custom',
     auto_groups: useDefaultGroups ? selectedDefaultGroups : [],
     cross_group_retry: useDefaultGroups,

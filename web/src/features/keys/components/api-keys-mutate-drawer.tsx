@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
@@ -63,7 +63,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { getPricing } from '@/features/pricing/api'
 import { useStatus } from '@/hooks/use-status'
-import { getUserModels, getUserGroups } from '@/lib/api'
+import { getUserModelsByGroup, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
@@ -124,19 +124,13 @@ export function ApiKeysMutateDrawer({
     isValid: true,
   })
   const [isIpValidationReady, setIsIpValidationReady] = useState(false)
+  const [groupSelectionChanged, setGroupSelectionChanged] = useState(false)
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
     null
   )
   const defaultUseAutoGroup = status?.default_use_auto_group === true
   const groupSuccessRates = useGroupSuccessRates(open)
 
-  // Fetch models
-  const { data: modelsData } = useQuery({
-    queryKey: ['user-models'],
-    queryFn: getUserModels,
-    enabled: open,
-    staleTime: 0,
-  })
   const { data: pricingData } = useQuery({
     queryKey: ['pricing'],
     queryFn: getPricing,
@@ -178,7 +172,6 @@ export function ApiKeysMutateDrawer({
     staleTime: 0,
   })
 
-  const models = useMemo(() => modelsData?.data ?? [], [modelsData])
   const modelIcons = useMemo(() => {
     if (!pricingData?.success || !Array.isArray(pricingData.data)) {
       return new Map<string, string | undefined>()
@@ -187,22 +180,6 @@ export function ApiKeysMutateDrawer({
       pricingData.data.map((model) => [model.model_name, model.icon])
     )
   }, [pricingData])
-  const modelOptions = useMemo(
-    () =>
-      models.map((model) => {
-        const icon = modelIcons.get(model)
-        return {
-          label: model,
-          value: model,
-          icon: (
-            <span data-model-limit-icon={icon ?? ''} aria-hidden='true'>
-              {getLobeIcon(icon, 16)}
-            </span>
-          ),
-        }
-      }),
-    [models, modelIcons]
-  )
   const groups = useMemo<ApiKeyGroupOption[]>(
     () =>
       Object.entries(groupsData?.data || {})
@@ -263,11 +240,59 @@ export function ApiKeysMutateDrawer({
     resolver: zodResolver(schema),
     defaultValues: getApiKeyFormDefaultValues(defaultUseAutoGroup),
   })
+  const selectedModelGroups = form.watch('auto_groups')
+  const uniqueSelectedModelGroups = useMemo(
+    () => [...new Set(selectedModelGroups.filter(Boolean))],
+    [selectedModelGroups]
+  )
+  const modelQueries = useQueries({
+    queries: uniqueSelectedModelGroups.map((group) => ({
+      queryKey: ['user-models', group],
+      queryFn: () => getUserModelsByGroup(group),
+      enabled: open,
+      staleTime: 0,
+    })),
+  })
+  const models = useMemo(() => {
+    const seen = new Set<string>()
+    const merged: string[] = []
+    for (const query of modelQueries) {
+      for (const model of query.data?.data ?? []) {
+        if (seen.has(model)) continue
+        seen.add(model)
+        merged.push(model)
+      }
+    }
+    return merged
+  }, [modelQueries])
+  const modelQueriesLoading = modelQueries.some(
+    (query) => query.isPending || query.isFetching
+  )
+  const modelQueriesReady =
+    uniqueSelectedModelGroups.length === 0 ||
+    modelQueries.every((query) => query.isSuccess && !query.isFetching)
+  const modelOptions = useMemo(
+    () =>
+      models.map((model) => {
+        const icon = modelIcons.get(model)
+        return {
+          label: model,
+          value: model,
+          icon: (
+            <span data-model-limit-icon={icon ?? ''} aria-hidden='true'>
+              {getLobeIcon(icon, 16)}
+            </span>
+          ),
+        }
+      }),
+    [models, modelIcons]
+  )
 
   // Load existing data when updating
   useEffect(() => {
     if (!open) {
       setInitializedTarget(null)
+      setGroupSelectionChanged(false)
       setIpDraftState((current) =>
         !current.hasDraft && current.isValid
           ? current
@@ -303,6 +328,7 @@ export function ApiKeysMutateDrawer({
           isValid: isIpCidrValueValid(defaults.allow_ips || ''),
         })
         setIsIpValidationReady(true)
+        setGroupSelectionChanged(false)
         setInitializedTarget(target)
       }
     } else {
@@ -311,21 +337,13 @@ export function ApiKeysMutateDrawer({
         globalAutoGroups,
         maxAutoGroups
       )
-      if (defaults.auto_groups.length === 0) {
-        const fallback =
-          groups.find((group) => group.value === 'default')?.value ??
-          groups[0]?.value
-        if (fallback) {
-          defaults.group = fallback
-          defaults.auto_groups = [fallback]
-        }
-      }
       form.reset(defaults)
       setIpDraftState({
         hasDraft: false,
         isValid: isIpCidrValueValid(defaults.allow_ips || ''),
       })
       setIsIpValidationReady(true)
+      setGroupSelectionChanged(false)
       setInitializedTarget(target)
     }
   }, [
@@ -344,7 +362,6 @@ export function ApiKeysMutateDrawer({
     apiKeyFetching,
     availableAutoGroupNames,
     globalAutoGroups,
-    groups,
     maxAutoGroups,
     initializedTarget,
   ])
@@ -352,6 +369,22 @@ export function ApiKeysMutateDrawer({
   const formTarget =
     isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
   const isFormInitialized = initializedTarget === formTarget
+
+  useEffect(() => {
+    if (!groupSelectionChanged || !modelQueriesReady) return
+
+    const selectedModels = form.getValues('model_limits')
+    const allowedModels = new Set(models)
+    const nextSelectedModels = selectedModels.filter((model) =>
+      allowedModels.has(model)
+    )
+    if (nextSelectedModels.length === selectedModels.length) return
+
+    form.setValue('model_limits', nextSelectedModels, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+  }, [form, groupSelectionChanged, modelQueriesReady, models])
 
   const onSubmit = async (data: ApiKeyFormValues) => {
     setIsSubmitting(true)
@@ -468,6 +501,12 @@ export function ApiKeysMutateDrawer({
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
   const autoGroupsMode = form.watch('auto_groups_mode')
   const unlimitedQuota = form.watch('unlimited_quota')
+  let modelLimitsPlaceholder = t('Select models (empty for allow all)')
+  if (uniqueSelectedModelGroups.length === 0) {
+    modelLimitsPlaceholder = t('Select a group first')
+  } else if (modelQueriesLoading) {
+    modelLimitsPlaceholder = t('Loading models...')
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -519,7 +558,7 @@ export function ApiKeysMutateDrawer({
                 name='name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Name')}</FormLabel>
+                    <FormLabel>{t('Name *')}</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder={t('Enter a name')} />
                     </FormControl>
@@ -533,7 +572,7 @@ export function ApiKeysMutateDrawer({
                 name='auto_groups'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Group')}</FormLabel>
+                    <FormLabel>{t('Group *')}</FormLabel>
                     <FormDescription>
                       {t(
                         'Select one group for fixed routing, or select multiple groups and drag them into fallback order.'
@@ -547,6 +586,16 @@ export function ApiKeysMutateDrawer({
                         globalOptions={globalAutoGroupOptions}
                         maxCount={maxAutoGroups}
                         onChange={(value) => {
+                          const previousGroups = new Set(field.value)
+                          const nextGroups = new Set(value.groups)
+                          if (
+                            previousGroups.size !== nextGroups.size ||
+                            [...previousGroups].some(
+                              (group) => !nextGroups.has(group)
+                            )
+                          ) {
+                            setGroupSelectionChanged(true)
+                          }
                           form.setValue('auto_groups_mode', value.mode, {
                             shouldDirty: true,
                             shouldValidate: false,
@@ -786,8 +835,13 @@ export function ApiKeysMutateDrawer({
                               ]}
                               selected={field.value}
                               onChange={field.onChange}
-                              placeholder={t(
-                                'Select models (empty for allow all)'
+                              disabled={
+                                uniqueSelectedModelGroups.length === 0 ||
+                                modelQueriesLoading
+                              }
+                              placeholder={modelLimitsPlaceholder}
+                              emptyText={t(
+                                'No models are available for the selected groups'
                               )}
                             />
                           </FormControl>
