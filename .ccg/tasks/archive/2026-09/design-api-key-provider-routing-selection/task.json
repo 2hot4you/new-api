@@ -1,0 +1,12 @@
+{
+  "id": "design-api-key-provider-routing-selection",
+  "title": "设计 API 密钥按模型厂商与接入分组的路由选择界面",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "architecture",
+  "currentPhase": "completed",
+  "nextAction": "等待用户确认推荐设计后再进入实施",
+  "createdAt": "2026-09-05T00:00:00+08:00",
+  "branch": "develop"
+}
