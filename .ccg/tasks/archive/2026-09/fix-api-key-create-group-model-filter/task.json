@@ -1,0 +1,12 @@
+{
+  "id": "fix-api-key-create-group-model-filter",
+  "title": "修复 API 密钥创建默认分组与模型联动过滤",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交实现",
+  "createdAt": "2026-09-05T00:00:00+08:00",
+  "branch": "develop"
+}
