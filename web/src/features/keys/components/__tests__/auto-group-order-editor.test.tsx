@@ -17,9 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { afterAll as after, afterEach, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, afterEach, describe, test } from 'vitest'
+
+import type { ApiKeyGroupOption } from '../auto-group-order-editor'
 
 const domWindow = new Window()
 const domGlobals = [
@@ -72,7 +74,7 @@ const reactTestGlobals = globalThis as typeof globalThis & {
 }
 reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
-const options = [
+const options: ApiKeyGroupOption[] = [
   { value: 'auto', label: 'auto', desc: 'Hidden internal route' },
   {
     value: 'vip',
@@ -102,7 +104,7 @@ function Harness(props: {
   initialGroups?: string[]
   initialMode?: 'inherit' | 'custom'
   maxCount?: number
-  optionSet?: typeof options
+  optionSet?: ApiKeyGroupOption[]
 }) {
   const [groups, setGroups] = useState(
     props.initialGroups ?? ['vip', 'default']
@@ -145,7 +147,7 @@ async function renderHarness(
     initialGroups?: string[]
     initialMode?: 'inherit' | 'custom'
     maxCount?: number
-    optionSet?: typeof options
+    optionSet?: ApiKeyGroupOption[]
   } = {}
 ) {
   const container = document.createElement('div')
@@ -221,13 +223,13 @@ describe('direct API key group selection', () => {
     assert.equal(trigger.getAttribute('aria-expanded'), 'true')
     assert.equal(
       trigger.getAttribute('aria-label'),
-      'Group selection order: VIP → Default'
+      'Model routing: 2 access points selected'
     )
     const descriptionId = trigger.getAttribute('aria-describedby')
     assert.ok(descriptionId)
     assert.equal(
       container.querySelector(`#${descriptionId}`)?.textContent,
-      '2 groups will be tried in order'
+      'Routes are matched to supporting access points by requested model'
     )
   })
 
@@ -251,7 +253,7 @@ describe('direct API key group selection', () => {
     assert.equal(output(container, 'mode'), 'custom')
     assert.equal(trigger.getAttribute('aria-expanded'), 'true')
     assert.equal(
-      container.textContent?.includes('2 groups will be tried in order'),
+      container.textContent?.includes('2 access points selected'),
       true
     )
 
@@ -265,7 +267,7 @@ describe('direct API key group selection', () => {
 
     assert.equal(output(container, 'order'), 'default')
     assert.equal(
-      container.textContent?.includes('One group uses fixed routing'),
+      container.textContent?.includes('One access point selected'),
       true
     )
   })
@@ -354,22 +356,164 @@ describe('direct API key group selection', () => {
 
     assert.equal(output(container, 'mode'), 'custom')
     assert.equal(output(container, 'order'), 'vip,default')
-    assert.equal(container.textContent?.includes('2 / 2 groups selected'), true)
+    assert.equal(
+      container.textContent?.includes('2 / 2 access points selected'),
+      true
+    )
     assert.equal(container.textContent?.includes('auto'), false)
   })
 
   test('shows a distinct empty-selection state', async () => {
     const container = await renderHarness({ initialGroups: [] })
 
-    assert.equal(container.textContent?.includes('No groups selected'), true)
     assert.equal(
-      container.textContent?.includes('One group uses fixed routing'),
+      container.textContent?.includes('No access points selected'),
+      true
+    )
+    assert.equal(
+      container.textContent?.includes('One access point selected'),
       false
     )
   })
 
+  test('groups selected routes by provider without implying cross-provider priority', async () => {
+    const providerOptions: ApiKeyGroupOption[] = [
+      {
+        value: 'aws-bedrock',
+        label: 'AWS Bedrock',
+        desc: 'Claude on AWS',
+        icon: 'Aws.Color',
+        providers: [
+          {
+            id: 1,
+            name: 'Anthropic',
+            icon: 'Anthropic.Color',
+            display_order: 1,
+          },
+        ],
+      },
+      {
+        value: 'anthropic-direct',
+        label: 'Anthropic Direct',
+        desc: 'Claude API',
+        providers: [
+          {
+            id: 1,
+            name: 'Anthropic',
+            icon: 'Anthropic.Color',
+            display_order: 1,
+          },
+        ],
+      },
+      {
+        value: 'azure-foundry',
+        label: 'Azure Foundry',
+        desc: 'GPT on Azure',
+        providers: [
+          {
+            id: 2,
+            name: 'OpenAI',
+            icon: 'OpenAI.Color',
+            display_order: 2,
+          },
+        ],
+      },
+    ]
+    const container = await renderHarness({
+      initialGroups: ['aws-bedrock', 'azure-foundry'],
+      optionSet: providerOptions,
+    })
+
+    const sections = [
+      ...container.querySelectorAll<HTMLElement>(
+        '[data-selected-provider-section]'
+      ),
+    ]
+    assert.deepEqual(
+      sections.map((section) => section.dataset.selectedProviderSection),
+      ['Anthropic', 'OpenAI']
+    )
+    assert.equal(container.textContent?.includes('AWS Bedrock →'), false)
+    assert.equal(
+      container.querySelector('[aria-label="Drag AWS Bedrock to reorder"]'),
+      null
+    )
+    assert.equal(
+      container.querySelector('[aria-label="Drag Azure Foundry to reorder"]'),
+      null
+    )
+    assert.equal(
+      container
+        .querySelector('[data-selected-group-item="aws-bedrock"]')
+        ?.querySelector('[data-selected-group-icon-key]')
+        ?.getAttribute('data-selected-group-icon-key'),
+      'Aws.Color'
+    )
+    assert.equal(
+      container
+        .querySelector('[data-selected-group-item="azure-foundry"]')
+        ?.querySelector('[data-selected-group-icon-key]')
+        ?.getAttribute('data-selected-group-icon-key'),
+      'OpenAI.Color'
+    )
+  })
+
+  test('reorders only the access points shown inside the same provider route', async () => {
+    const anthropic = {
+      id: 1,
+      name: 'Anthropic',
+      icon: 'Anthropic.Color',
+      display_order: 1,
+    }
+    const providerOptions: ApiKeyGroupOption[] = [
+      {
+        value: 'aws-bedrock',
+        label: 'AWS Bedrock',
+        providers: [anthropic],
+      },
+      {
+        value: 'anthropic-direct',
+        label: 'Anthropic Direct',
+        providers: [anthropic],
+      },
+      {
+        value: 'azure-foundry',
+        label: 'Azure Foundry',
+        providers: [
+          {
+            id: 2,
+            name: 'OpenAI',
+            icon: 'OpenAI.Color',
+            display_order: 2,
+          },
+        ],
+      },
+    ]
+    const container = await renderHarness({
+      initialGroups: ['aws-bedrock', 'azure-foundry', 'anthropic-direct'],
+      optionSet: providerOptions,
+    })
+
+    assert.equal(
+      container.querySelector('[aria-label="Drag Azure Foundry to reorder"]'),
+      null
+    )
+    await act(async () => {
+      findButton(container, 'Drag AWS Bedrock to reorder').dispatchEvent(
+        new domWindow.KeyboardEvent('keydown', {
+          key: 'ArrowDown',
+          bubbles: true,
+        }) as unknown as KeyboardEvent
+      )
+    })
+    assert.equal(
+      output(container, 'order'),
+      'anthropic-direct,azure-foundry,aws-bedrock'
+    )
+  })
+
   test('groups options by provider order with shared selection and uncategorized fallback', async () => {
-    const providerOptions = [
+    const providerOptions: ApiKeyGroupOption[] = [
       {
         value: 'shared',
         label: 'Shared Claude',

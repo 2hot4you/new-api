@@ -572,10 +572,10 @@ export function ApiKeysMutateDrawer({
                 name='auto_groups'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Group *')}</FormLabel>
+                    <FormLabel>{t('Model routing *')}</FormLabel>
                     <FormDescription>
                       {t(
-                        'Select one group for fixed routing, or select multiple groups and drag them into fallback order.'
+                        'Select available access points. Requests are matched automatically by model, and unsupported access points are skipped. Ordering only applies when multiple access points support the same model.'
                       )}
                     </FormDescription>
                     <FormControl>

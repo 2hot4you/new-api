@@ -521,14 +521,17 @@ describe('API keys mutate drawer direct group selection', () => {
       defaultUseAutoGroup: false,
     })
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
     assert.ok(groupTrigger)
-    assert.equal(groupTrigger.textContent?.includes('Select groups'), true)
     assert.equal(
-      document.body.textContent?.includes('0 / 3 groups selected'),
+      groupTrigger.textContent?.includes('Select access points'),
+      true
+    )
+    assert.equal(
+      document.body.textContent?.includes('0 / 3 access points selected'),
       true
     )
   })
@@ -545,7 +548,7 @@ describe('API keys mutate drawer direct group selection', () => {
     )
 
     assert.ok(labels.has('Name *'))
-    assert.ok(labels.has('Group *'))
+    assert.ok(labels.has('Model routing *'))
   })
 
   test('shows real groups only and copies the configured order for batch-created keys', async () => {
@@ -559,14 +562,17 @@ describe('API keys mutate drawer direct group selection', () => {
     assert.ok(sheetContent)
     assert.equal(sheetContent.classList.contains('overflow-x-hidden'), true)
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
     assert.ok(groupTrigger)
-    assert.equal(groupTrigger.textContent?.includes('vip → default'), true)
     assert.equal(
-      document.body.textContent?.includes('2 / 3 groups selected'),
+      groupTrigger.textContent?.includes('2 access points selected'),
+      true
+    )
+    assert.equal(
+      document.body.textContent?.includes('2 / 3 access points selected'),
       true
     )
 
@@ -608,17 +614,20 @@ describe('API keys mutate drawer direct group selection', () => {
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
     assert.ok(groupTrigger)
     await selectComboboxOption(groupTrigger, 'Priority access')
 
-    assert.equal(groupTrigger.textContent?.includes('default'), true)
-    assert.equal(groupTrigger.textContent?.includes('vip'), false)
+    assert.ok(document.querySelector('[data-selected-group-item="default"]'))
     assert.equal(
-      document.body.textContent?.includes('One group uses fixed routing'),
+      document.querySelector('[data-selected-group-item="vip"]'),
+      null
+    )
+    assert.equal(
+      document.body.textContent?.includes('One access point selected'),
       true
     )
 
@@ -640,7 +649,7 @@ describe('API keys mutate drawer direct group selection', () => {
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
@@ -655,7 +664,10 @@ describe('API keys mutate drawer direct group selection', () => {
     await act(async () => priorityOption.click())
 
     assert.equal(groupTrigger.getAttribute('aria-expanded'), 'true')
-    assert.equal(groupTrigger.textContent?.includes('default → vip'), true)
+    assert.equal(
+      groupTrigger.textContent?.includes('2 access points selected'),
+      true
+    )
     await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'fallback')
     await act(async () => findButton('Save changes', true).click())
     await act(async () =>
@@ -675,7 +687,7 @@ describe('API keys mutate drawer direct group selection', () => {
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
@@ -714,7 +726,7 @@ describe('API keys mutate drawer direct group selection', () => {
       },
     })
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
@@ -746,14 +758,14 @@ describe('API keys mutate drawer direct group selection', () => {
     installApiFixtures([], { apiKey, updatedPayloads })
     await renderCreateDrawer(undefined, apiKey)
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
     assert.ok(groupTrigger)
-    assert.equal(groupTrigger.textContent?.includes('default'), true)
+    assert.ok(document.querySelector('[data-selected-group-item="default"]'))
     assert.equal(
-      document.body.textContent?.includes('One group uses fixed routing'),
+      document.body.textContent?.includes('One access point selected'),
       true
     )
 
@@ -781,12 +793,15 @@ describe('API keys mutate drawer direct group selection', () => {
     installApiFixtures([], { apiKey, updatedPayloads })
     await renderCreateDrawer(undefined, apiKey)
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
     assert.ok(groupTrigger)
-    assert.equal(groupTrigger.textContent?.includes('vip → default'), true)
+    assert.equal(
+      groupTrigger.textContent?.includes('2 access points selected'),
+      true
+    )
 
     await act(async () => findButton('Save changes', true).click())
     await act(async () =>
@@ -857,7 +872,7 @@ describe('API keys mutate drawer model limits', () => {
       }
     )
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
@@ -900,7 +915,7 @@ describe('API keys mutate drawer model limits', () => {
       }
     )
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
@@ -952,7 +967,7 @@ describe('API keys mutate drawer model limits', () => {
       }
     )
 
-    const groupControl = getControlByLabel<HTMLElement>('Group')
+    const groupControl = getControlByLabel<HTMLElement>('Model routing')
     const groupTrigger = groupControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )

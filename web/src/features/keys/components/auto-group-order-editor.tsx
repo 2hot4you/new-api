@@ -66,6 +66,44 @@ type ApiKeyGroupProviderSection = {
   options: ApiKeyGroupOption[]
 }
 
+function buildProviderSections(
+  options: ApiKeyGroupOption[]
+): ApiKeyGroupProviderSection[] {
+  const providersByID = new Map<number, ApiKeyGroupProvider>()
+  for (const option of options) {
+    for (const provider of option.providers ?? []) {
+      const current = providersByID.get(provider.id)
+      if (
+        !current ||
+        (provider.display_order ?? Number.MAX_SAFE_INTEGER) <
+          (current.display_order ?? Number.MAX_SAFE_INTEGER)
+      ) {
+        providersByID.set(provider.id, provider)
+      }
+    }
+  }
+  const providers = [...providersByID.values()].sort(
+    (left, right) =>
+      (left.display_order ?? Number.MAX_SAFE_INTEGER) -
+        (right.display_order ?? Number.MAX_SAFE_INTEGER) ||
+      left.name.localeCompare(right.name) ||
+      left.id - right.id
+  )
+  const sections: ApiKeyGroupProviderSection[] = providers.map((provider) => ({
+    provider,
+    options: options.filter((option) =>
+      option.providers?.some((candidate) => candidate.id === provider.id)
+    ),
+  }))
+  const uncategorized = options.filter(
+    (option) => !option.providers || option.providers.length === 0
+  )
+  if (uncategorized.length > 0) {
+    sections.push({ options: uncategorized })
+  }
+  return sections
+}
+
 type AutoGroupOrderEditorProps = Omit<ComponentProps<'div'>, 'onChange'> & {
   value: string[]
   mode: 'inherit' | 'custom'
@@ -79,7 +117,9 @@ type AutoGroupOrderEditorProps = Omit<ComponentProps<'div'>, 'onChange'> & {
 
 type AutoGroupOrderItemProps = {
   option: ApiKeyGroupOption
+  provider?: ApiKeyGroupProvider
   index: number
+  sortable: boolean
   onMove: (index: number, direction: 'up' | 'down') => void
   onRemove: (group: string) => void
 }
@@ -108,6 +148,7 @@ function CompactRatioBadge(props: { ratio?: number | string }) {
 function AutoGroupOrderItem(props: AutoGroupOrderItemProps) {
   const { t } = useTranslation()
   const dragControls = useDragControls()
+  const iconKey = props.option.icon || props.provider?.icon
 
   const handleDragStart = (event: PointerEvent<HTMLButtonElement>) => {
     dragControls.start(event)
@@ -132,26 +173,34 @@ function AutoGroupOrderItem(props: AutoGroupOrderItemProps) {
       data-selected-group-item={props.option.value}
       className='bg-background flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border p-2'
     >
-      <Button
-        type='button'
-        variant='ghost'
-        size='icon-sm'
-        className='text-muted-foreground cursor-grab touch-none font-mono active:cursor-grabbing'
-        aria-label={t('Drag {{group}} to reorder', {
-          group: props.option.label,
-        })}
-        aria-keyshortcuts='ArrowUp ArrowDown'
-        onPointerDown={handleDragStart}
-        onKeyDown={handleDragKeyDown}
-      >
-        <HugeiconsIcon icon={Drag01Icon} strokeWidth={2} aria-hidden='true' />
-      </Button>
-      <span className='bg-primary/10 text-primary flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums'>
-        {props.index + 1}
-      </span>
-      {props.option.icon && (
-        <span className='shrink-0' aria-hidden='true'>
-          {getLobeIcon(props.option.icon, 20)}
+      {props.sortable && (
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-sm'
+          className='text-muted-foreground cursor-grab touch-none font-mono active:cursor-grabbing'
+          aria-label={t('Drag {{group}} to reorder', {
+            group: props.option.label,
+          })}
+          aria-keyshortcuts='ArrowUp ArrowDown'
+          onPointerDown={handleDragStart}
+          onKeyDown={handleDragKeyDown}
+        >
+          <HugeiconsIcon icon={Drag01Icon} strokeWidth={2} aria-hidden='true' />
+        </Button>
+      )}
+      {props.sortable && (
+        <span className='bg-primary/10 text-primary flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums'>
+          {props.index + 1}
+        </span>
+      )}
+      {iconKey && (
+        <span
+          data-selected-group-icon-key={iconKey}
+          className='shrink-0'
+          aria-hidden='true'
+        >
+          {getLobeIcon(iconKey, 20)}
         </span>
       )}
       <span className='min-w-0 flex-1 overflow-hidden'>
@@ -238,43 +287,14 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
       )
     })
   }, [options, searchValue])
-  const providerSections = useMemo<ApiKeyGroupProviderSection[]>(() => {
-    const providersByID = new Map<number, ApiKeyGroupProvider>()
-    for (const option of filteredOptions) {
-      for (const provider of option.providers ?? []) {
-        const current = providersByID.get(provider.id)
-        if (
-          !current ||
-          (provider.display_order ?? Number.MAX_SAFE_INTEGER) <
-            (current.display_order ?? Number.MAX_SAFE_INTEGER)
-        ) {
-          providersByID.set(provider.id, provider)
-        }
-      }
-    }
-    const providers = [...providersByID.values()].sort(
-      (left, right) =>
-        (left.display_order ?? Number.MAX_SAFE_INTEGER) -
-          (right.display_order ?? Number.MAX_SAFE_INTEGER) ||
-        left.name.localeCompare(right.name) ||
-        left.id - right.id
-    )
-    const sections: ApiKeyGroupProviderSection[] = providers.map(
-      (provider) => ({
-        provider,
-        options: filteredOptions.filter((option) =>
-          option.providers?.some((candidate) => candidate.id === provider.id)
-        ),
-      })
-    )
-    const uncategorized = filteredOptions.filter(
-      (option) => !option.providers || option.providers.length === 0
-    )
-    if (uncategorized.length > 0) {
-      sections.push({ options: uncategorized })
-    }
-    return sections
-  }, [filteredOptions])
+  const providerSections = useMemo(
+    () => buildProviderSections(filteredOptions),
+    [filteredOptions]
+  )
+  const selectedProviderSections = useMemo(
+    () => buildProviderSections(selectedOptions),
+    [selectedOptions]
+  )
 
   const emitCustomGroups = (groups: string[]) => {
     props.onChange({ groups, mode: 'custom' })
@@ -289,21 +309,43 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
     emitCustomGroups([...selectedValues, group])
   }
 
-  const handleMove = (index: number, direction: 'up' | 'down') => {
-    const targetIndex = direction === 'up' ? index - 1 : index + 1
-    if (targetIndex < 0 || targetIndex >= selectedValues.length) return
-    const next = [...selectedValues]
-    ;[next[index], next[targetIndex]] = [next[targetIndex], next[index]]
-    emitCustomGroups(next)
+  const handleSectionReorder = (
+    sectionValues: string[],
+    reorderedValues: string[]
+  ) => {
+    const sectionSet = new Set(sectionValues)
+    let nextSectionIndex = 0
+    emitCustomGroups(
+      selectedValues.map((group) =>
+        sectionSet.has(group)
+          ? (reorderedValues[nextSectionIndex++] ?? group)
+          : group
+      )
+    )
   }
 
-  let routingDescription = t('No groups selected')
+  const handleMove = (
+    sectionValues: string[],
+    index: number,
+    direction: 'up' | 'down'
+  ) => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= sectionValues.length) return
+    const next = [...sectionValues]
+    ;[next[index], next[targetIndex]] = [next[targetIndex], next[index]]
+    handleSectionReorder(sectionValues, next)
+  }
+
+  const selectionLabel = t('{{count}} access points selected', {
+    count: selectedOptions.length,
+  })
+  let routingDescription = t('No access points selected')
   if (selectedOptions.length === 1) {
-    routingDescription = t('One group uses fixed routing')
+    routingDescription = t('One access point selected')
   } else if (selectedOptions.length > 1) {
-    routingDescription = t('{{count}} groups will be tried in order', {
-      count: selectedOptions.length,
-    })
+    routingDescription = t(
+      'Routes are matched to supporting access points by requested model'
+    )
   }
 
   return (
@@ -313,7 +355,7 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
       data-form-root={props['data-form-root']}
       role='group'
       tabIndex={-1}
-      aria-label={props['aria-label'] || t('Group selection order')}
+      aria-label={props['aria-label'] || t('Model routing')}
       aria-describedby={props['aria-describedby']}
       aria-invalid={props['aria-invalid']}
       className={cn(
@@ -330,10 +372,8 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
               role='combobox'
               aria-label={
                 selectedOptions.length > 0
-                  ? `${t('Group selection order')}: ${selectedOptions
-                      .map((option) => option.label)
-                      .join(' → ')}`
-                  : t('Group selection order')
+                  ? `${t('Model routing')}: ${selectionLabel}`
+                  : t('Model routing')
               }
               aria-describedby={routingDescriptionId}
               aria-expanded={open}
@@ -344,8 +384,8 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
           <span className='min-w-0 flex-1'>
             <span className='block truncate font-medium'>
               {selectedOptions.length > 0
-                ? selectedOptions.map((option) => option.label).join(' → ')
-                : t('Select groups')}
+                ? selectionLabel
+                : t('Select access points')}
             </span>
             <span
               id={routingDescriptionId}
@@ -422,6 +462,7 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
                     const selected = selectedValues.includes(option.value)
                     const disabled =
                       !selected && selectedValues.length >= maxCount
+                    const optionIconKey = option.icon || section.provider?.icon
                     return (
                       <button
                         key={`${section.provider?.id ?? 'uncategorized'}-${option.value}`}
@@ -448,9 +489,13 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
                             <Check className='size-3' strokeWidth={3} />
                           )}
                         </span>
-                        {option.icon && (
-                          <span className='mt-0.5 shrink-0' aria-hidden='true'>
-                            {getLobeIcon(option.icon, 20)}
+                        {optionIconKey && (
+                          <span
+                            data-group-option-icon-key={optionIconKey}
+                            className='mt-0.5 shrink-0'
+                            aria-hidden='true'
+                          >
+                            {getLobeIcon(optionIconKey, 20)}
                           </span>
                         )}
                         <span className='min-w-0 flex-1'>
@@ -479,7 +524,7 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
 
       <div className='flex items-center justify-between gap-3'>
         <p className='text-muted-foreground text-xs' aria-live='polite'>
-          {t('{{count}} / {{max}} groups selected', {
+          {t('{{count}} / {{max}} access points selected', {
             count: selectedOptions.length,
             max: maxCount,
           })}
@@ -508,23 +553,79 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
       </div>
 
       {selectedOptions.length > 0 && (
-        <Reorder.Group
-          axis='y'
-          values={selectedValues}
-          onReorder={emitCustomGroups}
-          className='flex w-full max-w-full min-w-0 flex-col gap-2 overflow-x-hidden'
-          aria-label={t('Selected group priority')}
+        <div
+          className='flex w-full max-w-full min-w-0 flex-col gap-3 overflow-x-hidden'
+          aria-label={t('Selected model routes')}
         >
-          {selectedOptions.map((option, index) => (
-            <AutoGroupOrderItem
-              key={option.value}
-              option={option}
-              index={index}
-              onMove={handleMove}
-              onRemove={handleToggle}
-            />
-          ))}
-        </Reorder.Group>
+          {selectedProviderSections.map((section) => {
+            const sectionLabel = section.provider?.name ?? t('Uncategorized')
+            const sectionValues = section.options.map((option) => option.value)
+            const sortable = section.options.length > 1
+            return (
+              <section
+                key={section.provider?.id ?? 'uncategorized'}
+                data-selected-provider-section={sectionLabel}
+                aria-label={sectionLabel}
+                className='bg-muted/20 overflow-hidden rounded-xl border'
+              >
+                <div className='bg-muted/40 flex items-center gap-2 border-b px-3 py-2'>
+                  {section.provider && (
+                    <span
+                      data-selected-provider-icon-key={
+                        section.provider.icon ?? ''
+                      }
+                      className='shrink-0'
+                      aria-hidden='true'
+                    >
+                      {getLobeIcon(
+                        section.provider.icon || section.provider.name,
+                        18
+                      )}
+                    </span>
+                  )}
+                  <span className='min-w-0 flex-1 truncate text-sm font-medium'>
+                    {sectionLabel}
+                  </span>
+                  <Badge variant='outline' className='px-1.5 text-[10px]'>
+                    {section.options.length}
+                  </Badge>
+                </div>
+                <p className='text-muted-foreground border-b px-3 py-1.5 text-xs'>
+                  {sortable
+                    ? t(
+                        'Drag to set fallback priority when access points support the same model'
+                      )
+                    : t('Matched automatically for supported models')}
+                </p>
+                <Reorder.Group
+                  axis='y'
+                  values={sectionValues}
+                  onReorder={(values) =>
+                    handleSectionReorder(sectionValues, values)
+                  }
+                  className='flex w-full max-w-full min-w-0 flex-col gap-2 p-2'
+                  aria-label={t('{{provider}} access point priority', {
+                    provider: sectionLabel,
+                  })}
+                >
+                  {section.options.map((option, index) => (
+                    <AutoGroupOrderItem
+                      key={option.value}
+                      option={option}
+                      provider={section.provider}
+                      index={index}
+                      sortable={sortable}
+                      onMove={(itemIndex, direction) =>
+                        handleMove(sectionValues, itemIndex, direction)
+                      }
+                      onRemove={handleToggle}
+                    />
+                  ))}
+                </Reorder.Group>
+              </section>
+            )
+          })}
+        </div>
       )}
     </div>
   )
