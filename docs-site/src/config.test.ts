@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import siteConfig from '../docusaurus.config';
 import { resolvePublicConfig } from './config';
@@ -109,11 +111,11 @@ test('rejects a partially configured development Algolia search', () => {
   ).toThrow('Development Algolia search requires');
 });
 
-test('keeps New API and QuantumNous attribution visible in the footer', () => {
-  const footer = siteConfig.themeConfig?.footer as { copyright?: string };
+test('keeps New API and QuantumNous attribution visible in the custom footer', async () => {
+  const footer = await readFile(join(import.meta.dir, 'theme/Footer/index.tsx'), 'utf8');
 
-  expect(footer.copyright).toContain('New API');
-  expect(footer.copyright).toContain('QuantumNous');
+  expect(footer).toContain('New API');
+  expect(footer).toContain('QuantumNous');
 });
 
 test('links the documentation wordmark to the configured site origin', () => {

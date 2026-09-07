@@ -352,13 +352,12 @@ describe('prepareOpenApi', () => {
     }
   });
 
-  test('points primary API reference navigation at the default MDX overview', () => {
+  test('points primary API reference navigation at the default MDX overview', async () => {
     const navbar = siteConfig.themeConfig?.navbar as { items?: Array<{ label?: string; to?: string }> };
-    const footer = siteConfig.themeConfig?.footer as { links?: Array<{ items?: Array<{ label?: string; to?: string }> }> };
+    const footer = await readFile(join(import.meta.dir, '../src/theme/Footer/index.tsx'), 'utf8');
 
     expect(navbar.items?.find((item) => item.label === 'API 参考')?.to)
       .toBe('/api-reference');
-    expect(footer.links?.flatMap((group) => group.items ?? []).find((item) => item.label === 'API 参考')?.to)
-      .toBe('/api-reference');
+    expect(footer).toContain("useBaseUrl('/api-reference')");
   });
 });

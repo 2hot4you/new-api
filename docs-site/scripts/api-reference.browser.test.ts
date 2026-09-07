@@ -213,7 +213,15 @@ describe('default MDX API reference', () => {
       await expect(searchButton.count()).resolves.toBe(1);
       await expect(desktop.getByRole('button', { name: /切换.*模式/ }).count()).resolves.toBe(0);
       await expect(desktop.locator('html').getAttribute('data-theme')).resolves.toBe('light');
-      await expect(desktop.locator('.footer__title').allTextContents()).resolves.toEqual(['开发者资源']);
+      const footer = desktop.locator('footer');
+      await expect(footer.getByRole('heading', { level: 2 }).allTextContents())
+        .resolves.toEqual(['产品', '开发者', '厂商', '支持']);
+      await expect(footer.getByRole('link', { name: '返回 Molii 首页' }).getAttribute('href'))
+        .resolves.toBe(`${configuredSiteUrl}/`);
+      await expect(footer.getByRole('link', { name: 'API 文档' }).getAttribute('href'))
+        .resolves.toBe(docsRoute('/api-reference'));
+      await expect(footer.getByRole('link', { name: '模型广场' }).first().getAttribute('href'))
+        .resolves.toBe(`${configuredSiteUrl}/pricing`);
       expect(errors).toEqual([]);
     } finally {
       await desktop.close();

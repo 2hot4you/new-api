@@ -78,20 +78,6 @@ const config: Config = {
         { label: '帮助与更新', to: '/help' },
       ],
     },
-    footer: {
-      style: 'dark',
-      links: [
-        {
-          title: '开发者资源',
-          items: [
-            { label: '快速开始', to: '/quick-start' },
-            { label: 'API 参考', to: '/api-reference' },
-            { label: '帮助', to: '/help' },
-          ],
-        },
-      ],
-      copyright: `Copyright © ${new Date().getFullYear()} Molii. 保留所有权利。基于 New API（QuantumNous）构建。`,
-    },
   },
   customFields: {
     apiBaseUrl: publicConfig.apiBaseUrl,

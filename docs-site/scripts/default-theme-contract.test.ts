@@ -10,14 +10,15 @@ async function source(relativePath: string) {
 }
 
 describe('Docusaurus default-theme contract', () => {
-  test('uses official Docusaurus shell components without custom replacements', async () => {
+  test('uses the official Docusaurus shell with a scoped footer replacement', async () => {
     const config = await source('docusaurus.config.ts');
     const fonts = await source('src/css/fonts.css');
 
     expect(config).toContain("customCss: './src/css/fonts.css'");
     expect(fonts).toContain("@import '@fontsource-variable/lora';");
     await expect(access(join(siteRoot, 'src/css/shell.css'), constants.F_OK)).rejects.toThrow();
-    await expect(access(join(siteRoot, 'src/theme/Footer/Layout/index.tsx'), constants.F_OK)).rejects.toThrow();
+    await expect(access(join(siteRoot, 'src/theme/Footer/index.tsx'), constants.F_OK)).resolves.toBeNull();
+    await expect(access(join(siteRoot, 'src/theme/Footer/styles.module.css'), constants.F_OK)).resolves.toBeNull();
     await expect(access(join(siteRoot, 'src/css/custom.css'), constants.F_OK)).rejects.toThrow();
   });
 
@@ -38,7 +39,6 @@ describe('Docusaurus default-theme contract', () => {
     expect(config).not.toContain('docusaurus-theme-openapi-docs');
     expect(config).not.toContain("docItemComponent: '@theme/ApiItem'");
     expect(config).not.toContain('preserveOpenApiPackagesCommonJs');
-    expect(config).toContain('New API（QuantumNous）');
     expect(config).toContain("defaultMode: 'light'");
     expect(config).toContain('disableSwitch: true');
     expect(config).toContain('respectPrefersColorScheme: false');
@@ -78,16 +78,28 @@ describe('Docusaurus default-theme contract', () => {
     await expect(access(join(siteRoot, 'src/pages/index.module.css'), constants.F_OK)).rejects.toThrow();
   });
 
-  test('uses the concise default Docusaurus footer', async () => {
-    const config = await source('docusaurus.config.ts');
+  test('uses the same five-part information architecture as the Molii home footer', async () => {
+    const [config, footer] = await Promise.all([
+      source('docusaurus.config.ts'),
+      source('src/theme/Footer/index.tsx'),
+    ]);
 
-    expect(config).toContain("title: '开发者资源'");
-    for (const label of ['快速开始', 'API 参考', '帮助']) {
-      expect(config).toContain(`label: '${label}'`);
+    expect(config).not.toContain('footer: {');
+    for (const title of ['产品', '开发者', '厂商', '支持']) {
+      expect(footer).toContain(title);
     }
-    for (const removedTitle of ['产品', '开发者', '厂商', '支持']) {
-      expect(config).not.toContain(`title: '${removedTitle}'`);
-    }
+    expect(footer).toContain('通过统一 API Key 连接语言、图片与视频模型');
+    expect(footer).toContain('OpenAI、Anthropic 与 Gemini 兼容 API');
+    expect(footer).toContain('New API');
+    expect(footer).toContain('QuantumNous');
+  });
+
+  test('keeps platform links at the origin root and docs links under the configured base path', async () => {
+    const footer = await source('src/theme/Footer/index.tsx');
+
+    expect(footer).toContain("platformUrl('/pricing')");
+    expect(footer).toContain("useBaseUrl('/quick-start')");
+    expect(footer).toContain("useBaseUrl('/api-reference')");
   });
 
   test('registers API reference pages in the ordinary Docs sidebar', async () => {
