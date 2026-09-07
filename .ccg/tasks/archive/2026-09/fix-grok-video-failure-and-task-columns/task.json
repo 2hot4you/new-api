@@ -1,0 +1,12 @@
+{
+  "id": "fix-grok-video-failure-and-task-columns",
+  "title": "修复 Grok Video 失败状态同步并补齐任务列表令牌与模型字段",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交变更",
+  "createdAt": "2026-09-07T00:00:00+08:00",
+  "branch": "develop"
+}
