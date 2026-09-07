@@ -135,3 +135,41 @@ func TestTaskLogDTOKeepsFailureReasonAndDoesNotMarkPluginTaskLegacy(t *testing.T
 	assert.Empty(t, pluginView.ResultURL)
 	assert.Empty(t, pluginView.FailReason)
 }
+
+func TestTaskLogDTOIncludesTokenNameAndRequestedModelWithoutPrivateTokenData(t *testing.T) {
+	const tokenID = 987601
+	db := setupTaskDTOBillingDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Token{}))
+	require.NoError(t, db.Create(&model.Token{
+		Id:     tokenID,
+		UserId: 77,
+		Key:    "private-task-token-key",
+		Name:   "Video production",
+		Status: common.TokenStatusEnabled,
+	}).Error)
+
+	task := &model.Task{
+		TaskID:   "task_public_model_token",
+		UserId:   77,
+		Platform: constant.TaskPlatform("62"),
+		Group:    "xAI Video",
+		Properties: model.Properties{
+			OriginModelName:   "grok-imagine-video-1.5",
+			UpstreamModelName: "grok-video-v2-internal",
+		},
+		PrivateData: model.TaskPrivateData{TokenId: tokenID},
+	}
+
+	view := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+	assert.Equal(t, "Video production", view.TokenName)
+	properties, ok := view.Properties.(model.Properties)
+	require.True(t, ok)
+	assert.Equal(t, "grok-imagine-video-1.5", properties.OriginModelName)
+
+	encoded, err := common.Marshal(view)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"token_name":"Video production"`)
+	assert.Contains(t, string(encoded), `"origin_model_name":"grok-imagine-video-1.5"`)
+	assert.NotContains(t, string(encoded), "private-task-token-key")
+	assert.NotContains(t, string(encoded), `"token_id"`)
+}

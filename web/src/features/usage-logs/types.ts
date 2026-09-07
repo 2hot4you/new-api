@@ -392,6 +392,7 @@ export interface TaskLog {
   task_id: string
   action: string // MUSIC, LYRICS, GENERATE, TEXT_GENERATE, etc.
   channel_id: number
+  token_name?: string
   group?: string
   submit_time: number // seconds
   start_time?: number // seconds

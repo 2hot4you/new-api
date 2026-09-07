@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -41,6 +42,14 @@ const unresolvedFileIDMessage = "Molii file_id could not be resolved"
 var supportedVideoAspectRatios = map[string]struct{}{
 	"1:1": {}, "16:9": {}, "9:16": {}, "4:3": {}, "3:4": {}, "3:2": {}, "2:3": {},
 }
+
+var (
+	grokPollingURLPattern       = regexp.MustCompile(`(?i)https?://[^\s)]+`)
+	grokPollingRequestIDPattern = regexp.MustCompile(`(?i)\(?\s*request[-_ ]?id\s*[:=]\s*[^\s,)]+\s*\)?`)
+	grokPollingBearerPattern    = regexp.MustCompile(`(?i)bearer\s+[^\s,]+`)
+	grokPollingAPIKeyPattern    = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]+\b`)
+	grokPollingCodePattern      = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+)
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	if info == nil {
@@ -775,6 +784,13 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 	if err := common.Unmarshal(body, &upstream); err != nil {
 		return nil, errors.New("Molii Grok Imagine API request failed")
 	}
+	if upstream.Error != nil {
+		return &relaycommon.TaskInfo{
+			Status:   model.TaskStatusFailure,
+			Progress: "100%",
+			Reason:   safeGrokPollingFailureReason(upstream.Error),
+		}, nil
+	}
 	status := strings.ToLower(strings.TrimSpace(upstream.Status))
 	if status == "" {
 		return nil, errors.New("Molii Grok Imagine API request failed")
@@ -788,7 +804,7 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 	}
 	result := &relaycommon.TaskInfo{Progress: strconv.Itoa(progress) + "%"}
 	switch status {
-	case "done":
+	case "done", "completed", "succeeded", "success":
 		result.Status = model.TaskStatusSuccess
 		result.Progress = "100%"
 		result.Url = strings.TrimSpace(upstream.Video.URL)
@@ -798,14 +814,49 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		if !service.IsTrustedMoliiGrokVideoURL(result.Url) {
 			return nil, errors.New("Molii Grok Imagine API returned an invalid video result")
 		}
-	case "failed", "expired":
+	case "failed", "failure", "error", "expired", "rejected", "cancelled", "canceled":
 		result.Status = model.TaskStatusFailure
 		result.Progress = "100%"
 		result.Reason = "Molii Grok Imagine API task failed"
-	default:
+	case "pending", "queued", "processing", "in_progress", "running", "submitted":
 		result.Status = model.TaskStatusInProgress
+	default:
+		return nil, errors.New("Molii Grok Imagine API returned an unknown task status")
 	}
 	return result, nil
+}
+
+func safeGrokPollingFailureReason(providerError *videoProviderError) string {
+	const fallback = "Molii Grok Imagine API task failed"
+	if providerError == nil {
+		return fallback
+	}
+
+	message := strings.TrimSpace(providerError.Message)
+	message = grokPollingURLPattern.ReplaceAllString(message, "")
+	message = grokPollingRequestIDPattern.ReplaceAllString(message, "")
+	message = grokPollingBearerPattern.ReplaceAllString(message, "")
+	message = grokPollingAPIKeyPattern.ReplaceAllString(message, "")
+	message = strings.Join(strings.Fields(message), " ")
+	messageRunes := []rune(message)
+	if len(messageRunes) > 240 {
+		message = string(messageRunes[:240]) + "…"
+	}
+
+	code := grokPollingCodePattern.ReplaceAllString(strings.TrimSpace(providerError.Code), "")
+	if len(code) > 64 {
+		code = code[:64]
+	}
+	if message == "" && code == "" {
+		return fallback
+	}
+	if message == "" {
+		return fmt.Sprintf("%s (%s)", fallback, code)
+	}
+	if code == "" {
+		return fmt.Sprintf("%s: %s", fallback, message)
+	}
+	return fmt.Sprintf("%s: %s (%s)", fallback, message, code)
 }
 
 func normalizePollingResolution(value string) string {
@@ -835,7 +886,11 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 		video.SetMetadata("url", resultURL)
 	}
 	if task.Status == model.TaskStatusFailure {
-		video.Error = &dto.OpenAIVideoError{Code: "molii_grok_task_failed", Message: "Molii Grok Imagine API task failed"}
+		message := strings.TrimSpace(task.FailReason)
+		if message == "" {
+			message = "Molii Grok Imagine API task failed"
+		}
+		video.Error = &dto.OpenAIVideoError{Code: "molii_grok_task_failed", Message: message}
 	}
 	return common.Marshal(video)
 }
@@ -933,6 +988,20 @@ func (a *TaskAdaptor) SafePollingData(taskResult *relaycommon.TaskInfo) []byte {
 
 func (a *TaskAdaptor) IsTaskPollingStatusAccepted(statusCode int) bool {
 	return statusCode == http.StatusOK || statusCode == http.StatusAccepted
+}
+
+func (a *TaskAdaptor) IsTaskPollingErrorTerminal(statusCode int) bool {
+	switch statusCode {
+	case http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusGone,
+		http.StatusUnprocessableEntity:
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *TaskAdaptor) IsPrivateTaskPolling() bool { return true }

@@ -66,6 +66,10 @@ type PrivateTaskPollingAdaptor interface {
 	SafePollingError(statusCode int) error
 }
 
+type privateTaskPollingTerminalClassifier interface {
+	IsTaskPollingErrorTerminal(statusCode int) bool
+}
+
 func privateTaskPollingAdaptor(adaptor TaskPollingAdaptor) (PrivateTaskPollingAdaptor, bool) {
 	privacy, ok := adaptor.(PrivateTaskPollingAdaptor)
 	return privacy, ok && privacy.IsPrivateTaskPolling()
@@ -752,19 +756,30 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 		return fmt.Errorf("readAll failed for task %s: %w", taskId, err)
 	}
+	var taskResult *relaycommon.TaskInfo
 	if privatePolling && !privacy.IsTaskPollingStatusAccepted(resp.StatusCode) {
-		return privacy.SafePollingError(resp.StatusCode)
+		classifier, canClassify := adaptor.(privateTaskPollingTerminalClassifier)
+		if !canClassify || !classifier.IsTaskPollingErrorTerminal(resp.StatusCode) {
+			return privacy.SafePollingError(resp.StatusCode)
+		}
+		taskResult, err = adaptor.ParseTaskResult(responseBody)
+		if err != nil || taskResult == nil || taskResult.Status != model.TaskStatusFailure {
+			taskResult = relaycommon.FailTaskInfo(privacy.SafePollingError(resp.StatusCode).Error())
+			err = nil
+		}
 	}
 
 	snap := task.Snapshot()
 
-	taskResult := &relaycommon.TaskInfo{}
+	if taskResult == nil {
+		taskResult = &relaycommon.TaskInfo{}
+	}
 	// try parse as New API response format
 	var responseItems taskdto.TaskResponse[model.Task]
-	if !isStarAI && !privatePolling {
+	if taskResult.Status == "" && !isStarAI && !privatePolling {
 		err = common.Unmarshal(responseBody, &responseItems)
 	}
-	if !isStarAI && !privatePolling && err == nil && responseItems.IsSuccess() {
+	if taskResult.Status == "" && !isStarAI && !privatePolling && err == nil && responseItems.IsSuccess() {
 		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
 		t := responseItems.Data
 		taskResult.TaskID = t.TaskID
@@ -773,7 +788,13 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.Progress = t.Progress
 		taskResult.Reason = t.FailReason
 		task.Data = t.Data
-	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
+	} else if taskResult.Status == "" {
+		taskResult, err = adaptor.ParseTaskResult(responseBody)
+		if err == nil && taskResult == nil {
+			err = errors.New("task polling adaptor returned an empty result")
+		}
+	}
+	if err != nil {
 		if isStarAI {
 			return fmt.Errorf("parseTaskResult failed for public task %s", publicTaskID)
 		}
@@ -883,13 +904,13 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		task.FailReason = taskResult.Reason
 		if isStarAI {
 			task.FailReason = sanitizeStarAIText(taskResult.Reason, responseBody, publicTaskID)
-		} else if privatePolling {
+		} else if privatePolling && strings.TrimSpace(task.FailReason) == "" {
 			task.FailReason = "Molii Grok Imagine API task failed"
 		}
 		if isStarAI {
 			logger.LogInfo(ctx, fmt.Sprintf("Molii Volcengine Imagine API public task %s failed", task.TaskID))
 		} else if privatePolling {
-			logger.LogInfo(ctx, fmt.Sprintf("Private public task %s failed", task.TaskID))
+			logger.LogInfo(ctx, fmt.Sprintf("Private public task %s failed: %s", task.TaskID, task.FailReason))
 		} else {
 			logger.LogInfo(ctx, fmt.Sprintf("Task %s failed: %s", task.TaskID, task.FailReason))
 		}

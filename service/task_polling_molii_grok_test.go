@@ -67,6 +67,20 @@ func (a *privateGrokPollingAdaptor) IsTaskPollingStatusAccepted(statusCode int) 
 	return statusCode == http.StatusOK || statusCode == http.StatusAccepted
 }
 
+func (a *privateGrokPollingAdaptor) IsTaskPollingErrorTerminal(statusCode int) bool {
+	switch statusCode {
+	case http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusGone,
+		http.StatusUnprocessableEntity:
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *privateGrokPollingAdaptor) SafePollingData(result *relaycommon.TaskInfo) []byte {
 	body, _ := common.Marshal(map[string]any{"status": result.Status, "progress": result.Progress})
 	return body
@@ -213,6 +227,79 @@ func TestPrivateGrokPollingRejectsUnexpectedHTTPStatusWithoutRawBody(t *testing.
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "raw provider body")
 	assert.NotContains(t, err.Error(), "upstream-secret")
+}
+
+func TestPrivateGrokPollingTerminalClientErrorFailsAndQueuesSingleRefund(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	const userID, tokenID, channelID = 623, 624, 625
+	const taskQuota = 2500
+	const upstreamID = "upstream-private-client-error"
+	seedUser(t, userID, 7000)
+	seedToken(t, tokenID, userID, "sk-grok-client-error", 4000)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, taskQuota, tokenID, BillingSourceWallet, 0)
+	task.TaskID = "task_public_grok_client_error"
+	task.Platform = constant.TaskPlatform("62")
+	task.PrivateData.UpstreamTaskID = upstreamID
+	task.PrivateData.BillingContext.PerCallBilling = true
+	require.NoError(t, model.DB.Create(task).Error)
+
+	var firstPoll, stalePoll model.Task
+	require.NoError(t, model.DB.First(&firstPoll, task.ID).Error)
+	require.NoError(t, model.DB.First(&stalePoll, task.ID).Error)
+	adaptor := &privateGrokPollingAdaptor{
+		statusCode: http.StatusBadRequest,
+		body:       []byte(`{"error":{"code":"invalid_prompt","message":"safe validation failure"},"request_id":"private"}`),
+		result: &relaycommon.TaskInfo{
+			Status:   model.TaskStatusFailure,
+			Progress: "100%",
+			Reason:   "Molii Grok Imagine API task failed: safe validation failure (invalid_prompt)",
+		},
+	}
+	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
+
+	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: &firstPoll}))
+	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: &stalePoll}))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Equal(t, "100%", reloaded.Progress)
+	assert.Equal(t, adaptor.result.Reason, reloaded.FailReason)
+	assert.NotZero(t, reloaded.FinishTime)
+	loadTaskBillingJobByTaskID(t, task.ID)
+	var jobCount int64
+	require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("task_id = ?", task.ID).Count(&jobCount).Error)
+	assert.Equal(t, int64(1), jobCount)
+}
+
+func TestPrivateGrokPollingUnparseableNotFoundStillFailsSafely(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	const userID, channelID = 626, 627
+	const upstreamID = "upstream-private-not-found"
+	seedUser(t, userID, 7000)
+	seedChannel(t, channelID)
+	task := makeTask(userID, channelID, 0, 0, BillingSourceWallet, 0)
+	task.TaskID = "task_public_grok_not_found"
+	task.Platform = constant.TaskPlatform("62")
+	task.PrivateData.UpstreamTaskID = upstreamID
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &privateGrokPollingAdaptor{
+		statusCode: http.StatusNotFound,
+		body:       []byte(`{"error":"raw provider body","request_id":"private"}`),
+		result:     nil,
+	}
+	channel := &model.Channel{Id: channelID, Type: constant.ChannelTypeMoliiGrokAIGC, Name: "grok", Key: "secret"}
+
+	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, upstreamID, map[string]*model.Task{upstreamID: task}))
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Contains(t, reloaded.FailReason, "polling failed")
+	assert.NotContains(t, reloaded.FailReason, "raw provider body")
+	assert.NotContains(t, reloaded.FailReason, "private")
 }
 
 func TestUpdateVideoTasksRejectsMoliiGrokPlatformChannelMismatchBeforeFetch(t *testing.T) {

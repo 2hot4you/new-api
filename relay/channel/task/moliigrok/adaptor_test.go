@@ -693,6 +693,44 @@ func TestParseVideoTaskStatusesAndClampProgress(t *testing.T) {
 	}
 }
 
+func TestParseVideoTaskTreatsProviderErrorAsTerminalFailure(t *testing.T) {
+	body := []byte(`{
+		"status":"processing",
+		"progress":37,
+		"request_id":"upstream-private-request-id",
+		"error":{
+			"code":"content_policy_violation",
+			"message":"Prompt rejected by content policy (Request-ID: upstream-private-request-id) https://provider.invalid/private"
+		}
+	}`)
+
+	result, err := (&TaskAdaptor{}).ParseTaskResult(body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, model.TaskStatusFailure, result.Status)
+	assert.Equal(t, "100%", result.Progress)
+	assert.Contains(t, result.Reason, "content_policy_violation")
+	assert.Contains(t, result.Reason, "Prompt rejected by content policy")
+	assert.NotContains(t, result.Reason, "upstream-private-request-id")
+	assert.NotContains(t, result.Reason, "provider.invalid")
+}
+
+func TestParseVideoTaskRecognizesFailureAliasesAndRejectsUnknownStatus(t *testing.T) {
+	for _, status := range []string{"failure", "error", "rejected", "cancelled", "canceled"} {
+		t.Run(status, func(t *testing.T) {
+			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(`{"status":"` + status + `","progress":20}`))
+			require.NoError(t, err)
+			assert.Equal(t, model.TaskStatusFailure, result.Status)
+			assert.Equal(t, "100%", result.Progress)
+		})
+	}
+
+	result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(`{"status":"provider_new_state","progress":20}`))
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.NotContains(t, err.Error(), "provider_new_state")
+}
+
 func TestParseVideoTaskResultNormalizesExplicitResolution(t *testing.T) {
 	for _, tt := range []struct {
 		resolution string
@@ -767,6 +805,21 @@ func TestConvertToOpenAIVideoIgnoresStoredResultAndRejectsUntrustedDirectURL(t *
 	require.NoError(t, err)
 	assert.NotContains(t, string(body), "other.example")
 	assert.NotContains(t, string(body), "result.mp4")
+}
+
+func TestConvertToOpenAIVideoReturnsPersistedSafeFailureReason(t *testing.T) {
+	task := &model.Task{
+		TaskID:     "task_public_failed",
+		Status:     model.TaskStatusFailure,
+		FailReason: "Molii Grok Imagine API task failed: Prompt rejected (content_policy_violation)",
+		Properties: model.Properties{OriginModelName: VideoModel},
+	}
+
+	body, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "Prompt rejected")
+	assert.Contains(t, string(body), "content_policy_violation")
+	assert.NotContains(t, string(body), "upstream")
 }
 
 func TestTaskSubmitErrorSanitizerHandlesPricingWithoutRequestID(t *testing.T) {

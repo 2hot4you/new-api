@@ -413,6 +413,21 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.T
 			}
 		}
 	}
+	tokenNameMap := make(map[int]string)
+	tokenIDs := types.NewSet[int]()
+	for _, task := range tasks {
+		if task != nil && task.PrivateData.TokenId > 0 {
+			tokenIDs.Add(task.PrivateData.TokenId)
+		}
+	}
+	if ids := tokenIDs.Items(); len(ids) > 0 && model.DB != nil {
+		var tokens []model.Token
+		if err := model.DB.Unscoped().Select("id", "name").Where("id IN ?", ids).Find(&tokens).Error; err == nil {
+			for _, token := range tokens {
+				tokenNameMap[token.Id] = token.Name
+			}
+		}
+	}
 	billingJobs := make(map[int64]*model.TaskBillingJob)
 	taskIDs := make([]int64, 0, len(tasks))
 	for _, task := range tasks {
@@ -436,6 +451,7 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.T
 			}
 		}
 		item := relay.TaskModel2Dto(task)
+		item.TokenName = tokenNameMap[task.PrivateData.TokenId]
 		isStarAI := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
 		isMoliiGrok := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
 		if isStarAI || isMoliiGrok {

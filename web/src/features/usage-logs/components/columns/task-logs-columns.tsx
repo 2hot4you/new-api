@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
-import { CirclePlay, Music, ReceiptText } from 'lucide-react'
+import { CirclePlay, KeyRound, Music, ReceiptText } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -51,6 +51,7 @@ import {
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
 import { TaskBillingDialog } from '../dialogs/task-billing-dialog'
 import { VideoPreviewDialog } from '../dialogs/video-preview-dialog'
+import { ModelBadge } from '../model-badge'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import { createDurationColumn, createChannelColumn } from './column-helpers'
 
@@ -295,6 +296,62 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       },
     })
   }
+
+  columns.push(
+    {
+      accessorKey: 'token_name',
+      header: t('Token'),
+      cell: function TaskTokenCell({ row }) {
+        const { sensitiveVisible } = useUsageLogsContext()
+        const log = row.original
+        if (!log.token_name) {
+          return <span className='text-muted-foreground/60 text-xs'>-</span>
+        }
+        return (
+          <div className='flex max-w-[180px] flex-col gap-0.5'>
+            <StatusBadge
+              label={sensitiveVisible ? log.token_name : '••••'}
+              icon={KeyRound}
+              copyText={sensitiveVisible ? log.token_name : undefined}
+              size='sm'
+              showDot={false}
+              className='border-border/60 bg-muted/30 text-foreground h-6 max-w-full gap-1.5 overflow-hidden rounded-md border px-2 py-0.5 [font-family:var(--font-body)]'
+            />
+            {log.group ? (
+              <span className='text-muted-foreground truncate text-xs leading-none'>
+                {sensitiveVisible ? log.group : '••••'}
+              </span>
+            ) : null}
+          </div>
+        )
+      },
+      size: 160,
+    },
+    {
+      accessorKey: 'model',
+      header: t('Model'),
+      cell: ({ row }) => {
+        const log = row.original
+        const requestedModel =
+          log.properties?.origin_model_name || log.billing?.model || ''
+        const upstreamModel = log.properties?.upstream_model_name
+        if (!requestedModel) {
+          return <span className='text-muted-foreground/60 text-xs'>-</span>
+        }
+        return (
+          <ModelBadge
+            modelName={requestedModel}
+            actualModel={
+              upstreamModel && upstreamModel !== requestedModel
+                ? upstreamModel
+                : undefined
+            }
+          />
+        )
+      },
+      meta: { mobileTitle: true },
+    }
+  )
 
   columns.push(
     {
