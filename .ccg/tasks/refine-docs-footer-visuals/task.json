@@ -1,0 +1,12 @@
+{
+  "id": "refine-docs-footer-visuals",
+  "title": "修正文档 Footer 图标字体和尺寸",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交",
+  "createdAt": "2026-09-07T18:40:00+08:00",
+  "branch": "develop"
+}

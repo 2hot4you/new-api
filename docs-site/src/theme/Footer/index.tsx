@@ -2,6 +2,7 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import type { ReactNode } from 'react';
 
+import { ProviderIcon, type ProviderName } from './provider-icons';
 import styles from './styles.module.css';
 
 interface FooterLink {
@@ -16,21 +17,20 @@ interface FooterColumnProps {
 }
 
 interface Vendor {
-  mark: string;
-  name: string;
+  name: ProviderName;
 }
 
 const vendors: Vendor[] = [
-  { mark: 'O', name: 'OpenAI' },
-  { mark: 'A', name: 'Anthropic' },
-  { mark: 'G', name: 'Google' },
-  { mark: 'X', name: 'xAI' },
-  { mark: 'D', name: 'DeepSeek' },
-  { mark: 'Z', name: 'Zhipu' },
-  { mark: 'M', name: 'MoonShot' },
-  { mark: 'M', name: 'MiniMax' },
-  { mark: 'Q', name: 'Alibaba' },
-  { mark: 'B', name: 'ByteDance' },
+  { name: 'OpenAI' },
+  { name: 'Anthropic' },
+  { name: 'Google' },
+  { name: 'xAI' },
+  { name: 'DeepSeek' },
+  { name: 'Zhipu' },
+  { name: 'MoonShot' },
+  { name: 'MiniMax' },
+  { name: 'Alibaba' },
+  { name: 'ByteDance' },
 ];
 
 function ArrowUpRight() {
@@ -104,8 +104,12 @@ function VendorColumn({ platformUrl }: { platformUrl: (path: string) => string }
             href={platformUrl(`/pricing?vendor=${encodeURIComponent(vendor.name)}`)}
             className={styles.vendorLink}
           >
-            <span aria-hidden='true' className={styles.vendorMark}>
-              {vendor.mark}
+            <span
+              aria-hidden='true'
+              className={styles.vendorIcon}
+              data-footer-vendor-icon={vendor.name}
+            >
+              <ProviderIcon name={vendor.name} />
             </span>
             <span>{vendor.name}</span>
           </a>

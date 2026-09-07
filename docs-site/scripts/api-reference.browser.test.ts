@@ -228,6 +228,43 @@ describe('default MDX API reference', () => {
     }
   }, 30_000);
 
+  test('matches the homepage footer typography and vendor icon sizing', async () => {
+    const page = await activeBrowser().newPage({ viewport: { width: 1440, height: 1000 } });
+
+    try {
+      await page.goto(`${baseUrl}/quick-start`, { waitUntil: 'domcontentloaded' });
+      const footer = page.locator('footer');
+      const productLink = footer.getByRole('navigation', { name: '产品' }).getByRole('link').first();
+      const vendorIcons = footer.locator('[data-footer-vendor-icon]');
+
+      const styles = await footer.evaluate((element) => ({
+        fontFamily: getComputedStyle(element).fontFamily,
+      }));
+      const linkFontSize = await productLink.evaluate((element) => getComputedStyle(element).fontSize);
+      const titleFontSize = await footer.getByRole('heading', { name: '产品' })
+        .evaluate((element) => getComputedStyle(element).fontSize);
+      const wordmarkHeight = await footer.getByRole('img', { name: 'Molii' })
+        .evaluate((element) => getComputedStyle(element).height);
+
+      expect(styles.fontFamily).toStartWith('"Public Sans Variable"');
+      expect(linkFontSize).toBe('14px');
+      expect(titleFontSize).toBe('12px');
+      expect(wordmarkHeight).toBe('48px');
+      await expect(vendorIcons.count()).resolves.toBe(10);
+      await expect(vendorIcons.locator('img').count()).resolves.toBe(10);
+      await expect(vendorIcons.locator('img').evaluateAll((icons) => icons.every((icon) => {
+        const image = icon as HTMLImageElement;
+        return image.complete && image.naturalWidth > 0;
+      }))).resolves.toBe(true);
+      await expect(vendorIcons.first().evaluate((element) => ({
+        height: getComputedStyle(element).height,
+        width: getComputedStyle(element).width,
+      }))).resolves.toEqual({ height: '16px', width: '16px' });
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
   test('keeps official DocSearch typography isolated from the Serif document theme', async () => {
     if (!usesAlgoliaSearch) return;
 
