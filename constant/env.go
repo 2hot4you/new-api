@@ -1,5 +1,7 @@
 package constant
 
+const DefaultStarAIAssetTTLHours = 168
+
 var StreamingTimeout int
 var DifyDebug bool
 var MaxFileDownloadMB int

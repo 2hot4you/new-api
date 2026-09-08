@@ -319,7 +319,7 @@ curl --fail-with-body --silent --show-error \
 
 ## 临时素材
 
-临时素材把公网图片、视频或音频转换成当前账户可引用的 `asset://` URI。素材有过期时间，不是永久文件存储。
+临时素材把公网图片、视频或音频转换成当前账户可引用的 `asset://` URI。素材默认有效期为 168 小时（7 天），不是永久文件存储，具体过期时间以 `expires_at` 为准。
 
 创建素材：
 
@@ -357,7 +357,7 @@ GET /v1/assets/{id}
   "name": "reference-video-01",
   "status": "SUCCESS",
   "created_at": 1788192000,
-  "expires_at": 1788278400
+  "expires_at": 1788796800
 }
 ```
 

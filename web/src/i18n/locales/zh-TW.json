@@ -5756,7 +5756,7 @@
     "Public media URL": "公開素材 URL",
     "A short name visible only to you": "僅你可見的簡短名稱",
     "My Temporary Assets": "我的臨時素材",
-    "Mappings expire automatically and are not a permanent media library.": "臨時映射會自動過期，這裡不是永久素材庫。",
+    "Mappings expire automatically and are not a permanent media library.": "臨時素材預設保留 168 小時（7 天），這裡不是永久素材庫。",
     "No temporary assets": "暫無臨時素材",
     "Temporary Asset": "臨時素材",
     "Expires in {{hours}} hours": "{{hours}} 小時後過期",

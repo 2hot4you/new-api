@@ -290,7 +290,7 @@ describe('Seedance and temporary asset documentation contract', () => {
     expect(openapi).toContain('所有参考音频总时长不超过 15 秒');
   });
 
-  test('temporary asset guide documents public lifecycle without promising a fixed TTL', async () => {
+  test('temporary asset guide documents the seven-day lifecycle and response expiry authority', async () => {
     const assets = await page('docs/guides/temporary-assets.mdx');
 
     expect(assets).toContain('POST /v1/assets');
@@ -302,6 +302,7 @@ describe('Seedance and temporary asset documentation contract', () => {
       expect(assets).toContain(state);
     }
     expect(assets).toContain('expires_at');
+    expect(assets).toMatch(/168\s*小时/);
     expect(assets).toMatch(/expires_at[^。\n]*(?:为准|读取|响应)/);
     expect(assets).not.toMatch(/固定\s*24\s*(?:小时|h)/i);
     expect(assets).toMatch(/当前账户|同一账户/);

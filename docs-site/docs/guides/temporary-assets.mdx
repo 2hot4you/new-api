@@ -10,7 +10,7 @@ sidebar_position: 2
 
 # 临时素材
 
-临时素材把一个可公开读取的媒体 URL 登记为短期 `asset://` 引用。它适用于 Seedance 图片、视频和音频输入，不等同于永久文件存储。
+临时素材把一个可公开读取的媒体 URL 登记为短期 `asset://` 引用。它适用于 Seedance 图片、视频和音频输入，默认有效期为 168 小时（7 天），不等同于永久文件存储。
 
 所有端点都使用 `Authorization: Bearer $MOLII_API_KEY`。素材归属于创建它的账户；同一账户可以用自己的有效 API Key 查询、删除和引用素材。其他账户的素材不会对你可见。
 
@@ -68,7 +68,7 @@ curl --fail-with-body --silent --show-error \
   "name": "角色参考图",
   "status": "ACTIVE",
   "created_at": 1786300000,
-  "expires_at": 1786386400,
+  "expires_at": 1786904800,
   "verified_at": 1786300012
 }
 ```
@@ -81,7 +81,7 @@ curl --fail-with-body --silent --show-error \
 | `FAILED` | 处理失败 | 否，检查源 URL 后创建新素材 |
 | `EXPIRED` | 已过期或已不可用 | 否 |
 
-有效期由响应决定：始终读取 `expires_at` 并以它为准，不要在客户端假设固定 TTL。计划任务时应预留排队和生成时间；接近过期的素材请先创建新素材。
+平台默认从创建时间起保留临时素材 168 小时。客户端仍应始终读取响应中的 `expires_at` 并以它为准，因为部署配置、提前删除或上游状态变化都可能改变实际有效期。计划任务时应预留排队和生成时间；接近过期的素材请先创建新素材。
 
 ## 3. 在 Seedance 请求中引用
 

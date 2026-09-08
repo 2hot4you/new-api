@@ -109,7 +109,7 @@ func SaveStarAIAssetBinding(binding *StarAIAssetBinding) error {
 	now := time.Now()
 	ttl := time.Duration(constant.StarAIAssetTTLHours) * time.Hour
 	if ttl <= 0 {
-		ttl = 24 * time.Hour
+		ttl = time.Duration(constant.DefaultStarAIAssetTTLHours) * time.Hour
 	}
 	binding.CreatedAt = now.Unix()
 	binding.ExpiresAt = now.Add(ttl).Unix()

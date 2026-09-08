@@ -5756,7 +5756,7 @@
     "Public media URL": "Public media URL",
     "A short name visible only to you": "A short name visible only to you",
     "My Temporary Assets": "My Temporary Assets",
-    "Mappings expire automatically and are not a permanent media library.": "Mappings expire automatically and are not a permanent media library.",
+    "Mappings expire automatically and are not a permanent media library.": "Theo mặc định, tài nguyên tạm thời được lưu giữ trong 168 giờ (7 ngày) và không phải là thư viện phương tiện vĩnh viễn.",
     "No temporary assets": "No temporary assets",
     "Temporary Asset": "Temporary Asset",
     "Expires in {{hours}} hours": "Expires in {{hours}} hours",

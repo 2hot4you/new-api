@@ -17,7 +17,7 @@ sidebar_position: 4
 | HTTP(S) URL | `https://example.invalid/media.png` | Grok 图像/视频输入、Seedance 支持的 content 输入、素材登记 | 服务端必须在任务处理期间可读 |
 | Data URL | `data:image/png;base64,...` | 仅限声明支持的 Seedance content 字段 | Base64 会增大请求体，不适合大文件 |
 | Molii file ID | `{ "file_id": "file_xxx" }` | Grok 图片编辑、视频生成、编辑、延长和参考图 | 仅属于上传用户，固定保留 24 小时 |
-| asset URI | `asset://asset_public_123` | 仅限声明支持的 Seedance content 字段 | 素材必须属于当前 API Key 且未过期 |
+| asset URI | `asset://asset_public_123` | 仅限声明支持的 Seedance content 字段 | 默认保留 168 小时；素材必须属于当前 API Key 且未过期 |
 
 Grok 输入接受 URL 或 Molii `file_id`，不接受 `asset://` URI。Seedance 的 content 输入可根据具体模型支持 Data URL 或 asset URI；字段形状、MIME 类型和大小上限将在具体模型页展开，提交前应以该模型页为准。
 
@@ -81,7 +81,7 @@ Grok 1.5 视频生成需通过 `image` 或 `images` 提供首帧 URL 或 `file_i
 
 如果工作流需要先登记素材，可调用 `POST /v1/assets`。`url`、`asset_type` 和 `name` 都必填；类型为 `image`、`video` 或 `audio`，名称最多 80 个 Unicode 字符。创建成功只返回 `{ "id": "…" }`。
 
-素材会过期。任务完成后可用 `DELETE /v1/assets/{id}` 清理；成功响应是 `{ "success": true }`。不要把过期时间当作永久存储承诺。
+素材默认从创建时间起保留 168 小时（7 天），具体以响应的 `expires_at` 为准。任务完成后可用 `DELETE /v1/assets/{id}` 清理；成功响应是 `{ "success": true }`。不要把临时素材当作永久存储。
 
 ## URL 检查清单
 

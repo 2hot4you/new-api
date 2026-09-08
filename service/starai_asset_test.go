@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -30,6 +31,29 @@ func useStarAIAssetRedis(t *testing.T) {
 		common.RDB = previousRDB
 		constant.StarAIAssetTTLHours = previousTTL
 	})
+}
+
+func TestSaveStarAIAssetBindingUsesSevenDayDefaultTTL(t *testing.T) {
+	useStarAIAssetRedis(t)
+	constant.StarAIAssetTTLHours = 0
+	startedAt := time.Now()
+	binding := &StarAIAssetBinding{
+		UpstreamID: "asset-seven-day-default",
+		UserID:     42,
+		AssetType:  "image",
+		Status:     "ACTIVE",
+		COSKey:     "users/42/starai-assets/image/reference.png",
+	}
+
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+
+	require.WithinDuration(t, startedAt.Add(168*time.Hour), time.Unix(binding.ExpiresAt, 0), time.Second)
+	ttl, err := common.RDB.TTL(context.Background(), starAIAssetKey(binding.ID)).Result()
+	require.NoError(t, err)
+	require.InDelta(t, (168 * time.Hour).Seconds(), ttl.Seconds(), 1)
+	cleanupAt, err := common.RDB.ZScore(context.Background(), starAICOSCleanupIndexKey, binding.COSKey).Result()
+	require.NoError(t, err)
+	require.Equal(t, float64(binding.ExpiresAt), cleanupAt)
 }
 
 func TestStarAIAssetBindingOwnershipLifecycle(t *testing.T) {

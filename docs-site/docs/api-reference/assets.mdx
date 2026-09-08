@@ -10,7 +10,7 @@ sidebar_position: 6
 
 # 临时素材 API
 
-临时素材用于把图片、视频或音频转换成 Seedance 请求可引用的 `asset://` URI。素材属于当前用户并有过期时间，不是永久文件存储。
+临时素材用于把图片、视频或音频转换成 Seedance 请求可引用的 `asset://` URI。素材属于当前用户，默认有效期为 168 小时（7 天），不是永久文件存储。
 
 :::info 适用范围
 
@@ -121,7 +121,7 @@ HTTP `200`：
   "name": "reference-image",
   "status": "ready",
   "created_at": 1785744000,
-  "expires_at": 1785830400,
+  "expires_at": 1786348800,
   "verified_at": 1785744001
 }
 ```
@@ -133,7 +133,7 @@ HTTP `200`：
 | `name` | string | 创建时指定的名称 |
 | `status` | string | 当前处理状态；只有就绪状态可用于生成 |
 | `created_at` | integer | Unix 秒时间戳 |
-| `expires_at` | integer | 过期时间；过期后不能再引用 |
+| `expires_at` | integer | 过期时间；通常为创建后 168 小时，过期后不能再引用 |
 | `verified_at` | integer | 最近验证时间 |
 | `preview_url` | string | 可能存在的短期预览入口 |
 
@@ -146,7 +146,7 @@ HTTP `200`：
 
 ### 计费
 
-查询素材状态不产生视频生成费用，也不会延长素材有效期。响应中的时间字段决定生命周期，客户端不应假设固定 TTL。
+查询素材状态不产生视频生成费用，也不会延长素材有效期。平台默认保留 168 小时，具体生命周期仍以响应中的 `expires_at` 为准。
 
 ## `DELETE /v1/assets/{id}`
 

@@ -211,7 +211,7 @@ func initConstantEnv() {
 	constant.TaskPluginProtocolTickJitterMilliseconds = GetEnvOrDefault("TASK_PLUGIN_PROTOCOL_TICK_JITTER_MILLISECONDS", 500)
 	constant.TaskPluginProtocolHeartbeatSeconds = GetEnvOrDefault("TASK_PLUGIN_PROTOCOL_HEARTBEAT_SECONDS", 15)
 	constant.StarAIResultRetentionHours = GetEnvOrDefault("STARAI_RESULT_RETENTION_HOURS", 24)
-	constant.StarAIAssetTTLHours = GetEnvOrDefault("STARAI_ASSET_TTL_HOURS", 24)
+	initStarAIAssetTTLHours()
 	constant.MoliiGrokNewAPIBaseURL = GetEnvOrDefaultString("MOLII_GROK_NEW_API_BASE_URL", "https://api.wxiai.com")
 	constant.MoliiGrokNewAPIAccessToken = GetEnvOrDefaultString("MOLII_GROK_NEW_API_ACCESS_TOKEN", "")
 	constant.MoliiGrokNewAPIUserID = GetEnvOrDefault("MOLII_GROK_NEW_API_USER_ID", 0)
@@ -241,4 +241,8 @@ func initConstantEnv() {
 		}
 	}
 	constant.TrustedRedirectDomains = trustedDomains
+}
+
+func initStarAIAssetTTLHours() {
+	constant.StarAIAssetTTLHours = GetEnvOrDefault("STARAI_ASSET_TTL_HOURS", constant.DefaultStarAIAssetTTLHours)
 }
