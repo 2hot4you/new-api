@@ -26,6 +26,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
+import { toIntlLocale } from '@/i18n/languages'
 
 import { QuotationEditor } from './components/quotation-editor'
 import { QuotationPreview } from './components/quotation-preview'
@@ -114,6 +115,8 @@ function generatedConditionLabel(
 
 export function ProductQuotation() {
   const { t, i18n } = useTranslation()
+  const intlLocale =
+    toIntlLocale(i18n.resolvedLanguage || i18n.language) ?? 'en'
   const {
     models,
     vendors,
@@ -156,7 +159,7 @@ export function ProductQuotation() {
     models.length > 0 &&
     validation.valid
   const formattedFetchedAt = dataUpdatedAt
-    ? new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language, {
+    ? new Intl.DateTimeFormat(intlLocale, {
         dateStyle: 'medium',
         timeStyle: 'short',
       }).format(new Date(dataUpdatedAt))
@@ -190,7 +193,7 @@ export function ProductQuotation() {
       }
     }
     return {
-      locale: i18n.resolvedLanguage || i18n.language,
+      locale: intlLocale,
       labels: {
         emptyValue: '—',
         customer: t('Customer'),
@@ -236,7 +239,7 @@ export function ProductQuotation() {
       unitLabels,
       conditionLabels,
     }
-  }, [i18n.language, i18n.resolvedLanguage, snapshot, t])
+  }, [intlLocale, snapshot, t])
 
   const handleRefresh = async () => {
     setRefreshing(true)

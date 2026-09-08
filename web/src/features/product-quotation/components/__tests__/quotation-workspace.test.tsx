@@ -127,6 +127,47 @@ afterEach(() => {
 })
 
 describe('product quotation workspace states', () => {
+  test.each([
+    ['zhCN', 'zh-CN'],
+    ['zhTW', 'zh-TW'],
+  ])(
+    'renders fetched pricing and exports a BCP-47 locale for %s',
+    async (interfaceLocale, expectedIntlLocale) => {
+      const user = userEvent.setup()
+      await i18next.changeLanguage(interfaceLocale)
+      localStorage.setItem(
+        'new-api:product-quotation:draft:v1',
+        JSON.stringify({
+          version: 1,
+          draft: {
+            title: 'Chinese locale quotation',
+            customer: '',
+            quotedBy: '',
+            quoteDate: '2026-09-08',
+            globalDiscount: 8,
+            priceBasis: { type: 'raw' },
+            selectedModelIds: ['alpha-chat'],
+            providerOverrides: {},
+          },
+        })
+      )
+
+      expect(() => render(<ProductQuotation />)).not.toThrow()
+      expect(
+        screen.getByLabelText(i18next.t('Quotation preview'))
+      ).toBeInTheDocument()
+
+      await user.click(
+        screen.getByRole('button', {
+          name: i18next.t('Export HTML quotation'),
+        })
+      )
+      expect(mocks.download.mock.calls[0]?.[1]).toMatchObject({
+        locale: expectedIntlLocale,
+      })
+    }
+  )
+
   test('renders loading, fetch failure with retry, and empty pricing states', async () => {
     const user = userEvent.setup()
     setPricing({ models: [], isLoading: true })

@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { toIntlLocale } from '@/i18n/languages'
 
 import { normalizeDiscount } from '../lib/quotation-math'
 import type { QuoteModelSection, QuotationSnapshot } from '../types'
@@ -74,10 +75,13 @@ function UnavailableBadge({ model }: { model: QuoteModelSection }) {
 export function QuotationPreview({ snapshot }: QuotationPreviewProps) {
   const { t, i18n } = useTranslation()
   const fetchedAt = snapshot.fetchedAt
-    ? new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(new Date(snapshot.fetchedAt))
+    ? new Intl.DateTimeFormat(
+        toIntlLocale(i18n.resolvedLanguage || i18n.language),
+        {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        }
+      ).format(new Date(snapshot.fetchedAt))
     : '—'
   const basisLabel =
     snapshot.priceBasis.type === 'raw'
