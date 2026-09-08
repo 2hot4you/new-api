@@ -529,7 +529,7 @@ func (channel *Channel) GetBaseURL() string {
 		return constant.ChannelBaseURLs[channel.Type]
 	}
 	if channel.BaseURL == nil {
-		return ""
+		return constant.GetChannelBaseURL(channel.Type)
 	}
 	url := *channel.BaseURL
 	if url == "" {
