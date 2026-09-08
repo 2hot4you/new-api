@@ -116,11 +116,30 @@ const zhLabels = Object.freeze({
 const zhOptions = Object.freeze({
   locale: 'zh-CN',
   labels: zhLabels,
+  dimensionLabels: Object.freeze({
+    Input: '输入',
+    'Dynamic tier': '动态阶梯',
+  }),
+  unitLabels: Object.freeze({
+    '1M token': '每百万 Token',
+    'request / second': '请求 / 秒',
+  }),
+  conditionLabels: Object.freeze({
+    'duration > 10': '时长 > 10',
+  }),
 }) satisfies QuotationHtmlOptions
 
 const enOptions = Object.freeze({
   locale: 'en',
   labels: enLabels,
+  dimensionLabels: Object.freeze({
+    Input: 'Input',
+    'Dynamic tier': 'Dynamic tier',
+  }),
+  unitLabels: Object.freeze({
+    '1M token': '1M token',
+    'request / second': 'request / second',
+  }),
 }) satisfies QuotationHtmlOptions
 
 function quotationSnapshot(
@@ -204,16 +223,16 @@ describe('standalone quotation HTML', () => {
 
     assert.match(html, /Acme &amp; Partners/)
     assert.match(html, /Provider A/)
-    assert.match(html, /Input/)
+    assert.match(html, /输入/)
     assert.match(html, /\$2/)
     assert.match(html, /\$3/)
     assert.match(html, /\$1\.5/)
     assert.match(html, /USD/)
-    assert.match(html, /1M token/)
-    assert.match(html, /Dynamic tier/)
+    assert.match(html, /每百万 Token/)
+    assert.match(html, /动态阶梯/)
     assert.match(html, /CNY/)
-    assert.match(html, /request \/ second/)
-    assert.match(html, /duration &gt; 10/)
+    assert.match(html, /请求 \/ 秒/)
+    assert.match(html, /时长 &gt; 10/)
     assert.match(html, /待确认/)
     assert.match(html, /white-space:\s*pre-wrap/)
     assert.match(html, /Line one\nLine two/)
@@ -372,11 +391,146 @@ describe('standalone quotation HTML', () => {
     assert.equal(enHtml.includes('待确认'), false)
   })
 
+  test('localizes known fixed-token, task-usage, video, and Grok row values with raw fallback', () => {
+    const snapshot = quotationSnapshot()
+    const provider = snapshot.providers[0]
+    assert.ok(provider)
+    const template = provider.models[0]?.dimensions[0]
+    assert.ok(template)
+    provider.models = [
+      {
+        modelId: 'fixed',
+        displayName: 'Fixed',
+        available: true,
+        unavailableReason: null,
+        dimensions: [
+          {
+            ...template,
+            key: 'input',
+            label: 'Input',
+            sourceType: 'fixed_token',
+            unit: '1M token',
+            condition: null,
+          },
+        ],
+      },
+      {
+        modelId: 'task',
+        displayName: 'Task',
+        available: true,
+        unavailableReason: null,
+        dimensions: [
+          {
+            ...template,
+            key: 'task-tier-0-base',
+            label: 'Base charge',
+            sourceType: 'task_usage',
+            unit: 'request',
+            condition: 'pro; mode = pro',
+          },
+          {
+            ...template,
+            key: 'task-tier-0-clips',
+            label: 'catalog-defined-field',
+            sourceType: 'task_usage',
+            unit: 'count',
+            condition: 'catalog-defined-condition',
+          },
+        ],
+      },
+      {
+        modelId: 'video',
+        displayName: 'Video',
+        available: true,
+        unavailableReason: null,
+        dimensions: [
+          {
+            ...template,
+            key: 'video-0-without-input',
+            label: '720p without video input',
+            sourceType: 'video',
+            unit: '1M token',
+            condition:
+              '720p; fps 24; extra frames 1; Token = ceil(width x height x (fps x duration + extra frames) / 1024)',
+          },
+        ],
+      },
+      {
+        modelId: 'grok',
+        displayName: 'Grok',
+        available: true,
+        unavailableReason: null,
+        dimensions: [
+          {
+            ...template,
+            key: 'grok-output-high/720p',
+            label: 'high/720p output',
+            sourceType: 'grok',
+            unit: 'second',
+            condition: 'high/720p',
+          },
+        ],
+      },
+    ]
+
+    const html = buildQuotationHtml(deepFreeze(snapshot), {
+      ...zhOptions,
+      dimensionLabels: Object.freeze({
+        Input: '输入',
+        'Base charge': '基础费用',
+        '720p without video input': '720p 不含视频输入',
+        'high/720p output': '高质量 720p 输出',
+      }),
+      unitLabels: Object.freeze({
+        '1M token': '每百万 Token',
+        request: '每次请求',
+        count: '次',
+        second: '秒',
+      }),
+      conditionLabels: Object.freeze({
+        'pro; mode = pro': '专业版；模式 = 专业版',
+        '720p; fps 24; extra frames 1; Token = ceil(width x height x (fps x duration + extra frames) / 1024)':
+          '720p；每秒 24 帧；额外帧 1；Token 公式',
+        'high/720p': '高质量 / 720p',
+      }),
+    })
+
+    assert.match(html, />输入<\/td>/)
+    assert.match(html, />基础费用<\/td>/)
+    assert.match(html, />720p 不含视频输入<\/td>/)
+    assert.match(html, />高质量 720p 输出<\/td>/)
+    assert.match(html, />每百万 Token<\/td>/)
+    assert.match(html, />每次请求<\/td>/)
+    assert.match(html, />次<\/td>/)
+    assert.match(html, />秒<\/td>/)
+    assert.match(html, />专业版；模式 = 专业版<\/td>/)
+    assert.match(html, />720p；每秒 24 帧；额外帧 1；Token 公式<\/td>/)
+    assert.match(html, />高质量 \/ 720p<\/td>/)
+    assert.match(html, />catalog-defined-field<\/td>/)
+    assert.match(html, />catalog-defined-condition<\/td>/)
+  })
+
+  test('escapes hostile mapped dimension, unit, and condition labels', () => {
+    const attack = `<img src=x onerror="alert('row-map')">&`
+    const html = buildQuotationHtml(quotationSnapshot(), {
+      ...enOptions,
+      dimensionLabels: { Input: attack },
+      unitLabels: { '1M token': attack },
+      conditionLabels: { 'duration > 10': attack },
+    })
+
+    assert.equal(html.includes(attack), false)
+    assert.equal(html.includes('<img'), false)
+    assert.ok(html.split(escapeHtml(attack)).length >= 4)
+  })
+
   test('escapes hostile locale and translated label text', () => {
     const attack = `"><img src=x onerror="alert('translation')">&`
     const html = buildQuotationHtml(quotationSnapshot(), {
       locale: attack,
       labels: { ...enLabels, customer: attack },
+      dimensionLabels: {},
+      unitLabels: {},
     })
     const parsed = new DOMParser().parseFromString(html, 'text/html')
 

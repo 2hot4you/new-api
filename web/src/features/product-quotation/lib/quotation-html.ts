@@ -67,6 +67,12 @@ export type QuotationHtmlLabels = Readonly<{
 export type QuotationHtmlOptions = Readonly<{
   locale: string
   labels: QuotationHtmlLabels
+  /** Exact raw dimension.label -> localized display text. */
+  dimensionLabels: Readonly<Record<string, string>>
+  /** Exact raw dimension.unit -> localized display text. */
+  unitLabels: Readonly<Record<string, string>>
+  /** Exact raw dimension.condition -> localized display text. */
+  conditionLabels?: Readonly<Record<string, string>>
 }>
 
 export function escapeHtml(value: string): string {
@@ -83,6 +89,16 @@ function displayText(
   labels: QuotationHtmlLabels
 ): string {
   return escapeHtml(value || labels.emptyValue)
+}
+
+function displayMappedText(
+  value: string | null | undefined,
+  lookup: Readonly<Record<string, string>> | undefined,
+  labels: QuotationHtmlLabels
+): string {
+  if (!value) return escapeHtml(labels.emptyValue)
+  const mapped = lookup && Object.hasOwn(lookup, value) ? lookup[value] : value
+  return displayText(mapped, labels)
 }
 
 function displayNumber(
@@ -136,19 +152,19 @@ function statusLabel(
 
 function renderDimension(
   dimension: QuotePriceDimension,
-  labels: QuotationHtmlLabels
+  { labels, dimensionLabels, unitLabels, conditionLabels }: QuotationHtmlOptions
 ): string {
   const statusClass =
     dimension.status === 'needs_confirmation' ? 'status pending' : 'status'
   return `<tr>
-    <td>${displayText(dimension.label, labels)}</td>
+    <td>${displayMappedText(dimension.label, dimensionLabels, labels)}</td>
     <td>${displayText(labels.sourceTypes[dimension.sourceType], labels)}</td>
     <td class="number">${displayAmount(dimension.catalogAmount, dimension, labels)}</td>
     <td class="number">${displayAmount(dimension.sourceAmount, dimension, labels)}</td>
     <td class="number quote-price">${displayAmount(dimension.quoteAmount, dimension, labels)}</td>
     <td>${displayText(dimension.currency, labels)}</td>
-    <td>${displayText(dimension.unit, labels)}</td>
-    <td>${displayText(dimension.condition, labels)}</td>
+    <td>${displayMappedText(dimension.unit, unitLabels, labels)}</td>
+    <td>${displayMappedText(dimension.condition, conditionLabels, labels)}</td>
     <td><span class="${statusClass}">${statusLabel(dimension, labels)}</span></td>
   </tr>`
 }
@@ -198,10 +214,11 @@ function renderUsageExamples(
 
 function renderModel(
   model: QuoteModelSection,
-  labels: QuotationHtmlLabels
+  options: QuotationHtmlOptions
 ): string {
+  const { labels } = options
   const dimensions = model.dimensions
-    .map((dimension) => renderDimension(dimension, labels))
+    .map((dimension) => renderDimension(dimension, options))
     .join('\n')
   const emptyRow = `<tr><td colspan="9" class="empty">${escapeHtml(labels.noDimensions)}</td></tr>`
 
@@ -235,10 +252,11 @@ function renderModel(
 
 function renderProvider(
   provider: QuoteProviderSection,
-  labels: QuotationHtmlLabels
+  options: QuotationHtmlOptions
 ): string {
+  const { labels } = options
   const models = provider.models
-    .map((model) => renderModel(model, labels))
+    .map((model) => renderModel(model, options))
     .join('\n')
   const note = provider.note
     ? `<div class="provider-note"><strong>${escapeHtml(labels.providerNote)}</strong><div>${escapeHtml(provider.note)}</div></div>`
@@ -259,10 +277,11 @@ function renderProvider(
 
 export function buildQuotationHtml(
   snapshot: QuotationSnapshot,
-  { locale, labels }: QuotationHtmlOptions
+  options: QuotationHtmlOptions
 ): string {
+  const { locale, labels } = options
   const providers = snapshot.providers
-    .map((provider) => renderProvider(provider, labels))
+    .map((provider) => renderProvider(provider, options))
     .join('\n')
 
   return `<!doctype html>
