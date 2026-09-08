@@ -1,0 +1,12 @@
+{
+  "id": "fix-starai-unified-submit-adaptor",
+  "title": "修复统一 Seedance 创建请求错误使用 JS 插件请求构建器",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交修复",
+  "createdAt": "2026-09-08T07:11:15Z",
+  "branch": "develop"
+}
