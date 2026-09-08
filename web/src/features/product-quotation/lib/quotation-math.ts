@@ -95,6 +95,10 @@ function normalizeCatalogUnit(unit: string): string {
   return MILLION_TOKEN_UNITS.has(unit) ? TOKEN_UNIT : unit
 }
 
+function videoCurrency(unit: string): QuoteCurrency {
+  return unit.startsWith('usd_') ? 'USD' : 'CNY'
+}
+
 export function normalizeDiscount(
   discountInZhe: number | null | undefined
 ): number | null {
@@ -494,7 +498,7 @@ function videoDimensions(
           label: `${resolution} without video input`,
           sourceType: 'video',
           amount: row.without_video,
-          currency: 'CNY',
+          currency: videoCurrency(pricing.unit),
           unit: normalizeCatalogUnit(pricing.unit),
           condition: metadata,
         },
@@ -507,7 +511,7 @@ function videoDimensions(
           label: `${resolution} with video input`,
           sourceType: 'video',
           amount: row.with_video,
-          currency: 'CNY',
+          currency: videoCurrency(pricing.unit),
           unit: normalizeCatalogUnit(pricing.unit),
           condition: metadata,
         },

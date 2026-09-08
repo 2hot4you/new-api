@@ -340,9 +340,19 @@ describe('canonical quotation snapshot', () => {
           video_input_price: 0.15,
         },
       }),
+      pricingModel({
+        id: 3,
+        model_name: 'seedance-usd',
+        video_pricing: {
+          unit: 'usd_per_million_tokens',
+          fps: 24,
+          extra_frames: 1,
+          rows: [{ resolutions: ['720p'], without_video: 6, with_video: 4 }],
+        },
+      }),
     ])
 
-    const [video, grok] = snapshot.providers[0]?.models ?? []
+    const [video, grok, usdVideo] = snapshot.providers[0]?.models ?? []
     assert.equal(video?.dimensions.length, 4)
     assert.ok(
       video?.dimensions.every(
@@ -365,6 +375,12 @@ describe('canonical quotation snapshot', () => {
         ['grok-image-input', 0.1, 'image'],
         ['grok-video-input', 0.15, 'second'],
       ]
+    )
+    assert.ok(
+      usdVideo?.dimensions.every(
+        (dimension) =>
+          dimension.currency === 'USD' && dimension.unit === '1M token'
+      )
     )
   })
 

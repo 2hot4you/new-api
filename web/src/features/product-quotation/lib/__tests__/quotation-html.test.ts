@@ -249,6 +249,11 @@ describe('standalone quotation HTML', () => {
 
     assert.match(html, /折扣:\s*8 折/)
     assert.doesNotMatch(html, /折扣:\s*—/)
+
+    provider.discount = 5
+    provider.discountCoefficient = 0.5
+    const overriddenHtml = buildQuotationHtml(snapshot, zhOptions)
+    assert.match(overriddenHtml, /折扣:\s*5 折/)
   })
 
   test('does not mutate the immutable export snapshot and retains long provider notes', () => {
