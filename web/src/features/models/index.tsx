@@ -35,6 +35,7 @@ import { ModelsDialogs } from './components/models-dialogs'
 import { ModelsPrimaryButtons } from './components/models-primary-buttons'
 import { ModelsProvider, useModels } from './components/models-provider'
 import { ModelsTable } from './components/models-table'
+import { VendorsTable } from './components/vendors-table'
 import { useModelDeploymentSettings } from './hooks/use-model-deployment-settings'
 import { deploymentsQueryKeys } from './lib'
 import {
@@ -49,6 +50,9 @@ const SECTION_META: Record<ModelsSectionId, { titleKey: string }> = {
   metadata: {
     titleKey: 'Metadata',
   },
+  vendors: {
+    titleKey: 'Vendors',
+  },
   deployments: {
     titleKey: 'Deployments',
   },
@@ -57,8 +61,14 @@ const SECTION_META: Record<ModelsSectionId, { titleKey: string }> = {
 function ModelsContent() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { tabCategory, setTabCategory, isOrderingModels, stopModelOrdering } =
-    useModels()
+  const {
+    tabCategory,
+    setTabCategory,
+    isOrderingModels,
+    stopModelOrdering,
+    setCurrentVendor,
+    setOpen,
+  } = useModels()
   const params = route.useParams()
   const activeSection = (params.section ??
     MODELS_DEFAULT_SECTION) as ModelsSectionId
@@ -97,6 +107,19 @@ function ModelsContent() {
   )
   if (activeSection === 'metadata') {
     pageActions = isOrderingModels ? null : <ModelsPrimaryButtons />
+  } else if (activeSection === 'vendors') {
+    pageActions = (
+      <Button
+        onClick={() => {
+          setCurrentVendor(null)
+          setOpen('create-vendor')
+        }}
+        size='sm'
+      >
+        <Plus className='h-4 w-4' />
+        {t('Add Vendor')}
+      </Button>
+    )
   }
 
   let sectionContent = <DeploymentsSection />
@@ -110,6 +133,8 @@ function ModelsContent() {
     ) : (
       <ModelsTable />
     )
+  } else if (activeSection === 'vendors') {
+    sectionContent = <VendorsTable />
   }
 
   return (

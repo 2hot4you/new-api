@@ -86,6 +86,12 @@ type DynamicPricingBreakdownProps = {
    * any synthesized combination label.
    */
   usageFacts?: Record<string, string | number>
+  /** Public-catalog conversion settings shared with cards and tables. */
+  taskPriceOptions?: {
+    showRechargePrice?: boolean
+    priceRate?: number
+    usdExchangeRate?: number
+  }
 }
 
 type BreakdownTier = ParsedTier | ParsedTaskTier
@@ -293,6 +299,7 @@ export function DynamicPricingBreakdown({
   compact = false,
   usageSchema,
   usageFacts,
+  taskPriceOptions,
 }: DynamicPricingBreakdownProps) {
   const { t } = useTranslation()
   const expr = billingExpr || ''
@@ -310,6 +317,10 @@ export function DynamicPricingBreakdown({
     }
     return { symbol: '$', rate: 1 }
   }, [currency])
+  const taskPriceRate = taskPriceOptions?.showRechargePrice
+    ? (taskPriceOptions.priceRate ?? 1) /
+      (taskPriceOptions.usdExchangeRate || 1)
+    : 1
 
   const { tiers, ruleGroups } = useMemo(() => {
     const split = splitBillingExprAndRequestRules(expr)
@@ -546,7 +557,7 @@ export function DynamicPricingBreakdown({
                                   value,
                                   field,
                                   symbol,
-                                  rate,
+                                  rate * taskPriceRate,
                                   t
                                 )
                               : '-'}
@@ -651,7 +662,13 @@ export function DynamicPricingBreakdown({
                   const value = field.value(tier)
                   return value > 0 ? (
                     <span className={cn(!compact && 'font-semibold')}>
-                      {formatBreakdownPrice(value, field, symbol, rate, t)}
+                      {formatBreakdownPrice(
+                        value,
+                        field,
+                        symbol,
+                        rate * taskPriceRate,
+                        t
+                      )}
                     </span>
                   ) : (
                     '-'

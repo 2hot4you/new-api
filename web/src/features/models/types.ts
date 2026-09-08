@@ -267,6 +267,7 @@ export const vendorFormSchema = z.object({
   name: z.string().min(1, 'Vendor name is required'),
   description: z.string().default(''),
   icon: z.string().default(''),
+  version: z.string().optional(),
   status: z.number().default(1),
 })
 
@@ -311,7 +312,7 @@ export type QuotaType = 0 | 1 // usage-based, per-call
 /**
  * Model tab type
  */
-export type ModelTabCategory = 'metadata' | 'deployments'
+export type ModelTabCategory = 'metadata' | 'vendors' | 'deployments'
 
 /**
  * Deployment entity from API

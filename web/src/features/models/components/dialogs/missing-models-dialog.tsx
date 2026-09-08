@@ -131,11 +131,6 @@ export function MissingModelsDialog({
       contentHeight='min(74vh, 760px)'
       bodyClassName='space-y-4'
       initialFocus={!isMobile}
-      footer={
-        <Button variant='outline' onClick={() => setOpen('sync-wizard')}>
-          {t('Sync missing metadata')}
-        </Button>
-      }
     >
       {isLoading && <LoadingState />}
       {isError && (

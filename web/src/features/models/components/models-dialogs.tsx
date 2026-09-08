@@ -20,12 +20,19 @@ import { DescriptionDialog } from './dialogs/description-dialog'
 import { MissingModelsDialog } from './dialogs/missing-models-dialog'
 import { PrefillGroupManagement } from './dialogs/prefill-group-management'
 import { VendorManagement } from './dialogs/vendor-management'
+import { VendorMutateDialog } from './dialogs/vendor-mutate-dialog'
 import { ModelMutateDrawer } from './drawers/model-mutate-drawer'
 import { useModels } from './models-provider'
 
 export function ModelsDialogs() {
-  const { open, setOpen, currentRow, descriptionData, setDescriptionData } =
-    useModels()
+  const {
+    open,
+    setOpen,
+    currentRow,
+    currentVendor,
+    descriptionData,
+    setDescriptionData,
+  } = useModels()
 
   return (
     <>
@@ -45,6 +52,13 @@ export function ModelsDialogs() {
       <VendorManagement
         open={open === 'manage-vendors'}
         onOpenChange={(v) => !v && setOpen(null)}
+      />
+
+      <VendorMutateDialog
+        key={`${open}-${currentVendor?.id ?? 'new'}`}
+        open={open === 'create-vendor' || open === 'update-vendor'}
+        onOpenChange={(value) => !value && setOpen(null)}
+        currentVendor={currentVendor}
       />
 
       {/* Missing Models Dialog */}

@@ -112,9 +112,13 @@ export function VendorMutateDialog(props: {
   }, [props.open, id, query.data, form])
   const save = useMutation({
     mutationFn: async (values: VendorFormValues) => {
+      // Status is managed by the vendor operation flow; metadata edits must not
+      // silently reactivate a disabled vendor.
+      const { status: _status, ...metadata } = values
+      const payload = { ...metadata, name: metadata.name.trim() }
       const response = id
-        ? await updateVendor({ ...values, id })
-        : await createVendor(values)
+        ? await updateVendor({ ...payload, id })
+        : await createVendor(payload)
       if (!response.success) {
         throw new Error(response.message || t('Operation failed'))
       }

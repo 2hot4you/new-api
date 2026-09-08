@@ -105,9 +105,16 @@ export async function updateModelStatus(
  * Delete model
  */
 export async function deleteModel(
-  id: number
-): Promise<{ success: boolean; message?: string }> {
-  const res = await api.delete(`/api/models/${id}`)
+  id: number,
+  removeFromChannels = false,
+  removePricing = false
+): Promise<{ success: boolean; message?: string; data: ModelDeleteResult }> {
+  const res = await api.delete(`/api/models/${id}`, {
+    params: {
+      remove_from_channels: removeFromChannels,
+      remove_pricing: removePricing,
+    },
+  })
   return res.data
 }
 

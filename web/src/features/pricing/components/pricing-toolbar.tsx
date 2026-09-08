@@ -68,8 +68,8 @@ export interface PricingToolbarProps {
   onTokenUnitChange: (value: TokenUnit) => void
   showRechargePrice: boolean
   onRechargePriceChange: (value: boolean) => void
-  viewMode: 'card' | 'table'
-  onViewModeChange: (value: 'card' | 'table') => void
+  viewMode?: 'card' | 'table'
+  onViewModeChange?: (value: 'card' | 'table') => void
   quotaTypeFilter: string
   endpointTypeFilter: string
   vendorFilter: string
@@ -224,9 +224,9 @@ export function PricingToolbar(props: PricingToolbarProps) {
                 { value: 'card', icon: LayoutGrid, tooltip: t('Card view') },
                 { value: 'table', icon: Table2, tooltip: t('Table view') },
               ]}
-              value={props.viewMode}
+              value={props.viewMode ?? 'card'}
               onChange={(value) =>
-                props.onViewModeChange(value as 'card' | 'table')
+                props.onViewModeChange?.(value as 'card' | 'table')
               }
               ariaLabel={t('Directory view')}
             />
