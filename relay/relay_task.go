@@ -246,26 +246,31 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 4. 价格计算：基础模型价格
 	info.OriginModelName = modelName
+	explicitBillingModel := info.BillingModelName != ""
+	billingModelName := helper.ResolveRelayBillingModelName(info)
 	var priceData types.PriceData
 	var err error
-	useTiered := billing_setting.GetBillingMode(modelName) == billing_setting.BillingModeTieredExpr
+	useTiered := billing_setting.GetBillingMode(billingModelName) == billing_setting.BillingModeTieredExpr
 	var exprStr string
 	var exists bool
 	if useTiered {
-		exprStr, exists = billing_setting.GetBillingExpr(modelName)
-	} else if info.IsModelMapped {
-		if billing_setting.GetBillingMode(info.UpstreamModelName) == billing_setting.BillingModeTieredExpr {
-			if tailExpr, tailOK := billing_setting.GetBillingExpr(info.UpstreamModelName); tailOK && strings.TrimSpace(tailExpr) != "" {
+		exprStr, exists = billing_setting.GetBillingExpr(billingModelName)
+	} else if !explicitBillingModel && !helper.HasModelBillingConfig(billingModelName) && info.IsModelMapped {
+		tailModel := helper.ResolveBillingModelName(info.UpstreamModelName)
+		if billing_setting.GetBillingMode(tailModel) == billing_setting.BillingModeTieredExpr {
+			if tailExpr, tailOK := billing_setting.GetBillingExpr(tailModel); tailOK && strings.TrimSpace(tailExpr) != "" {
 				exprStr = tailExpr
 				exists = true
 				useTiered = true
+				billingModelName = tailModel
+				info.BillingModelName = tailModel
 			}
 		}
 	}
 	if useTiered {
 		provider, supported := adaptor.(channel.TaskUsageFactsProvider)
 		if !exists || !supported {
-			return nil, service.TaskErrorWrapper(fmt.Errorf("task model %s has no usage expression or meter", modelName), "model_price_error", http.StatusBadRequest)
+			return nil, service.TaskErrorWrapper(fmt.Errorf("task model %s has no usage expression or meter", billingModelName), "model_price_error", http.StatusBadRequest)
 		}
 		var facts map[string]any
 		if validatedProvider, ok := adaptor.(channel.TaskValidatedUsageFactsProvider); ok {
@@ -287,7 +292,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		quota, clamp := common.QuotaRoundChecked(cost * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
 		noteTaskQuotaClamp(info, clamp)
 		priceData = types.PriceData{Quota: quota, QuotaToPreConsume: quota, GroupRatioInfo: groupRatioInfo}
-		info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: billing_setting.BillingModeTieredExpr, ModelName: modelName, ExprString: exprStr, ExprHash: billingexpr.ExprHashString(exprStr), GroupRatio: groupRatioInfo.GroupRatio, EstimatedQuotaBeforeGroup: cost * common.QuotaPerUnit, EstimatedQuotaAfterGroup: quota, EstimatedTier: trace.MatchedTier, QuotaPerUnit: common.QuotaPerUnit, ExprVersion: billingexpr.ExprVersion(exprStr), TaskUsageBilling: true, UsageFacts: facts}
+		info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: billing_setting.BillingModeTieredExpr, ModelName: billingModelName, ExprString: exprStr, ExprHash: billingexpr.ExprHashString(exprStr), GroupRatio: groupRatioInfo.GroupRatio, EstimatedQuotaBeforeGroup: cost * common.QuotaPerUnit, EstimatedQuotaAfterGroup: quota, EstimatedTier: trace.MatchedTier, QuotaPerUnit: common.QuotaPerUnit, ExprVersion: billingexpr.ExprVersion(exprStr), TaskUsageBilling: true, UsageFacts: facts}
 	} else {
 		priceData, err = helper.ModelPriceHelperPerCall(c, info)
 		if err != nil {
@@ -318,7 +323,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	applyEstimatedVideoQuota(info)
 
 	// 6. 将 OtherRatios 应用到基础额度（饱和转换，防止溢出成负数）
-	if info.TieredBillingSnapshot == nil && !common.StringsContains(constant.TaskPricePatches, modelName) {
+	if info.TieredBillingSnapshot == nil && !common.StringsContains(constant.TaskPricePatches, billingModelName) {
 		quotaWithRatios := info.PriceData.ApplyOtherRatiosToFloat(float64(info.PriceData.Quota))
 		quota, clamp := common.QuotaFromFloatChecked(quotaWithRatios)
 		info.PriceData.Quota = quota

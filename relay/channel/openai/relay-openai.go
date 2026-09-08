@@ -146,7 +146,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	shouldSendLastResp := true
 	if err := handleLastResponse(lastStreamData, &responseId, &createAt, &systemFingerprint, &model, &usage,
 		&containStreamUsage, info, &shouldSendLastResp); err != nil {
-		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
+		// Parser errors and the rejected frame can contain private response data.
+		logger.LogError(c, fmt.Sprintf("error handling last response: invalid terminal SSE (%T)", err))
 	}
 
 	// 部分兼容网关把完整的累计usage附在倒数第二个事件上，随后发送一个空的最后事件。

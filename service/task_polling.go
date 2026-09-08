@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -408,9 +409,6 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 			continue
 		}
 		snap := task.Snapshot()
-		if responseItem.Action != "" {
-			task.Action = responseItem.Action
-		}
 		httpClass := classifyPollHTTP(resp.StatusCode)
 		parsedStatus := model.TaskStatus(responseItem.TaskInfo.Status)
 		if parsedStatus == model.TaskStatusUnknown || parsedStatus == "" || !knownPollStatus(parsedStatus) {
@@ -425,14 +423,25 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 			}
 			continue
 		}
-		if isNonTerminalPollStatus(parsedStatus) {
-			task.PrivateData.PollFailures = 0
+		// Validate the entire result before touching the durable task. Invalid
+		// nonterminal results must accumulate failures, not reset the cutoff.
+		state := responseItem.TaskInfo.PluginState
+		var data []byte
+		var dataErr error
+		if responseItem.Data != nil {
+			data, dataErr = common.Marshal(responseItem.Data)
 		}
-		if len(responseItem.TaskInfo.PluginState) > 1024*1024 {
+		if len(state) > 1024*1024 || (len(state) > 0 && !json.Valid(state)) || dataErr != nil || len(data) > 1024*1024 {
 			if err := recordPollFailure(ctx, adaptor, task, snap.Status, pollClassHookError, resp.StatusCode, ""); err != nil {
 				return err
 			}
 			continue
+		}
+		if responseItem.Action != "" {
+			task.Action = responseItem.Action
+		}
+		if isNonTerminalPollStatus(parsedStatus) {
+			task.PrivateData.PollFailures = 0
 		}
 		if len(responseItem.TaskInfo.PluginState) > 0 {
 			task.PrivateData.PluginState = responseItem.TaskInfo.PluginState
@@ -454,15 +463,6 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 			task.Progress = "100%"
 		}
 		if responseItem.Data != nil {
-			data, err := common.Marshal(responseItem.Data)
-			if err != nil || len(data) > 1024*1024 {
-				task.Status = snap.Status
-				task.PrivateData.PluginState = snap.PluginState
-				if err := recordPollFailure(ctx, adaptor, task, snap.Status, pollClassHookError, resp.StatusCode, ""); err != nil {
-					return err
-				}
-				continue
-			}
 			task.Data = data
 		} else if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
 			logger.LogWarn(ctx, fmt.Sprintf(

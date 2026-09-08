@@ -72,13 +72,19 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 	return groupRatioInfo
 }
 
-func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
+// ResolveRelayBillingModelName preserves explicit billing overrides and resolves
+// canonical modifiers without mutating the client's routing identity.
+func ResolveRelayBillingModelName(info *relaycommon.RelayInfo) string {
 	if info != nil && info.BillingModelName == "" {
-		if matched := resolveBillingModelName(info.GetOriginModelName()); matched != "" && matched != info.OriginModelName {
+		if matched := ResolveBillingModelName(info.GetOriginModelName()); matched != "" && matched != info.OriginModelName {
 			info.BillingModelName = matched
 		}
 	}
-	billingModelName := info.GetBillingModelName()
+	return info.GetBillingModelName()
+}
+
+func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
+	billingModelName := ResolveRelayBillingModelName(info)
 	modelPrice, usePrice := ratio_setting.GetModelPrice(billingModelName, false)
 
 	groupRatioInfo := HandleGroupRatio(c, info)
@@ -194,20 +200,21 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hosttypes.PriceData, error) {
 	groupRatioInfo := HandleGroupRatio(c, info)
+	billingModelName := ResolveRelayBillingModelName(info)
 
-	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)
+	modelPrice, success := ratio_setting.GetModelPrice(billingModelName, true)
 	usePrice := success
 	var modelRatio float64
 
 	if !success {
-		defaultPrice, ok := ratio_setting.GetDefaultModelPriceMap()[info.OriginModelName]
+		defaultPrice, ok := ratio_setting.GetDefaultModelPriceMap()[billingModelName]
 		if ok {
 			modelPrice = defaultPrice
 			usePrice = true
 		} else {
 			var ratioSuccess bool
 			var matchName string
-			modelRatio, ratioSuccess, matchName = ratio_setting.GetModelRatio(info.OriginModelName)
+			modelRatio, ratioSuccess, matchName = ratio_setting.GetModelRatio(billingModelName)
 			acceptUnsetRatio := false
 			if info.UserSetting.AcceptUnsetRatioModel {
 				acceptUnsetRatio = true
@@ -288,7 +295,9 @@ func HasPriceOrRatioEntry(name string) bool {
 	return billing_setting.GetBillingMode(formatted) == billing_setting.BillingModeTieredExpr
 }
 
-func resolveBillingModelName(origin string) string {
+// ResolveBillingModelName selects a configured canonical modifier identity,
+// falling back to the base model when no candidate has billing configuration.
+func ResolveBillingModelName(origin string) string {
 	var candidates []string
 	if !reasoning.ParseModelModifiers(origin).HasModifiers() {
 		candidates = append(candidates, origin)

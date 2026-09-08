@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -160,6 +161,9 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 		exprs      map[string]string
 		wantTiered bool
 		wantExpr   string
+		origin     string
+		billing    string
+		wantModel  string
 	}{
 		{
 			name:       "alias own tiered wins",
@@ -167,6 +171,7 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 			exprs:      map[string]string{"alias-model": aliasExpr, "declared-model": tailExpr},
 			wantTiered: true,
 			wantExpr:   aliasExpr,
+			wantModel:  "alias-model",
 		},
 		{
 			name:       "fallback uses tail expr",
@@ -174,6 +179,21 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 			exprs:      map[string]string{"declared-model": tailExpr},
 			wantTiered: true,
 			wantExpr:   tailExpr,
+			wantModel:  "declared-model",
+		},
+		{
+			name:       "modifier uses canonical alias expression",
+			origin:     "alias-model@thinking:on",
+			modes:      map[string]string{"alias-model": "tiered_expr"},
+			exprs:      map[string]string{"alias-model": aliasExpr},
+			wantTiered: true, wantExpr: aliasExpr, wantModel: "alias-model",
+		},
+		{
+			name:       "explicit billing identity wins over route alias",
+			billing:    "declared-model",
+			modes:      map[string]string{"alias-model": "tiered_expr", "declared-model": "tiered_expr"},
+			exprs:      map[string]string{"alias-model": aliasExpr, "declared-model": tailExpr},
+			wantTiered: true, wantExpr: tailExpr, wantModel: "declared-model",
 		},
 		{
 			name:       "neither tiered uses ordinary pricing",
@@ -194,32 +214,38 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 				}))
 				if testCase.wantExpr == aliasExpr {
 					require.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("alias-model"))
-				} else {
+				} else if testCase.billing == "" {
 					require.Equal(t, billing_setting.BillingModeRatio, billing_setting.GetBillingMode("alias-model"))
 					require.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("declared-model"))
 				}
 			}
 
-			c, info := newTaskSubmitContext(t, "alias-model", mapping)
+			origin := testCase.origin
+			if origin == "" {
+				origin = "alias-model"
+			}
+			c, info := newTaskSubmitContext(t, origin, mapping)
 			c.Set("group", "default")
 			info.UserGroup = "default"
 			info.UsingGroup = "default"
 			pinMappingOrderPlugin(t, c, billingFallbackPlugin)
-			info.OriginModelName = "alias-model"
+			info.OriginModelName = origin
+			info.BillingModelName = testCase.billing
 
 			_, taskErr := RelayTaskSubmit(c, info)
 			require.NotNil(t, taskErr)
-			assert.Equal(t, "alias-model", info.OriginModelName)
+			assert.Equal(t, origin, info.OriginModelName)
 			assert.Equal(t, "declared-model", info.UpstreamModelName)
 			assert.True(t, info.IsModelMapped)
 
 			task := model.InitTask(constant.TaskPlatform("bill-fallback"), info)
-			assert.Equal(t, "alias-model", task.Properties.OriginModelName)
+			assert.Equal(t, origin, task.Properties.OriginModelName)
 			assert.Equal(t, "declared-model", task.Properties.UpstreamModelName)
 
 			if testCase.wantTiered {
 				require.NotNil(t, info.TieredBillingSnapshot)
-				assert.Equal(t, "alias-model", info.TieredBillingSnapshot.ModelName)
+				assert.Equal(t, testCase.wantModel, info.TieredBillingSnapshot.ModelName)
+				assert.Equal(t, testCase.wantModel, info.GetBillingModelName())
 				assert.Equal(t, testCase.wantExpr, info.TieredBillingSnapshot.ExprString)
 				assert.Equal(t, billingexpr.ExprHashString(testCase.wantExpr), info.TieredBillingSnapshot.ExprHash)
 				assert.NotEqual(t, "model_price_error", taskErr.Code)
@@ -227,6 +253,39 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 				assert.Nil(t, info.TieredBillingSnapshot)
 				assert.Equal(t, "model_price_error", taskErr.Code)
 			}
+		})
+	}
+}
+
+func TestRelayTaskSubmitPerCallBillingIdentity(t *testing.T) {
+	saveBillingConfig(t)
+	previousPrices := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices)) })
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"alias-model":2,"selected-task":4}`))
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode": `{"declared-model":"tiered_expr"}`,
+		"billing_setting.billing_expr": `{"declared-model":"tier(\"tail\", 3)"}`,
+	}))
+	for _, tc := range []struct {
+		name, origin, billing string
+		price                 float64
+	}{
+		{"configured canonical alias beats mapped expression", "alias-model@thinking:on", "", 2},
+		{"explicit per-call identity beats route pricing", "alias-model", "selected-task", 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, info := newTaskSubmitContext(t, tc.origin, `{"alias-model":"declared-model"}`)
+			pinMappingOrderPlugin(t, c, billingFallbackPlugin)
+			info.OriginModelName, info.BillingModelName = tc.origin, tc.billing
+			info.UserGroup, info.UsingGroup = "default", "default"
+			_, taskErr := RelayTaskSubmit(c, info)
+			require.NotNil(t, taskErr, "request stops at the unconfigured billing account")
+			require.NotEqual(t, "model_price_error", taskErr.Code)
+			require.Nil(t, info.TieredBillingSnapshot)
+			require.True(t, info.PriceData.UsePrice)
+			require.Equal(t, tc.price, info.PriceData.ModelPrice)
+			require.Equal(t, tc.origin, info.OriginModelName)
+			require.Equal(t, "declared-model", info.UpstreamModelName)
 		})
 	}
 }
