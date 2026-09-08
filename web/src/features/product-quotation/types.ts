@@ -66,12 +66,18 @@ export type QuotePriceDimension = {
   status: QuotePriceStatus
 }
 
+export type QuoteUsageExample = {
+  label: string
+  facts: Record<string, string | number>
+}
+
 export type QuoteModelSection = {
   modelId: string
   displayName: string
   available: boolean
   unavailableReason: 'missing' | 'group_unavailable' | null
   dimensions: QuotePriceDimension[]
+  usageExamples?: QuoteUsageExample[]
 }
 
 export type QuoteProviderSection = {

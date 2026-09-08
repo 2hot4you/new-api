@@ -31,6 +31,7 @@ describe('quotation amount formatting', () => {
     assert.equal(formatQuoteAmount(12.5, 'CNY'), '¥12.5')
     assert.equal(formatQuoteAmount(0, 'USD'), '$0')
     assert.equal(formatQuoteAmount(0.00000002, 'USD'), '$0.00000002')
+    assert.equal(formatQuoteAmount(0.000000002, 'USD'), '$0.000000002')
   })
 
   test('does not present unavailable or non-finite amounts as zero', () => {
@@ -56,5 +57,17 @@ describe('quotation filename sanitation', () => {
     const filename = sanitizeQuotationFilename('a'.repeat(200), '2026-09-08')
     assert.equal(filename.length, 120)
     assert.ok(filename.endsWith('-2026-09-08.html'))
+  })
+
+  test('caps and sanitizes the entire filename when the date is oversized or invalid', () => {
+    const oversized = sanitizeQuotationFilename('Acme', '2'.repeat(200))
+    assert.ok(oversized.length <= 120)
+    assert.ok(oversized.startsWith('Acme-'))
+    assert.ok(oversized.endsWith('.html'))
+
+    assert.equal(
+      sanitizeQuotationFilename('', '\u0000/\\:*?"<>|. '),
+      'quotation.html'
+    )
   })
 })

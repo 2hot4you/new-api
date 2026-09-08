@@ -265,6 +265,54 @@ describe('canonical quotation snapshot', () => {
     )
   })
 
+  test('preserves every task usage example and its facts in the snapshot', () => {
+    const snapshot = buildSnapshot([
+      pricingModel({
+        model_name: 'task-examples',
+        billing_mode: 'tiered_expr',
+        billing_expr: 'tier("base", u("seconds") * 0.4)',
+        billing_usage_schema: {
+          seconds: { type: 'number', unit: 'second' },
+          mode: { enum: ['standard', 'pro'] },
+        },
+        billing_usage_examples: [
+          {
+            label: 'Short standard job',
+            facts: { seconds: 10, mode: 'standard' },
+          },
+          { label: 'Long pro job', facts: { seconds: 120, mode: 'pro' } },
+        ],
+      }),
+    ])
+
+    assert.deepEqual(snapshot.providers[0]?.models[0]?.usageExamples, [
+      {
+        label: 'Short standard job',
+        facts: { seconds: 10, mode: 'standard' },
+      },
+      { label: 'Long pro job', facts: { seconds: 120, mode: 'pro' } },
+    ])
+  })
+
+  test('marks an unconfigured task-usage model for confirmation instead of inventing token prices', () => {
+    const snapshot = buildSnapshot([
+      pricingModel({
+        model_name: 'unconfigured-task',
+        billing_usage_schema: {
+          seconds: { type: 'number', unit: 'second' },
+        },
+      }),
+    ])
+
+    const dimensions = snapshot.providers[0]?.models[0]?.dimensions ?? []
+    assert.equal(dimensions.length, 1)
+    assert.equal(dimensions[0]?.sourceType, 'task_usage')
+    assert.equal(dimensions[0]?.sourceAmount, null)
+    assert.equal(dimensions[0]?.unit, 'variable')
+    assert.equal(dimensions[0]?.status, 'needs_confirmation')
+    assert.equal(validateQuotation(snapshot).valid, false)
+  })
+
   test('expands every Seedance and Grok catalog row in direct CNY', () => {
     const snapshot = buildSnapshot([
       pricingModel({
@@ -336,6 +384,61 @@ describe('canonical quotation snapshot', () => {
     assert.equal(validateQuotation(snapshot).valid, false)
   })
 
+  test('rejects a partially parsed dynamic tier instead of dropping an unsupported price term', () => {
+    const snapshot = buildSnapshot([
+      pricingModel({
+        model_name: 'partially-understood-dynamic',
+        billing_mode: 'tiered_expr',
+        billing_expr: 'tier("base", p * 2 + custom())',
+      }),
+    ])
+
+    const dimensions = snapshot.providers[0]?.models[0]?.dimensions ?? []
+    assert.equal(dimensions.length, 1)
+    assert.equal(dimensions[0]?.catalogAmount, null)
+    assert.equal(dimensions[0]?.sourceAmount, null)
+    assert.equal(dimensions[0]?.condition, 'tier("base", p * 2 + custom())')
+    assert.equal(dimensions[0]?.status, 'needs_confirmation')
+  })
+
+  test('marks request-rule multipliers for confirmation rather than quoting only the default amount', () => {
+    const expression =
+      '(tier("base", p * 2)) * (header("x-priority") == "high" ? 2 : 1)'
+    const snapshot = buildSnapshot([
+      pricingModel({
+        model_name: 'request-rule-dynamic',
+        billing_mode: 'tiered_expr',
+        billing_expr: expression,
+      }),
+    ])
+
+    const dimensions = snapshot.providers[0]?.models[0]?.dimensions ?? []
+    assert.equal(dimensions.length, 1)
+    assert.equal(dimensions[0]?.catalogAmount, null)
+    assert.equal(dimensions[0]?.quoteAmount, null)
+    assert.equal(dimensions[0]?.condition, expression)
+    assert.equal(dimensions[0]?.status, 'needs_confirmation')
+  })
+
+  test('marks time-rule multipliers for confirmation rather than omitting the conditional amount', () => {
+    const expression =
+      '(tier("base", p * 3)) * (hour("UTC") >= 9 && hour("UTC") < 18 ? 1.5 : 1)'
+    const snapshot = buildSnapshot([
+      pricingModel({
+        model_name: 'time-rule-dynamic',
+        billing_mode: 'tiered_expr',
+        billing_expr: expression,
+      }),
+    ])
+
+    const dimension = snapshot.providers[0]?.models[0]?.dimensions[0]
+    assert.equal(dimension?.catalogAmount, null)
+    assert.equal(dimension?.sourceAmount, null)
+    assert.equal(dimension?.quoteAmount, null)
+    assert.equal(dimension?.condition, expression)
+    assert.equal(dimension?.status, 'needs_confirmation')
+  })
+
   test('does not treat a parsed tier with no known positive dimensions as free', () => {
     const snapshot = buildSnapshot([
       pricingModel({
@@ -381,5 +484,62 @@ describe('canonical quotation snapshot', () => {
     assert.ok(
       validation.errors.some((error) => error.code === 'model_unavailable')
     )
+  })
+
+  test('treats the backend all group wildcard as available for an explicit group', () => {
+    const snapshot = buildSnapshot(
+      [pricingModel({ model_name: 'all-groups', enable_groups: ['all'] })],
+      {
+        draft: {
+          title: 'VIP quote',
+          customer: '',
+          quotedBy: '',
+          quoteDate: '2026-09-08',
+          globalDiscount: 10,
+          priceBasis: { type: 'group', group: 'vip' },
+          selectedModelIds: ['all-groups'],
+          providerOverrides: {},
+        },
+      }
+    )
+
+    const model = snapshot.providers[0]?.models[0]
+    assert.equal(model?.available, true)
+    assert.equal(model?.dimensions[0]?.sourceAmount, 3)
+    assert.equal(validateQuotation(snapshot).valid, true)
+  })
+
+  test('omits audio output when only the audio input ratio is configured', () => {
+    const snapshot = buildSnapshot([
+      pricingModel({
+        model_name: 'audio-input-only',
+        audio_ratio: 2,
+        audio_completion_ratio: undefined,
+      }),
+    ])
+
+    const dimensions = snapshot.providers[0]?.models[0]?.dimensions ?? []
+    assert.ok(dimensions.some((dimension) => dimension.key === 'audio_input'))
+    assert.ok(!dimensions.some((dimension) => dimension.key === 'audio_output'))
+    assert.equal(validateQuotation(snapshot).valid, true)
+  })
+
+  test('uses direct CNY consistently for fixed-token and request models', () => {
+    const snapshot = buildSnapshot([
+      pricingModel({ model_name: 'fixed-cny', billing_currency: 'CNY' }),
+      pricingModel({
+        id: 2,
+        model_name: 'request-cny',
+        quota_type: 1,
+        model_price: 2.5,
+        billing_currency: 'CNY',
+      }),
+    ])
+
+    const [fixed, request] = snapshot.providers[0]?.models ?? []
+    assert.ok(
+      fixed?.dimensions.every((dimension) => dimension.currency === 'CNY')
+    )
+    assert.equal(request?.dimensions[0]?.currency, 'CNY')
   })
 })

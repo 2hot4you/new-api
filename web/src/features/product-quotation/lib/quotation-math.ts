@@ -27,6 +27,7 @@ import {
   getDynamicPricingTiers,
   isDynamicPricingModel,
   isTaskUsagePricingModel,
+  isUnconfiguredTaskUsageModel,
 } from '@/features/pricing/lib/dynamic-price'
 import type { PricingModel } from '@/features/pricing/types'
 
@@ -42,6 +43,18 @@ import type {
 } from '../types'
 
 const TOKEN_UNIT = '1M token'
+const NUMBER_PATTERN = String.raw`(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?`
+const PRICE_TERM_PATTERN = String.raw`(?:p|c|cr|cc|cc1h|img|img_o|ai|ao)\s*\*\s*${NUMBER_PATTERN}`
+const TIER_PATTERN = String.raw`tier\("[^"\r\n]*",\s*${PRICE_TERM_PATTERN}(?:\s*\+\s*${PRICE_TERM_PATTERN})*\s*\)`
+const TIER_CONDITION_PATTERN = String.raw`(?:p|c|len)\s*(?:<=|>=|<|>)\s*${NUMBER_PATTERN}`
+const TIER_CONDITIONS_PATTERN = String.raw`${TIER_CONDITION_PATTERN}(?:\s*&&\s*${TIER_CONDITION_PATTERN})*`
+const LOSSLESS_DYNAMIC_EXPRESSION = new RegExp(
+  String.raw`^(?:v\d+:)?\s*(?:${TIER_CONDITIONS_PATTERN}\s*\?\s*${TIER_PATTERN}\s*:\s*)*${TIER_PATTERN}\s*$`
+)
+
+function modelCurrency(model: PricingModel): QuoteCurrency {
+  return model.billing_currency === 'CNY' ? 'CNY' : 'USD'
+}
 
 export function normalizeDiscount(
   discountInZhe: number | null | undefined
@@ -138,13 +151,19 @@ function fixedTokenDimensions(
   discountCoefficient: number | null
 ): QuotePriceDimension[] {
   const base = Number(model.model_ratio) * 2
+  const currency = modelCurrency(model)
   const optionalDimension = (
     key: string,
     label: string,
     ratio: number | null | undefined,
     multiplier = 1
   ): QuotePriceDimension[] => {
-    if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) {
+    if (
+      ratio === null ||
+      ratio === undefined ||
+      !Number.isFinite(ratio) ||
+      !Number.isFinite(multiplier)
+    ) {
       return []
     }
     return [
@@ -154,7 +173,7 @@ function fixedTokenDimensions(
           label,
           sourceType: 'fixed_token',
           amount: base * ratio * multiplier,
-          currency: 'USD',
+          currency,
           unit: TOKEN_UNIT,
         },
         basisRatio,
@@ -170,7 +189,7 @@ function fixedTokenDimensions(
         label: 'Input',
         sourceType: 'fixed_token',
         amount: base,
-        currency: 'USD',
+        currency,
         unit: TOKEN_UNIT,
       },
       basisRatio,
@@ -182,7 +201,7 @@ function fixedTokenDimensions(
         label: 'Output',
         sourceType: 'fixed_token',
         amount: base * Number(model.completion_ratio),
-        currency: 'USD',
+        currency,
         unit: TOKEN_UNIT,
       },
       basisRatio,
@@ -231,6 +250,16 @@ function taskUsageDimensions(
   const { requestRuleExpr } = splitBillingExprAndRequestRules(
     model.billing_expr ?? ''
   )
+  if (requestRuleExpr) {
+    return [
+      createConfirmationDimension(
+        model,
+        'task_usage',
+        basisRatio,
+        discountCoefficient
+      ),
+    ]
+  }
   if (tiers.length === 0) {
     return [
       createDimension(
@@ -239,7 +268,7 @@ function taskUsageDimensions(
           label: 'Dynamic pricing',
           sourceType: 'task_usage',
           amount: null,
-          currency: model.billing_currency === 'CNY' ? 'CNY' : 'USD',
+          currency: modelCurrency(model),
           unit: 'variable',
           condition: model.billing_expr ?? null,
         },
@@ -249,7 +278,7 @@ function taskUsageDimensions(
     ]
   }
 
-  const currency = model.billing_currency === 'CNY' ? 'CNY' : 'USD'
+  const currency = modelCurrency(model)
   return tiers.flatMap((tier, tierIndex) => {
     const condition = taskTierCondition(tier, requestRuleExpr)
     const dimensions: QuotePriceDimension[] = []
@@ -308,7 +337,22 @@ function dynamicDimensions(
   const { requestRuleExpr } = splitBillingExprAndRequestRules(
     model.billing_expr ?? ''
   )
-  const currency = model.billing_currency === 'CNY' ? 'CNY' : 'USD'
+  const currency = modelCurrency(model)
+  if (
+    requestRuleExpr ||
+    !LOSSLESS_DYNAMIC_EXPRESSION.test(
+      splitBillingExprAndRequestRules(model.billing_expr ?? '').billingExpr
+    )
+  ) {
+    return [
+      createConfirmationDimension(
+        model,
+        'dynamic',
+        basisRatio,
+        discountCoefficient
+      ),
+    ]
+  }
   if (tiers.length === 0) {
     return [
       createDimension(
@@ -369,6 +413,28 @@ function dynamicDimensions(
       discountCoefficient
     ),
   ]
+}
+
+function createConfirmationDimension(
+  model: PricingModel,
+  sourceType: 'dynamic' | 'task_usage',
+  basisRatio: number | null,
+  discountCoefficient: number | null
+): QuotePriceDimension {
+  return createDimension(
+    {
+      key: `${sourceType}-unparsed`,
+      label:
+        sourceType === 'task_usage' ? 'Task usage pricing' : 'Dynamic pricing',
+      sourceType,
+      amount: null,
+      currency: modelCurrency(model),
+      unit: 'variable',
+      condition: model.billing_expr ?? null,
+    },
+    basisRatio,
+    discountCoefficient
+  )
 }
 
 function videoDimensions(
@@ -484,6 +550,16 @@ function modelDimensions(
   if (isDynamicPricingModel(model)) {
     return dynamicDimensions(model, basisRatio, discountCoefficient)
   }
+  if (isUnconfiguredTaskUsageModel(model)) {
+    return [
+      createConfirmationDimension(
+        model,
+        'task_usage',
+        basisRatio,
+        discountCoefficient
+      ),
+    ]
+  }
   if (model.quota_type === 1) {
     return [
       createDimension(
@@ -492,7 +568,7 @@ function modelDimensions(
           label: 'Request',
           sourceType: 'request',
           amount: model.model_price,
-          currency: 'USD',
+          currency: modelCurrency(model),
           unit: 'request',
         },
         basisRatio,
@@ -560,12 +636,15 @@ export function buildQuotationSnapshot(
         available: false,
         unavailableReason: 'missing',
         dimensions: [],
+        usageExamples: [],
       })
       continue
     }
 
     const groupIsAvailable =
-      selectedGroup === null || model.enable_groups.includes(selectedGroup)
+      selectedGroup === null ||
+      model.enable_groups.includes('all') ||
+      model.enable_groups.includes(selectedGroup)
     const available = groupIsAvailable && basisRatio !== null
     const modelSection: QuoteModelSection = {
       modelId: model.model_name,
@@ -575,6 +654,10 @@ export function buildQuotationSnapshot(
       dimensions: available
         ? modelDimensions(model, basisRatio, discountCoefficient)
         : [],
+      usageExamples: (model.billing_usage_examples ?? []).map((example) => ({
+        label: example.label,
+        facts: { ...example.facts },
+      })),
     }
     provider.models.push(modelSection)
   }

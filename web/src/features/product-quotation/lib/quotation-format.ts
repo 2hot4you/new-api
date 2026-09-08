@@ -20,6 +20,8 @@ import type { QuoteCurrency } from '../types'
 
 const MAX_FILENAME_LENGTH = 120
 const HTML_EXTENSION = '.html'
+const MAX_DATE_LENGTH =
+  MAX_FILENAME_LENGTH - HTML_EXTENSION.length - 'quotation-'.length
 const CONTROL_CHARACTERS = /\p{Cc}/gu
 const RESERVED_FILENAME_CHARACTERS = /[/\\:*?"<>|]/g
 
@@ -29,9 +31,12 @@ export function formatQuoteAmount(
 ): string {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return '—'
 
-  const formatted = new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: 8,
-  }).format(amount)
+  const formatted = new Intl.NumberFormat(
+    'en-US',
+    amount !== 0 && Math.abs(amount) < 0.00000001
+      ? { maximumSignificantDigits: 8, notation: 'standard' }
+      : { maximumFractionDigits: 8 }
+  ).format(amount)
   return `${currency === 'CNY' ? '¥' : '$'}${formatted}`
 }
 
@@ -44,7 +49,9 @@ function sanitizeFilenamePart(value: string): string {
 }
 
 export function sanitizeQuotationFilename(title: string, date: string): string {
-  const safeDate = sanitizeFilenamePart(date)
+  const safeDate = sanitizeFilenamePart(
+    sanitizeFilenamePart(date).slice(0, MAX_DATE_LENGTH)
+  )
   const suffix = `${safeDate ? `-${safeDate}` : ''}${HTML_EXTENSION}`
   const maximumTitleLength = Math.max(0, MAX_FILENAME_LENGTH - suffix.length)
   let safeTitle = sanitizeFilenamePart(title) || 'quotation'
