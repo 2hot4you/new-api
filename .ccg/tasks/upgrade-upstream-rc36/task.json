@@ -1,0 +1,12 @@
+{
+  "id": "upgrade-upstream-rc36",
+  "title": "将 Molii new-api fork 从 rc.30 基线升级至上游 rc.36",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "implementation",
+  "nextAction": "合并 rc.36 并按后端、模型定价、密钥日志三个领域解决冲突",
+  "createdAt": "2026-09-09T00:00:00+08:00",
+  "branch": "upgrade/upstream-rc36"
+}
