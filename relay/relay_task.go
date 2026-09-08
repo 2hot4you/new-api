@@ -195,6 +195,15 @@ func ApplyOriginTaskAffinity(c *gin.Context, info *relaycommon.RelayInfo) *dto.T
 // 构建/发送/解析上游请求 → 提交后计费调整(AdjustBillingOnSubmit)。
 // 共享控制器编排负责未落库退款、最终额度预留、落库和结算。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
+	if info.TaskRelayInfo == nil {
+		info.TaskRelayInfo = &relaycommon.TaskRelayInfo{}
+	}
+	if info.InferredBillingModelName != "" && info.BillingModelName == info.InferredBillingModelName {
+		info.BillingModelName = ""
+	}
+	info.InferredBillingModelName = ""
+	// The selected channel may use a different expression or per-call pricing.
+	info.TieredBillingSnapshot = nil
 	info.InitChannelMeta(c)
 
 	// 1. 确定 platform → 创建适配器 → 验证请求
@@ -255,7 +264,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	var exists bool
 	if useTiered {
 		exprStr, exists = billing_setting.GetBillingExpr(billingModelName)
-	} else if !explicitBillingModel && !helper.HasModelBillingConfig(billingModelName) && info.IsModelMapped {
+	} else if !explicitBillingModel && !helper.HasPriceOrRatioEntry(billingModelName) && info.IsModelMapped {
 		tailModel := helper.ResolveBillingModelName(info.UpstreamModelName)
 		if billing_setting.GetBillingMode(tailModel) == billing_setting.BillingModeTieredExpr {
 			if tailExpr, tailOK := billing_setting.GetBillingExpr(tailModel); tailOK && strings.TrimSpace(tailExpr) != "" {
@@ -266,6 +275,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 				info.BillingModelName = tailModel
 			}
 		}
+	}
+	if !explicitBillingModel {
+		info.InferredBillingModelName = info.BillingModelName
 	}
 	if useTiered {
 		provider, supported := adaptor.(channel.TaskUsageFactsProvider)

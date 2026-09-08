@@ -662,6 +662,12 @@ func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response,
 			pluginState, marshalErr := common.Marshal(item.State)
 			if marshalErr != nil || len(pluginState) > maxTaskPluginPersistedJSONBytes {
 				logger.LogWarn(context.Background(), fmt.Sprintf("task plugin %s rejected invalid or oversized poll state", a.plugin.Meta.Key))
+				// Do not turn a rejected state into a valid nonterminal result:
+				// the polling service must increment this item's failure counter.
+				results[item.TaskID] = &service.BatchTaskResult{TaskInfo: relaycommon.TaskInfo{
+					TaskID: item.TaskID, Status: model.TaskStatusUnknown, Reason: "invalid or oversized poll state",
+				}}
+				continue
 			} else {
 				info.PluginState = pluginState
 			}
@@ -736,6 +742,7 @@ func (a *TaskAdaptor) ParseTaskResult(task *model.Task, resp *http.Response, bod
 	if pluginState, present := encodeReturnedPluginState(value); present {
 		if len(pluginState) > maxTaskPluginPersistedJSONBytes {
 			logger.LogWarn(context.Background(), fmt.Sprintf("task plugin %s rejected oversized poll state (%d bytes)", a.plugin.Meta.Key, len(pluginState)))
+			return &relaycommon.TaskInfo{TaskID: parsed.TaskID, Status: model.TaskStatusUnknown, Reason: "invalid or oversized poll state"}, nil
 		} else {
 			result.PluginState = pluginState
 		}
