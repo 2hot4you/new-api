@@ -333,7 +333,6 @@ describe('product quotation workspace states', () => {
       '{{resolution}} with video input': '{{resolution}} avec entrée vidéo',
       '{{resolution}}; fps {{fps}}; extra frames {{extraFrames}}; Token = ceil(width x height x (fps x duration + extra frames) / 1024)':
         '{{resolution}} ; ips {{fps}} ; images supplémentaires {{extraFrames}} ; Jeton = ceil(width x height x (fps x duration + extra frames) / 1024)',
-      cny_per_million_tokens: 'CNY par million de jetons',
       'Failed to export HTML quotation': 'Échec de l’export HTML',
     })
     await i18next.changeLanguage('fr')
@@ -373,7 +372,6 @@ describe('product quotation workspace states', () => {
       },
       unitLabels: {
         '1M token': '1 M de jetons',
-        cny_per_million_tokens: 'CNY par million de jetons',
       },
       conditionLabels: {
         '720p; fps 24; extra frames 1; Token = ceil(width x height x (fps x duration + extra frames) / 1024)':
