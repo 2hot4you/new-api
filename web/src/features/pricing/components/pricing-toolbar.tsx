@@ -118,7 +118,9 @@ function SegmentedControl(props: {
           <button
             key={option.value}
             type='button'
-            onClick={() => props.onChange(option.value)}
+            onClick={() => {
+              if (!isActive) props.onChange(option.value)
+            }}
             aria-pressed={isActive}
             aria-label={option.tooltip ?? option.label}
             className={cn(
@@ -153,17 +155,30 @@ function SegmentedControl(props: {
 
 export function PricingToolbar(props: PricingToolbarProps) {
   const { t } = useTranslation()
+  const {
+    tokenUnit,
+    onTokenUnitChange,
+    showRechargePrice,
+    onRechargePriceChange,
+  } = props
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const sortLabels = getSortLabels(t)
 
   const handleTokenUnitChange = useCallback(
-    (value: string) => props.onTokenUnitChange(value as TokenUnit),
-    [props]
+    (value: string) => {
+      if (value !== tokenUnit) onTokenUnitChange(value as TokenUnit)
+    },
+    [onTokenUnitChange, tokenUnit]
   )
 
   const handleRechargePriceChange = useCallback(
-    (value: string) => props.onRechargePriceChange(value === 'recharge'),
-    [props]
+    (value: string) => {
+      const nextShowRechargePrice = value === 'recharge'
+      if (nextShowRechargePrice !== showRechargePrice) {
+        onRechargePriceChange(nextShowRechargePrice)
+      }
+    },
+    [onRechargePriceChange, showRechargePrice]
   )
   const noop = useCallback(() => {}, [])
 

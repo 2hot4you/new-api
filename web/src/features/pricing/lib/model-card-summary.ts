@@ -19,8 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import type { PricingModel, TokenUnit } from '../types'
 import {
   getDynamicDisplayGroupRatio,
+  getCardExamplePrice,
+  getDynamicPriceUnitLabelKey,
   getDynamicPricingSummary,
   getDynamicPricingStrategy,
+  hasTaskUsageSchema,
   type DynamicPricingStrategy,
 } from './dynamic-price'
 import { formatPrice, formatRequestPrice } from './price'
@@ -46,6 +49,16 @@ export type CompactPricingSummary =
       unit: 'request'
     }
   | {
+      kind: 'task'
+      label: string
+      description?: string | Record<string, string>
+      value: string
+      unit: string
+      example?: string
+    }
+  | { kind: 'task-unconfigured' }
+  | { kind: 'special'; expression: string }
+  | {
       kind: 'tiered'
       label:
         | 'Tiered pricing'
@@ -55,7 +68,7 @@ export type CompactPricingSummary =
       detail?: string
       noteKey?: 'Other times use the base price'
       from?: string
-      unit: '1,000,000 Token' | '1,000 Token' | 'image' | 'second'
+      unit: '1M' | '1K' | 'image' | 'second'
     }
 
 function formatDirectCNY(value: number): string {
@@ -106,7 +119,7 @@ export function getCompactPricingSummary(
   options: CompactPricingOptions
 ): CompactPricingSummary {
   const tokenUnit = options.tokenUnit
-  const tokenUnitLabel = tokenUnit === 'K' ? '1,000 Token' : '1,000,000 Token'
+  const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const showRechargePrice = options.showRechargePrice ?? false
   const priceRate = options.priceRate ?? 1
   const usdExchangeRate = options.usdExchangeRate ?? 1
@@ -151,6 +164,54 @@ export function getCompactPricingSummary(
     ),
   })
   if (dynamic) {
+    if (dynamic.isSpecialExpression) {
+      return { kind: 'special', expression: dynamic.rawExpression }
+    }
+    if (dynamic.isTaskUsage) {
+      const entry = dynamic.primaryEntries[0]
+      if (entry) {
+        const cardExample = getCardExamplePrice(model, {
+          tokenUnit,
+          showRechargePrice,
+          priceRate,
+          usdExchangeRate,
+          groupRatioMultiplier: getDynamicDisplayGroupRatio(
+            model,
+            options.selectedGroup
+          ),
+        })
+        return {
+          kind: 'task',
+          label: entry.label,
+          description: entry.description,
+          value: entry.formattedRange ?? entry.formatted,
+          unit: getDynamicPriceUnitLabelKey(entry) ?? 'unit',
+          ...(cardExample
+            ? { example: `${cardExample.label} ≈ ${cardExample.formatted}` }
+            : {}),
+        }
+      }
+    } else {
+      const items = dynamic.primaryEntries
+        .filter(
+          (entry) =>
+            entry.field === 'inputPrice' ||
+            entry.field === 'outputPrice' ||
+            entry.field === 'cacheReadPrice'
+        )
+        .map((entry) => {
+          let label: 'Input' | 'Output' | 'Cached' = 'Cached'
+          if (entry.field === 'inputPrice') {
+            label = 'Input'
+          } else if (entry.field === 'outputPrice') {
+            label = 'Output'
+          }
+          return { label, value: entry.formatted }
+        })
+      if (items.length > 0) {
+        return { kind: 'token', items, unit: tokenUnitLabel }
+      }
+    }
     const strategy = getDynamicPricingStrategy(dynamic.rawExpression)
     const detail = pricingStrategyDetail(strategy)
     return {
@@ -165,6 +226,10 @@ export function getCompactPricingSummary(
         : {}),
       unit: tokenUnitLabel,
     }
+  }
+
+  if (hasTaskUsageSchema(model)) {
+    return { kind: 'task-unconfigured' }
   }
 
   if (model.quota_type === 1) {

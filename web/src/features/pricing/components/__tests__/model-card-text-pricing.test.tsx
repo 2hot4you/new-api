@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test } from 'vitest'
 
 import type { PricingModel } from '../../types'
 
@@ -103,7 +103,7 @@ describe('selected text-model marketplace card pricing', () => {
     assert.match(pricingSummary.textContent ?? '', /\$2/)
     assert.match(pricingSummary.textContent ?? '', /\$4/)
     assert.match(pricingSummary.textContent ?? '', /\$0\.4/)
-    assert.match(pricingSummary.textContent ?? '', /1,000,000 Token/)
+    assert.match(pricingSummary.textContent ?? '', /1M/)
 
     await act(async () => root.unmount())
     container.remove()
@@ -119,14 +119,12 @@ describe('selected text-model marketplace card pricing', () => {
 
     const summary = container.querySelector('[data-model-card-pricing]')
     assert.ok(summary)
-    assert.match(
-      summary.textContent ?? '',
-      /Tiered by per-request input Tokens/
-    )
-    assert.match(summary.textContent ?? '', /≤ 128K \/ 128K–256K \/ > 256K/)
+    assert.match(summary.textContent ?? '', /Input/)
+    assert.match(summary.textContent ?? '', /Output/)
     assert.match(summary.textContent ?? '', /¥0\.2/)
-    assert.match(summary.textContent ?? '', /1,000,000 Token/)
-    assert.doesNotMatch(summary.textContent ?? '', /¥0\.8|¥1\.2/)
+    assert.match(summary.textContent ?? '', /1M/)
+    assert.match(summary.textContent ?? '', /¥2/)
+    assert.doesNotMatch(summary.textContent ?? '', /¥0\.8|¥1\.2|¥8|¥12/)
 
     await act(async () => root.unmount())
     container.remove()

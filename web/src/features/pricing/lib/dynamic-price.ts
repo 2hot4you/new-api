@@ -439,14 +439,18 @@ export function getDynamicPricingStrategy(
 
 export function getDynamicPricingTierPresentation(
   expression: string,
-  tier: Pick<ParsedTier, 'label'>,
+  tier: Pick<ParsedTier, 'label'> | undefined,
   tierIndex: number
 ): DynamicPricingTierPresentation {
   const strategy = getDynamicPricingStrategy(expression)
   const range = strategy.tierRanges[tierIndex]
   if (range) return { kind: 'input_length', range }
 
-  const internalLabel = tier.label.trim().toLocaleLowerCase()
+  // Parsed tiers can be absent for a syntactically valid expression wrapped in
+  // request multipliers. Keep the display contract resilient rather than
+  // dereferencing an absent parser result.
+  const label = tier?.label ?? ''
+  const internalLabel = label.trim().toLocaleLowerCase()
   if (
     !internalLabel ||
     internalLabel === 'base' ||
@@ -457,12 +461,12 @@ export function getDynamicPricingTierPresentation(
       : { kind: 'default_price' }
   }
 
-  return { kind: 'custom', label: tier.label }
+  return { kind: 'custom', label }
 }
 
 export function formatDynamicPricingTierLabel(
   expression: string,
-  tier: Pick<ParsedTier, 'label'>,
+  tier: Pick<ParsedTier, 'label'> | undefined,
   tierIndex: number,
   t: TierLabelTranslator
 ): string {

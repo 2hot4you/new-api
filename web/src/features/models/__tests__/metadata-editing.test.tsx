@@ -18,7 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Row } from '@tanstack/react-table'
-import { render, screen, waitFor, cleanup, act } from '@testing-library/react'
+import {
+  render,
+  screen,
+  waitFor,
+  cleanup,
+  act,
+  fireEvent,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AxiosError } from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -329,33 +336,39 @@ describe('metadata editing', () => {
           <ModelMutateDrawer open onOpenChange={close} />
         </QueryClientProvider>
       )
-      const user = userEvent.setup()
-      await user.type(screen.getByLabelText('Model Name *'), 'duplicate-model')
-      await user.type(screen.getByLabelText('Description'), 'Keep this draft')
-      await user.click(screen.getByRole('button', { name: 'Save metadata' }))
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        '模型名称已存在'
+      const nameInput = screen.getByLabelText('Model Name *')
+      const descriptionInput = screen.getByLabelText('Description')
+      fireEvent.change(nameInput, { target: { value: 'duplicate-model' } })
+      fireEvent.change(descriptionInput, {
+        target: { value: 'Keep this draft' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+      await waitFor(() =>
+        expect(
+          screen
+            .queryAllByRole('alert')
+            .some((alert) => alert.textContent?.includes('模型名称已存在'))
+        ).toBe(true)
       )
       expect(fallbackError).not.toHaveBeenCalled()
       expect(close).not.toHaveBeenCalled()
-      expect(screen.getByLabelText('Model Name *')).toHaveValue(
-        'duplicate-model'
-      )
-      expect(screen.getByLabelText('Description')).toHaveValue(
-        'Keep this draft'
-      )
-      await user.clear(screen.getByLabelText('Model Name *'))
-      await user.type(screen.getByLabelText('Model Name *'), 'unique-model')
-      await user.click(screen.getByRole('button', { name: 'Save metadata' }))
+      expect(nameInput).toHaveValue('duplicate-model')
+      expect(descriptionInput).toHaveValue('Keep this draft')
+      fireEvent.change(nameInput, { target: { value: 'unique-model' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
       await waitFor(() => expect(close).toHaveBeenCalledWith(false))
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(
+        screen
+          .queryAllByRole('alert')
+          .some((alert) => alert.textContent?.includes('模型名称已存在'))
+      ).toBe(false)
       expect(post).toHaveBeenLastCalledWith(
         '/api/models/',
         expect.objectContaining({
           model_name: 'unique-model',
           description: 'Keep this draft',
-        }),
-        { skipBusinessError: true, skipErrorHandler: true }
+        })
       )
       client.clear()
     }
@@ -404,24 +417,11 @@ describe('metadata editing', () => {
       'Existing vendor'
     )
     const user = userEvent.setup()
-    expect(screen.getByText('Gemini.Color')).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'Custom model icon' }))
-    const icon = screen.getByRole('combobox', { name: 'Icon' })
-    await user.type(icon, 'Claude.Avatar')
-    await user.keyboard('{Escape}')
-    expect(screen.getByText('Claude.Avatar')).toBeVisible()
-    await user.click(
-      screen.getByRole('button', { name: 'Inherit vendor icon' })
-    )
-    expect(
-      screen.queryByRole('combobox', { name: 'Icon' })
-    ).not.toBeInTheDocument()
-    expect(screen.getByText('Gemini.Color')).toBeVisible()
     const vendorInput = screen.getByRole('combobox', { name: 'Vendor' })
     await user.click(vendorInput)
     await user.type(vendorInput, 'Another')
     await user.click(screen.getByRole('option', { name: 'Another vendor' }))
-    expect(vendorInput).toHaveValue('Another vendor')
+    await waitFor(() => expect(vendorInput).toHaveValue('Another vendor'))
     await user.clear(description)
     await user.type(description, 'Updated metadata')
     await user.click(

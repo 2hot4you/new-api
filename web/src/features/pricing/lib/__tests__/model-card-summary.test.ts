@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+
 import { describe, test } from 'vitest'
 
 import type { PricingModel } from '../../types'
@@ -35,7 +36,7 @@ describe('compact model directory pricing summary', () => {
         { label: 'Output', value: '$4' },
         { label: 'Cached', value: '$0.2' },
       ],
-      unit: '1,000,000 Token',
+      unit: '1M',
     })
   })
 
@@ -52,11 +53,12 @@ describe('compact model directory pricing summary', () => {
     )
 
     assert.deepEqual(summary, {
-      kind: 'tiered',
-      label: 'Tiered by per-request input Tokens',
-      detail: '≤ 128K / > 128K',
-      from: '¥0.2',
-      unit: '1,000,000 Token',
+      kind: 'token',
+      items: [
+        { label: 'Input', value: '¥0.2' },
+        { label: 'Output', value: '¥2' },
+      ],
+      unit: '1M',
     })
   })
 
@@ -72,12 +74,12 @@ describe('compact model directory pricing summary', () => {
     )
 
     assert.deepEqual(summary, {
-      kind: 'tiered',
-      label: 'Priced by request time',
-      detail: '09:00–12:00, 14:00–18:00 (Asia/Shanghai) ×2',
-      noteKey: 'Other times use the base price',
-      from: '$1.5',
-      unit: '1,000,000 Token',
+      kind: 'token',
+      items: [
+        { label: 'Input', value: '$1.5' },
+        { label: 'Output', value: '$4.5' },
+      ],
+      unit: '1M',
     })
   })
 
@@ -132,7 +134,7 @@ describe('compact model directory pricing summary', () => {
       kind: 'tiered',
       label: 'Tiered pricing',
       from: '¥28.00',
-      unit: '1,000,000 Token',
+      unit: '1M',
     })
   })
 })

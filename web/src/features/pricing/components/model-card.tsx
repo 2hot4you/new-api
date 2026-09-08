@@ -39,6 +39,7 @@ import {
 } from '../lib/model-card-summary'
 import { getPricingModelDescription } from '../lib/model-description'
 import { getModelInputModalities } from '../lib/model-directory'
+import { taskPriceLabel } from '../lib/task-price-display'
 import type {
   Modality,
   ModelCapability,
@@ -146,38 +147,84 @@ function ModalityList(props: { label: string; modalities: Modality[] }) {
 }
 
 function CompactPricing(props: { summary: CompactPricingSummary }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { summary } = props
 
   if (summary.kind === 'token') {
     return (
-      <>
-        <div className='grid grid-cols-3 gap-2'>
-          {summary.items.map((item) => (
-            <div key={item.label} className='min-w-0'>
-              <div className='text-muted-foreground/60 text-[10px]'>
-                {t(item.label)}
-              </div>
-              <div className='text-foreground truncate font-mono text-xs font-semibold'>
-                {item.value}
-              </div>
+      <div className='grid grid-cols-3 gap-2'>
+        {summary.items.map((item) => (
+          <div key={item.label} className='min-w-0'>
+            <div className='text-muted-foreground/60 text-[10px]'>
+              {t(item.label)}
             </div>
-          ))}
-        </div>
-        <div className='text-muted-foreground/50 mt-1.5 text-[10px]'>
-          {t('Price unit')}: ¥ / {summary.unit}
-        </div>
-      </>
+            <div className='text-foreground truncate font-mono text-xs font-semibold'>
+              {item.value} / {summary.unit}
+            </div>
+          </div>
+        ))}
+      </div>
     )
   }
 
   if (summary.kind === 'request') {
     return (
       <div className='flex items-baseline justify-between gap-3'>
-        <span className='text-muted-foreground text-xs'>{t('Price')}</span>
+        <span className='text-muted-foreground text-xs'>
+          {t('Per Request')}
+        </span>
         <span className='font-mono text-sm font-semibold'>
           {summary.value} / {t(summary.unit)}
         </span>
+      </div>
+    )
+  }
+
+  if (summary.kind === 'task') {
+    return (
+      <div className='flex items-end justify-between gap-3'>
+        <div className='min-w-0'>
+          <div className='text-muted-foreground text-xs'>
+            {taskPriceLabel(
+              summary.description,
+              summary.label,
+              i18n.resolvedLanguage ?? i18n.language
+            )}
+          </div>
+          {summary.example && (
+            <div className='text-muted-foreground/50 mt-0.5 text-[10px]'>
+              {summary.example}
+            </div>
+          )}
+        </div>
+        <div className='shrink-0 text-right'>
+          <div className='font-mono text-sm font-semibold'>{summary.value}</div>
+          <div className='text-muted-foreground/60 text-[10px]'>
+            {' / '}
+            {t(summary.unit)}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (summary.kind === 'task-unconfigured') {
+    return (
+      <div className='text-muted-foreground text-xs'>
+        {t('Usage-based billing · price not configured')}
+      </div>
+    )
+  }
+
+  if (summary.kind === 'special') {
+    return (
+      <div className='space-y-1'>
+        <div className='text-muted-foreground text-xs'>
+          {t('Special billing expression')}
+        </div>
+        <code className='text-muted-foreground block text-[10px] break-all'>
+          {summary.expression}
+        </code>
       </div>
     )
   }
@@ -231,6 +278,12 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     props.model.capabilities?.includes(capability)
   ).slice(0, 4)
   const endpoints = (props.model.supported_endpoint_types ?? []).slice(0, 2)
+  const groups = props.model.enable_groups ?? []
+  const allEndpoints = props.model.supported_endpoint_types ?? []
+  const tags = (props.model.tags ?? '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
 
   const handleCopy = (event: React.MouseEvent) => {
     event.stopPropagation()
@@ -269,9 +322,12 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             <div className='text-muted-foreground text-[11px] font-medium'>
               {props.model.vendor_name || t('Unknown vendor')}
             </div>
-            <h2 className='text-foreground mt-0.5 line-clamp-2 text-sm leading-5 font-semibold'>
+            <h3
+              title={props.model.model_name}
+              className='text-foreground mt-0.5 line-clamp-2 text-sm leading-5 font-semibold'
+            >
               {displayName}
-            </h2>
+            </h3>
             {displayName !== props.model.model_name && (
               <div className='text-muted-foreground/70 mt-0.5 truncate font-mono text-[10px]'>
                 {props.model.model_name}
@@ -282,7 +338,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <button
           type='button'
           onClick={handleCopy}
-          title={t('Copy model ID')}
+          aria-label={t('Copy model name')}
+          title={t('Copy model name')}
           className='text-muted-foreground hover:bg-muted hover:text-foreground -mr-1 rounded-md p-1.5'
         >
           <Copy className='size-3.5' />
@@ -298,7 +355,58 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <ModalityList label='Output' modalities={outputModalities} />
       </div>
 
-      <div className='mt-3' data-model-card-pricing='true'>
+      {(groups.length > 0 || allEndpoints.length > 0 || tags.length > 0) && (
+        <div className='mt-3 space-y-1.5 text-[10px]'>
+          {groups.length > 0 && (
+            <div className='flex min-w-0 items-center gap-2'>
+              <span className='text-muted-foreground/60 shrink-0'>
+                {t('Groups')}
+              </span>
+              <span className='truncate' title={groups[0]}>
+                {groups[0]}
+              </span>
+              {groups.length > 1 && (
+                <span title={groups.slice(1).join(', ')}>
+                  +{groups.length - 1}
+                </span>
+              )}
+            </div>
+          )}
+          {allEndpoints.length > 0 && (
+            <div className='flex min-w-0 items-center gap-2'>
+              <span className='text-muted-foreground/60 shrink-0'>
+                {t('Endpoints')}
+              </span>
+              <span className='truncate' title={allEndpoints.join(', ')}>
+                {allEndpoints.slice(0, 2).join(', ')}
+              </span>
+              {allEndpoints.length > 2 && (
+                <span>+{allEndpoints.length - 2}</span>
+              )}
+            </div>
+          )}
+          {tags.length > 0 && (
+            <div
+              role='group'
+              aria-label={t('Tags')}
+              className='flex min-w-0 items-center gap-2'
+            >
+              <span className='truncate' title={tags.join(', ')}>
+                {tags.slice(0, 2).join(', ')}
+              </span>
+              {tags.length > 2 && <span>+{tags.length - 2}</span>}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div
+        className='mt-3'
+        data-model-card-pricing='true'
+        role='group'
+        aria-label={t('Pricing')}
+      >
+        <span className='sr-only'>{t('Token-based')}</span>
         <CompactPricing summary={summary} />
       </div>
 
@@ -352,17 +460,18 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             </div>
           )}
         </div>
-        {props.perf ? (
-          <ModelPerfBadge perf={props.perf} />
-        ) : (
-          <span
-            className='text-muted-foreground/50 shrink-0 text-[10px]'
-            data-model-performance-empty='true'
-          >
-            {t('No performance data')}
-          </span>
-        )}
+        <ModelPerfBadge perf={props.perf} />
       </footer>
+      <button
+        type='button'
+        onClick={(event) => {
+          event.stopPropagation()
+          props.onClick()
+        }}
+        className='sr-only'
+      >
+        {t('Details')}
+      </button>
     </article>
   )
 })

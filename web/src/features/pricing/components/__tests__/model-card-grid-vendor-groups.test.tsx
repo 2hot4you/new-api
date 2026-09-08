@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test } from 'vitest'
 
 import type { PricingModel } from '../../types'
 
@@ -128,7 +128,7 @@ describe('high-density model directory grid', () => {
     container.remove()
   })
 
-  test('renders every model without client-side pagination', async () => {
+  test('paginates a large model directory', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -149,8 +149,8 @@ describe('high-density model directory grid', () => {
       )
     })
 
-    assert.equal(container.querySelectorAll('[data-model-card]').length, 25)
-    assert.doesNotMatch(container.textContent ?? '', /Previous page|Next page/)
+    assert.equal(container.querySelectorAll('[data-model-card]').length, 20)
+    assert.match(container.textContent ?? '', /Previous page|Next page/)
 
     await act(async () => root.unmount())
     queryClient.clear()

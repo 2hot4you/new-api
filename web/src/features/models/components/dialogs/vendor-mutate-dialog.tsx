@@ -100,7 +100,7 @@ export function VendorMutateDialog(props: {
     }
     const key = String(id ?? 'new')
     if (loadedKey.current === key || (id && !query.data)) return
-    const value = query.data
+    const value = query.data?.name ? query.data : props.currentVendor
     form.reset({
       name: id ? (value?.name ?? '') : '',
       description: id ? (value?.description ?? '') : '',
@@ -109,7 +109,7 @@ export function VendorMutateDialog(props: {
     })
     loadedKey.current = key
     setSection('details')
-  }, [props.open, id, query.data, form])
+  }, [props.open, id, query.data, form, props.currentVendor])
   const save = useMutation({
     mutationFn: async (values: VendorFormValues) => {
       // Status is managed by the vendor operation flow; metadata edits must not
@@ -149,7 +149,9 @@ export function VendorMutateDialog(props: {
         <SheetContent className={sideDrawerContentClassName('sm:max-w-3xl')}>
           <SheetHeader className={sideDrawerHeaderClassName()}>
             <SheetTitle className='pr-6 break-all'>
-              {id ? props.currentVendor?.name : t('Create Vendor')}
+              {id
+                ? `${t('Edit Vendor')}: ${props.currentVendor?.name ?? ''}`
+                : t('Create Vendor')}
             </SheetTitle>
             <SheetDescription>
               {t('Manage vendor details and linked model records.')}
@@ -221,10 +223,29 @@ export function VendorMutateDialog(props: {
                           <FormItem>
                             <FormLabel>{t('Icon')}</FormLabel>
                             <FormControl>
-                              <LobeIconField
-                                value={field.value ?? ''}
-                                onChange={field.onChange}
-                              />
+                              <div className='space-y-3'>
+                                <Input
+                                  name={field.name}
+                                  value={field.value ?? ''}
+                                  onChange={field.onChange}
+                                  placeholder={t('Icon key')}
+                                />
+                                <div
+                                  data-vendor-icon-preview={field.value ?? ''}
+                                >
+                                  <label
+                                    className='sr-only'
+                                    htmlFor='vendor-icon-combobox'
+                                  >
+                                    {t('Icon')}
+                                  </label>
+                                  <LobeIconField
+                                    id='vendor-icon-combobox'
+                                    value={field.value ?? ''}
+                                    onChange={field.onChange}
+                                  />
+                                </div>
+                              </div>
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -280,7 +301,7 @@ export function VendorMutateDialog(props: {
                   disabled={save.isPending}
                   onClick={() => close(false)}
                 >
-                  {t('Close')}
+                  {t('Cancel')}
                 </Button>
                 <Button
                   type='submit'

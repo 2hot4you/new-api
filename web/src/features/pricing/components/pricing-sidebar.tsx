@@ -37,13 +37,13 @@ import {
   getEndpointTypeLabels,
   getQuotaTypeLabels,
 } from '../constants'
+import { hasTaskUsageSchema } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import {
   getContextBuckets,
   getContextBucketId,
   getModelInputModalities,
 } from '../lib/model-directory'
-import { hasTaskUsageSchema } from '../lib/dynamic-price'
 import type {
   Modality,
   ModelCapability,
@@ -118,6 +118,7 @@ function FilterOptionButton(props: {
     <button
       type='button'
       onClick={props.onClick}
+      aria-pressed={props.active}
       className={cn(
         'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors',
         props.active

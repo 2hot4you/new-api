@@ -34,7 +34,6 @@ import {
   MATCH_LT,
   MATCH_RANGE,
   SOURCE_TIME,
-  parseTaskTiersFromExpr,
   parseTiersFromExpr,
   requestRuleGroupsFromTrace,
   splitBillingExprAndRequestRules,
@@ -54,7 +53,11 @@ import {
   type DynamicPriceLabelKind,
   type DynamicPricingStrategy,
 } from '../lib/dynamic-price'
-import { getTaskMatrixDisplayTiers } from '../lib/task-matrix-display'
+import { getTaskPricingDisplayTiers } from '../lib/task-matrix-display'
+import {
+  taskPriceLabel,
+  taskPricingConditions,
+} from '../lib/task-price-display'
 import type { BillingUsageSchema, BillingUsageUnit } from '../types'
 
 type DynamicPricingBreakdownProps = {
@@ -106,10 +109,16 @@ type BreakdownPriceField = {
 
 function breakdownPriceFieldLabel(
   field: BreakdownPriceField,
-  t: (key: string) => string
+  t: (key: string) => string,
+  usageSchema?: BillingUsageSchema,
+  language?: string
 ): ReactNode {
   if (field.labelKind === 'schema') {
-    return <code className='font-mono'>{field.label}</code>
+    return taskPriceLabel(
+      usageSchema?.[field.id]?.description,
+      field.label,
+      language ?? 'en'
+    )
   }
   return t(field.label)
 }
@@ -182,7 +191,7 @@ function formatBreakdownPrice(
   rate: number,
   t: (key: string) => string
 ): string {
-  const amount = `${symbol}${(value * rate).toFixed(4)}`
+  const amount = `${symbol}${Number((value * rate).toFixed(4))}`
   if (field.unit === 'second') return `${amount}/${t('s')}`
   if (field.unit === 'count') return `${amount}/${t('unit')}`
   if (field.unit === 'credit') return `${amount}/${t('credit')}`
@@ -301,7 +310,7 @@ export function DynamicPricingBreakdown({
   usageFacts,
   taskPriceOptions,
 }: DynamicPricingBreakdownProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const expr = billingExpr || ''
   const currency = useSystemConfigStore((s) => s.config.currency)
 
@@ -324,15 +333,9 @@ export function DynamicPricingBreakdown({
 
   const { tiers, ruleGroups } = useMemo(() => {
     const split = splitBillingExprAndRequestRules(expr)
-    const matrixTiers = getTaskMatrixDisplayTiers(
-      split.billingExpr,
-      usageSchema
-    )
     let parsedTiers
-    if (matrixTiers) {
-      parsedTiers = matrixTiers
-    } else if (usageSchema) {
-      parsedTiers = parseTaskTiersFromExpr(split.billingExpr, usageSchema)
+    if (usageSchema) {
+      parsedTiers = getTaskPricingDisplayTiers(split.billingExpr, usageSchema)
     } else {
       parsedTiers = parseTiersFromExpr(split.billingExpr)
     }
@@ -414,7 +417,7 @@ export function DynamicPricingBreakdown({
       ) {
         fields.push({
           id: 'constant',
-          label: 'Base charge',
+          label: 'Additional charge',
           labelKind: 'i18n',
           unit: 'request',
           value: (tier: BreakdownTier) =>
@@ -443,6 +446,22 @@ export function DynamicPricingBreakdown({
   })()
   const mobileTierKeyOccurrences = new Map<string, number>()
   const requestRuleKeyOccurrences = new Map<string, number>()
+  const taskTierLabel = (tier: ParsedTaskTier): string => {
+    if (tier.conditions.length === 0) return t('Other cases')
+    return taskPricingConditions(
+      tier.conditions,
+      usageSchema,
+      i18n.resolvedLanguage ?? i18n.language,
+      t
+    )
+  }
+  const displayTierLabel = (tier: BreakdownTier, index: number): string => {
+    if (legacyStrategy && !isTaskBreakdownTier(tier)) {
+      return formatDynamicPricingTierLabel(expr, tier, index, t)
+    }
+    if (isTaskBreakdownTier(tier)) return taskTierLabel(tier)
+    return tier.label || t('Default')
+  }
 
   return (
     <section className={cn('min-w-0', !compact && 'py-3 sm:py-4')}>
@@ -491,10 +510,7 @@ export function DynamicPricingBreakdown({
                 legacyStrategy && !isTaskBreakdownTier(tier)
                   ? getDynamicPricingTierPresentation(expr, tier, index)
                   : null
-              const displayLabel =
-                legacyStrategy && !isTaskBreakdownTier(tier)
-                  ? formatDynamicPricingTierLabel(expr, tier, index, t)
-                  : tier.label || t('Default')
+              const displayLabel = displayTierLabel(tier, index)
               const condSummary =
                 presentation?.kind === 'input_length'
                   ? ''
@@ -543,8 +559,20 @@ export function DynamicPricingBreakdown({
                       const value = field.value(tier)
                       return (
                         <div key={field.id} className='min-w-0'>
-                          <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
-                            {breakdownPriceFieldLabel(field, t)}
+                          <div
+                            className={cn(
+                              'text-muted-foreground text-[10px] font-medium tracking-wider uppercase',
+                              field.labelKind === 'schema'
+                                ? 'whitespace-normal break-words'
+                                : 'truncate'
+                            )}
+                          >
+                            {breakdownPriceFieldLabel(
+                              field,
+                              t,
+                              usageSchema,
+                              i18n.resolvedLanguage ?? i18n.language
+                            )}
                           </div>
                           <div
                             className={cn(
@@ -595,7 +623,7 @@ export function DynamicPricingBreakdown({
             columns={[
               {
                 id: 'tier',
-                header: t('Tier'),
+                header: t(usageSchema ? 'Applicable conditions' : 'Tier'),
                 className: cn(
                   'text-muted-foreground py-2 font-medium',
                   compact && 'h-8'
@@ -606,10 +634,7 @@ export function DynamicPricingBreakdown({
                     legacyStrategy && !isTaskBreakdownTier(tier)
                       ? getDynamicPricingTierPresentation(expr, tier, index)
                       : null
-                  const displayLabel =
-                    legacyStrategy && !isTaskBreakdownTier(tier)
-                      ? formatDynamicPricingTierLabel(expr, tier, index, t)
-                      : tier.label || t('Default')
+                  const displayLabel = displayTierLabel(tier, index)
                   const condSummary =
                     presentation?.kind === 'input_length'
                       ? ''
@@ -649,7 +674,12 @@ export function DynamicPricingBreakdown({
               },
               ...visiblePriceFields.map((field) => ({
                 id: field.id,
-                header: breakdownPriceFieldLabel(field, t),
+                header: breakdownPriceFieldLabel(
+                  field,
+                  t,
+                  usageSchema,
+                  i18n.resolvedLanguage ?? i18n.language
+                ),
                 className: cn(
                   'text-muted-foreground py-2 text-right font-medium',
                   compact && 'h-8'

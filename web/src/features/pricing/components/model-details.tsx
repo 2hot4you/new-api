@@ -42,6 +42,7 @@ import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
   formatDynamicPricingTierLabel,
+  getDynamicPriceUnitLabelKey,
   getDynamicPriceEntries,
   getDynamicPricingSummary,
   getDynamicPricingTiers,
@@ -56,6 +57,7 @@ import {
   isTokenBasedModel,
 } from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
+import { hasSimpleTaskPricing, taskPriceLabel } from '../lib/task-price-display'
 import { isOpenAIVideoModel } from '../lib/video-model'
 import type { PriceType, PricingModel, TokenUnit } from '../types'
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
@@ -391,7 +393,7 @@ export function PriceSection(props: {
   tokenUnit: TokenUnit
   showRechargePrice: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
   const baseGroupKey = '_base'
@@ -416,6 +418,19 @@ export function PriceSection(props: {
         (entry) => entry.field !== 'cacheReadPrice'
       )
     : []
+  const dynamicEntryLabel = (
+    entry: (typeof detailDynamicPrimaryEntries)[number]
+  ) =>
+    entry.labelKind === 'schema'
+      ? taskPriceLabel(
+          entry.description,
+          entry.label,
+          i18n.resolvedLanguage ?? i18n.language
+        )
+      : t(entry.shortLabel)
+  const dynamicEntryUnit = (
+    entry: (typeof detailDynamicPrimaryEntries)[number]
+  ) => getDynamicPriceUnitLabelKey(entry) ?? tokenUnitLabel
 
   if (props.model.video_pricing) {
     return (
@@ -511,12 +526,12 @@ export function PriceSection(props: {
                 data-base-price-card-field={entry.field}
               >
                 <div className='text-muted-foreground text-xs'>
-                  {t(entry.shortLabel)}
+                  {dynamicEntryLabel(entry)}
                 </div>
                 <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
                   {entry.formatted}
                   <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
-                    / {tokenUnitLabel}
+                    / {t(dynamicEntryUnit(entry))}
                   </span>
                 </div>
               </div>
@@ -539,12 +554,12 @@ export function PriceSection(props: {
                   className='flex items-baseline justify-between gap-4'
                 >
                   <span className='text-muted-foreground/70 text-sm'>
-                    {t(entry.shortLabel)}
+                    {dynamicEntryLabel(entry)}
                   </span>
                   <span className='text-muted-foreground font-mono text-sm tabular-nums'>
                     {entry.formatted}
                     <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
-                      / {tokenUnitLabel}
+                      / {t(dynamicEntryUnit(entry))}
                     </span>
                   </span>
                 </div>
@@ -728,7 +743,7 @@ function GroupPricingSection(props: {
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
 
   const availableGroups = useMemo(
@@ -781,6 +796,7 @@ function GroupPricingSection(props: {
 
   if (isDynamicPricingModel(props.model)) {
     const dynamicTiers = getDynamicPricingTiers(props.model)
+    const isSimpleTask = hasSimpleTaskPricing(props.model)
 
     if (dynamicTiers.length === 0) {
       return (
@@ -816,6 +832,7 @@ function GroupPricingSection(props: {
       usdExchangeRate: props.usdExchangeRate,
       groupRatioMultiplier: 1,
       billingCurrency: props.model.billing_currency,
+      usageSchema: props.model.billing_usage_schema,
     })
     const formattedPricesByGroup = new Map(
       availableGroups.map((group) => {
@@ -829,6 +846,7 @@ function GroupPricingSection(props: {
             usdExchangeRate: props.usdExchangeRate,
             groupRatioMultiplier: ratio,
             billingCurrency: props.model.billing_currency,
+            usageSchema: props.model.billing_usage_schema,
           }),
         ] as const
       })
@@ -862,22 +880,36 @@ function GroupPricingSection(props: {
                     `${group}-${tier.label || tierIndex}`
                   }
                   columns={[
-                    {
-                      id: 'tier',
-                      header: t('Tier'),
-                      className: thClass,
-                      cellClassName: 'text-muted-foreground py-2.5',
-                      cell: (tier, tierIndex) =>
-                        formatDynamicPricingTierLabel(
-                          props.model.billing_expr || '',
-                          tier,
-                          tierIndex,
-                          t
-                        ),
-                    },
+                    ...(!isSimpleTask
+                      ? [
+                          {
+                            id: 'tier',
+                            header: t('Tier'),
+                            className: thClass,
+                            cellClassName: 'text-muted-foreground py-2.5',
+                            cell: (
+                              tier: (typeof dynamicTiers)[number],
+                              tierIndex: number
+                            ) =>
+                              formatDynamicPricingTierLabel(
+                                props.model.billing_expr || '',
+                                tier,
+                                tierIndex,
+                                t
+                              ),
+                          },
+                        ]
+                      : []),
                     ...priceFields.map((fieldEntry) => ({
                       id: fieldEntry.field,
-                      header: t(fieldEntry.shortLabel),
+                      header:
+                        fieldEntry.labelKind === 'schema'
+                          ? taskPriceLabel(
+                              fieldEntry.description,
+                              fieldEntry.label,
+                              i18n.resolvedLanguage ?? i18n.language
+                            )
+                          : t(fieldEntry.shortLabel),
                       className: `${thClass} text-right`,
                       cellClassName: 'py-2.5 text-right font-mono',
                       cell: (tier: (typeof dynamicTiers)[number]) =>
@@ -1055,8 +1087,16 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               showRechargePrice={showRechargePrice}
             />
           )}
-          {isDynamic && (
-            <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
+          {isDynamic && !hasSimpleTaskPricing(props.model) && (
+            <DynamicPricingBreakdown
+              billingExpr={props.model.billing_expr}
+              usageSchema={props.model.billing_usage_schema}
+              taskPriceOptions={{
+                showRechargePrice,
+                priceRate: props.priceRate,
+                usdExchangeRate: props.usdExchangeRate,
+              }}
+            />
           )}
           {!isGrokModel && !props.model.video_pricing && (
             <GroupPricingSection

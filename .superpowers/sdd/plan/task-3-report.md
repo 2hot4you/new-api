@@ -64,3 +64,30 @@ other owners' paths.
   synchronization policy UI, and metadata-editing assertions see the retained
   Molii marketplace publication notice. These expectations conflict with the
   merge requirements rather than this repair.
+
+## Fix round 2 — catalog pricing and model-management suite
+
+- Hardened dynamic tier presentation against missing labels and retained the
+  local, human-readable task condition labels in desktop and mobile pricing
+  tables.
+- Normalized task and token price presentation to compact, trimmed values
+  (for example `$5/1M token`) while preserving mixed currencies, custom usage
+  schemas, quotation inputs, Seedance, Grok, and GPT Image 2 pricing.
+- Restored catalog card pagination and accessible compact pricing/card metadata
+  without reintroducing upstream synchronization or embedded pricing editing.
+- Reconciled vendor editing with local metadata-only update semantics and made
+  its icon selector accessible by name.
+- Updated stale tests that asserted retired sync-policy UI or former expanded
+  card pricing, and made metadata-save tests wait for the actual mutation and
+  selected vendor state rather than timing-sensitive intermediate DOM.
+
+### Validation
+
+- `bun run test -- features/models features/pricing features/channels`:
+  passed (56 files, 365 tests).
+- `bun run typecheck`: passed (`tsgo -b`).
+- `bun x oxfmt --check` over all 14 changed owned files: passed.
+- `bun x oxlint -c .oxlintrc.json` over all 14 changed owned files: passed.
+- Repository-wide `bun run format:check` and `bun run lint` still report
+  pre-existing failures in many unowned files; no unrelated files were
+  changed to mask those baseline failures.

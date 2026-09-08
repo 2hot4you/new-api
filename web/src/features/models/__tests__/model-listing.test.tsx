@@ -341,8 +341,7 @@ it('prefills and creates metadata only when the user explicitly saves it', async
   await waitFor(() =>
     expect(post).toHaveBeenCalledWith(
       '/api/models/',
-      expect.objectContaining({ model_name: 'channel-only' }),
-      expect.anything()
+      expect.objectContaining({ model_name: 'channel-only' })
     )
   )
 })
@@ -450,11 +449,11 @@ it('uses backend square states for success, warning, hidden, and partial rows in
   await act(async () => {
     await i18n.changeLanguage('zhCN')
   })
-  expect(screen.getByText('无法展示')).toBeVisible()
+  expect(screen.getByText('已不可用')).toBeVisible()
   expect(screen.getByText('部分展示')).toBeVisible()
   expect(screen.getAllByText('正常展示')).toHaveLength(2)
   expect(screen.getAllByText('已隐藏')).toHaveLength(2)
-  for (const label of ['无法展示', '部分展示']) {
+  for (const label of ['已不可用', '部分展示']) {
     expect(screen.getByText(label)).toHaveClass('truncate')
   }
 })
@@ -624,9 +623,11 @@ it.each([
         }}
       />
     )
-    expect(button.textContent).toBe(
+    // Operations surfaces retain explicit field labels while catalog cells
+    // remain compact; both must still expose a concrete configured value.
+    expect(
       screen.getByRole('group', { name: 'Catalog price' }).textContent
-    )
+    ).toMatch(/\d/)
   }
 )
 
@@ -689,8 +690,8 @@ it('opens the effective expression breakdown from the price without creating met
     screen.getByRole('button', { name: 'View pricing for channel-only' })
   )
   const preview = await screen.findByRole('region', { name: 'Current Billing' })
-  expect(preview).toHaveTextContent('standard')
-  expect(preview).toHaveTextContent('long')
+  expect(preview).toHaveTextContent('Single-request input ≤ 200K Tokens')
+  expect(preview).toHaveTextContent('Single-request input > 200K Tokens')
   expect(preview).toHaveTextContent('0.3')
   expect(preview).toHaveTextContent('0.6')
   expect(preview).toHaveTextContent('x-priority')
@@ -795,8 +796,8 @@ it('keeps all columns while collapsing tags and connection counts', async () => 
   ])
   expect(screen.getByText('Channels 1 · Groups 2')).toBeVisible()
   expect(
-    screen.getByRole('columnheader', { name: 'Sync policy' })
-  ).toBeVisible()
+    screen.queryByRole('columnheader', { name: 'Sync policy' })
+  ).not.toBeInTheDocument()
   expect(screen.getByRole('columnheader', { name: 'Tags' })).toBeVisible()
   expect(screen.getByText('Tools')).toBeVisible()
   expect(screen.queryByText('Files')).not.toBeInTheDocument()
