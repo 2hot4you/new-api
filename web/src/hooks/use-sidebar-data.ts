@@ -26,6 +26,7 @@ import {
   LayoutDashboard,
   ListTodo,
   Package,
+  ReceiptText,
   MessageSquare,
   PlugZap,
   Radio,
@@ -162,6 +163,12 @@ export function useSidebarData(): SidebarData {
             title: t('Task Plugins'),
             url: '/task-plugins',
             icon: PlugZap,
+            requiredRole: ROLE.SUPER_ADMIN,
+          },
+          {
+            title: t('Product Quotation & Calculator'),
+            url: '/product-quotation',
+            icon: ReceiptText,
             requiredRole: ROLE.SUPER_ADMIN,
           },
           {

@@ -1,0 +1,12 @@
+{
+  "id": "pricing-quotation-tool",
+  "title": "实现超级管理员产品报价及计算器",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并等待集成决定",
+  "createdAt": "2026-09-08T11:39:00.052594+00:00",
+  "branch": "feat/product-quotation-calculator"
+}
