@@ -344,44 +344,50 @@ it.each([
       fallbackLng: false,
       resources: { [locale]: resources },
     })
+    const filters = { p: 1, page_size: 20 }
+    const data = {
+      total: 2,
+      items: [
+        {
+          event_id: 'single-status',
+          created_at: 0,
+          username: 'alice',
+          action: 'channel.status_update',
+          content: 'channel.status_update',
+          other: {
+            op: {
+              action: 'channel.status_update',
+              params: { id: 42, status: 2, changed: true },
+            },
+          },
+        },
+        {
+          event_id: 'batch-status',
+          created_at: 0,
+          username: 'alice',
+          action: 'channel.status_update_batch',
+          content: 'channel.status_update_batch',
+          other: {
+            op: {
+              action: 'channel.status_update_batch',
+              params: { count: 1, total: 2, status: 1 },
+            },
+          },
+        },
+      ],
+    }
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     })
     vi.spyOn(api, 'get').mockResolvedValue({
       data: {
         success: true,
-        data: {
-          total: 2,
-          items: [
-            {
-              event_id: 'single-status',
-              created_at: 0,
-              username: 'alice',
-              action: 'channel.status_update',
-              content: 'channel.status_update',
-              other: {
-                op: {
-                  action: 'channel.status_update',
-                  params: { id: 42, status: 2, changed: true },
-                },
-              },
-            },
-            {
-              event_id: 'batch-status',
-              created_at: 0,
-              username: 'alice',
-              action: 'channel.status_update_batch',
-              content: 'channel.status_update_batch',
-              other: {
-                op: {
-                  action: 'channel.status_update_batch',
-                  params: { count: 1, total: 2, status: 1 },
-                },
-              },
-            },
-          ],
-        },
+        data,
       },
+    })
+    await client.prefetchQuery({
+      queryKey: ['audit', undefined, 'self', filters],
+      queryFn: () => getAuditLogs('self', filters),
     })
     render(
       <I18nextProvider i18n={i18n}>
@@ -390,7 +396,7 @@ it.each([
         </QueryClientProvider>
       </I18nextProvider>
     )
-    expect(await screen.findByRole('cell', { name: single })).toBeVisible()
+    expect(screen.getByRole('cell', { name: single })).toBeVisible()
     expect(screen.getByRole('cell', { name: batch })).toBeVisible()
     expect(
       screen.queryByRole('cell', { name: 'channel.status_update' })
