@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Calculator, Check, Copy } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -47,6 +47,11 @@ function finiteNumber(value: string): number {
   return Number(value)
 }
 
+function isFinitePositive(value: string): boolean {
+  const parsed = finiteNumber(value)
+  return Number.isFinite(parsed) && parsed > 0
+}
+
 export function ExchangeDiscountCalculator({
   defaultActualRate = 7,
   defaultFixedRate = 7,
@@ -55,6 +60,8 @@ export function ExchangeDiscountCalculator({
   const [actualRate, setActualRate] = useState(String(defaultActualRate))
   const [fixedRate, setFixedRate] = useState(String(defaultFixedRate))
   const [discount, setDiscount] = useState('10')
+  const actualRateEdited = useRef(false)
+  const fixedRateEdited = useRef(false)
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const parsedDiscount = finiteNumber(discount)
   const ratio = useMemo(
@@ -69,6 +76,22 @@ export function ExchangeDiscountCalculator({
   const ratioText = ratio === null ? null : String(ratio)
   const coefficient = normalizeDiscount(parsedDiscount)
   const copied = ratioText !== null && copiedText === ratioText
+  const actualRateInvalid = !isFinitePositive(actualRate)
+  const fixedRateInvalid = !isFinitePositive(fixedRate)
+  const discountInvalid = coefficient === null
+  const calculatorErrorId = 'quotation-calculator-error'
+
+  useEffect(() => {
+    if (!actualRateEdited.current) {
+      setActualRate(String(defaultActualRate))
+    }
+  }, [defaultActualRate])
+
+  useEffect(() => {
+    if (!fixedRateEdited.current) {
+      setFixedRate(String(defaultFixedRate))
+    }
+  }, [defaultFixedRate])
 
   return (
     <Card>
@@ -96,13 +119,19 @@ export function ExchangeDiscountCalculator({
               min='0'
               step='any'
               value={actualRate}
-              onChange={(event) => setActualRate(event.target.value)}
-              aria-invalid={finiteNumber(actualRate) <= 0}
+              onChange={(event) => {
+                actualRateEdited.current = true
+                setActualRate(event.target.value)
+              }}
+              aria-invalid={actualRateInvalid}
+              aria-describedby={
+                actualRateInvalid ? calculatorErrorId : undefined
+              }
             />
           </div>
           <div className='space-y-1.5'>
             <Label htmlFor='quotation-calculator-discount'>
-              {t('Calculator discount (zhe)')}
+              {t('Calculator discount (10 = full price)')}
             </Label>
             <Input
               id='quotation-calculator-discount'
@@ -113,7 +142,8 @@ export function ExchangeDiscountCalculator({
               step='any'
               value={discount}
               onChange={(event) => setDiscount(event.target.value)}
-              aria-invalid={coefficient === null}
+              aria-invalid={discountInvalid}
+              aria-describedby={discountInvalid ? calculatorErrorId : undefined}
             />
           </div>
           <div className='space-y-1.5'>
@@ -127,8 +157,14 @@ export function ExchangeDiscountCalculator({
               min='0'
               step='any'
               value={fixedRate}
-              onChange={(event) => setFixedRate(event.target.value)}
-              aria-invalid={finiteNumber(fixedRate) <= 0}
+              onChange={(event) => {
+                fixedRateEdited.current = true
+                setFixedRate(event.target.value)
+              }}
+              aria-invalid={fixedRateInvalid}
+              aria-describedby={
+                fixedRateInvalid ? calculatorErrorId : undefined
+              }
             />
           </div>
         </div>
@@ -163,8 +199,14 @@ export function ExchangeDiscountCalculator({
           </Button>
         </div>
         {ratioText === null ? (
-          <p role='alert' className='text-destructive text-xs'>
-            {t('Enter finite positive rates and a discount from 0 to 10.')}
+          <p
+            id={calculatorErrorId}
+            role='alert'
+            className='text-destructive text-xs'
+          >
+            {t(
+              'Enter finite positive rates and a discount greater than 0 and at most 10.'
+            )}
           </p>
         ) : (
           <p className='text-muted-foreground text-xs'>

@@ -96,7 +96,7 @@ export function QuotationPreview({ snapshot }: QuotationPreviewProps) {
       return t('Invalid provider discount')
     }
     if (provider.discountCoefficient === null) return t('Invalid discount')
-    return t('{{discount}} zhe', {
+    return t('{{discount}} tenths of list price', {
       discount: provider.discount ?? snapshot.globalDiscount ?? '—',
     })
   }
@@ -140,7 +140,9 @@ export function QuotationPreview({ snapshot }: QuotationPreviewProps) {
             <dd className='mt-0.5'>
               {snapshot.globalDiscount === null
                 ? '—'
-                : t('{{discount}} zhe', { discount: snapshot.globalDiscount })}
+                : t('{{discount}} tenths of list price', {
+                    discount: snapshot.globalDiscount,
+                  })}
             </dd>
           </div>
           <div className='min-w-0'>
@@ -186,7 +188,7 @@ export function QuotationPreview({ snapshot }: QuotationPreviewProps) {
                 </span>
               </div>
               {provider.note && (
-                <div className='border-l-2 border-slate-400 bg-slate-50 px-3 py-2 text-sm whitespace-pre-wrap'>
+                <div className='border-l-2 border-slate-400 bg-slate-50 px-3 py-2 text-sm break-words whitespace-pre-wrap'>
                   <span className='font-semibold'>{t('Provider note')}: </span>
                   {provider.note}
                 </div>

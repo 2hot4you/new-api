@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   clearQuotationDraft,
@@ -45,8 +45,14 @@ export function useQuotationDraft(today = new Date()) {
   })
   const [saveStatus, setSaveStatus] =
     useState<QuotationDraftSaveStatus>('saved')
+  const suppressNextSave = useRef(false)
 
   useEffect(() => {
+    if (suppressNextSave.current) {
+      suppressNextSave.current = false
+      setSaveStatus('saved')
+      return
+    }
     setSaveStatus(
       saveQuotationDraft(browserStorage(), draft) ? 'saved' : 'unsaved'
     )
@@ -69,6 +75,7 @@ export function useQuotationDraft(today = new Date()) {
 
   const clearDraft = useCallback(() => {
     clearQuotationDraft(browserStorage())
+    suppressNextSave.current = true
     setDraft(createDefaultQuotationDraft(new Date()))
   }, [])
 

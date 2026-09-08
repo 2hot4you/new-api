@@ -27,6 +27,8 @@ import { ProductQuotation } from '../../index'
 
 const mocks = vi.hoisted(() => ({
   download: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
   pricing: {
     models: [] as PricingModel[],
     vendors: [{ id: 10, name: 'Provider Alpha' }],
@@ -53,6 +55,13 @@ vi.mock('@/features/pricing/hooks/use-pricing-data', () => ({
 
 vi.mock('../../lib/download-html', () => ({
   downloadQuotationHtml: mocks.download,
+}))
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+  },
 }))
 
 function pricingModel(overrides: Partial<PricingModel> = {}): PricingModel {
@@ -93,13 +102,18 @@ function setPricing(overrides: Partial<typeof mocks.pricing> = {}): void {
 async function fillValidQuotation(): Promise<void> {
   const user = userEvent.setup()
   await user.type(screen.getByLabelText('Quotation title'), 'Annual AI quote')
-  await user.type(screen.getByLabelText('Global discount (zhe)'), '8')
+  await user.type(
+    screen.getByLabelText('Global discount (10 = full price)'),
+    '8'
+  )
   await user.click(screen.getByRole('checkbox', { name: 'Select alpha-chat' }))
 }
 
 beforeEach(() => {
   localStorage.clear()
   mocks.download.mockReset()
+  mocks.toastError.mockReset()
+  mocks.toastSuccess.mockReset()
   setPricing()
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -134,6 +148,11 @@ describe('product quotation workspace states', () => {
 
   test('keeps a local draft through manual price refresh and can clear it', async () => {
     const user = userEvent.setup()
+    const refreshedAt = Date.parse('2026-09-09T12:30:00.000Z')
+    mocks.pricing.refetch = vi.fn(async () => {
+      mocks.pricing.dataUpdatedAt = refreshedAt
+      return { isSuccess: true }
+    })
     render(<ProductQuotation />)
     await user.type(screen.getByLabelText('Quotation title'), 'Retained draft')
     await user.type(screen.getByLabelText('Customer'), 'Browser only customer')
@@ -151,12 +170,57 @@ describe('product quotation workspace states', () => {
     ).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByText('Pricing refreshed')).toBeInTheDocument()
     expect(screen.getByText(/Last successful pricing fetch/)).toHaveTextContent(
-      '2026'
+      new Intl.DateTimeFormat('en', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(refreshedAt)
     )
+
+    await user.type(
+      screen.getByLabelText('Global discount (10 = full price)'),
+      '8'
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Export HTML quotation' })
+    )
+    expect(mocks.download.mock.calls[0]?.[0]).toMatchObject({
+      fetchedAt: '2026-09-09T12:30:00.000Z',
+    })
 
     await user.click(screen.getByRole('button', { name: 'Clear draft' }))
     expect(screen.getByLabelText('Quotation title')).toHaveValue('')
     expect(screen.getByLabelText('Customer')).toHaveValue('')
+    await waitFor(() =>
+      expect(
+        localStorage.getItem('new-api:product-quotation:draft:v1')
+      ).toBeNull()
+    )
+
+    await user.type(screen.getByLabelText('Quotation title'), 'New draft')
+    await waitFor(() =>
+      expect(
+        JSON.parse(
+          localStorage.getItem('new-api:product-quotation:draft:v1') ?? '{}'
+        )
+      ).toMatchObject({ draft: { title: 'New draft' } })
+    )
+  })
+
+  test('reports local draft save failures without discarding the edited value', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage blocked')
+    })
+    render(<ProductQuotation />)
+
+    await user.type(screen.getByLabelText('Quotation title'), 'Unsaved draft')
+
+    expect(screen.getByLabelText('Quotation title')).toHaveValue(
+      'Unsaved draft'
+    )
+    expect(
+      await screen.findByText('Draft could not be saved locally')
+    ).toBeInTheDocument()
   })
 
   test('restores a valid versioned browser draft and blocks pending dynamic prices', () => {
@@ -215,16 +279,82 @@ describe('product quotation workspace states', () => {
       title: 'Annual AI quote',
       globalDiscount: 8,
       pricingVersion: 'pricing-v3',
+      fetchedAt: '2026-09-08T10:00:00.000Z',
     })
+  })
+
+  test('passes localized row maps to export and reports download failures', async () => {
+    const user = userEvent.setup()
+    i18next.addResourceBundle('fr', 'translation', {
+      Input: 'Entrée',
+      '1M token': '1 M de jetons',
+      '{{resolution}} without video input': '{{resolution}} sans entrée vidéo',
+      '{{resolution}} with video input': '{{resolution}} avec entrée vidéo',
+      '{{resolution}}; fps {{fps}}; extra frames {{extraFrames}}; Token = ceil(width x height x (fps x duration + extra frames) / 1024)':
+        '{{resolution}} ; ips {{fps}} ; images supplémentaires {{extraFrames}} ; Jeton = ceil(width x height x (fps x duration + extra frames) / 1024)',
+      cny_per_million_tokens: 'CNY par million de jetons',
+      'Failed to export HTML quotation': 'Échec de l’export HTML',
+    })
+    await i18next.changeLanguage('fr')
+    setPricing({
+      models: [
+        pricingModel({
+          video_pricing: {
+            unit: 'cny_per_million_tokens',
+            fps: 24,
+            extra_frames: 1,
+            rows: [
+              {
+                resolutions: ['720p'],
+                without_video: 37,
+                with_video: 22,
+              },
+            ],
+          },
+        }),
+      ],
+    })
+    mocks.download.mockImplementation(() => {
+      throw new Error('download blocked')
+    })
+    render(<ProductQuotation />)
+    await fillValidQuotation()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Export HTML quotation' })
+    )
+
+    expect(mocks.download.mock.calls[0]?.[1]).toMatchObject({
+      locale: 'fr',
+      dimensionLabels: {
+        Input: 'Entrée',
+        '720p without video input': '720p sans entrée vidéo',
+      },
+      unitLabels: {
+        '1M token': '1 M de jetons',
+        cny_per_million_tokens: 'CNY par million de jetons',
+      },
+      conditionLabels: {
+        '720p; fps 24; extra frames 1; Token = ceil(width x height x (fps x duration + extra frames) / 1024)':
+          '720p ; ips 24 ; images supplémentaires 1 ; Jeton = ceil(width x height x (fps x duration + extra frames) / 1024)',
+      },
+    })
+    expect(mocks.toastError).toHaveBeenCalledWith('Échec de l’export HTML')
+    expect(mocks.toastSuccess).not.toHaveBeenCalledWith(
+      'HTML quotation downloaded'
+    )
   })
 
   test('uses provider discounts over the global discount and renders every price column', async () => {
     const user = userEvent.setup()
     render(<ProductQuotation />)
     await fillValidQuotation()
-    await user.type(screen.getByLabelText('Provider Alpha discount (zhe)'), '5')
+    await user.type(
+      screen.getByLabelText('Provider Alpha discount (10 = full price)'),
+      '5'
+    )
 
-    expect(screen.getByText('5 zhe')).toBeInTheDocument()
+    expect(screen.getByText('5 tenths of list price')).toBeInTheDocument()
     expect(
       screen.getByRole('columnheader', { name: 'Catalog price' })
     ).toBeInTheDocument()
@@ -254,7 +384,7 @@ describe('product quotation workspace states', () => {
     render(<ProductQuotation />)
     await fillValidQuotation()
     await user.type(
-      screen.getByLabelText('Provider Alpha discount (zhe)'),
+      screen.getByLabelText('Provider Alpha discount (10 = full price)'),
       '12'
     )
 
@@ -262,6 +392,71 @@ describe('product quotation workspace states', () => {
     expect(
       screen.getByRole('button', { name: 'Export HTML quotation' })
     ).toBeDisabled()
+  })
+
+  test('supports decimal discounts and wraps long unbroken provider notes', async () => {
+    const user = userEvent.setup()
+    const longNote = `https://example.test/${'unbroken'.repeat(80)}`
+    render(<ProductQuotation />)
+    await user.type(screen.getByLabelText('Quotation title'), 'Decimal quote')
+    await user.type(
+      screen.getByLabelText('Global discount (10 = full price)'),
+      '7.5'
+    )
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select alpha-chat' })
+    )
+    fireEvent.change(screen.getByLabelText('Provider Alpha note'), {
+      target: { value: longNote },
+    })
+
+    expect(
+      screen.getAllByText('7.5 tenths of list price').length
+    ).toBeGreaterThan(0)
+    expect(screen.getByText('$3')).toBeInTheDocument()
+    const previewNote = screen
+      .getAllByText(longNote)
+      .find((element) => element.tagName === 'DIV')
+    expect(previewNote).toHaveClass('break-words')
+  })
+
+  test('renders concrete USD and CNY dimensions without a cross-unit total', async () => {
+    const user = userEvent.setup()
+    setPricing({
+      models: [
+        pricingModel(),
+        pricingModel({
+          id: 2,
+          model_name: 'image-model',
+          molii_grok_pricing: {
+            kind: 'image',
+            output_unit: 'image',
+            output_prices: { '1024x1024': 0.2 },
+            image_input_unit: 'image',
+            image_input_price: 0.05,
+          },
+        }),
+      ],
+    })
+    render(<ProductQuotation />)
+    await user.type(screen.getByLabelText('Quotation title'), 'Mixed quote')
+    await user.type(
+      screen.getByLabelText('Global discount (10 = full price)'),
+      '8'
+    )
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select all models' })
+    )
+
+    expect(screen.getAllByText('USD').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('CNY').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1M token').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('image').length).toBeGreaterThan(0)
+    expect(screen.getByText('1024x1024')).toBeInTheDocument()
+    expect(screen.getByText('¥0.16')).toBeInTheDocument()
+    expect(
+      screen.queryByText(/grand total|total price/i)
+    ).not.toBeInTheDocument()
   })
 
   test('copies a model ID with inline accessible feedback', async () => {
@@ -280,6 +475,33 @@ describe('product quotation workspace states', () => {
 
     expect(writeText).toHaveBeenCalledWith('alpha-chat')
     expect(await screen.findByText('Model ID copied')).toBeInTheDocument()
+  })
+
+  test('reports model ID copy failure through localized feedback', async () => {
+    const user = userEvent.setup()
+    render(<ProductQuotation />)
+    await fillValidQuotation()
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn(async () => {
+          throw new Error('clipboard blocked')
+        }),
+      },
+    })
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn(() => false),
+    })
+
+    await user.click(
+      screen.getByRole('button', { name: 'Copy model ID alpha-chat' })
+    )
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith('Failed to copy model ID')
+    )
+    expect(screen.queryByText('Model ID copied')).not.toBeInTheDocument()
   })
 
   test('marks a retained selection unavailable when the selected group changes', async () => {
@@ -371,6 +593,25 @@ describe('exchange and discount calculator', () => {
     expect(screen.getByLabelText('Fixed system exchange rate')).toHaveValue(7.2)
   })
 
+  test('synchronizes delayed pristine rates while preserving an edited rate', async () => {
+    const user = userEvent.setup()
+    setPricing({ priceRate: 1, usdExchangeRate: 1 })
+    const view = render(<ProductQuotation />)
+
+    setPricing({ priceRate: 7, usdExchangeRate: 6.8 })
+    view.rerender(<ProductQuotation />)
+    expect(screen.getByLabelText('Actual exchange rate')).toHaveValue(6.8)
+    expect(screen.getByLabelText('Fixed system exchange rate')).toHaveValue(7)
+
+    await user.clear(screen.getByLabelText('Actual exchange rate'))
+    await user.type(screen.getByLabelText('Actual exchange rate'), '6.9')
+    setPricing({ priceRate: 7.2, usdExchangeRate: 6.7 })
+    view.rerender(<ProductQuotation />)
+
+    expect(screen.getByLabelText('Actual exchange rate')).toHaveValue(6.9)
+    expect(screen.getByLabelText('Fixed system exchange rate')).toHaveValue(7.2)
+  })
+
   test('calculates and copies the exact suggested group ratio', async () => {
     const user = userEvent.setup()
     const writeText = vi.fn(async () => undefined)
@@ -382,8 +623,13 @@ describe('exchange and discount calculator', () => {
 
     await user.clear(screen.getByLabelText('Actual exchange rate'))
     await user.type(screen.getByLabelText('Actual exchange rate'), '6.8')
-    await user.clear(screen.getByLabelText('Calculator discount (zhe)'))
-    await user.type(screen.getByLabelText('Calculator discount (zhe)'), '5')
+    await user.clear(
+      screen.getByLabelText('Calculator discount (10 = full price)')
+    )
+    await user.type(
+      screen.getByLabelText('Calculator discount (10 = full price)'),
+      '5'
+    )
     await user.clear(screen.getByLabelText('Fixed system exchange rate'))
     await user.type(screen.getByLabelText('Fixed system exchange rate'), '7')
 
@@ -402,11 +648,48 @@ describe('exchange and discount calculator', () => {
 
     expect(
       screen.getByText(
-        'Enter finite positive rates and a discount from 0 to 10.'
+        'Enter finite positive rates and a discount greater than 0 and at most 10.'
       )
     ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Copy group ratio' })
     ).toBeDisabled()
+    expect(screen.getByLabelText('Fixed system exchange rate')).toHaveAttribute(
+      'aria-invalid',
+      'true'
+    )
+    expect(screen.getByLabelText('Fixed system exchange rate')).toHaveAttribute(
+      'aria-describedby',
+      'quotation-calculator-error'
+    )
+
+    await user.clear(screen.getByLabelText('Actual exchange rate'))
+    expect(screen.getByLabelText('Actual exchange rate')).toHaveAttribute(
+      'aria-invalid',
+      'true'
+    )
+    expect(screen.getByLabelText('Actual exchange rate')).toHaveAttribute(
+      'aria-describedby',
+      'quotation-calculator-error'
+    )
+  })
+
+  test('associates provider discount errors with their field', async () => {
+    const user = userEvent.setup()
+    render(<ProductQuotation />)
+    await fillValidQuotation()
+    const providerDiscount = screen.getByLabelText(
+      'Provider Alpha discount (10 = full price)'
+    )
+    await user.type(providerDiscount, '12')
+
+    expect(providerDiscount).toHaveAttribute('aria-invalid', 'true')
+    expect(providerDiscount).toHaveAttribute(
+      'aria-describedby',
+      'quotation-provider-discount-10-error'
+    )
+    expect(
+      document.querySelector('#quotation-provider-discount-10-error')
+    ).toHaveTextContent('Enter a discount greater than 0 and at most 10.')
   })
 })

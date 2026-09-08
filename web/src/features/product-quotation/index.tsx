@@ -33,7 +33,84 @@ import { useQuotationDraft } from './hooks/use-quotation-draft'
 import { downloadQuotationHtml } from './lib/download-html'
 import type { QuotationHtmlOptions } from './lib/quotation-html'
 import { buildQuotationSnapshot, validateQuotation } from './lib/quotation-math'
-import type { QuotationValidationError } from './types'
+import type { QuotePriceDimension, QuotationValidationError } from './types'
+
+const STATIC_DIMENSION_LABELS = [
+  'Input',
+  'Output',
+  'Cache read',
+  'Cache write',
+  'Image input',
+  'Audio input',
+  'Audio output',
+  'Video input',
+  'Dynamic pricing',
+  'Base charge',
+  'Task usage pricing',
+  'Request',
+] as const
+
+const STATIC_UNIT_LABELS = [
+  '1M token',
+  'variable',
+  'request',
+  'count',
+  'image',
+  'second',
+] as const
+
+const VIDEO_CONDITION_PATTERN =
+  /^(.*); fps ([^;]+); extra frames ([^;]+); Token = ceil\(width x height x \(fps x duration \+ extra frames\) \/ 1024\)$/
+
+function generatedDimensionLabel(
+  dimension: QuotePriceDimension,
+  translate: (key: string, values?: Record<string, unknown>) => string
+): string {
+  const withoutVideoSuffix = ' without video input'
+  const withVideoSuffix = ' with video input'
+  const outputSuffix = ' output'
+  if (
+    dimension.sourceType === 'video' &&
+    dimension.label.endsWith(withoutVideoSuffix)
+  ) {
+    return translate('{{resolution}} without video input', {
+      resolution: dimension.label.slice(0, -withoutVideoSuffix.length),
+    })
+  }
+  if (
+    dimension.sourceType === 'video' &&
+    dimension.label.endsWith(withVideoSuffix)
+  ) {
+    return translate('{{resolution}} with video input', {
+      resolution: dimension.label.slice(0, -withVideoSuffix.length),
+    })
+  }
+  if (
+    dimension.sourceType === 'grok' &&
+    dimension.label.endsWith(outputSuffix)
+  ) {
+    return translate('{{tier}} output', {
+      tier: dimension.label.slice(0, -outputSuffix.length),
+    })
+  }
+  return translate(dimension.label)
+}
+
+function generatedConditionLabel(
+  condition: string,
+  translate: (key: string, values?: Record<string, unknown>) => string
+): string | null {
+  const videoCondition = condition.match(VIDEO_CONDITION_PATTERN)
+  if (!videoCondition) return null
+  return translate(
+    '{{resolution}}; fps {{fps}}; extra frames {{extraFrames}}; Token = ceil(width x height x (fps x duration + extra frames) / 1024)',
+    {
+      resolution: videoCondition[1],
+      fps: videoCondition[2],
+      extraFrames: videoCondition[3],
+    }
+  )
+}
 
 export function ProductQuotation() {
   const { t, i18n } = useTranslation()
@@ -84,8 +161,35 @@ export function ProductQuotation() {
         timeStyle: 'short',
       }).format(new Date(dataUpdatedAt))
     : t('Not fetched yet')
-  const htmlOptions = useMemo<QuotationHtmlOptions>(
-    () => ({
+  const htmlOptions = useMemo<QuotationHtmlOptions>(() => {
+    const dimensionLabels: Record<string, string> = Object.fromEntries(
+      STATIC_DIMENSION_LABELS.map((label) => [label, t(label)])
+    )
+    const unitLabels: Record<string, string> = Object.fromEntries(
+      STATIC_UNIT_LABELS.map((unit) => [unit, t(unit)])
+    )
+    const conditionLabels: Record<string, string> = {}
+    for (const provider of snapshot.providers) {
+      for (const model of provider.models) {
+        for (const dimension of model.dimensions) {
+          dimensionLabels[dimension.label] = generatedDimensionLabel(
+            dimension,
+            t
+          )
+          unitLabels[dimension.unit] = t(dimension.unit)
+          if (dimension.condition) {
+            const translatedCondition = generatedConditionLabel(
+              dimension.condition,
+              t
+            )
+            if (translatedCondition) {
+              conditionLabels[dimension.condition] = translatedCondition
+            }
+          }
+        }
+      }
+    }
+    return {
       locale: i18n.resolvedLanguage || i18n.language,
       labels: {
         emptyValue: '—',
@@ -100,7 +204,7 @@ export function ProductQuotation() {
         groupPriceBasis: t('User group'),
         discount: t('Discount'),
         discountCoefficient: t('Discount coefficient'),
-        discountSuffix: t(' zhe'),
+        discountSuffix: t(' / 10 of list price'),
         providerNote: t('Provider note'),
         priceDimension: t('Dimension'),
         sourceType: t('Source'),
@@ -128,9 +232,11 @@ export function ProductQuotation() {
           grok: t('Media pricing'),
         },
       },
-    }),
-    [i18n.language, i18n.resolvedLanguage, t]
-  )
+      dimensionLabels,
+      unitLabels,
+      conditionLabels,
+    }
+  }, [i18n.language, i18n.resolvedLanguage, snapshot, t])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -163,8 +269,12 @@ export function ProductQuotation() {
       toast.error(t('Resolve quotation errors before exporting.'))
       return
     }
-    downloadQuotationHtml(snapshot, htmlOptions)
-    toast.success(t('HTML quotation downloaded'))
+    try {
+      downloadQuotationHtml(snapshot, htmlOptions)
+      toast.success(t('HTML quotation downloaded'))
+    } catch {
+      toast.error(t('Failed to export HTML quotation'))
+    }
   }
 
   const actions = (

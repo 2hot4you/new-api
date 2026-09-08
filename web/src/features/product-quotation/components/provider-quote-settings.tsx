@@ -73,7 +73,7 @@ export function ProviderQuoteSettings({
 
       <div className='space-y-1.5'>
         <Label htmlFor='quotation-global-discount'>
-          {t('Global discount (zhe)')}
+          {t('Global discount (10 = full price)')}
         </Label>
         <Input
           id='quotation-global-discount'
@@ -115,6 +115,7 @@ export function ProviderQuoteSettings({
             const invalid =
               override.discount !== null &&
               normalizeDiscount(override.discount) === null
+            const errorId = `quotation-provider-discount-${provider.key}-error`
             return (
               <fieldset
                 key={provider.key}
@@ -127,7 +128,7 @@ export function ProviderQuoteSettings({
                   <Label
                     htmlFor={`quotation-provider-discount-${provider.key}`}
                   >
-                    {t('{{provider}} discount (zhe)', {
+                    {t('{{provider}} discount (10 = full price)', {
                       provider: provider.name,
                     })}
                   </Label>
@@ -147,9 +148,10 @@ export function ProviderQuoteSettings({
                     }
                     placeholder={t('Use global discount')}
                     aria-invalid={invalid}
+                    aria-describedby={invalid ? errorId : undefined}
                   />
                   {invalid && (
-                    <p className='text-destructive text-xs'>
+                    <p id={errorId} className='text-destructive text-xs'>
                       {t('Enter a discount greater than 0 and at most 10.')}
                     </p>
                   )}

@@ -137,6 +137,28 @@ describe('provider grouped quotation model selection', () => {
     ])
   })
 
+  test('supports keyboard selection for model checkboxes', async () => {
+    const user = userEvent.setup()
+    const onSelectionChange = vi.fn()
+    render(
+      <ProviderModelSelector
+        models={models}
+        vendors={vendors}
+        selectedModelIds={[]}
+        selectedGroup={null}
+        onSelectionChange={onSelectionChange}
+      />
+    )
+
+    const checkbox = screen.getByRole('checkbox', {
+      name: 'Select alpha-chat',
+    })
+    checkbox.focus()
+    await user.keyboard(' ')
+
+    expect(onSelectionChange).toHaveBeenCalledWith(['alpha-chat'])
+  })
+
   test('retains missing selections and marks group-unavailable selections', () => {
     render(
       <ProviderModelSelector
