@@ -506,21 +506,20 @@ describe('metadata editing', () => {
     )
     const description = await screen.findByLabelText('Description')
     await waitFor(() => expect(description).toHaveValue('Original'))
-    const user = userEvent.setup()
-    await user.clear(description)
-    await user.type(description, 'Unsaved metadata draft')
-    await user.click(screen.getByRole('tab', { name: 'Pricing' }))
+    fireEvent.change(description, {
+      target: { value: 'Unsaved metadata draft' },
+    })
+    fireEvent.click(screen.getByRole('tab', { name: 'Pricing' }))
     const price = await screen.findByPlaceholderText('0.01')
     await waitFor(() => expect(price).toHaveValue('1.5'))
-    await user.clear(price)
-    await user.type(price, '0')
-    await user.click(screen.getByRole('tab', { name: 'Model metadata' }))
+    fireEvent.change(price, { target: { value: '0' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Model metadata' }))
     expect(screen.getByLabelText('Description')).toHaveValue(
       'Unsaved metadata draft'
     )
-    await user.click(screen.getByRole('tab', { name: 'Pricing' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Pricing' }))
     expect(screen.getByPlaceholderText('0.01')).toHaveValue('0')
-    await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save model prices' }))
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith('/api/option/model_pricing', {
         changes: [
@@ -535,15 +534,16 @@ describe('metadata editing', () => {
     )
     version = 'v2'
     storedPrice = 2
-    await user.click(
+    fireEvent.click(
       await screen.findByRole('button', { name: 'Reload pricing' })
     )
     await waitFor(() =>
       expect(screen.getByPlaceholderText('0.01')).toHaveValue('2')
     )
-    await user.clear(screen.getByPlaceholderText('0.01'))
-    await user.type(screen.getByPlaceholderText('0.01'), '0')
-    await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+    fireEvent.change(screen.getByPlaceholderText('0.01'), {
+      target: { value: '0' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save model prices' }))
     await waitFor(() =>
       expect(patch).toHaveBeenLastCalledWith('/api/option/model_pricing', {
         changes: [
@@ -560,7 +560,7 @@ describe('metadata editing', () => {
     expect(
       get.mock.calls.some(([url]) => url === '/api/option/model_pricing')
     ).toBe(true)
-    await user.click(screen.getByRole('tab', { name: 'Model metadata' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Model metadata' }))
     expect(screen.getByLabelText('Description')).toHaveValue(
       'Unsaved metadata draft'
     )

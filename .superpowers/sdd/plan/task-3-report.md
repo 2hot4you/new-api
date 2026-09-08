@@ -91,3 +91,17 @@ other owners' paths.
 - Repository-wide `bun run format:check` and `bun run lint` still report
   pre-existing failures in many unowned files; no unrelated files were
   changed to mask those baseline failures.
+
+## Follow-up — full-suite metadata stability
+
+- Replaced per-character user-event interactions in the pricing-conflict
+  recovery test with synchronous input events. The test still verifies that
+  metadata and price drafts survive tab changes, that a stale version requires
+  reload, and that the refreshed version is saved independently.
+- This removes full-suite CPU-contention timing while keeping the default test
+  timeout unchanged.
+
+### Validation
+
+- `bun run test -- features/models features/pricing features/channels`:
+  passed (56 files, 365 tests; target test 1.7s in its focused run).
