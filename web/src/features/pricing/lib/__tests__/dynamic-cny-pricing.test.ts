@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
+
 import { describe, test } from 'vitest'
 
 import type { PricingModel } from '../../types'
-import { getDynamicPricingSummary } from '../dynamic-price'
+import {
+  formatTaskUsageUnitPrice,
+  getDynamicPricingSummary,
+} from '../dynamic-price'
 
 const model: PricingModel = {
   id: 1,
@@ -32,6 +36,18 @@ describe('CNY dynamic pricing', () => {
       summary?.entries.find((entry) => entry.field === 'cacheReadPrice')
         ?.formatted,
       '¥0.02'
+    )
+  })
+
+  test('keeps task ranges and examples in the backend-provided CNY currency', () => {
+    assert.equal(
+      formatTaskUsageUnitPrice(0.8, {
+        tokenUnit: 'M',
+        priceRate: 3,
+        usdExchangeRate: 7,
+        billingCurrency: 'CNY',
+      }),
+      '¥0.8'
     )
   })
 })

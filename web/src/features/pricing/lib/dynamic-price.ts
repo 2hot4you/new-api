@@ -279,6 +279,9 @@ export function formatTaskUsageUnitPrice(
   const priceRate = options.priceRate ?? 1
   const usdExchangeRate = options.usdExchangeRate ?? 1
   const priceUSD = valuePerUnit * groupRatio
+  if (options.billingCurrency === 'CNY') {
+    return `¥${formatCNYPrice(priceUSD)}`
+  }
   const displayPrice = applyRechargeRate(
     priceUSD,
     options.showRechargePrice ?? false,
@@ -583,11 +586,12 @@ export function getDynamicPricingSummary(
   const tiers = getDynamicPricingTiers(model)
   const isTaskUsage = isTaskUsagePricingModel(model)
   const tier = isTaskUsage ? (tiers.at(-1) ?? null) : (tiers[0] ?? null)
-  let entries = getDynamicPriceEntries(tier, {
+  const modelOptions = {
     ...options,
     billingCurrency: model.billing_currency,
     usageSchema: model.billing_usage_schema,
-  })
+  }
+  let entries = getDynamicPriceEntries(tier, modelOptions)
 
   if (isTaskUsage) {
     const priceRanges = new Map<string, { min: number; max: number }>()
@@ -610,7 +614,7 @@ export function getDynamicPricingSummary(
       if (!range || range.min === range.max) return entry
       return {
         ...entry,
-        formattedRange: `${formatTaskUsageUnitPrice(range.min, options)} – ${formatTaskUsageUnitPrice(range.max, options)}`,
+        formattedRange: `${formatTaskUsageUnitPrice(range.min, modelOptions)} – ${formatTaskUsageUnitPrice(range.max, modelOptions)}`,
       }
     })
   }
@@ -651,7 +655,10 @@ export function getCardExamplePrice(
   if (!result) return null
   return {
     label: firstExample.label,
-    formatted: formatTaskUsageUnitPrice(result.total, options),
+    formatted: formatTaskUsageUnitPrice(result.total, {
+      ...options,
+      billingCurrency: model.billing_currency,
+    }),
   }
 }
 

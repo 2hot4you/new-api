@@ -346,20 +346,16 @@ export function ModelMutateDrawer(props: {
                             <FormControl>
                               <Input
                                 placeholder={t('gpt-4, claude-3-opus, etc.')}
+                                disabled={isEditing}
                                 {...field}
                               />
                             </FormControl>
                             <FormDescription>
-                              {t('The unique identifier for this model')}
-                              {isEditing &&
-                                form.watch('model_name') !==
-                                  currentRow?.model_name && (
-                                  <span className='text-warning mt-1 block'>
-                                    {t(
-                                      'Renaming metadata does not rename channel models or move pricing. Existing prices stay with the original model name.'
-                                    )}
-                                  </span>
-                                )}
+                              {isEditing
+                                ? t(
+                                    'Model name cannot be changed after creation'
+                                  )
+                                : t('The unique identifier for this model')}
                             </FormDescription>
                             <FormMessage />
                           </FormItem>
@@ -478,7 +474,9 @@ export function ModelMutateDrawer(props: {
                             <FormLabel>{t('English description')}</FormLabel>
                             <FormControl>
                               <Textarea
-                                placeholder={t('Optional English description...')}
+                                placeholder={t(
+                                  'Optional English description...'
+                                )}
                                 rows={3}
                                 {...field}
                               />
@@ -536,9 +534,9 @@ export function ModelMutateDrawer(props: {
                       missingFields={publication.missingFields}
                       visible={Boolean(
                         values.marketplace_enabled &&
-                          values.status &&
-                          publication.complete &&
-                          blockers.length === 0
+                        values.status &&
+                        publication.complete &&
+                        blockers.length === 0
                       )}
                       blockers={blockers}
                       withdrawn={Boolean(savedModel?.marketplace_withdrawn)}
@@ -646,9 +644,7 @@ export function ModelMutateDrawer(props: {
 
                     {/* Local publication state */}
                     <SideDrawerSection>
-                      <h3 className='text-sm font-semibold'>
-                        {t('Status')}
-                      </h3>
+                      <h3 className='text-sm font-semibold'>{t('Status')}</h3>
 
                       <FormField
                         control={form.control}

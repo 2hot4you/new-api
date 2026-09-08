@@ -469,9 +469,14 @@ func updatePricing() {
 		}
 		if videoPricing, ok := ratio_setting.GetStarAIVideoPricing(model); ok {
 			pricing.VideoPricing = videoPricing
+			pricing.BillingCurrency = "CNY"
 		}
 		if grokPricing, ok := ratio_setting.GetMoliiGrokCatalogPricing(model); ok {
 			pricing.MoliiGrokPricing = grokPricing
+			pricing.BillingCurrency = "CNY"
+		}
+		if pricing.BillingCurrency == "" {
+			pricing.BillingCurrency = catalogPricingCurrency(model)
 		}
 		pricingMap = append(pricingMap, pricing)
 	}
@@ -512,6 +517,20 @@ func updatePricing() {
 	modelEnableGroupsLock.Unlock()
 
 	lastGetPricingTime = time.Now()
+}
+
+// catalogPricingCurrency records the currency of published pricing
+// coefficients. These expressions are direct provider CNY prices, unlike the
+// default USD ratio tables. Keep this source next to the pricing response so
+// the public catalog, quotation, and task-aware renderers receive the same
+// contract without inferring currency from a model name on the client.
+func catalogPricingCurrency(modelName string) string {
+	switch modelName {
+	case "minimax-m3", "qwen3.5-flash", "qwen3.5-plus":
+		return "CNY"
+	default:
+		return ""
+	}
 }
 
 // GetSupportedEndpointMap 返回全局端点到路径的映射

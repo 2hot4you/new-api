@@ -440,6 +440,35 @@ describe('metadata editing', () => {
       endpoints: '',
     })
   })
+  it('keeps an existing model name immutable while allowing a new model name', async () => {
+    vi.spyOn(api, 'get').mockImplementation(async (url) => {
+      if (url === '/api/models/7') {
+        return { data: { success: true, data: model } }
+      }
+      return { data: { success: true, data: { items: [] } } }
+    })
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <ModelMutateDrawer open onOpenChange={() => {}} currentRow={model} />
+      </QueryClientProvider>
+    )
+    expect(await screen.findByLabelText('Model Name *')).toBeDisabled()
+    cleanup()
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <ModelMutateDrawer open onOpenChange={() => {}} />
+      </QueryClientProvider>
+    )
+    expect(await screen.findByLabelText('Model Name *')).toBeEnabled()
+  })
   it('keeps metadata drafts while saving pricing independently and preserves the price draft across tabs', async () => {
     useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role: 100 })
     let version = 'v1'
