@@ -197,13 +197,14 @@ func QuerySummaryAllRange(startTs int64, endTs int64, groups []string) (SummaryA
 			avgTps = float64(total.outputTokens) / (float64(total.generationMs) / 1000.0)
 		}
 		models = append(models, ModelSummary{
-			ModelName:          name,
-			AvgLatencyMs:       avgLatency,
-			SuccessRate:        math.Round(successRate*100) / 100,
-			AvgTps:             math.Round(avgTps*100) / 100,
-			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 3),
-			RequestCount:       total.requestCount,
-			SuccessCount:       total.successCount,
+			ModelName:           name,
+			AvgLatencyMs:        avgLatency,
+			SuccessRate:         math.Round(successRate*100) / 100,
+			AvgTps:              math.Round(avgTps*100) / 100,
+			RecentSuccessRates:  recentSuccessRates(modelBuckets[name], 3),
+			RequestCount:        total.requestCount,
+			SuccessCount:        total.successCount,
+			RecentSuccessSeries: recentSuccessSeries(modelBuckets[name]),
 		})
 	}
 	sort.Slice(models, func(i, j int) bool {
@@ -276,25 +277,39 @@ func mergeGroupTotals(totals map[string]counters, group string, value counters) 
 	totals[group] = current
 }
 
-func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
-	if len(buckets) == 0 || limit <= 0 {
+func recentSuccessSeries(buckets map[int64]counters) []SuccessRatePoint {
+	if len(buckets) == 0 {
 		return nil
 	}
-	timestamps := make([]int64, 0, len(buckets))
-	for ts := range buckets {
-		timestamps = append(timestamps, ts)
+	hourly := map[int64]counters{}
+	for ts, value := range buckets {
+		hourTs := ts - ts%3600
+		merged := hourly[hourTs]
+		merged.requestCount += value.requestCount
+		merged.successCount += value.successCount
+		hourly[hourTs] = merged
+	}
+	timestamps := make([]int64, 0, len(hourly))
+	for hourTs, value := range hourly {
+		if value.requestCount == 0 {
+			continue
+		}
+		timestamps = append(timestamps, hourTs)
+	}
+	if len(timestamps) == 0 {
+		return nil
 	}
 	sort.Slice(timestamps, func(i, j int) bool {
 		return timestamps[i] < timestamps[j]
 	})
-	if len(timestamps) > limit {
-		timestamps = timestamps[len(timestamps)-limit:]
+	points := make([]SuccessRatePoint, 0, len(timestamps))
+	for _, hourTs := range timestamps {
+		points = append(points, SuccessRatePoint{
+			Ts:          hourTs,
+			SuccessRate: math.Round(successRate(hourly[hourTs])*100) / 100,
+		})
 	}
-	rates := make([]float64, 0, len(timestamps))
-	for _, ts := range timestamps {
-		rates = append(rates, math.Round(successRate(buckets[ts])*100)/100)
-	}
-	return rates
+	return points
 }
 
 func allowedGroupSet(groups []string) map[string]struct{} {
@@ -472,4 +487,25 @@ func mergeRedisActiveBuckets(merged map[bucketKey]counters, params QueryParams, 
 
 func redisBucketKey(key bucketKey) string {
 	return fmt.Sprintf("perf:%s:%s:%d", key.model, key.group, key.bucketTs)
+}
+
+func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
+	if len(buckets) == 0 || limit <= 0 {
+		return nil
+	}
+	timestamps := make([]int64, 0, len(buckets))
+	for ts := range buckets {
+		timestamps = append(timestamps, ts)
+	}
+	sort.Slice(timestamps, func(i, j int) bool {
+		return timestamps[i] < timestamps[j]
+	})
+	if len(timestamps) > limit {
+		timestamps = timestamps[len(timestamps)-limit:]
+	}
+	rates := make([]float64, 0, len(timestamps))
+	for _, ts := range timestamps {
+		rates = append(rates, math.Round(successRate(buckets[ts])*100)/100)
+	}
+	return rates
 }

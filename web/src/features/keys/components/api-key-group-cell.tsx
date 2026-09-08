@@ -21,18 +21,16 @@ import { useTranslation } from 'react-i18next'
 import { BadgeCell, TruncatedCell } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
+import { useMediaQuery } from '@/hooks'
 import { getLobeIcon } from '@/lib/lobe-icon'
+import { cn } from '@/lib/utils'
 
 import {
   ApiKeyAutoGroupDetails,
   type ApiKeyGroupDataStatus,
   type ApiKeyGroupDisplayInfo,
 } from './api-key-auto-group-details'
-import {
-  AutoGroupBadge,
-  GroupRatioBadge,
-  type GroupRatio,
-} from './auto-group-visuals'
+import { GroupRatioBadge, type GroupRatio } from './auto-group-visuals'
 
 type ApiKeyGroupCellProps = {
   autoGroups?: string[] | null
@@ -49,16 +47,25 @@ type ApiKeyGroupCellProps = {
 
 export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
   const { t } = useTranslation()
+  const isMobile = useMediaQuery('(max-width: 640px)')
 
-  if (props.group !== 'auto') {
-    const ratio = typeof props.ratio === 'number' ? props.ratio : undefined
+  const group = props.group?.trim() || ''
+  if (group !== 'auto') {
+    const ratio =
+      group && typeof props.ratio === 'number' ? props.ratio : undefined
     return (
       <TruncatedCell
-        className='-ml-1.5'
-        tooltipContent={props.group || '-'}
+        className={isMobile ? 'w-full' : 'max-w-50'}
+        tabIndex={0}
+        tooltipContent={group || t('Follow user group')}
         tooltipClassName='break-all'
       >
-        <span className='flex min-w-0 items-center gap-1.5'>
+        <span
+          className={cn(
+            'flex min-w-0 items-center gap-1.5',
+            isMobile && 'w-full justify-between'
+          )}
+        >
           {props.icon && (
             <span
               className='shrink-0'
@@ -68,7 +75,16 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
               {getLobeIcon(props.icon, 16)}
             </span>
           )}
-          <GroupBadge group={props.group} ratio={ratio} />
+          <GroupBadge
+            group={group}
+            ratio={ratio}
+            ratioLabel={group ? undefined : t('Inherited')}
+            className='px-0'
+            containerClassName={cn(
+              'gap-3',
+              isMobile && 'w-full justify-between'
+            )}
+          />
         </span>
       </TruncatedCell>
     )
@@ -84,14 +100,18 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
       trigger={
         <BadgeCell
           data-api-key-group-cell='auto'
-          className='ml-0 gap-1.5 overflow-visible text-xs'
+          tabIndex={0}
+          className={cn(
+            'ml-0 gap-1.5 overflow-visible text-xs',
+            isMobile ? 'w-full justify-between' : 'max-w-50'
+          )}
         >
           <StatusBadge
             label={t('Cross-group')}
             variant='info'
             copyable={false}
+            className='px-0'
           />
-          <AutoGroupBadge shouldReduceMotion={props.shouldReduceMotion} />
           <GroupRatioBadge
             ratio={props.ratio}
             isAuto

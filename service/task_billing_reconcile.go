@@ -132,18 +132,21 @@ func recordTaskBillingReconciliationEvent(ctx context.Context, job *model.TaskBi
 		content = "asynchronous task billing refunded"
 		quota = job.FromQuota
 	}
-	other := taskBillingOther(task)
+	logTask := *task
+	logTask.PrivateData.UpstreamTaskID = ""
+	logTask.PrivateData.NodeName = ""
+	other := taskBillingOther(&logTask)
 	// Billing events are user-visible accounting records. The persisted task keeps
 	// root diagnostics, but an upstream task identifier must never be copied into
 	// the accounting log payload.
-	delete(other, "root_info")
-	other["is_task"] = true
-	other["task_id"] = task.TaskID
-	other["billing_job_id"] = job.ID
-	other["billing_event_key"] = fmt.Sprintf("taskbill_%d", job.ID)
-	other["billing_operation"] = job.Operation
-	other["pre_consumed_quota"] = job.FromQuota
-	other["actual_quota"] = targetQuota
+
+	other.SetPublic("is_task", true)
+	other.SetPublic("task_id", task.TaskID)
+	other.SetPublic("billing_job_id", job.ID)
+	other.SetPublic("billing_event_key", fmt.Sprintf("taskbill_%d", job.ID))
+	other.SetPublic("billing_operation", job.Operation)
+	other.SetPublic("pre_consumed_quota", job.FromQuota)
+	other.SetPublic("actual_quota", targetQuota)
 	completionTokens := 0
 	if billingContext := task.PrivateData.BillingContext; billingContext != nil {
 		completionTokens = billingContext.ActualTokens

@@ -7,8 +7,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 func TestPostgresFullSchemaMigrationIsIdempotent(t *testing.T) {
@@ -17,16 +15,18 @@ func TestPostgresFullSchemaMigrationIsIdempotent(t *testing.T) {
 		t.Skip("FULL_MIGRATION_POSTGRES_TEST_DSN is not configured")
 	}
 
-	scopedDB, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  dsn,
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{})
+	scopedDB, databaseType, err := chooseDB("FULL_MIGRATION_POSTGRES_TEST_DSN", false)
 	require.NoError(t, err)
+	require.Equal(t, common.DatabaseTypePostgreSQL, databaseType)
+	require.IsType(t, postgresMigrationDialector{}, scopedDB.Dialector)
 	scopedSQL, err := scopedDB.DB()
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, scopedSQL.Close()) })
 
 	previousDB, previousLogDB := DB, LOG_DB
+	previousMaster := common.IsMasterNode
+	common.IsMasterNode = true
+	t.Setenv("LOG_SQL_DSN", "")
 	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	DB, LOG_DB = scopedDB, scopedDB
 	common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
@@ -34,12 +34,17 @@ func TestPostgresFullSchemaMigrationIsIdempotent(t *testing.T) {
 	initCol()
 	t.Cleanup(func() {
 		DB, LOG_DB = previousDB, previousLogDB
+		common.IsMasterNode = previousMaster
 		common.SetMainDatabaseType(previousMainType)
 		common.SetLogDatabaseType(previousLogType)
 		initCol()
 	})
 
 	require.NoError(t, migrateDB())
+	require.NoError(t, InitLogDB())
+	require.True(t, LOG_DB.Migrator().HasTable(&AuditLog{}))
+	require.True(t, DB.Migrator().HasTable(&TaskBillingJob{}))
+	require.True(t, DB.Migrator().HasTable(&MoliiFile{}))
 	require.NoError(t, ensureUserQuotaColumns(scopedDB, common.DatabaseTypePostgreSQL))
 
 	var firstTableCount int64
@@ -60,6 +65,10 @@ WHERE table_schema = 'public'`).Scan(&firstTableCount).Error)
 	require.NoError(t, scopedDB.Create(&seedGroup).Error)
 
 	require.NoError(t, migrateDB())
+	require.NoError(t, InitLogDB())
+	require.True(t, LOG_DB.Migrator().HasTable(&AuditLog{}))
+	require.True(t, DB.Migrator().HasTable(&TaskBillingJob{}))
+	require.True(t, DB.Migrator().HasTable(&MoliiFile{}))
 	require.NoError(t, ensureUserQuotaColumns(scopedDB, common.DatabaseTypePostgreSQL))
 
 	var secondTableCount int64

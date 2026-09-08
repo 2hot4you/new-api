@@ -16,7 +16,7 @@ func setupModelCatalogMetadataTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
-	if err := db.AutoMigrate(&Model{}); err != nil {
+	if err := db.AutoMigrate(&Option{}, &Model{}); err != nil {
 		t.Fatalf("migrate model: %v", err)
 	}
 	DB = db

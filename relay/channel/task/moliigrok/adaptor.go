@@ -756,8 +756,8 @@ func (a *TaskAdaptor) GetModelList() []string { return ModelList }
 
 func (a *TaskAdaptor) GetChannelName() string { return ChannelName }
 
-func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
-	upstreamID, _ := body["task_id"].(string)
+func (a *TaskAdaptor) FetchTask(baseURL, key string, task *model.Task, proxy string) (*http.Response, error) {
+	upstreamID := task.GetUpstreamTaskID()
 	upstreamID = strings.TrimSpace(upstreamID)
 	if upstreamID == "" {
 		return nil, errors.New("task identifier is missing")
@@ -779,7 +779,7 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	return client.Do(req)
 }
 
-func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error) {
+func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, body []byte) (*relaycommon.TaskInfo, error) {
 	var upstream videoPollResponse
 	if err := common.Unmarshal(body, &upstream); err != nil {
 		return nil, errors.New("Molii Grok Imagine API request failed")

@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/QuantumNous/new-api/model"
 	"strings"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -54,14 +55,14 @@ func rawStringOrDefault(raw json.RawMessage, fallback string) string {
 	return valueOrDefault(value, fallback)
 }
 
-func appendGPTImage2Log(other map[string]interface{}, info *relaycommon.RelayInfo) string {
+func appendGPTImage2Log(other *model.LogOther, info *relaycommon.RelayInfo) string {
 	if other == nil || info == nil || info.GPTImage2Log == nil || info.OriginModelName != "gpt-image-2" {
 		return ""
 	}
 	snapshot := info.GPTImage2Log
-	other["gpt_image_2"] = snapshot
+	other.SetPublic("gpt_image_2", snapshot)
 	if info.GPTImage2PreviewAvailable {
-		other["gpt_image_2_preview_available"] = true
+		other.SetPublic("gpt_image_2_preview_available", true)
 	}
 	operation := "GPT Image 2 图片生成"
 	if snapshot.Operation == "edit" {

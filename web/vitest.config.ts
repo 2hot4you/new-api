@@ -48,7 +48,7 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     server: {
       deps: {
-        inline: ['@lobehub/ui', '@emoji-mart/data'],
+        inline: [/@lobehub\//, /antd-style/, '@emoji-mart/data'],
       },
     },
   },

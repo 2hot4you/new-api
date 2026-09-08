@@ -16,15 +16,40 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { formatTimestampRelative, formatTimestampToDate } from '@/lib/format'
-import { cn } from '@/lib/utils'
+import { useTranslation } from 'react-i18next'
 
-interface ApiKeyTimestampCellProps {
+import {
+  ActivityTimeCell,
+  TimestampCell,
+} from '@/components/activity-time-cell'
+import dayjs from '@/lib/dayjs'
+
+import type { ApiKey } from '../types'
+
+export function ApiKeyActivityCell(props: {
+  apiKey: ApiKey
+  now: number
+  layout?: 'rows' | 'columns'
+}) {
+  const { t } = useTranslation()
+  const accessedTime = props.apiKey.accessed_time
+  const isStale =
+    accessedTime > 0 &&
+    accessedTime * 1000 < dayjs(props.now).subtract(3, 'month').valueOf()
+
+  return (
+    <ActivityTimeCell
+      createdAt={props.apiKey.created_time}
+      lastAt={accessedTime}
+      lastLabel={t('Last Used')}
+      lastClassName={isStale ? 'text-warning' : 'text-muted-foreground'}
+      now={props.now}
+      layout={props.layout}
+    />
+  )
+}
+
+type ApiKeyTimestampCellProps = {
   timestamp: number
   now: number
   locale?: string
@@ -34,49 +59,14 @@ interface ApiKeyTimestampCellProps {
 }
 
 export function ApiKeyTimestampCell(props: ApiKeyTimestampCellProps) {
-  if (!props.timestamp || props.timestamp === -1) {
-    return <span className='text-muted-foreground text-xs'>-</span>
-  }
-
-  const timestampMs = props.timestamp * 1000
-  const absoluteTime = formatTimestampToDate(props.timestamp)
-  if (props.display === 'absolute') {
-    return (
-      <time
-        dateTime={new Date(timestampMs).toISOString()}
-        className={cn(
-          'block truncate font-mono text-xs tabular-nums',
-          props.className
-        )}
-      >
-        {absoluteTime}
-      </time>
-    )
-  }
-
-  const isJustNow = timestampMs <= props.now && props.now - timestampMs < 60_000
-  const relativeTime = isJustNow
-    ? props.justNowLabel
-    : formatTimestampRelative(props.timestamp, 'seconds', props.locale)
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <time
-            dateTime={new Date(timestampMs).toISOString()}
-            tabIndex={0}
-            className={cn(
-              'block truncate font-mono text-xs tabular-nums',
-              props.className
-            )}
-          />
-        }
-      >
-        {relativeTime}
-      </TooltipTrigger>
-      <TooltipContent>
-        <span className='font-mono tabular-nums'>{absoluteTime}</span>
-      </TooltipContent>
-    </Tooltip>
+    <TimestampCell
+      timestamp={props.timestamp}
+      now={props.now}
+      locale={props.locale}
+      justNowLabel={props.justNowLabel}
+      format={props.display}
+      className={props.className}
+    />
   )
 }

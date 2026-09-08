@@ -49,6 +49,7 @@ import {
   isTimingLogType,
 } from '../lib/utils'
 import type { UsageLogsDataSource } from '../types'
+import { CommonLogMobileCard } from './common-log-mobile-card'
 import { StreamTpsCell, TimingMetricsCell } from './timing-metrics-cell'
 import { useUsageLogsContext } from './usage-logs-provider'
 
@@ -67,13 +68,27 @@ interface UsageLogsMobileListProps<TData> {
   logCategory: UsageLogsDataSource
 }
 
-function UsageLogsMobileSkeleton() {
+function UsageLogsMobileSkeleton(props: { separate: boolean }) {
+  const { t } = useTranslation()
   return (
-    <div className='border-border/50 bg-card overflow-hidden rounded-lg border'>
+    <div
+      role='status'
+      aria-label={t('Loading')}
+      aria-busy='true'
+      className={
+        props.separate
+          ? 'min-w-0 space-y-3'
+          : 'border-border/50 bg-card overflow-hidden rounded-lg border'
+      }
+    >
       {[1, 2, 3].map((i) => (
         <div
           key={i}
-          className='border-border/40 space-y-2.5 border-b p-3 last:border-b-0'
+          className={
+            props.separate
+              ? 'border-border/60 bg-card space-y-3 rounded-xl border p-3.5'
+              : 'border-border/40 space-y-2.5 border-b p-3 last:border-b-0'
+          }
         >
           <div className='flex items-center justify-between gap-3'>
             <Skeleton className='h-5 w-40 rounded-md' />
@@ -482,7 +497,7 @@ export function UsageLogsMobileList<TData>({
     t('No usage logs available. Logs will appear here once API calls are made.')
 
   if (isLoading) {
-    return <UsageLogsMobileSkeleton />
+    return <UsageLogsMobileSkeleton separate={logCategory === 'common'} />
   }
 
   const rows = table.getRowModel().rows
@@ -504,7 +519,13 @@ export function UsageLogsMobileList<TData>({
   }
 
   return (
-    <div className='border-border/50 bg-card overflow-hidden rounded-lg border'>
+    <div
+      className={cn(
+        logCategory === 'common'
+          ? 'min-w-0 space-y-3'
+          : 'border-border/50 bg-card overflow-hidden rounded-lg border'
+      )}
+    >
       {rows.map((row) => {
         const cells = new Map(
           row.getVisibleCells().map((cell) => [cell.column.id, cell])
@@ -519,12 +540,18 @@ export function UsageLogsMobileList<TData>({
           <div
             key={row.id}
             className={cn(
-              'border-border/40 border-b border-l-2 border-l-transparent p-3 transition-colors last:border-b-0',
+              logCategory === 'common'
+                ? 'border-border/60 bg-card min-w-0 rounded-xl border p-3.5'
+                : 'border-border/40 border-b border-l-2 border-l-transparent p-3 transition-colors last:border-b-0',
               tintClass
             )}
           >
-            {(logCategory === 'common' || logCategory === 'image') && (
-              <CommonLogsCard cells={cells} />
+            {logCategory === 'image' && <CommonLogsCard cells={cells} />}
+            {logCategory === 'common' && (
+              <CommonLogMobileCard
+                log={row.original as UsageLog}
+                cells={cells}
+              />
             )}
             {logCategory === 'task' && <TaskLogsCard cells={cells} />}
             {logCategory === 'drawing' && <DrawingLogsCard cells={cells} />}

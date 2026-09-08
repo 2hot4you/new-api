@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/QuantumNous/new-api/model"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func TestGrokImageZeroSubtotalSettlesAtZeroQuota(t *testing.T) {
 	require.NoError(t, SettleBilling(ctx, relayInfo, summary.Quota))
 	assert.Zero(t, billing.settled, "settlement must receive zero so the billing session refunds the pre-consumed anchor")
 
-	other := map[string]interface{}{}
+	other := model.NewLogOther()
 	content := appendGrokImageBillingLog(other, relayInfo, summary.GroupRatio, summary.Quota)
 	assert.Contains(t, content, "= ¥0.000000")
 	assert.Zero(t, relayInfo.GrokImageBilling.FinalCost)
@@ -109,13 +110,13 @@ func TestAppendGrokImageBillingLogUsesActualEditCountsAndSettledQuota(t *testing
 		Subtotal:             0.09,
 	}
 	relayInfo := &relaycommon.RelayInfo{GrokImageBilling: snapshot}
-	other := map[string]interface{}{}
+	other := model.NewLogOther()
 	settledQuota := int(0.135 * common.QuotaPerUnit)
 
 	content := appendGrokImageBillingLog(other, relayInfo, 1.5, settledQuota)
 
 	assert.Equal(t, "Grok 图片编辑, 模型 grok-imagine-image-quality, 分辨率 2K, 比例 16:9, 输出 1 张, 输入 2 张, 计费 (¥0.070000 × 1 + ¥0.010000 × 2) × 1.5000 = ¥0.135000", content)
-	got, ok := other["grok_image_billing"].(*relaycommon.GrokImageBillingSnapshot)
+	got, ok := other.Snapshot()["grok_image_billing"].(*relaycommon.GrokImageBillingSnapshot)
 	require.True(t, ok)
 	assert.Equal(t, 1, got.Version)
 	assert.Equal(t, "grok-imagine-image-quality", got.RequestedModel)
@@ -126,7 +127,7 @@ func TestAppendGrokImageBillingLogUsesActualEditCountsAndSettledQuota(t *testing
 }
 
 func TestAppendGrokImageBillingLogSupportsLegacySnapshotWithoutModelSplit(t *testing.T) {
-	other := map[string]interface{}{}
+	other := model.NewLogOther()
 	relayInfo := &relaycommon.RelayInfo{GrokImageBilling: &relaycommon.GrokImageBillingSnapshot{
 		Version:              1,
 		Model:                "grok-imagine-image",
@@ -142,15 +143,15 @@ func TestAppendGrokImageBillingLogSupportsLegacySnapshotWithoutModelSplit(t *tes
 
 	content := appendGrokImageBillingLog(other, relayInfo, 1.25, int(0.05*common.QuotaPerUnit))
 	assert.Equal(t, "Grok 图片生成, 模型 grok-imagine-image, 分辨率 1K, 比例 1:1, 输出 2 张, 计费 (¥0.020000 × 2) × 1.2500 = ¥0.050000", content)
-	assert.Contains(t, common.MapToJsonStr(other), `"input_cost":0`)
+	assert.Contains(t, other.JSONString(), `"input_cost":0`)
 
-	ordinary := map[string]interface{}{}
+	ordinary := model.NewLogOther()
 	assert.Empty(t, appendGrokImageBillingLog(ordinary, &relaycommon.RelayInfo{}, 1, 123))
-	assert.NotContains(t, ordinary, "grok_image_billing")
+	assert.NotContains(t, ordinary.Snapshot(), "grok_image_billing")
 }
 
 func TestAppendGrokImageBillingLogWritesOnlyPreviewAvailabilityFlag(t *testing.T) {
-	other := map[string]interface{}{}
+	other := model.NewLogOther()
 	relayInfo := &relaycommon.RelayInfo{
 		GrokImagePreviewAvailable: true,
 		GrokImageBilling:          &relaycommon.GrokImageBillingSnapshot{Version: 1, Model: "grok-imagine-image"},
@@ -158,8 +159,8 @@ func TestAppendGrokImageBillingLogWritesOnlyPreviewAvailabilityFlag(t *testing.T
 
 	appendGrokImageBillingLog(other, relayInfo, 1, 0)
 
-	assert.Equal(t, true, other["grok_image_preview_available"])
-	serialized := common.MapToJsonStr(other)
+	assert.Equal(t, true, other.Snapshot()["grok_image_preview_available"])
+	serialized := other.JSONString()
 	assert.NotContains(t, serialized, "imgen.x.ai")
 	assert.NotContains(t, serialized, "token=")
 }

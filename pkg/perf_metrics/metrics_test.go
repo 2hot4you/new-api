@@ -116,6 +116,7 @@ func TestQuerySummaryAllExposesExactModelSampleCounts(t *testing.T) {
 		"success_rate":60,
 		"avg_tps":0,
 		"recent_success_rates":[66.67,50],
+		"recent_success_series":[{"ts":1999998000,"success_rate":66.67},{"ts":2000001600,"success_rate":50}],
 		"request_count":5,
 		"success_count":3
 	}`, string(payload))

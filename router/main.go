@@ -37,8 +37,13 @@ func SetRouter(router *gin.Engine, assets WebAssets) {
 		SetWebRouter(router, assets, pluginDispatcher)
 	} else {
 		frontendBaseUrl = strings.TrimSuffix(frontendBaseUrl, "/")
-		router.NoRoute(pluginDispatcher, middleware.RouteTag("web"), func(c *gin.Context) {
-			c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("%s%s", frontendBaseUrl, c.Request.RequestURI))
-		})
+		router.NoRoute(
+			pluginDispatcher,
+			middleware.RouteTag("web"),
+			middleware.AccessTokenAudit(),
+			func(c *gin.Context) {
+				c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("%s%s", frontendBaseUrl, c.Request.RequestURI))
+			},
+		)
 	}
 }

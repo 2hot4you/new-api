@@ -111,6 +111,25 @@ export async function deleteModel(
   return res.data
 }
 
+export interface ModelDeleteResult {
+  deleted_count: number
+  updated_channels: number
+}
+
+/** Delete several local metadata records without restoring upstream sync. */
+export async function deleteModels(
+  modelIds: number[],
+  removeFromChannels = false,
+  removePricing = false
+): Promise<{ success: boolean; message?: string; data: ModelDeleteResult }> {
+  const res = await api.post('/api/models/delete', {
+    model_ids: modelIds,
+    remove_from_channels: removeFromChannels,
+    remove_pricing: removePricing,
+  })
+  return res.data
+}
+
 /**
  * Get the complete administrator-managed model display order.
  */

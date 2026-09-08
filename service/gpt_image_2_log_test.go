@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"github.com/QuantumNous/new-api/model"
 	"testing"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -82,11 +83,11 @@ func TestAppendGPTImage2LogUsesActualOutputCount(t *testing.T) {
 		},
 		GPTImage2PreviewAvailable: true,
 	}
-	other := map[string]interface{}{}
+	other := model.NewLogOther()
 
 	content := appendGPTImage2Log(other, info)
 
 	assert.Contains(t, content, "输出 2 张")
-	assert.Same(t, info.GPTImage2Log, other["gpt_image_2"])
-	assert.Equal(t, true, other["gpt_image_2_preview_available"])
+	assert.Same(t, info.GPTImage2Log, other.Snapshot()["gpt_image_2"])
+	assert.Equal(t, true, other.Snapshot()["gpt_image_2_preview_available"])
 }

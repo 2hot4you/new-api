@@ -443,7 +443,7 @@ func TestDecodeStarAICreateResponseAcceptsNumericProgress(t *testing.T) {
 func TestParseTaskResultAcceptsNumericEnvelopeID(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 	body := []byte(`{"code":"success","data":{"id":316061,"task_id":"task_upstream","status":"IN_PROGRESS","progress":"50%","data":{"status":"running"}}}`)
-	result, err := adaptor.ParseTaskResult(body)
+	result, err := adaptor.ParseTaskResult(nil, nil, body)
 	require.NoError(t, err)
 	assert.Equal(t, "task_upstream", result.TaskID)
 	assert.Equal(t, "50%", result.Progress)
@@ -591,7 +591,7 @@ func TestFetchTaskUsesEscapedUpstreamIDAndAuth(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	resp, err := (&TaskAdaptor{}).FetchTask(server.URL, "fetch-secret", map[string]any{"task_id": upstreamID}, "")
+	resp, err := (&TaskAdaptor{}).FetchTask(server.URL, "fetch-secret", &model.Task{PrivateData: model.TaskPrivateData{UpstreamTaskID: upstreamID}}, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	_ = resp.Body.Close()
@@ -614,7 +614,7 @@ func TestParseTaskResultStatusAndFields(t *testing.T) {
 	for status, expected := range statusCases {
 		t.Run(status, func(t *testing.T) {
 			body := []byte(`{"code":"success","data":{"status":"` + status + `"}}`)
-			result, err := (&TaskAdaptor{}).ParseTaskResult(body)
+			result, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, body)
 			require.NoError(t, err)
 			assert.Equal(t, expected, result.Status)
 		})
@@ -641,7 +641,7 @@ func TestParseTaskResultStatusAndFields(t *testing.T) {
 			}
 		}
 	}`)
-	result, err := (&TaskAdaptor{}).ParseTaskResult(body)
+	result, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, body)
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskStatusSuccess, result.Status)
 	assert.Equal(t, "87%", result.Progress)
@@ -653,13 +653,13 @@ func TestParseTaskResultStatusAndFields(t *testing.T) {
 	assert.Equal(t, "1080p", result.ActualResolution)
 
 	nestedZero := []byte(`{"code":"success","usage":{"completion_tokens":90,"total_tokens":100},"data":{"status":"SUCCESS","usage":{"completion_tokens":70,"total_tokens":80},"data":{"usage":{"completion_tokens":0,"total_tokens":0}}}}`)
-	result, err = (&TaskAdaptor{}).ParseTaskResult(nestedZero)
+	result, err = (&TaskAdaptor{}).ParseTaskResult(nil, nil, nestedZero)
 	require.NoError(t, err)
 	assert.Zero(t, result.CompletionTokens)
 	assert.Zero(t, result.TotalTokens)
 
 	nestedOnly := []byte(`{"code":"success","data":{"status":"FAILED","data":{"content":{"video_url":"https://example.com/nested-only.mp4"},"error":{"message":"nested failure"}}}}`)
-	result, err = (&TaskAdaptor{}).ParseTaskResult(nestedOnly)
+	result, err = (&TaskAdaptor{}).ParseTaskResult(nil, nil, nestedOnly)
 	require.NoError(t, err)
 	assert.Equal(t, "https://example.com/nested-only.mp4", result.Url)
 	assert.Equal(t, "nested failure", result.Reason)

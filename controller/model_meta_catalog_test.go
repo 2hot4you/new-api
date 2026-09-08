@@ -25,7 +25,7 @@ func setupModelMetaCatalogControllerTest(t *testing.T) *gorm.DB {
 	previousDB := model.DB
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "model-meta-catalog.db")), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Model{}, &model.Vendor{}, &model.Channel{}, &model.Ability{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.Model{}, &model.Vendor{}, &model.Channel{}, &model.Ability{}))
 	model.DB = db
 	t.Cleanup(func() {
 		model.DB = previousDB
@@ -395,7 +395,7 @@ func TestModelMarketplaceRuleMatchedRuntimeEndpointsUseUnion(t *testing.T) {
 	enrichModels([]*model.Model{&entry})
 
 	assert.NotContains(t, entry.MarketplaceBlockers, "endpoint_unavailable")
-	assert.Contains(t, entry.Endpoints, string(constant.EndpointTypeOpenAI))
+	assert.Contains(t, entry.SupportedEndpoints, string(constant.EndpointTypeOpenAI))
 }
 
 func TestModelMarketplaceRuleStaleEndpointArrayDoesNotCountAsRuntimeEndpoint(t *testing.T) {

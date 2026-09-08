@@ -23,7 +23,7 @@ func newMarketplaceOrderTestDB(t *testing.T) *gorm.DB {
 	previousType := common.MainDatabaseType()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "marketplace-order.db")+"?_busy_timeout=5000"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&marketplaceOrderLock{}, &Model{}, &Vendor{}))
+	require.NoError(t, db.AutoMigrate(&Option{}, &marketplaceOrderLock{}, &Model{}, &Vendor{}))
 	require.NoError(t, ensureMarketplaceOrderLock(db))
 	DB = db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)

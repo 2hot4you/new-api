@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 export type ModelModality = 'text' | 'image' | 'audio' | 'video' | 'file'
+export type ModelSquareState = 'visible' | 'unavailable' | 'hidden' | 'partial'
 
 export type ModelCapability =
   | 'function_calling'
@@ -55,6 +56,11 @@ export interface BoundChannel {
  * Model entity from API
  */
 export interface Model {
+  square_state?: ModelSquareState
+  has_metadata?: boolean
+  configured_channel_count?: number
+  /** Read-only backend metadata; Molii intentionally exposes no sync control. */
+  sync_official?: number
   id: number
   display_order?: number
   model_name: string
@@ -65,6 +71,7 @@ export interface Model {
   tags?: string
   vendor_id?: number
   endpoints?: string
+  supported_endpoints?: string[]
   status: number
   created_time: number
   updated_time: number
@@ -105,6 +112,8 @@ export interface Model {
  * Vendor entity from API
  */
 export interface Vendor {
+  model_count?: number
+  version?: string
   id: number
   display_order?: number
   name: string
@@ -134,6 +143,8 @@ export interface PrefillGroup {
  * Get models list parameters
  */
 export interface GetModelsParams {
+  square_state?: ModelSquareState
+  include_channel_models?: boolean
   p?: number
   page_size?: number
   vendor?: string // vendor ID to filter by
@@ -144,6 +155,8 @@ export interface GetModelsParams {
  * Search models parameters
  */
 export interface SearchModelsParams {
+  square_state?: ModelSquareState
+  include_channel_models?: boolean
   keyword?: string
   vendor?: string // vendor ID to filter by
   status?: string // filter by status

@@ -2,32 +2,45 @@
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ExternalLink, Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AxiosError } from 'axios'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   SideDrawerSection,
   sideDrawerContentClassName,
   sideDrawerFooterClassName,
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
+  sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
+import { ErrorState } from '@/components/error-state'
 import { JsonEditor } from '@/components/json-editor'
+import { LoadingState } from '@/components/loading-state'
+import { LobeIconField } from '@/components/lobe-icon-field'
+import { TagInput } from '@/components/tag-input'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
   FormControl,
@@ -37,429 +50,740 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   Sheet,
-  SheetClose,
   SheetContent,
   SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
+import { ModelPricingPanel } from '@/features/model-pricing/model-pricing-panel'
 
-import { createModel, getModel, getVendors, updateModel } from '../../api'
-import { ENDPOINT_TEMPLATES, getNameRuleOptions } from '../../constants'
+import { createModel, updateModel, getModel, getVendors } from '../../api'
+import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
+import { modelsQueryKeys, vendorsQueryKeys } from '../../lib'
 import {
-  type ModelFormValues,
   modelFormSchema,
-  modelsQueryKeys,
-  transformFormDataToModelPayload,
   transformModelToFormDefaults,
-  vendorsQueryKeys,
-} from '../../lib'
+  transformFormDataToModelPayload,
+  type ModelFormValues,
+} from '../../lib/model-form'
 import type { Model } from '../../types'
+import { ModelConnections } from '../model-connections'
 import { ModelCapabilityFields } from './model-capability-fields'
-import { ModelMarketplaceFields } from './model-marketplace-fields'
 import { ModelPublicationStatus } from './model-publication-status'
 
-const EMPTY_FORM_VALUES: ModelFormValues = {
-  model_name: '',
-  display_name: '',
-  description: '',
-  description_en: '',
-  icon: '',
-  tags: [],
-  vendor_id: undefined,
-  endpoints: '',
-  name_rule: 0,
-  status: true,
-  marketplace_enabled: false,
-  context_length: 0,
-  max_output_tokens: 0,
-  knowledge_cutoff: '',
-  release_date: '',
-  input_modalities: [],
-  output_modalities: [],
-  capabilities: [],
-  supported_parameters: [],
-  supported_resolutions: [],
-  supported_aspect_ratios: [],
-  max_input_images: 0,
-  output_formats: [],
-  min_duration: 0,
-  max_duration: 0,
-  reference_modalities: [],
-  enable_groups: [],
-  quota_types: [],
-}
-
-type ModelMutateDrawerProps = {
+export function ModelMutateDrawer(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentRow?: Model | null
-}
-
-function publicationState(values: ModelFormValues) {
-  const result = modelFormSchema.safeParse({
-    ...values,
-    marketplace_enabled: true,
-  })
-  if (result.success) return { complete: true, missingFields: [] as string[] }
-
-  return {
-    complete: false,
-    missingFields: [
-      ...new Set(
-        result.error.issues
-          .map((issue) => String(issue.path[0] ?? ''))
-          .filter(Boolean)
-      ),
-    ],
-  }
-}
-
-export function ModelMutateDrawer({
-  open,
-  onOpenChange,
-  currentRow,
-}: ModelMutateDrawerProps) {
+  initialSection?: 'metadata' | 'pricing'
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const currentModelId = currentRow?.id
-  const isEditing = Boolean(currentModelId)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-
-  const form = useForm<ModelFormValues>({
+  const [createdModel, setCreatedModel] = useState<{
+    source: Model | null | undefined
+    model: Model
+  } | null>(null)
+  const currentRow =
+    createdModel && createdModel.source === props.currentRow
+      ? createdModel.model
+      : props.currentRow
+  const isEditing = Boolean(currentRow?.id)
+  const hasModelName = Boolean(currentRow?.model_name)
+  const [section, setSection] = useState<string>(
+    props.initialSection ?? 'metadata'
+  )
+  const [pricingName, setPricingName] = useState('')
+  const [pricingVisited, setPricingVisited] = useState(
+    props.initialSection === 'pricing'
+  )
+  const [pricingDirty, setPricingDirty] = useState(false)
+  const [pendingPricingName, setPendingPricingName] = useState<string | null>(
+    null
+  )
+  const [closeConfirm, setCloseConfirm] = useState(false)
+  const loadedKey = useRef('')
+  const form = useForm({
     resolver: zodResolver(modelFormSchema),
-    defaultValues: EMPTY_FORM_VALUES,
+    defaultValues: transformModelToFormDefaults({
+      model_name: '',
+      status: 1,
+      name_rule: 0,
+    } as Model),
   })
-
-  const { data: vendorsData } = useQuery({
-    queryKey: vendorsQueryKeys.list({ page_size: 1000 }),
+  const vendorsQuery = useQuery({
+    queryKey: vendorsQueryKeys.list(),
     queryFn: () => getVendors({ page_size: 1000 }),
-    enabled: open,
+    enabled: props.open,
   })
-  const vendors = vendorsData?.data?.items ?? []
-
-  const { data: modelResponse, isLoading: isModelLoading } = useQuery({
-    queryKey: modelsQueryKeys.detail(currentModelId ?? 0),
-    queryFn: () => {
-      if (!currentModelId) throw new Error('Model ID is required')
-      return getModel(currentModelId)
+  const vendors = vendorsQuery.data?.data?.items ?? []
+  const selectedVendor = vendors.find(
+    (vendor) => vendor.id === form.watch('vendor_id')
+  )
+  const modelQuery = useQuery({
+    queryKey: modelsQueryKeys.detail(currentRow?.id ?? 0),
+    queryFn: async () => {
+      if (!currentRow?.id) throw new Error(t('Model ID is required'))
+      const response = await getModel(currentRow.id)
+      if (!response.success || !response.data) {
+        throw new Error(response.message || t('Failed to load model'))
+      }
+      return response.data
     },
-    enabled: open && isEditing,
+    enabled: props.open && isEditing,
   })
-  const model = modelResponse?.data ?? currentRow ?? undefined
+  const savedModel = modelQuery.data ?? currentRow
 
   useEffect(() => {
-    if (!open) return
-    if (isEditing) {
-      if (modelResponse?.data) {
-        form.reset(transformModelToFormDefaults(modelResponse.data))
-      }
+    if (!props.open) return
+    setSection(props.initialSection ?? 'metadata')
+    setPricingVisited(props.initialSection === 'pricing')
+    setPricingName('')
+    setPricingDirty(false)
+    setPendingPricingName(null)
+    setCloseConfirm(false)
+  }, [
+    props.open,
+    props.initialSection,
+    props.currentRow?.id,
+    props.currentRow?.model_name,
+  ])
+
+  useEffect(() => {
+    if (!props.open) {
+      setCreatedModel(null)
+      loadedKey.current = ''
       return
     }
+    const key = currentRow?.id
+      ? `metadata:${currentRow.id}`
+      : `channel:${currentRow?.model_name ?? ''}`
+    if (loadedKey.current === key || (isEditing && !modelQuery.data)) return
+    form.reset(
+      transformModelToFormDefaults(
+        (isEditing
+          ? modelQuery.data
+          : {
+              model_name: currentRow?.model_name ?? '',
+              status: 1,
+              name_rule: 0,
+            }) as Model
+      )
+    )
+    loadedKey.current = key
+  }, [props.open, currentRow, isEditing, modelQuery.data, form])
 
-    form.reset({
-      ...EMPTY_FORM_VALUES,
-      model_name: currentRow?.model_name ?? '',
-      tags: [],
-      input_modalities: [],
-      output_modalities: [],
-      capabilities: [],
-      supported_parameters: [],
-      supported_resolutions: [],
-      supported_aspect_ratios: [],
-      output_formats: [],
-      reference_modalities: [],
-      enable_groups: [],
-      quota_types: [],
-    })
-  }, [currentRow, form, isEditing, modelResponse, open])
-
-  const values = form.watch()
-  const localPublication = useMemo(() => publicationState(values), [values])
-  const blockers = model?.marketplace_blockers ?? []
-  const visible = Boolean(
-    values.marketplace_enabled &&
-    values.status &&
-    localPublication.complete &&
-    blockers.length === 0
-  )
-  const pricingConfigured = Boolean(
-    model && !blockers.includes('pricing_missing')
-  )
-
-  async function onSubmit(formValues: ModelFormValues) {
-    setIsSubmitting(true)
-    try {
-      const payload = transformFormDataToModelPayload(formValues)
-      const response =
-        isEditing && currentModelId
-          ? await updateModel({ ...payload, id: currentModelId })
-          : await createModel(payload)
-
-      if (!response.success) {
-        toast.error(response.message || t('Operation failed'))
-        return
+  const save = useMutation({
+    onMutate: () => form.clearErrors('root.server'),
+    mutationFn: async (values: ModelFormValues) => {
+      if (pricingDirty && values.model_name !== currentRow?.model_name) {
+        throw new Error(
+          t('Save or discard pricing changes before renaming metadata.')
+        )
       }
-
-      toast.success(
-        isEditing
-          ? t('Model updated successfully')
-          : t('Model created successfully')
-      )
+      const payload = transformFormDataToModelPayload(values)
+      const response = currentRow?.id
+        ? await updateModel({ ...payload, id: currentRow.id })
+        : await createModel(payload)
+      if (!response.success) {
+        throw new Error(response.message || t('Operation failed'))
+      }
+      return response
+    },
+    onSuccess: async (response) => {
+      form.reset(form.getValues())
+      if (response.data?.id) {
+        if (!currentRow?.id) {
+          setCreatedModel({ source: props.currentRow, model: response.data })
+        }
+        queryClient.setQueryData(
+          modelsQueryKeys.detail(response.data.id),
+          response.data
+        )
+      }
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: modelsQueryKeys.all }),
         queryClient.invalidateQueries({ queryKey: ['pricing'] }),
-        currentModelId
-          ? queryClient.invalidateQueries({
-              queryKey: modelsQueryKeys.detail(currentModelId),
-            })
-          : Promise.resolve(),
+        queryClient.invalidateQueries({ queryKey: vendorsQueryKeys.all }),
       ])
-      onOpenChange(false)
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('Operation failed')
-      )
-    } finally {
-      setIsSubmitting(false)
+      toast.success(t('Model metadata saved'))
+      if (!pricingDirty) props.onOpenChange(false)
+    },
+    onError: (error) => {
+      const message =
+        error instanceof AxiosError
+          ? error.response?.data?.message || error.message
+          : error.message
+      form.setError('root.server', {
+        message: message || t('Operation failed'),
+      })
+    },
+  })
+  const isSubmitting = save.isPending
+  const handleFillEndpointTemplate = (key: string) => {
+    const template = ENDPOINT_TEMPLATES[key]
+    if (template) {
+      form.setValue('endpoints', JSON.stringify({ [key]: template }, null, 2), {
+        shouldDirty: true,
+      })
     }
+  }
+  const metadataDirty = form.formState.isDirty
+  const values = form.watch()
+  const publication = useMemo(() => {
+    const result = modelFormSchema.safeParse({
+      ...values,
+      marketplace_enabled: true,
+    })
+    return result.success
+      ? { complete: true, missingFields: [] as string[] }
+      : {
+          complete: false,
+          missingFields: [
+            ...new Set(
+              result.error.issues
+                .map((issue) => String(issue.path[0] ?? ''))
+                .filter(Boolean)
+            ),
+          ],
+        }
+  }, [values])
+  const blockers = savedModel?.marketplace_blockers ?? []
+  const close = (open: boolean) => {
+    if (!open && isSubmitting) return
+    if (!open && (metadataDirty || pricingDirty)) {
+      setCloseConfirm(true)
+      return
+    }
+    props.onOpenChange(open)
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className={sideDrawerContentClassName('sm:max-w-2xl')}>
-        <SheetHeader className={sideDrawerHeaderClassName()}>
-          <SheetTitle>
-            {isEditing ? t('Edit Model') : t('Create Model')}
-          </SheetTitle>
-          <SheetDescription>
-            {t(
-              'Configure the model once here, then explicitly publish it to the public model marketplace.'
-            )}
-          </SheetDescription>
-        </SheetHeader>
-
-        <Form {...form}>
-          <form
-            id='model-form'
-            onSubmit={form.handleSubmit(onSubmit)}
-            className={sideDrawerFormClassName()}
+    <>
+      <Sheet open={props.open} onOpenChange={close}>
+        <SheetContent
+          className={sideDrawerContentClassName('sm:max-w-[1280px]')}
+        >
+          <SheetHeader className={sideDrawerHeaderClassName()}>
+            <SheetTitle className='pr-6 break-all'>
+              {hasModelName ? currentRow?.model_name : t('Create Model')}
+            </SheetTitle>
+            <SheetDescription>
+              {t(
+                'Manage metadata, pricing, and channel connections. Each section saves separately.'
+              )}
+            </SheetDescription>
+          </SheetHeader>
+          <Tabs
+            value={section}
+            onValueChange={(value) => {
+              setSection(value)
+              if (value === 'pricing') setPricingVisited(true)
+            }}
+            className='shrink-0 px-4'
           >
-            {isModelLoading ? (
-              <div className='flex min-h-48 items-center justify-center'>
-                <Loader2 className='text-muted-foreground size-5 animate-spin' />
-              </div>
-            ) : (
-              <>
-                <ModelMarketplaceFields
-                  control={form.control}
-                  vendors={vendors}
-                  isEditing={isEditing}
+            <TabsList className='grid w-full grid-cols-3 group-data-horizontal/tabs:h-auto'>
+              <TabsTrigger
+                value='metadata'
+                className='h-auto min-w-0 whitespace-normal'
+              >
+                {t('Model metadata')}
+              </TabsTrigger>
+              <TabsTrigger
+                value='pricing'
+                disabled={!hasModelName}
+                className='h-auto min-w-0 whitespace-normal'
+              >
+                {t('Pricing')}
+              </TabsTrigger>
+              <TabsTrigger
+                value='connections'
+                disabled={!hasModelName}
+                className='h-auto min-w-0 whitespace-normal'
+              >
+                {t('Channels and groups')}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {props.open && section === 'metadata' && (
+            <>
+              {modelQuery.isError ? (
+                <ErrorState
+                  description={modelQuery.error.message}
+                  onRetry={() => void modelQuery.refetch()}
                 />
+              ) : null}
+              {isEditing && modelQuery.isPending && <LoadingState />}
+              {!modelQuery.isError && !(isEditing && modelQuery.isPending) && (
+                <Form {...form}>
+                  <form
+                    id='model-form'
+                    onSubmit={form.handleSubmit((values) =>
+                      save.mutate(values)
+                    )}
+                    className={sideDrawerFormClassName()}
+                  >
+                    {/* Basic Information */}
+                    <SideDrawerSection>
+                      <h3 className='text-sm font-semibold'>
+                        {t('Basic Information')}
+                      </h3>
 
-                <ModelCapabilityFields control={form.control} />
-
-                <ModelPublicationStatus
-                  enabled={values.marketplace_enabled}
-                  onEnabledChange={(enabled) =>
-                    form.setValue('marketplace_enabled', enabled, {
-                      shouldDirty: true,
-                      shouldValidate: true,
-                    })
-                  }
-                  modelEnabled={values.status}
-                  onModelEnabledChange={(enabled) =>
-                    form.setValue('status', enabled, { shouldDirty: true })
-                  }
-                  complete={localPublication.complete}
-                  missingFields={localPublication.missingFields}
-                  visible={visible}
-                  blockers={blockers}
-                  withdrawn={Boolean(model?.marketplace_withdrawn)}
-                />
-
-                <SideDrawerSection>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-semibold'>{t('Pricing')}</h3>
-                    <p className='text-muted-foreground text-xs'>
-                      {t(
-                        'Pricing is managed centrally and is read-only in model metadata.'
-                      )}
-                    </p>
-                  </div>
-                  <div className='flex items-center justify-between gap-4 rounded-lg border p-3'>
-                    <div>
-                      <div className='text-sm font-medium'>
-                        {pricingConfigured
-                          ? t('Pricing configured')
-                          : t('Pricing not configured')}
-                      </div>
-                      <div className='text-muted-foreground mt-1 text-xs'>
-                        {t('Quota types')}:{' '}
-                        {values.quota_types.join(', ') || '—'}
-                      </div>
-                    </div>
-                    <Button
-                      type='button'
-                      variant='outline'
-                      size='sm'
-                      onClick={() =>
-                        window.open(
-                          '/system-settings/billing/model-pricing',
-                          '_blank',
-                          'noopener,noreferrer'
-                        )
-                      }
-                    >
-                      {t('Open model pricing')}
-                      <ExternalLink className='ml-2 size-4' />
-                    </Button>
-                  </div>
-                </SideDrawerSection>
-
-                <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-                  <SideDrawerSection>
-                    <CollapsibleTrigger
-                      render={
-                        <button
-                          type='button'
-                          className='hover:bg-muted/40 flex w-full items-center justify-between rounded-md px-0 py-2 text-left transition-colors'
-                        />
-                      }
-                    >
-                      {t('Advanced routing')}
-                      <ChevronDown
-                        className={`size-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
+                      <FormField
+                        control={form.control}
+                        name='model_name'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Model Name *')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder={t('gpt-4, claude-3-opus, etc.')}
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('The unique identifier for this model')}
+                              {isEditing &&
+                                form.watch('model_name') !==
+                                  currentRow?.model_name && (
+                                  <span className='text-warning mt-1 block'>
+                                    {t(
+                                      'Renaming metadata does not rename channel models or move pricing. Existing prices stay with the original model name.'
+                                    )}
+                                  </span>
+                                )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className='space-y-4 pt-4'>
+
+                      <FormField
+                        control={form.control}
+                        name='description'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Description')}</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder={t('Describe this model...')}
+                                rows={3}
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='icon'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Icon')}</FormLabel>
+                            <FormControl>
+                              <LobeIconField
+                                key={`${currentRow?.id ?? 'new'}-${props.open}`}
+                                value={field.value ?? ''}
+                                onChange={field.onChange}
+                                allowInheritance
+                                inheritedIcon={selectedVendor?.icon}
+                                inheritedName={selectedVendor?.name}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='vendor_id'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Vendor')}</FormLabel>
+                            <FormControl>
+                              <Combobox
+                                options={vendors.map((vendor) => ({
+                                  value: String(vendor.id),
+                                  label: vendor.name,
+                                }))}
+                                onValueChange={(value) =>
+                                  field.onChange(
+                                    value ? Number.parseInt(value) : undefined
+                                  )
+                                }
+                                value={field.value ? String(field.value) : null}
+                                className='w-full'
+                                placeholder={t('Select vendor')}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='tags'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Tags')}</FormLabel>
+                            <FormControl>
+                              <TagInput
+                                value={field.value || []}
+                                onChange={field.onChange}
+                                placeholder={t('Add tags...')}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t('Press Enter or comma to add tags')}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='display_name'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Display name')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder={t('Public model name')}
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='description_en'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('English description')}</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder={t('Optional English description...')}
+                                rows={3}
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className='grid gap-4 sm:grid-cols-2'>
+                        <FormField
+                          control={form.control}
+                          name='release_date'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Release date')}</FormLabel>
+                              <FormControl>
+                                <Input type='date' {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='knowledge_cutoff'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Knowledge cutoff')}</FormLabel>
+                              <FormControl>
+                                <Input placeholder='2025-04' {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </SideDrawerSection>
+
+                    <ModelCapabilityFields control={form.control} />
+
+                    <ModelPublicationStatus
+                      enabled={values.marketplace_enabled}
+                      onEnabledChange={(enabled) =>
+                        form.setValue('marketplace_enabled', enabled, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                      modelEnabled={values.status}
+                      onModelEnabledChange={(enabled) =>
+                        form.setValue('status', enabled, { shouldDirty: true })
+                      }
+                      complete={publication.complete}
+                      missingFields={publication.missingFields}
+                      visible={Boolean(
+                        values.marketplace_enabled &&
+                          values.status &&
+                          publication.complete &&
+                          blockers.length === 0
+                      )}
+                      blockers={blockers}
+                      withdrawn={Boolean(savedModel?.marketplace_withdrawn)}
+                    />
+
+                    {/* Matching Configuration */}
+                    <SideDrawerSection>
+                      <h3 className='text-sm font-semibold'>
+                        {t('Matching Rules')}
+                      </h3>
+
                       <FormField
                         control={form.control}
                         name='name_rule'
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>{t('Name Rule')}</FormLabel>
-                            <Select
-                              items={getNameRuleOptions(t).map((option) => ({
-                                label: option.label,
-                                value: String(option.value),
-                              }))}
-                              value={String(field.value)}
-                              onValueChange={(value) =>
-                                field.onChange(
-                                  Number.parseInt(value ?? '0', 10)
-                                )
-                              }
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent alignItemWithTrigger={false}>
-                                <SelectGroup>
-                                  {getNameRuleOptions(t).map((option) => (
-                                    <SelectItem
-                                      key={option.value}
+                            <FormControl>
+                              <RadioGroup
+                                onValueChange={(value) =>
+                                  field.onChange(Number.parseInt(value))
+                                }
+                                value={String(field.value)}
+                                className='grid grid-cols-2 gap-4'
+                              >
+                                {getNameRuleOptions(t).map((option) => (
+                                  <div
+                                    key={option.value}
+                                    className='flex items-center space-x-2'
+                                  >
+                                    <RadioGroupItem
                                       value={String(option.value)}
+                                      id={`rule-${option.value}`}
+                                    />
+                                    <Label
+                                      htmlFor={`rule-${option.value}`}
+                                      className='cursor-pointer font-normal'
                                     >
                                       {option.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectGroup>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name='endpoints'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Endpoints')}</FormLabel>
-                            <FormControl>
-                              <JsonEditor
-                                value={field.value}
-                                onChange={field.onChange}
-                                keyPlaceholder={t('Endpoint type')}
-                                valuePlaceholder={t('Endpoint configuration')}
-                                valueType='any'
-                              />
+                                    </Label>
+                                  </div>
+                                ))}
+                              </RadioGroup>
                             </FormControl>
-                            <div className='flex flex-wrap gap-2'>
-                              {Object.keys(ENDPOINT_TEMPLATES).map(
-                                (endpoint) => (
-                                  <Button
-                                    key={endpoint}
-                                    type='button'
-                                    size='sm'
-                                    variant='outline'
-                                    onClick={() =>
-                                      field.onChange(
-                                        JSON.stringify(
-                                          {
-                                            [endpoint]:
-                                              ENDPOINT_TEMPLATES[endpoint],
-                                          },
-                                          null,
-                                          2
-                                        )
-                                      )
-                                    }
-                                  >
-                                    {endpoint}
-                                  </Button>
-                                )
-                              )}
-                            </div>
                             <FormDescription>
                               {t(
-                                'Custom API endpoint definitions for this model.'
+                                'Matching rules apply to metadata. Pricing is configured for each concrete model.'
                               )}
                             </FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
-                    </CollapsibleContent>
-                  </SideDrawerSection>
-                </Collapsible>
-              </>
-            )}
-          </form>
-        </Form>
+                    </SideDrawerSection>
 
-        <SheetFooter className={sideDrawerFooterClassName()}>
-          <SheetClose
-            render={<Button variant='outline' disabled={isSubmitting} />}
-          >
-            {t('Cancel')}
-          </SheetClose>
-          <Button
-            form='model-form'
-            type='submit'
-            disabled={isSubmitting || isModelLoading}
-          >
-            {isSubmitting && <Loader2 className='mr-2 size-4 animate-spin' />}
-            {isEditing ? t('Update Model') : t('Save changes')}
-          </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+                    {/* Endpoints Configuration */}
+                    <SideDrawerSection>
+                      <div className='flex items-center justify-between'>
+                        <h3 className='text-sm font-semibold'>
+                          {t('Endpoints')}
+                        </h3>
+                        <Combobox
+                          options={Object.keys(ENDPOINT_TEMPLATES).map(
+                            (key) => ({ value: key, label: key })
+                          )}
+                          onValueChange={(value: string | null) => {
+                            if (value) handleFillEndpointTemplate(value)
+                          }}
+                          className='w-[200px]'
+                          placeholder={t('Load template...')}
+                          aria-label={t('Load template...')}
+                        />
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name='endpoints'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Endpoint Configuration')}</FormLabel>
+                            <FormControl>
+                              <JsonEditor
+                                value={field.value || ''}
+                                onChange={field.onChange}
+                                keyPlaceholder='endpoint_type'
+                                valuePlaceholder='{"path": "/v1/...", "method": "POST"}'
+                                keyLabel='Endpoint Type'
+                                valueLabel='Configuration'
+                                valueType='any'
+                                emptyMessage={t(
+                                  'No endpoints configured. Switch to JSON mode or add rows to define endpoints.'
+                                )}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Define API endpoints for this model (JSON format)'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </SideDrawerSection>
+
+                    {/* Local publication state */}
+                    <SideDrawerSection>
+                      <h3 className='text-sm font-semibold'>
+                        {t('Status')}
+                      </h3>
+
+                      <FormField
+                        control={form.control}
+                        name='status'
+                        render={({ field }) => (
+                          <FormItem className={sideDrawerSwitchItemClassName()}>
+                            <div className='flex flex-col gap-0.5'>
+                              <FormLabel className='text-base'>
+                                {t('Model square visibility')}
+                              </FormLabel>
+                              <FormDescription>
+                                {t(
+                                  'Allow listing when a channel is available and the user has group access. This does not change API access.'
+                                )}
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </SideDrawerSection>
+                  </form>
+                </Form>
+              )}
+              <SheetFooter className={sideDrawerFooterClassName('flex-wrap')}>
+                {form.formState.errors.root?.server?.message && (
+                  <Alert
+                    variant='destructive'
+                    className='col-span-2 basis-full'
+                  >
+                    <AlertDescription className='break-words'>
+                      {form.formState.errors.root.server.message}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <Button
+                  variant='outline'
+                  onClick={() => close(false)}
+                  disabled={isSubmitting}
+                >
+                  {t('Close')}
+                </Button>
+                <Button
+                  form='model-form'
+                  type='submit'
+                  disabled={
+                    isSubmitting ||
+                    modelQuery.isError ||
+                    (isEditing && modelQuery.isPending)
+                  }
+                >
+                  {isSubmitting ? t('Saving...') : t('Save metadata')}
+                </Button>
+              </SheetFooter>
+            </>
+          )}
+          {props.open && pricingVisited && savedModel && (
+            <div
+              className={
+                section === 'pricing'
+                  ? 'flex min-h-0 flex-1 flex-col'
+                  : 'hidden'
+              }
+            >
+              {savedModel.name_rule !== 0 && (
+                <div className='space-y-2 p-4'>
+                  <p className='text-muted-foreground text-sm'>
+                    {t(
+                      'Select a concrete model to configure pricing. Metadata matching does not propagate prices.'
+                    )}
+                  </p>
+                  <Combobox
+                    value={pricingName}
+                    onValueChange={(value) => {
+                      if (pricingDirty) {
+                        setPendingPricingName(value ?? '')
+                        setCloseConfirm(true)
+                      } else {
+                        setPricingName(value ?? '')
+                      }
+                    }}
+                    options={(savedModel.matched_models ?? []).map((name) => ({
+                      value: name,
+                      label: name,
+                    }))}
+                    aria-label={t('Select model')}
+                    className='w-full'
+                    placeholder={t('Select model')}
+                  />
+                </div>
+              )}
+              {(savedModel.name_rule === 0 || pricingName) && (
+                <ModelPricingPanel
+                  onDirtyChange={setPricingDirty}
+                  key={
+                    savedModel.name_rule === 0
+                      ? savedModel.model_name
+                      : pricingName
+                  }
+                  modelName={
+                    savedModel.name_rule === 0
+                      ? savedModel.model_name
+                      : pricingName
+                  }
+                />
+              )}
+            </div>
+          )}
+          {props.open && section === 'connections' && savedModel && (
+            <ModelConnections model={savedModel} />
+          )}
+        </SheetContent>
+      </Sheet>
+      <ConfirmDialog
+        open={closeConfirm}
+        onOpenChange={setCloseConfirm}
+        title={t('Discard unsaved changes?')}
+        desc={t('Your changes have not been saved.')}
+        confirmText={t('Discard changes')}
+        handleConfirm={() => {
+          setCloseConfirm(false)
+          if (pendingPricingName !== null) {
+            setPricingName(pendingPricingName)
+            setPendingPricingName(null)
+            setPricingDirty(false)
+          } else {
+            props.onOpenChange(false)
+          }
+        }}
+      />
+    </>
   )
 }

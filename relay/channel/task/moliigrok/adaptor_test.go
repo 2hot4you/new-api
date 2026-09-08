@@ -678,7 +678,7 @@ func TestParseVideoTaskStatusesAndClampProgress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.status, func(t *testing.T) {
 			body := `{"status":"` + tt.status + `","progress":` + strconv.Itoa(tt.progress) + `,"video":{"url":"https://vidgen.x.ai/result.mp4?token=signed","duration":5},"usage":{"cost_in_usd_ticks":4000000000}}`
-			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(body))
+			result, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, []byte(body))
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, result.Status)
 			assert.Equal(t, tt.wantProgress, result.Progress)
@@ -704,7 +704,7 @@ func TestParseVideoTaskTreatsProviderErrorAsTerminalFailure(t *testing.T) {
 		}
 	}`)
 
-	result, err := (&TaskAdaptor{}).ParseTaskResult(body)
+	result, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, model.TaskStatusFailure, result.Status)
@@ -718,14 +718,14 @@ func TestParseVideoTaskTreatsProviderErrorAsTerminalFailure(t *testing.T) {
 func TestParseVideoTaskRecognizesFailureAliasesAndRejectsUnknownStatus(t *testing.T) {
 	for _, status := range []string{"failure", "error", "rejected", "cancelled", "canceled"} {
 		t.Run(status, func(t *testing.T) {
-			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(`{"status":"` + status + `","progress":20}`))
+			result, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, []byte(`{"status":"`+status+`","progress":20}`))
 			require.NoError(t, err)
 			assert.Equal(t, model.TaskStatusFailure, result.Status)
 			assert.Equal(t, "100%", result.Progress)
 		})
 	}
 
-	result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(`{"status":"provider_new_state","progress":20}`))
+	result, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, []byte(`{"status":"provider_new_state","progress":20}`))
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.NotContains(t, err.Error(), "provider_new_state")
@@ -744,7 +744,7 @@ func TestParseVideoTaskResultNormalizesExplicitResolution(t *testing.T) {
 	} {
 		t.Run(tt.resolution, func(t *testing.T) {
 			body := `{"status":"done","video":{"url":"https://files-cdn.x.ai/result.mp4?token=signed","duration":5,"resolution":` + strconv.Quote(tt.resolution) + `}}`
-			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(body))
+			result, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, []byte(body))
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, result.ActualResolution)
 		})
@@ -760,7 +760,7 @@ func TestParseTaskResultRejectsUntrustedVideoURL(t *testing.T) {
 		"https://other.example/result.mp4?token=do-not-leak",
 	} {
 		body := `{"status":"done","progress":100,"video":{"url":` + strconv.Quote(resultURL) + `}}`
-		result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(body))
+		result, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, []byte(body))
 		require.Error(t, err)
 		assert.Nil(t, result)
 		assert.NotContains(t, err.Error(), "http")

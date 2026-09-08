@@ -167,10 +167,12 @@ func TestUpdateMoliiGrokChannelKeepsBlankManagementTokenAndSupportsExplicitClear
 	require.NoError(t, db.First(&saved, channel.Id).Error)
 	assert.Equal(t, "saved-management-token", saved.MoliiGrokManagementAccessToken)
 	assert.Equal(t, 2205, saved.MoliiGrokManagementUserID)
-	var updateAudit model.Log
-	require.NoError(t, db.Order("id desc").First(&updateAudit).Error)
-	assert.NotContains(t, updateAudit.Other, "molii_grok_management_credentials")
-	assert.NotContains(t, updateAudit.Other, "saved-management-token")
+	var updateAudit model.AuditLog
+	require.NoError(t, db.Where("action = ?", "channel.update").Order("id desc").First(&updateAudit).Error)
+	updateAuditJSON, err := common.Marshal(updateAudit.Other)
+	require.NoError(t, err)
+	assert.NotContains(t, string(updateAuditJSON), "molii_grok_management_credentials")
+	assert.NotContains(t, string(updateAuditJSON), "saved-management-token")
 
 	recorder = performChannelJSONRequest(t, http.MethodPut, "/api/channel/", fmt.Sprintf(`{
 		"id":%d,"type":%d,"name":"grok","models":"grok-imagine-image","group":"default",
@@ -181,8 +183,10 @@ func TestUpdateMoliiGrokChannelKeepsBlankManagementTokenAndSupportsExplicitClear
 	require.NoError(t, db.First(&saved, channel.Id).Error)
 	assert.Empty(t, saved.MoliiGrokManagementAccessToken)
 	assert.Zero(t, saved.MoliiGrokManagementUserID)
-	var clearAudit model.Log
-	require.NoError(t, db.Order("id desc").First(&clearAudit).Error)
-	assert.Contains(t, clearAudit.Other, "molii_grok_management_credentials")
-	assert.NotContains(t, clearAudit.Other, "saved-management-token")
+	var clearAudit model.AuditLog
+	require.NoError(t, db.Where("action = ?", "channel.update").Order("id desc").First(&clearAudit).Error)
+	clearAuditJSON, err := common.Marshal(clearAudit.Other)
+	require.NoError(t, err)
+	assert.Contains(t, string(clearAuditJSON), "molii_grok_management_credentials")
+	assert.NotContains(t, string(clearAuditJSON), "saved-management-token")
 }

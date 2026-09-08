@@ -32,12 +32,12 @@ type privateGrokPollingAdaptor struct {
 
 func (a *privateGrokPollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
 
-func (a *privateGrokPollingAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+func (a *privateGrokPollingAdaptor) FetchTask(_ string, _ string, _ *model.Task, _ string) (*http.Response, error) {
 	a.fetchCalls++
 	return &http.Response{StatusCode: a.statusCode, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(a.body))}, nil
 }
 
-func (a *privateGrokPollingAdaptor) ParseTaskResult(_ []byte) (*relaycommon.TaskInfo, error) {
+func (a *privateGrokPollingAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, _ []byte) (*relaycommon.TaskInfo, error) {
 	if a.result == nil {
 		return nil, errors.New("parse failed")
 	}

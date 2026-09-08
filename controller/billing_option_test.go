@@ -120,6 +120,7 @@ func setupBillingAliasOptionDB(t *testing.T) {
 		&model.Vendor{},
 		&model.Option{},
 		&model.Log{},
+		&model.AuditLog{},
 		&model.User{},
 	))
 	model.DB = database

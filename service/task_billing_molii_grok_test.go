@@ -53,8 +53,8 @@ func TestMoliiGrokFixedPriceBillingContextKeepsVideoAuditFieldsWithoutTokenEstim
 	}}}
 
 	other := taskBillingOther(task)
-	assert.Equal(t, 5, other["estimated_seconds"])
-	assert.Equal(t, "480p", other["estimated_resolution"])
-	assert.Equal(t, "16:9", other["estimated_ratio"])
-	assert.NotContains(t, other, "estimated_tokens")
+	assert.Equal(t, 5, other.Snapshot()["estimated_seconds"])
+	assert.Equal(t, "480p", other.Snapshot()["estimated_resolution"])
+	assert.Equal(t, "16:9", other.Snapshot()["estimated_ratio"])
+	assert.NotContains(t, other.Snapshot(), "estimated_tokens")
 }

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowUpDown, Check, Filter } from 'lucide-react'
+import { ArrowUpDown, Check, Filter, LayoutGrid, Table2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -68,6 +68,8 @@ export interface PricingToolbarProps {
   onTokenUnitChange: (value: TokenUnit) => void
   showRechargePrice: boolean
   onRechargePriceChange: (value: boolean) => void
+  viewMode: 'card' | 'table'
+  onViewModeChange: (value: 'card' | 'table') => void
   quotaTypeFilter: string
   endpointTypeFilter: string
   vendorFilter: string
@@ -78,15 +80,15 @@ export interface PricingToolbarProps {
   onVendorChange: (value: string) => void
   onGroupChange: (value: string) => void
   onTagChange: (value: string) => void
-  inputModalityFilter: string
-  contextFilter: string
-  capabilityFilter: string
-  onInputModalityChange: (value: string) => void
-  onContextChange: (value: string) => void
-  onCapabilityChange: (value: string) => void
-  searchValue: string
-  onSearchChange: (value: string) => void
-  onClearSearch: () => void
+  inputModalityFilter?: string
+  contextFilter?: string
+  capabilityFilter?: string
+  onInputModalityChange?: (value: string) => void
+  onContextChange?: (value: string) => void
+  onCapabilityChange?: (value: string) => void
+  searchValue?: string
+  onSearchChange?: (value: string) => void
+  onClearSearch?: () => void
   vendors: PricingVendor[]
   groups: string[]
   groupRatios?: Record<string, number>
@@ -118,6 +120,7 @@ function SegmentedControl(props: {
             type='button'
             onClick={() => props.onChange(option.value)}
             aria-pressed={isActive}
+            aria-label={option.tooltip ?? option.label}
             className={cn(
               'inline-flex h-full items-center justify-center rounded-md text-xs font-medium transition-all',
               Icon && !option.label ? 'w-7' : 'gap-1.5 px-3',
@@ -162,6 +165,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
     (value: string) => props.onRechargePriceChange(value === 'recharge'),
     [props]
   )
+  const noop = useCallback(() => {}, [])
 
   return (
     <div className='border-b px-3 py-3 sm:px-4'>
@@ -184,9 +188,9 @@ export function PricingToolbar(props: PricingToolbarProps) {
           </Button>
 
           <SearchBar
-            value={props.searchValue}
-            onChange={props.onSearchChange}
-            onClear={props.onClearSearch}
+            value={props.searchValue ?? ''}
+            onChange={props.onSearchChange ?? noop}
+            onClear={props.onClearSearch ?? noop}
             placeholder={t('Search models...')}
             className='w-full min-w-0 sm:w-64 lg:w-72'
           />
@@ -214,6 +218,17 @@ export function PricingToolbar(props: PricingToolbarProps) {
               value={props.showRechargePrice ? 'recharge' : 'standard'}
               onChange={handleRechargePriceChange}
               ariaLabel={t('Price display mode')}
+            />
+            <SegmentedControl
+              options={[
+                { value: 'card', icon: LayoutGrid, tooltip: t('Card view') },
+                { value: 'table', icon: Table2, tooltip: t('Table view') },
+              ]}
+              value={props.viewMode}
+              onChange={(value) =>
+                props.onViewModeChange(value as 'card' | 'table')
+              }
+              ariaLabel={t('Directory view')}
             />
             <SegmentedControl
               options={[
@@ -263,7 +278,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
 
       <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
         <SheetContent
-          side='right'
+          side='left'
           className={sideDrawerContentClassName('sm:max-w-md')}
         >
           <SheetHeader className={sideDrawerHeaderClassName()}>
@@ -279,17 +294,17 @@ export function PricingToolbar(props: PricingToolbarProps) {
               vendorFilter={props.vendorFilter}
               groupFilter={props.groupFilter}
               tagFilter={props.tagFilter}
-              inputModalityFilter={props.inputModalityFilter}
-              contextFilter={props.contextFilter}
-              capabilityFilter={props.capabilityFilter}
+              inputModalityFilter={props.inputModalityFilter ?? 'all'}
+              contextFilter={props.contextFilter ?? 'all'}
+              capabilityFilter={props.capabilityFilter ?? 'all'}
               onQuotaTypeChange={props.onQuotaTypeChange}
               onEndpointTypeChange={props.onEndpointTypeChange}
               onVendorChange={props.onVendorChange}
               onGroupChange={props.onGroupChange}
               onTagChange={props.onTagChange}
-              onInputModalityChange={props.onInputModalityChange}
-              onContextChange={props.onContextChange}
-              onCapabilityChange={props.onCapabilityChange}
+              onInputModalityChange={props.onInputModalityChange ?? noop}
+              onContextChange={props.onContextChange ?? noop}
+              onCapabilityChange={props.onCapabilityChange ?? noop}
               vendors={props.vendors}
               groups={props.groups}
               groupRatios={props.groupRatios}

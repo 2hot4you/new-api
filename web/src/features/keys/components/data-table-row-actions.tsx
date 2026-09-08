@@ -87,34 +87,16 @@ export function DataTableRowActions<TData>({
     triggerRefresh,
     setResolvedKey,
     resolveRealKey,
-    resolvedKeys,
     loadingKeys,
   } = useApiKeys()
   const isEnabled = apiKey.status === API_KEY_STATUS.ENABLED
   const actionPolicy = getApiKeyRowActionPolicy(apiKey)
   const { chatPresets, serverAddress } = useChatPresets()
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
-  const resolvedRealKey = resolvedKeys[apiKey.id]
   const isRealKeyLoading = Boolean(loadingKeys[apiKey.id])
 
   const hasChatPresets = chatPresets.length > 0
   const toggleLabel = isEnabled ? t('Disable') : t('Enable')
-
-  const handleMenuOpenChange = useCallback(
-    (open: boolean) => {
-      if (open && !resolvedRealKey && !isRealKeyLoading) {
-        void resolveRealKey(apiKey.id)
-      }
-    },
-    [apiKey.id, isRealKeyLoading, resolvedRealKey, resolveRealKey]
-  )
-
-  const getCachedRealKey = useCallback(() => {
-    if (resolvedRealKey) return resolvedRealKey
-    void resolveRealKey(apiKey.id)
-    toast.info(t('API key is loading, please try again in a moment'))
-    return null
-  }, [apiKey.id, resolvedRealKey, resolveRealKey, t])
 
   const handleOpenChatPreset = useCallback(
     async (preset: ChatPreset) => {
@@ -158,9 +140,9 @@ export function DataTableRowActions<TData>({
   )
 
   const handleToggleStatus = async (
-    e?: React.MouseEvent<HTMLButtonElement>
+    event?: React.MouseEvent<HTMLButtonElement>
   ) => {
-    e?.stopPropagation()
+    event?.stopPropagation()
     const newStatus = isEnabled
       ? API_KEY_STATUS.DISABLED
       : API_KEY_STATUS.ENABLED
@@ -238,11 +220,11 @@ export function DataTableRowActions<TData>({
         ariaLabel={t('Open menu')}
         contentClassName='w-[200px]'
         modal={false}
-        onOpenChange={handleMenuOpenChange}
       >
         <DropdownMenuItem
+          disabled={isRealKeyLoading}
           onClick={async () => {
-            const realKey = getCachedRealKey()
+            const realKey = await resolveRealKey(apiKey.id)
             if (!realKey) return
             const ok = await copyToClipboard(realKey)
             if (ok) toast.success(t('Copied'))
@@ -254,8 +236,9 @@ export function DataTableRowActions<TData>({
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
+          disabled={isRealKeyLoading}
           onClick={async () => {
-            const realKey = getCachedRealKey()
+            const realKey = await resolveRealKey(apiKey.id)
             if (!realKey) return
             const connStr = encodeChannelConnectionInfo(
               realKey,

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
@@ -30,6 +30,7 @@ import {
   PricingToolbar,
   ModelCardGrid,
   ModelCategoryBar,
+  PricingTable,
 } from './components'
 import {
   DEFAULT_TOKEN_UNIT,
@@ -45,6 +46,7 @@ import { getModelCategories } from './lib/model-directory'
 export function Pricing() {
   const { t } = useTranslation()
   const navigate = useNavigate({ from: '/pricing/' })
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card')
 
   const {
     models,
@@ -174,6 +176,19 @@ export function Pricing() {
       )
     }
 
+    if (viewMode === 'table') {
+      return (
+        <PricingTable
+          models={filteredModels}
+          priceRate={priceRate}
+          usdExchangeRate={usdExchangeRate}
+          tokenUnit={tokenUnit}
+          showRechargePrice={showRechargePrice}
+          selectedGroup={groupFilter}
+          onModelClick={handleModelClick}
+        />
+      )
+    }
     return (
       <ModelCardGrid
         models={filteredModels}
@@ -257,6 +272,8 @@ export function Pricing() {
               onTokenUnitChange={setTokenUnit}
               showRechargePrice={showRechargePrice}
               onRechargePriceChange={setShowRechargePrice}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
               quotaTypeFilter={quotaTypeFilter}
               endpointTypeFilter={endpointTypeFilter}
               vendorFilter={vendorFilter}

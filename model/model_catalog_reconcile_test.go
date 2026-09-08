@@ -19,7 +19,7 @@ func setupModelCatalogReconcileTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
-	if err := db.AutoMigrate(&Channel{}, &Ability{}, &Vendor{}, &Model{}); err != nil {
+	if err := db.AutoMigrate(&Option{}, &Channel{}, &Ability{}, &Vendor{}, &Model{}); err != nil {
 		t.Fatalf("migrate catalog tables: %v", err)
 	}
 	DB = db

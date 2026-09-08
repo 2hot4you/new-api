@@ -28,6 +28,7 @@ import type { Model, ModelTabCategory } from '../types'
 type DialogType =
   | 'create-model'
   | 'update-model'
+  | 'price-model'
   | 'manage-vendors'
   | 'missing-models'
   | 'prefill-groups'

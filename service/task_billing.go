@@ -44,51 +44,51 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 			logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
 		}
 	}
-	other := make(map[string]interface{})
-	other["is_task"] = true
-	other["request_path"] = c.Request.URL.Path
-	other["model_price"] = info.PriceData.ModelPrice
+	other := model.NewLogOther()
+	other.SetPublic("is_task", true)
+	other.SetPublic("request_path", c.Request.URL.Path)
+	other.SetPublic("model_price", info.PriceData.ModelPrice)
 	if info.PriceData.ModelRatio > 0 {
-		other["model_ratio"] = info.PriceData.ModelRatio
+		other.SetPublic("model_ratio", info.PriceData.ModelRatio)
 	}
-	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
+	other.SetPublic("group_ratio", info.PriceData.GroupRatioInfo.GroupRatio)
 	if info.EstimatedVideoSeconds > 0 {
-		other["estimated_seconds"] = info.EstimatedVideoSeconds
+		other.SetPublic("estimated_seconds", info.EstimatedVideoSeconds)
 	}
 	if info.EstimatedVideoResolution != "" {
-		other["estimated_resolution"] = info.EstimatedVideoResolution
+		other.SetPublic("estimated_resolution", info.EstimatedVideoResolution)
 	}
 	if info.EstimatedVideoRatio != "" {
-		other["estimated_ratio"] = info.EstimatedVideoRatio
+		other.SetPublic("estimated_ratio", info.EstimatedVideoRatio)
 	}
 	if info.EstimatedVideoTokens > 0 {
-		other["estimated_tokens"] = info.EstimatedVideoTokens
-		other["estimated_price"] = info.EstimatedVideoPrice
-		other["estimated_width"] = info.EstimatedVideoWidth
-		other["estimated_height"] = info.EstimatedVideoHeight
-		other["estimated_fps"] = info.EstimatedVideoFPS
-		other["estimated_seconds"] = info.EstimatedVideoSeconds
-		other["estimated_resolution"] = info.EstimatedVideoResolution
-		other["estimated_ratio"] = info.EstimatedVideoRatio
-		other["estimated_has_video"] = info.EstimatedVideoHasInput
-		other["estimated_unit_price"] = info.EstimatedVideoUnitPrice
+		other.SetPublic("estimated_tokens", info.EstimatedVideoTokens)
+		other.SetPublic("estimated_price", info.EstimatedVideoPrice)
+		other.SetPublic("estimated_width", info.EstimatedVideoWidth)
+		other.SetPublic("estimated_height", info.EstimatedVideoHeight)
+		other.SetPublic("estimated_fps", info.EstimatedVideoFPS)
+		other.SetPublic("estimated_seconds", info.EstimatedVideoSeconds)
+		other.SetPublic("estimated_resolution", info.EstimatedVideoResolution)
+		other.SetPublic("estimated_ratio", info.EstimatedVideoRatio)
+		other.SetPublic("estimated_has_video", info.EstimatedVideoHasInput)
+		other.SetPublic("estimated_unit_price", info.EstimatedVideoUnitPrice)
 		logContent = seedanceEstimateLogContent(info)
 	} else if info.EstimatedVideoSeconds > 0 || info.EstimatedVideoResolution != "" || info.EstimatedVideoRatio != "" {
 		logContent = fmt.Sprintf("生成视频，参数：%s · %s · %d 秒", info.EstimatedVideoResolution, info.EstimatedVideoRatio, info.EstimatedVideoSeconds)
 	}
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
-		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
+		other.SetPublic("user_group_ratio", info.PriceData.GroupRatioInfo.GroupSpecialRatio)
 	}
 	if info.IsModelMapped {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = info.UpstreamModelName
+		other.SetPublic("is_model_mapped", true)
+		other.SetPublic("upstream_model_name", info.UpstreamModelName)
 	}
 	if snap := info.TieredBillingSnapshot; snap != nil {
-		other["billing_mode"] = "tiered_expr"
-		other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
-		other["matched_tier"] = snap.EstimatedTier
+		other.SetPublic("billing_mode", "tiered_expr")
+		other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
+		other.SetPublic("matched_tier", snap.EstimatedTier)
 		if len(snap.UsageFacts) > 0 {
-			other["usage_facts"] = snap.UsageFacts
+			other.SetPublic("usage_facts", snap.UsageFacts)
 		}
 	}
 	appendTaskLogInfo(task, other)
@@ -175,75 +175,77 @@ func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
 }
 
 // taskBillingOther 从 task 的 BillingContext 构建日志 Other 字段。
-func taskBillingOther(task *model.Task) map[string]interface{} {
-	other := make(map[string]interface{})
+func taskBillingOther(task *model.Task) *model.LogOther {
+	other := model.NewLogOther()
 	if bc := task.PrivateData.BillingContext; bc != nil {
-		other["model_price"] = bc.ModelPrice
+		other.SetPublic("model_price", bc.ModelPrice)
 		if bc.ModelRatio > 0 {
-			other["model_ratio"] = bc.ModelRatio
+			other.SetPublic("model_ratio", bc.ModelRatio)
 		}
-		other["group_ratio"] = bc.GroupRatio
+		other.SetPublic("group_ratio", bc.GroupRatio)
 		if bc.EstimatedSeconds > 0 {
-			other["estimated_seconds"] = bc.EstimatedSeconds
+			other.SetPublic("estimated_seconds", bc.EstimatedSeconds)
 		}
 		if bc.EstimatedResolution != "" {
-			other["estimated_resolution"] = bc.EstimatedResolution
+			other.SetPublic("estimated_resolution", bc.EstimatedResolution)
 		}
 		if bc.EstimatedRatio != "" {
-			other["estimated_ratio"] = bc.EstimatedRatio
+			other.SetPublic("estimated_ratio", bc.EstimatedRatio)
 		}
 		if bc.EstimatedTokens > 0 {
-			other["estimated_tokens"] = bc.EstimatedTokens
-			other["estimated_price"] = bc.EstimatedPrice
-			other["estimated_width"] = bc.EstimatedWidth
-			other["estimated_height"] = bc.EstimatedHeight
-			other["estimated_fps"] = bc.EstimatedFPS
-			other["estimated_seconds"] = bc.EstimatedSeconds
-			other["estimated_resolution"] = bc.EstimatedResolution
-			other["estimated_ratio"] = bc.EstimatedRatio
-			other["estimated_has_video"] = bc.EstimatedHasVideo
-			other["estimated_unit_price"] = bc.EstimatedUnitPrice
+			other.SetPublic("estimated_tokens", bc.EstimatedTokens)
+			other.SetPublic("estimated_price", bc.EstimatedPrice)
+			other.SetPublic("estimated_width", bc.EstimatedWidth)
+			other.SetPublic("estimated_height", bc.EstimatedHeight)
+			other.SetPublic("estimated_fps", bc.EstimatedFPS)
+			other.SetPublic("estimated_seconds", bc.EstimatedSeconds)
+			other.SetPublic("estimated_resolution", bc.EstimatedResolution)
+			other.SetPublic("estimated_ratio", bc.EstimatedRatio)
+			other.SetPublic("estimated_has_video", bc.EstimatedHasVideo)
+			other.SetPublic("estimated_unit_price", bc.EstimatedUnitPrice)
 		}
 		if bc.ActualTokens > 0 {
-			other["actual_tokens"] = bc.ActualTokens
+			other.SetPublic("actual_tokens", bc.ActualTokens)
 		}
 		if bc.RequestPath != "" {
-			other["request_path"] = bc.RequestPath
+			other.SetPublic("request_path", bc.RequestPath)
 		}
 		if task.Status == model.TaskStatusSuccess && taskUsesFinalUsageLog(task) {
 			if billing, _ := finalGrokVideoBilling(task); billing != nil {
-				other["grok_video_billing"] = billing
+				other.SetPublic("grok_video_billing", billing)
 			}
 		}
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
-				other[k] = v
+				if !other.SetPublic(k, v) {
+					common.SysError("task billing other ratio key rejected: " + k)
+				}
 			}
 		}
 		if snap := bc.TieredSnapshot; snap != nil {
-			other["billing_mode"] = "tiered_expr"
-			other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
-			other["matched_tier"] = snap.EstimatedTier
+			other.SetPublic("billing_mode", "tiered_expr")
+			other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
+			other.SetPublic("matched_tier", snap.EstimatedTier)
 			if len(snap.UsageFacts) > 0 {
-				other["usage_facts"] = snap.UsageFacts
+				other.SetPublic("usage_facts", snap.UsageFacts)
 			}
 		}
 	}
 	props := task.Properties
 	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = props.UpstreamModelName
+		other.SetPublic("is_model_mapped", true)
+		other.SetPublic("upstream_model_name", props.UpstreamModelName)
 	}
 	appendTaskLogInfo(task, other)
 	return other
 }
 
-func appendTaskLogInfo(task *model.Task, other map[string]interface{}) {
+func appendTaskLogInfo(task *model.Task, other *model.LogOther) {
 	if task == nil || other == nil {
 		return
 	}
 	if task.TaskID != "" {
-		other["task_id"] = task.TaskID
+		other.SetPublic("task_id", task.TaskID)
 	}
 	if task.PrivateData.Execution != nil {
 		AppendTaskPluginAuditInfo(other, task.PrivateData.Execution.TaskPlugin)
@@ -251,16 +253,11 @@ func appendTaskLogInfo(task *model.Task, other map[string]interface{}) {
 	if task.PrivateData.UpstreamTaskID == "" && task.PrivateData.NodeName == "" {
 		return
 	}
-	rootInfo, ok := other["root_info"].(map[string]interface{})
-	if !ok || rootInfo == nil {
-		rootInfo = map[string]interface{}{}
-		other["root_info"] = rootInfo
-	}
 	if task.PrivateData.UpstreamTaskID != "" {
-		rootInfo["upstream_task_id"] = task.PrivateData.UpstreamTaskID
+		other.SetRoot("upstream_task_id", task.PrivateData.UpstreamTaskID)
 	}
 	if task.PrivateData.NodeName != "" {
-		rootInfo["node_name"] = task.PrivateData.NodeName
+		other.SetRoot("node_name", task.PrivateData.NodeName)
 	}
 }
 
@@ -324,14 +321,14 @@ func LogSuccessfulStarAITask(task *model.Task, preConsumedQuota int) {
 		return
 	}
 	other := taskBillingOther(task)
-	other["is_task"] = true
-	other["task_id"] = task.TaskID
+	other.SetPublic("is_task", true)
+	other.SetPublic("task_id", task.TaskID)
 	content := seedanceTaskLogContent(task)
 	if isStarAITask(task) {
-		other["pre_consumed_quota"] = preConsumedQuota
-		other["actual_quota"] = task.Quota
+		other.SetPublic("pre_consumed_quota", preConsumedQuota)
+		other.SetPublic("actual_quota", task.Quota)
 	} else if billing, grokContent := finalGrokVideoBilling(task); billing != nil {
-		other["grok_video_billing"] = billing
+		other.SetPublic("grok_video_billing", billing)
 		content = grokContent
 	}
 	actualTokens := 0
@@ -360,9 +357,9 @@ func LogFailedStarAITask(task *model.Task) {
 		reason = "上游任务失败"
 	}
 	other := taskBillingOther(task)
-	other["is_task"] = true
-	other["task_id"] = task.TaskID
-	other["reason"] = reason
+	other.SetPublic("is_task", true)
+	other.SetPublic("task_id", task.TaskID)
+	other.SetPublic("reason", reason)
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId: task.UserId, LogType: model.LogTypeError, Content: reason,
 		ChannelId: task.ChannelId, ModelName: taskModelName(task), Quota: 0,
@@ -397,8 +394,8 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 		model.UpdateChannelUsedQuota(task.ChannelId, -quota)
 
 		other := taskBillingOther(task)
-		other["task_id"] = task.TaskID
-		other["reason"] = reason
+		other.SetPublic("task_id", task.TaskID)
+		other.SetPublic("reason", reason)
 		model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 			UserId:    task.UserId,
 			LogType:   model.LogTypeRefund,
@@ -561,9 +558,9 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		}
 		if bc := task.PrivateData.BillingContext; !taskUsesFinalUsageLog(task) && bc != nil && bc.ActualTokens > 0 {
 			other := taskBillingOther(task)
-			other["task_id"] = task.TaskID
-			other["pre_consumed_quota"] = preConsumedQuota
-			other["actual_quota"] = actualQuota
+			other.SetPublic("task_id", task.TaskID)
+			other.SetPublic("pre_consumed_quota", preConsumedQuota)
+			other.SetPublic("actual_quota", actualQuota)
 			model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 				UserId: task.UserId, LogType: model.LogTypeConsume, Content: reason,
 				ChannelId: task.ChannelId, ModelName: taskModelName(task), Quota: 0,
@@ -627,9 +624,9 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		logQuota = -quotaDelta
 	}
 	other := taskBillingOther(task)
-	other["task_id"] = task.TaskID
-	other["pre_consumed_quota"] = preConsumedQuota
-	other["actual_quota"] = actualQuota
+	other.SetPublic("task_id", task.TaskID)
+	other.SetPublic("pre_consumed_quota", preConsumedQuota)
+	other.SetPublic("actual_quota", actualQuota)
 	for _, clamp := range clamps {
 		attachQuotaSaturationToOther(other, clamp)
 	}

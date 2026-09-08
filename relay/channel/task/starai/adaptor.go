@@ -278,9 +278,9 @@ func decodeStarAIResponse(body []byte, target any) error {
 	return fmt.Errorf("response is not valid JSON")
 }
 
-func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
-	taskID, ok := body["task_id"].(string)
-	if !ok || strings.TrimSpace(taskID) == "" {
+func (a *TaskAdaptor) FetchTask(baseURL, key string, task *model.Task, proxy string) (*http.Response, error) {
+	taskID := task.GetUpstreamTaskID()
+	if strings.TrimSpace(taskID) == "" {
 		return nil, fmt.Errorf("invalid task_id")
 	}
 	requestURL := strings.TrimRight(baseURL, "/") + "/v1/video/generations/" + url.PathEscape(taskID)
@@ -299,7 +299,7 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	return client.Do(req)
 }
 
-func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, respBody []byte) (*relaycommon.TaskInfo, error) {
 	var starResp responseEnvelope
 	if err := common.Unmarshal(respBody, &starResp); err != nil {
 		return nil, fmt.Errorf("unmarshal Molii Volcengine Imagine API task result failed: %w", err)

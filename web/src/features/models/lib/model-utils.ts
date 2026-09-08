@@ -188,3 +188,30 @@ export function validateEndpointsJSON(endpoints: string): boolean {
 export function isModelEnabled(model: Model): boolean {
   return model.status === 1
 }
+
+/** Summarise availability independently from Molii's local publication policy. */
+export function getModelChannelState(model: Model) {
+  const available = model.bound_channels?.length ?? 0
+  const configured = model.configured_channel_count ?? available
+  if (configured === 0) {
+    return {
+      label: model.name_rule !== 0 ? 'No matching channels' : 'Metadata only',
+      description:
+        model.name_rule !== 0
+          ? 'No configured channel models match this metadata rule.'
+          : 'No channel is configured. This model will not appear in the model square.',
+    }
+  }
+  if (available === 0) {
+    return {
+      label: 'No available channels',
+      description:
+        'No channel is currently available. This model will not appear in the model square.',
+    }
+  }
+  return {
+    label: 'Available channels: {{count}}',
+    description:
+      'Listing also depends on metadata visibility and the user’s group access.',
+  }
+}
