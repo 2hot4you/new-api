@@ -43,6 +43,13 @@ import type {
 } from '../types'
 
 const TOKEN_UNIT = '1M token'
+const MILLION_TOKEN_UNITS = new Set([
+  TOKEN_UNIT,
+  'million_tokens',
+  'per_million_tokens',
+  'cny_per_million_tokens',
+  'usd_per_million_tokens',
+])
 const NUMBER_PATTERN = String.raw`(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?`
 const PRICE_VARIABLE_PATTERN = String.raw`(?:p|c|cr|cc|cc1h|img|img_o|ai|ao)`
 const PRICE_TERM_PATTERN = String.raw`${PRICE_VARIABLE_PATTERN}\s*\*\s*${NUMBER_PATTERN}`
@@ -82,6 +89,10 @@ function parseLosslessDynamicTierTerms(
 
 function modelCurrency(model: PricingModel): QuoteCurrency {
   return model.billing_currency === 'CNY' ? 'CNY' : 'USD'
+}
+
+function normalizeCatalogUnit(unit: string): string {
+  return MILLION_TOKEN_UNITS.has(unit) ? TOKEN_UNIT : unit
 }
 
 export function normalizeDiscount(
@@ -484,7 +495,7 @@ function videoDimensions(
           sourceType: 'video',
           amount: row.without_video,
           currency: 'CNY',
-          unit: pricing.unit,
+          unit: normalizeCatalogUnit(pricing.unit),
           condition: metadata,
         },
         basisRatio,
@@ -497,7 +508,7 @@ function videoDimensions(
           sourceType: 'video',
           amount: row.with_video,
           currency: 'CNY',
-          unit: pricing.unit,
+          unit: normalizeCatalogUnit(pricing.unit),
           condition: metadata,
         },
         basisRatio,

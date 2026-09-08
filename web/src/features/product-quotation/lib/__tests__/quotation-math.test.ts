@@ -318,7 +318,7 @@ describe('canonical quotation snapshot', () => {
       pricingModel({
         model_name: 'seedance',
         video_pricing: {
-          unit: '1M token',
+          unit: 'cny_per_million_tokens',
           fps: 24,
           extra_frames: 1,
           rows: [
@@ -348,6 +348,7 @@ describe('canonical quotation snapshot', () => {
       video?.dimensions.every(
         (dimension) =>
           dimension.currency === 'CNY' &&
+          dimension.unit === '1M token' &&
           dimension.condition?.includes('fps 24') &&
           dimension.condition?.includes('extra frames 1')
       )

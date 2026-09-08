@@ -238,6 +238,19 @@ describe('standalone quotation HTML', () => {
     assert.match(html, /Line one\nLine two/)
   })
 
+  test('shows the effective global discount when a provider has no override', () => {
+    const snapshot = quotationSnapshot()
+    const provider = snapshot.providers[0]
+    assert.ok(provider)
+    provider.discount = null
+    provider.discountCoefficient = 0.8
+
+    const html = buildQuotationHtml(snapshot, zhOptions)
+
+    assert.match(html, /折扣:\s*8 折/)
+    assert.doesNotMatch(html, /折扣:\s*—/)
+  })
+
   test('does not mutate the immutable export snapshot and retains long provider notes', () => {
     const longNote = `Terms:\n${'long note & details\n'.repeat(4_000)}`
     const provider = quotationSnapshot().providers[0]

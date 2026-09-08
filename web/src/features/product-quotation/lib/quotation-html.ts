@@ -252,7 +252,8 @@ function renderModel(
 
 function renderProvider(
   provider: QuoteProviderSection,
-  options: QuotationHtmlOptions
+  options: QuotationHtmlOptions,
+  globalDiscount: number | null
 ): string {
   const { labels } = options
   const models = provider.models
@@ -266,7 +267,7 @@ function renderProvider(
     <div class="provider-heading">
       <h2>${displayText(provider.providerName, labels)}</h2>
       <div class="provider-pricing">
-        <span>${escapeHtml(labels.discount)}: ${displayDiscount(provider.discount, labels)}</span>
+        <span>${escapeHtml(labels.discount)}: ${displayDiscount(provider.discount ?? globalDiscount, labels)}</span>
         <span>${escapeHtml(labels.discountCoefficient)}: ${displayNumber(provider.discountCoefficient, labels)}</span>
       </div>
     </div>
@@ -281,7 +282,9 @@ export function buildQuotationHtml(
 ): string {
   const { locale, labels } = options
   const providers = snapshot.providers
-    .map((provider) => renderProvider(provider, options))
+    .map((provider) =>
+      renderProvider(provider, options, snapshot.globalDiscount)
+    )
     .join('\n')
 
   return `<!doctype html>
