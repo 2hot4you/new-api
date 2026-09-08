@@ -132,6 +132,96 @@ func TestPinnedTaskPluginChannelTypesIncludesCompatibleTypes(t *testing.T) {
 	assert.Equal(t, []int{constant.ChannelTypeSora, constant.ChannelTypeOpenAI}, pinnedTaskPluginChannelTypes(c, "sora-select"))
 }
 
+func TestPinnedTaskPluginChannelTypesIncludesStarAIForUnifiedSeedance2(t *testing.T) {
+	registry := jsplugin.NewRegistry()
+	plugin, err := registry.Register(channelSelectSeedancePluginSource(), jsplugin.Options{})
+	require.NoError(t, err)
+	candidates := registry.Generation().LookupEndpointCandidates(
+		"POST",
+		"/v1/videos",
+		"doubao-seedance-2-0-fast-260128",
+	)
+	require.Len(t, candidates, 1)
+
+	c, _ := gin.CreateTestContext(nil)
+	c.Set(jsplugin.ContextKeyPinnedPlugin, jsplugin.PinnedPlugin{
+		Generation: registry.Generation(),
+		Plugin:     plugin,
+	})
+	c.Set(jsplugin.ContextKeyPinnedEndpoint, jsplugin.PinnedEndpoint{
+		Generation: registry.Generation(),
+		Plugin:     candidates[0].Plugin,
+		Protocol:   candidates[0].Protocol,
+		Operation:  candidates[0].Operation,
+		Model:      "doubao-seedance-2-0-fast-260128",
+		Candidates: candidates,
+	})
+
+	assert.Equal(
+		t,
+		[]int{constant.ChannelTypeDoubaoVideo, constant.ChannelTypeVolcEngine, constant.ChannelTypeStarAI},
+		pinnedTaskPluginChannelTypes(c, "doubao"),
+	)
+}
+
+func TestPinnedTaskPluginChannelTypesDoesNotIncludeStarAIForLegacySeedance(t *testing.T) {
+	registry := jsplugin.NewRegistry()
+	plugin, err := registry.Register(channelSelectSeedancePluginSource(), jsplugin.Options{})
+	require.NoError(t, err)
+	candidates := registry.Generation().LookupEndpointCandidates(
+		"POST",
+		"/v1/videos",
+		"doubao-seedance-1-0-pro-250528",
+	)
+	require.Len(t, candidates, 1)
+
+	c, _ := gin.CreateTestContext(nil)
+	c.Set(jsplugin.ContextKeyPinnedPlugin, jsplugin.PinnedPlugin{
+		Generation: registry.Generation(),
+		Plugin:     plugin,
+	})
+	c.Set(jsplugin.ContextKeyPinnedEndpoint, jsplugin.PinnedEndpoint{
+		Generation: registry.Generation(),
+		Plugin:     candidates[0].Plugin,
+		Protocol:   candidates[0].Protocol,
+		Operation:  candidates[0].Operation,
+		Model:      "doubao-seedance-1-0-pro-250528",
+		Candidates: candidates,
+	})
+
+	assert.Equal(
+		t,
+		[]int{constant.ChannelTypeDoubaoVideo, constant.ChannelTypeVolcEngine},
+		pinnedTaskPluginChannelTypes(c, "doubao"),
+	)
+}
+
+func channelSelectSeedancePluginSource() string {
+	return `
+export const meta = {
+  apiVersion: 1,
+  key: "doubao",
+  name: "Doubao",
+  version: "1.0.0",
+  author: {name: "Test"},
+  channelTypes: [54, 45],
+  models: ["doubao-seedance-1-0-pro-250528", "doubao-seedance-2-0-fast-260128"],
+  fetchMode: "per_task",
+  protocols: ["openai_video"],
+};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {taskId: "task"}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {status: "SUCCESS"}; }
+export function listArtifacts() { return []; }
+export function buildContentRequest() { throw new Error("artifact_not_found"); }
+export const protocols = {openai_video: {
+  decodeRequest: function(ctx) { return {kind: "submit", model: ctx.body.value.model, requestBody: ctx.body.value}; },
+  render: function() { return {}; },
+}};
+`
+}
+
 func channelSelectCompatiblePluginSource(key string, channelType, compatibleType int) string {
 	return fmt.Sprintf(`
 export const meta = {

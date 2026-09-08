@@ -217,6 +217,10 @@ func getTaskAdaptorForRequest(c *gin.Context, platform constant.TaskPlatform) (c
 		return platform, adaptor
 	}
 	if c != nil {
+		selectedPlatform := constant.TaskPlatform(strconv.Itoa(c.GetInt(string(constant.ContextKeyChannelType))))
+		if adaptor := getNativeTaskAdaptor(selectedPlatform); adaptor != nil {
+			return selectedPlatform, adaptor
+		}
 		for _, key := range []string{pluginruntime.ContextKeyPinnedPlugin, pluginruntime.ContextKeyPinnedEndpoint, pluginruntime.ContextKeyPinnedRoute} {
 			if value, exists := c.Get(key); exists {
 				switch pinned := value.(type) {

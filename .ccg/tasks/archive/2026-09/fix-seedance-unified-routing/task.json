@@ -1,0 +1,12 @@
+{
+  "id": "fix-seedance-unified-routing",
+  "title": "修复 Seedance 统一视频端点无法选择 Molii Volcengine Imagine 渠道",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交修复",
+  "createdAt": "2026-09-08T06:23:55Z",
+  "branch": "develop"
+}

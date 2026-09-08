@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	jspluginadaptor "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
+	taskstarai "github.com/QuantumNous/new-api/relay/channel/task/starai"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,6 +77,29 @@ export function parseTaskResult() { return {status: "SUCCESS"}; }
 	require.NotNil(t, adaptor)
 	assert.Equal(t, constant.TaskPlatform("pinned-request"), platform)
 	assert.Equal(t, "Pinned Generation", adaptor.GetChannelName())
+}
+
+func TestGetTaskAdaptorForRequestPrefersSelectedNativeChannel(t *testing.T) {
+	source := `
+export const meta = {apiVersion: 1, key: "doubao-pinned", name: "Doubao Pinned", version: "1.0.0", author: {name: "Test"}, channelTypes: [61], models: ["doubao-seedance-2-0-fast-260128"], fetchMode: "per_task"};
+export function buildSubmitRequest(ctx) { return {url: ctx.baseUrl + "/wrong-upstream-path"}; }
+export function parseSubmitResponse(ctx, resp) { return {taskId: "one"}; }
+export function buildQueryRequest(ctx) { return {url: ctx.baseUrl + "/wrong-query-path"}; }
+export function parseTaskResult() { return {status: "SUCCESS"}; }
+`
+	pinned, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
+	require.NoError(t, err)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: pinned})
+	c.Set(string(constant.ContextKeyChannelType), constant.ChannelTypeStarAI)
+
+	platform, adaptor := getTaskAdaptorForRequest(c, constant.TaskPlatform("doubao-pinned"))
+
+	require.NotNil(t, adaptor)
+	assert.Equal(t, constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)), platform)
+	_, isNativeStarAI := adaptor.(*taskstarai.TaskAdaptor)
+	assert.True(t, isNativeStarAI)
 }
 
 func TestGetTaskAdaptorForRequestPinsLegacyMappedPlugin(t *testing.T) {
