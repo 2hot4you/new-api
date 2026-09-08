@@ -44,13 +44,41 @@ import type {
 
 const TOKEN_UNIT = '1M token'
 const NUMBER_PATTERN = String.raw`(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?`
-const PRICE_TERM_PATTERN = String.raw`(?:p|c|cr|cc|cc1h|img|img_o|ai|ao)\s*\*\s*${NUMBER_PATTERN}`
-const TIER_PATTERN = String.raw`tier\("[^"\r\n]*",\s*${PRICE_TERM_PATTERN}(?:\s*\+\s*${PRICE_TERM_PATTERN})*\s*\)`
+const PRICE_VARIABLE_PATTERN = String.raw`(?:p|c|cr|cc|cc1h|img|img_o|ai|ao)`
+const PRICE_TERM_PATTERN = String.raw`${PRICE_VARIABLE_PATTERN}\s*\*\s*${NUMBER_PATTERN}`
+const TIER_BODY_PATTERN = String.raw`${PRICE_TERM_PATTERN}(?:\s*\+\s*${PRICE_TERM_PATTERN})*`
+const TIER_PATTERN = String.raw`tier\("[^"\r\n]*",\s*${TIER_BODY_PATTERN}\s*\)`
 const TIER_CONDITION_PATTERN = String.raw`(?:p|c|len)\s*(?:<=|>=|<|>)\s*${NUMBER_PATTERN}`
 const TIER_CONDITIONS_PATTERN = String.raw`${TIER_CONDITION_PATTERN}(?:\s*&&\s*${TIER_CONDITION_PATTERN})*`
 const LOSSLESS_DYNAMIC_EXPRESSION = new RegExp(
   String.raw`^(?:v\d+:)?\s*(?:${TIER_CONDITIONS_PATTERN}\s*\?\s*${TIER_PATTERN}\s*:\s*)*${TIER_PATTERN}\s*$`
 )
+const DYNAMIC_TIER_TERMS = new RegExp(
+  String.raw`tier\("[^"\r\n]*",\s*(${TIER_BODY_PATTERN})\s*\)`,
+  'g'
+)
+const DYNAMIC_PRICE_TERM = new RegExp(
+  String.raw`(${PRICE_VARIABLE_PATTERN})\s*\*\s*(${NUMBER_PATTERN})`,
+  'g'
+)
+
+function parseLosslessDynamicTierTerms(
+  expression: string
+): Map<string, number>[] | null {
+  if (!LOSSLESS_DYNAMIC_EXPRESSION.test(expression)) return null
+
+  const tiers: Map<string, number>[] = []
+  for (const tierMatch of expression.matchAll(DYNAMIC_TIER_TERMS)) {
+    const terms = new Map<string, number>()
+    for (const termMatch of tierMatch[1].matchAll(DYNAMIC_PRICE_TERM)) {
+      const variable = termMatch[1]
+      if (terms.has(variable)) return null
+      terms.set(variable, Number(termMatch[2]))
+    }
+    tiers.push(terms)
+  }
+  return tiers.length > 0 ? tiers : null
+}
 
 function modelCurrency(model: PricingModel): QuoteCurrency {
   return model.billing_currency === 'CNY' ? 'CNY' : 'USD'
@@ -334,15 +362,15 @@ function dynamicDimensions(
   }
 
   const tiers = getDynamicPricingTiers(model) as ParsedTier[]
-  const { requestRuleExpr } = splitBillingExprAndRequestRules(
+  const { billingExpr, requestRuleExpr } = splitBillingExprAndRequestRules(
     model.billing_expr ?? ''
   )
   const currency = modelCurrency(model)
+  const parsedTierTerms = parseLosslessDynamicTierTerms(billingExpr)
   if (
     requestRuleExpr ||
-    !LOSSLESS_DYNAMIC_EXPRESSION.test(
-      splitBillingExprAndRequestRules(model.billing_expr ?? '').billingExpr
-    )
+    parsedTierTerms === null ||
+    parsedTierTerms.length !== tiers.length
   ) {
     return [
       createConfirmationDimension(
@@ -373,13 +401,14 @@ function dynamicDimensions(
 
   const dimensions = tiers.flatMap((tier, tierIndex) => {
     const condition = genericTierCondition(tier, requestRuleExpr)
+    const explicitTerms = parsedTierTerms[tierIndex]
     return BILLING_PRICING_VARS.flatMap((variable) => {
       if (!variable.field) return []
-      const amount = Number(tier[variable.field])
-      // The shared parser uses zero for both absent coefficients and explicit
-      // zeroes, so omitting non-positive fields avoids presenting unknown
-      // dynamic prices as free.
-      if (!Number.isFinite(amount) || amount <= 0) return []
+      if (!explicitTerms.has(variable.key)) return []
+      const amount = explicitTerms.get(variable.key)
+      if (amount === undefined || !Number.isFinite(amount) || amount < 0) {
+        return []
+      }
       return [
         createDimension(
           {

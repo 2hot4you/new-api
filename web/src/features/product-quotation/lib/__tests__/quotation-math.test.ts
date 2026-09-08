@@ -401,6 +401,52 @@ describe('canonical quotation snapshot', () => {
     assert.equal(dimensions[0]?.status, 'needs_confirmation')
   })
 
+  test('rejects duplicate recognized dynamic variables instead of quoting only the first coefficient', () => {
+    const expression = 'tier("base", p * 2 + p * 3 + c * 0 + c * 4)'
+    const snapshot = buildSnapshot([
+      pricingModel({
+        model_name: 'duplicate-dynamic-variables',
+        billing_mode: 'tiered_expr',
+        billing_expr: expression,
+      }),
+    ])
+
+    const dimensions = snapshot.providers[0]?.models[0]?.dimensions ?? []
+    assert.equal(dimensions.length, 1)
+    assert.equal(dimensions[0]?.catalogAmount, null)
+    assert.equal(dimensions[0]?.sourceAmount, null)
+    assert.equal(dimensions[0]?.quoteAmount, null)
+    assert.equal(dimensions[0]?.condition, expression)
+    assert.equal(dimensions[0]?.status, 'needs_confirmation')
+    assert.equal(validateQuotation(snapshot).valid, false)
+  })
+
+  test('preserves an explicit zero dynamic dimension alongside a positive term', () => {
+    const snapshot = buildSnapshot([
+      pricingModel({
+        model_name: 'free-input-dynamic',
+        billing_mode: 'tiered_expr',
+        billing_expr: 'tier("base", p * 0 + c * 4)',
+      }),
+    ])
+
+    const dimensions = snapshot.providers[0]?.models[0]?.dimensions ?? []
+    assert.deepEqual(
+      dimensions.map((dimension) => [
+        dimension.key,
+        dimension.catalogAmount,
+        dimension.sourceAmount,
+        dimension.quoteAmount,
+        dimension.status,
+      ]),
+      [
+        ['tier-0-inputPrice', 0, 0, 0, 'ready'],
+        ['tier-0-outputPrice', 4, 4, 3.2, 'ready'],
+      ]
+    )
+    assert.equal(validateQuotation(snapshot).valid, true)
+  })
+
   test('marks request-rule multipliers for confirmation rather than quoting only the default amount', () => {
     const expression =
       '(tier("base", p * 2)) * (header("x-priority") == "high" ? 2 : 1)'
@@ -439,7 +485,7 @@ describe('canonical quotation snapshot', () => {
     assert.equal(dimension?.status, 'needs_confirmation')
   })
 
-  test('does not treat a parsed tier with no known positive dimensions as free', () => {
+  test('preserves a sole explicit zero term when the dynamic expression is lossless', () => {
     const snapshot = buildSnapshot([
       pricingModel({
         model_name: 'ambiguous-zero-dynamic',
@@ -450,8 +496,10 @@ describe('canonical quotation snapshot', () => {
 
     const dimensions = snapshot.providers[0]?.models[0]?.dimensions ?? []
     assert.equal(dimensions.length, 1)
-    assert.equal(dimensions[0]?.sourceAmount, null)
-    assert.equal(dimensions[0]?.status, 'needs_confirmation')
+    assert.equal(dimensions[0]?.catalogAmount, 0)
+    assert.equal(dimensions[0]?.sourceAmount, 0)
+    assert.equal(dimensions[0]?.quoteAmount, 0)
+    assert.equal(dimensions[0]?.status, 'ready')
   })
 
   test('retains a selected model that is unavailable for the selected group and blocks export', () => {
