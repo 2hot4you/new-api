@@ -289,7 +289,8 @@ func TestUpdateModelMetaWithdrawsIncompletePublishedModel(t *testing.T) {
 
 func TestGetModelMetaDynamicBlockersDoNotChangePublicationIntent(t *testing.T) {
 	db := setupModelMetaCatalogControllerTest(t)
-	entry := completeModelMetaFixture(t, db, "gpt-4", true)
+	// A unique fixture must not inherit built-in/default pricing for gpt-4.
+	entry := completeModelMetaFixture(t, db, "catalog-dynamic-blockers-unpriced", true)
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
 	context.Params = gin.Params{{Key: "id", Value: strconv.Itoa(entry.Id)}}

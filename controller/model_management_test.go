@@ -198,7 +198,11 @@ export function parseTaskResult() { return {}; }
 					require.True(t, exists, name)
 					assert.Equal(t, state, row.SquareState, name)
 					if row.NameRule == model.NameRuleExact {
-						assert.Equal(t, state == model.ModelSquareVisible, catalog[name], name)
+						// Routing visibility is not publication intent. These records
+						// are drafts (or lack metadata), so none belong in Molii's catalog.
+						assert.False(t, row.MarketplaceEnabled, name)
+						assert.False(t, row.MarketplaceVisible, name)
+						assert.False(t, catalog[name], name)
 					}
 				}
 				assert.Zero(t, byName["square-bare"].Id)
@@ -507,8 +511,10 @@ export function parseTaskResult() { return {}; }
 					assert.Equal(t, builtin, reset.Entries[0].Effective["billing_setting.billing_expr"])
 				}
 			})
-			t.Run("concurrent_import_creates_one_record", func(t *testing.T) {
-				update := model.MetadataSyncUpdate{MetadataSyncSelection: model.MetadataSyncSelection{ModelName: "matrix-concurrent-import", RecordVersion: model.MetadataRecordVersion(nil, nil, nil), Create: true}, Values: model.MetadataValues{Description: "Imported", Status: 1}}
+			t.Run("legacy_metadata_import_creates_one_unpublished_record", func(t *testing.T) {
+				// This internal compatibility helper is not a remote catalog endpoint.
+				// Import must still honor Molii serialized fields and draft defaults.
+				update := model.MetadataSyncUpdate{MetadataSyncSelection: model.MetadataSyncSelection{ModelName: "matrix-concurrent-import", RecordVersion: model.MetadataRecordVersion(nil, nil, nil), Create: true}, Values: model.MetadataValues{Description: "Imported", Status: 0}}
 				var wg sync.WaitGroup
 				results := make(chan error, 2)
 				for range 2 {
@@ -534,6 +540,16 @@ export function parseTaskResult() { return {}; }
 				var count int64
 				require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", update.ModelName).Count(&count).Error)
 				assert.EqualValues(t, 1, count)
+				var imported model.Model
+				require.NoError(t, db.Where("model_name = ?", update.ModelName).First(&imported).Error)
+				assert.Zero(t, imported.Status, "typed insertion must preserve explicit disabled status")
+				assert.Equal(t, 1, imported.SyncOfficial)
+				assert.False(t, imported.MarketplaceEnabled, "metadata import never implies publication")
+				assert.Empty(t, imported.SupportedParameters)
+				assert.Empty(t, imported.SupportedResolutions)
+				assert.Empty(t, imported.SupportedAspectRatios)
+				assert.Empty(t, imported.OutputFormats)
+				assert.Empty(t, imported.ReferenceModalities)
 			})
 			t.Run("metadata_keeps_pricing_and_channel_identity", func(t *testing.T) {
 				active := model.Channel{Name: "Active route", Type: 1, Status: common.ChannelStatusEnabled}
@@ -559,12 +575,21 @@ export function parseTaskResult() { return {}; }
 				exact.ModelName = "matrix-renamed"
 				exact.Endpoints = `{"openai":{"path":"/v1/chat/completions","method":"POST"}}`
 				response := modelManagementRequest(t, UpdateModelMeta, http.MethodPut, "/api/models/", exact, nil)
-				assert.Contains(t, response.Body.String(), `"success":true`)
+				assert.Contains(t, response.Body.String(), `"code":"model_name_immutable"`)
+				var unchanged model.Model
+				require.NoError(t, db.First(&unchanged, exact.Id).Error)
+				assert.Equal(t, "matrix-hidden-unpriced", unchanged.ModelName)
+				assert.Empty(t, unchanged.Endpoints, "rejected rename must not partially update metadata")
+				// Metadata edits keep the original channel and pricing identity.
+				exact.ModelName = unchanged.ModelName
+				response = modelManagementRequest(t, UpdateModelMeta, http.MethodPut, "/api/models/", exact, nil)
+				require.Contains(t, response.Body.String(), `"success":true`)
 				var reloaded model.Model
 				require.NoError(t, db.First(&reloaded, exact.Id).Error)
 				enrichModels([]*model.Model{&reloaded})
 				assert.Equal(t, exact.Endpoints, reloaded.Endpoints)
-				assert.Empty(t, reloaded.BoundChannels)
+				assert.Equal(t, []model.BoundChannel{{Name: "Active route", Type: 1}}, reloaded.BoundChannels)
+				assert.Zero(t, reloaded.SyncOfficial, "local sync preference is retained")
 				prices, err := model.GetModelPricingSnapshot([]string{"matrix-hidden-unpriced", "matrix-renamed"})
 				require.NoError(t, err)
 				assert.Equal(t, float64(0), prices.Entries[0].Configured["ModelPrice"])
@@ -596,27 +621,35 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 			}
 			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
 
-			t.Run("pricing_reads_keep_default_brands_without_writing_vendors", func(t *testing.T) {
+			t.Run("pricing_reads_only_explicit_local_published_vendors", func(t *testing.T) {
+				const name = "gemini-vendor-fixture"
 				channel := model.Channel{Name: "Vendor fixture", Type: 1, Status: common.ChannelStatusEnabled}
 				require.NoError(t, db.Create(&channel).Error)
-				require.NoError(t, db.Create(&model.Ability{Model: "gemini-vendor-fixture", Group: "default", ChannelId: channel.Id, Enabled: true}).Error)
+				require.NoError(t, db.Create(&model.Ability{Model: name, Group: "default", ChannelId: channel.Id, Enabled: true}).Error)
 				model.RefreshPricing()
-				model.GetPricing()
-				vendors := model.GetVendors()
-				require.Len(t, vendors, 1)
-				assert.Equal(t, "Google", vendors[0].Name)
-				assert.Equal(t, "Gemini.Color", vendors[0].Icon)
-				assert.Negative(t, vendors[0].ID)
+				assert.Empty(t, model.GetPricing(), "a channel does not publish local catalog metadata")
+				assert.Empty(t, model.GetVendors(), "provider name prefixes must not synthesize brands")
 				var count int64
 				require.NoError(t, db.Model(&model.Vendor{}).Count(&count).Error)
 				assert.Zero(t, count)
-				saved := model.Vendor{Name: "Google", Icon: "Gemini.Color"}
-				require.NoError(t, saved.Insert())
-				assert.Equal(t, saved.Id, model.GetVendors()[0].ID)
+
+				entry := completeModelMetaFixture(t, db, name, true)
+				snapshot, err := model.GetModelPricingSnapshot([]string{name})
+				require.NoError(t, err)
+				require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: name, ExpectedVersion: snapshot.Entries[0].Version, Pricing: model.PricingValues{"ModelPrice": float64(0)}}}))
+				model.RefreshPricing()
+				vendors := model.GetVendors()
+				require.Len(t, vendors, 1)
+				assert.Equal(t, entry.VendorID, vendors[0].ID)
+				assert.Equal(t, "Vendor "+name, vendors[0].Name)
+				require.NoError(t, entry.Delete())
+				saved, err := model.GetVendorByID(entry.VendorID)
+				require.NoError(t, err)
 				require.NoError(t, saved.Delete())
-				assert.Equal(t, vendors[0].ID, model.GetVendors()[0].ID)
+				model.RefreshPricing()
+				assert.Empty(t, model.GetVendors(), "deleted local metadata must not fall back to synthetic brands")
 				require.NoError(t, db.Model(&model.Vendor{}).Count(&count).Error)
-				assert.Zero(t, count, "refresh must not recreate a deleted vendor")
+				assert.Zero(t, count, "pricing refresh must not recreate a deleted vendor")
 			})
 			t.Run("metadata_ownership_preview_merge_delete_and_rollback", func(t *testing.T) {
 				source := model.Vendor{Name: "  Vendor Source  ", Icon: "Gemini.Color"}
@@ -860,7 +893,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					pricingBefore, err := model.GetModelPricingSnapshot([]string{name, second.ModelName})
 					require.NoError(t, err)
 					if rule != model.NameRuleExact {
-						_, err := model.DeleteModelMetadata([]int{first.Id, second.Id}, true, true)
+						_, err := model.DeleteModelMetadata([]int{first.Id, second.Id}, true, false)
 						require.EqualError(t, err, "only exact-match models can be removed from channels")
 						after, err := model.GetModelPricingSnapshot([]string{name, second.ModelName})
 						require.NoError(t, err)
@@ -936,7 +969,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 				})
 			}
 			for _, removeChannels := range []bool{false, true} {
-				t.Run(fmt.Sprintf("pricing_removal_channels_%t", removeChannels), func(t *testing.T) {
+				t.Run(fmt.Sprintf("pricing_is_edited_separately_channels_%t", removeChannels), func(t *testing.T) {
 					name := fmt.Sprintf("remove-pricing-%t", removeChannels)
 					metadata := model.Model{ModelName: name, NameRule: model.NameRuleExact, Status: 1}
 					require.NoError(t, metadata.Insert())
@@ -967,35 +1000,37 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 						}, http.MethodPost, "/api/models/delete?remove_pricing=true", body, nil)
 						assert.Equal(t, http.StatusForbidden, recorder.Code, "pricing permissions cannot be bypassed through deletion")
 					}
-					updates := 0
-					require.NoError(t, db.Callback().Update().Before("gorm:update").Register("fail_deleted_pricing", func(tx *gorm.DB) {
-						if tx.Statement.Table == "options" {
-							updates++
-							if updates == 3 {
-								tx.AddError(errors.New("injected pricing deletion failure"))
-							}
-						}
-					}))
+					// Even root cannot combine metadata deletion and pricing edits.
 					_, err = model.DeleteModelMetadata([]int{metadata.Id}, removeChannels, true)
-					require.Error(t, err)
-					require.NoError(t, db.Callback().Update().Remove("fail_deleted_pricing"))
+					require.ErrorContains(t, err, "edit pricing separately")
+					recorder := modelManagementRequest(t, BatchDeleteModelMeta, http.MethodPost, "/api/models/delete", body, &response)
+					require.False(t, response.Success, recorder.Body.String())
+					assert.Contains(t, recorder.Body.String(), "edit pricing separately")
 					after, err := model.GetModelPricingSnapshot([]string{name, keep})
 					require.NoError(t, err)
-					assert.Equal(t, before, after, "partial option writes roll back")
-					assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode(name), "failed deletion must not publish new runtime pricing")
+					assert.Equal(t, before, after, "rejected combined deletion must not alter any pricing")
+					assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode(name))
 					var retained model.Model
 					require.NoError(t, db.First(&retained, metadata.Id).Error)
 					var channelAfter model.Channel
 					require.NoError(t, db.First(&channelAfter, channel.Id).Error)
 					assert.Equal(t, channel.Models, channelAfter.Models)
-					_, err = model.DeleteModelMetadata([]int{metadata.Id, 999999}, removeChannels, true)
+					_, err = model.DeleteModelMetadata([]int{metadata.Id, 999999}, removeChannels, false)
 					assert.Error(t, err, "a missing model aborts the whole batch")
-					recorder := modelManagementRequest(t, BatchDeleteModelMeta, http.MethodPost, "/api/models/delete", body, &response)
+
+					body["remove_pricing"] = false
+					recorder = modelManagementRequest(t, BatchDeleteModelMeta, http.MethodPost, "/api/models/delete", body, &response)
 					require.True(t, response.Success, recorder.Body.String())
 					after, err = model.GetModelPricingSnapshot([]string{name, keep})
 					require.NoError(t, err)
+					assert.Equal(t, before, after, "metadata deletion must preserve all pricing")
+
+					// Explicit versioned pricing reset affects only the selected name.
+					require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: name, ExpectedVersion: after.Entries[0].Version, Reset: true}}))
+					after, err = model.GetModelPricingSnapshot([]string{name, keep})
+					require.NoError(t, err)
 					assert.Empty(t, after.Entries[0].Configured)
-					assert.Equal(t, before.Entries[1], after.Entries[1], "name rules do not expand pricing deletion")
+					assert.Equal(t, before.Entries[1], after.Entries[1])
 					assert.Equal(t, billing_setting.BillingModeRatio, billing_setting.GetBillingMode(name))
 					_, hasExpr := billing_setting.GetBillingExpr(name)
 					assert.False(t, hasExpr)

@@ -261,10 +261,21 @@ func ApplyMetadataSync(updates []MetadataSyncUpdate, upstreamVendors map[string]
 			}
 			fields["updated_time"] = common.GetTimestamp()
 			if update.Create {
-				fields["model_name"] = update.ModelName
-				fields["sync_official"] = 1
-				fields["created_time"] = common.GetTimestamp()
-				if err := tx.Model(&Model{}).Create(fields).Error; err != nil {
+				// A typed destination is required for GORM's JSON serializers when
+				// RETURNING includes Molii's array-valued database defaults.
+				entry := &Model{
+					ModelName: update.ModelName, Description: update.Values.Description,
+					Icon: update.Values.Icon, Tags: update.Values.Tags,
+					Endpoints: update.Values.Endpoints, NameRule: update.Values.NameRule,
+					Status: update.Values.Status, SyncOfficial: 1,
+					VendorID:    fields["vendor_id"].(int),
+					CreatedTime: common.GetTimestamp(), UpdatedTime: common.GetTimestamp(),
+				}
+				if err := createModelWithNextDisplayOrder(tx, entry); err != nil {
+					return err
+				}
+				// GORM applies default:1 to zero-valued Status during Create.
+				if err := tx.Model(entry).Update("status", update.Values.Status).Error; err != nil {
 					return err
 				}
 				result.CreatedModels = append(result.CreatedModels, update.ModelName)
