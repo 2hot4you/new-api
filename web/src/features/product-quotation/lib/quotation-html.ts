@@ -19,13 +19,55 @@ For commercial licensing, please contact support@quantumnous.com
 import type {
   QuoteModelSection,
   QuotePriceDimension,
+  QuotePriceSource,
   QuoteProviderSection,
+  QuoteUsageExample,
   QuotationSnapshot,
 } from '../types'
 import { formatQuoteAmount } from './quotation-format'
 
 const CSP =
   "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"
+
+export type QuotationHtmlLabels = Readonly<{
+  emptyValue: string
+  customer: string
+  quotedBy: string
+  quoteDate: string
+  globalDiscount: string
+  priceBasis: string
+  pricingVersion: string
+  fetchedAt: string
+  rawPriceBasis: string
+  groupPriceBasis: string
+  discount: string
+  discountCoefficient: string
+  discountSuffix: string
+  providerNote: string
+  priceDimension: string
+  sourceType: string
+  catalogPrice: string
+  basisPrice: string
+  quotePrice: string
+  currency: string
+  unit: string
+  condition: string
+  status: string
+  ready: string
+  needsConfirmation: string
+  groupUnavailable: string
+  catalogMissing: string
+  noDimensions: string
+  noProviderModels: string
+  noModels: string
+  usageExamples: string
+  sourceTypes: Readonly<Record<QuotePriceSource, string>>
+}>
+
+export type QuotationHtmlOptions = Readonly<{
+  locale: string
+  labels: QuotationHtmlLabels
+}>
 
 export function escapeHtml(value: string): string {
   return value
@@ -36,116 +78,201 @@ export function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;')
 }
 
-function displayText(value: string | null | undefined): string {
-  return escapeHtml(value || '—')
+function displayText(
+  value: string | null | undefined,
+  labels: QuotationHtmlLabels
+): string {
+  return escapeHtml(value || labels.emptyValue)
 }
 
-function displayNumber(value: number | null | undefined): string {
+function displayNumber(
+  value: number | null | undefined,
+  labels: QuotationHtmlLabels
+): string {
   return typeof value === 'number' && Number.isFinite(value)
     ? escapeHtml(String(value))
-    : '—'
+    : escapeHtml(labels.emptyValue)
 }
 
-function displayDiscount(value: number | null): string {
+function displayDiscount(
+  value: number | null,
+  labels: QuotationHtmlLabels
+): string {
   return typeof value === 'number' && Number.isFinite(value)
-    ? `${escapeHtml(String(value))} 折`
-    : '—'
+    ? `${escapeHtml(String(value))}${escapeHtml(labels.discountSuffix)}`
+    : escapeHtml(labels.emptyValue)
 }
 
-function priceBasisLabel(snapshot: QuotationSnapshot): string {
-  if (snapshot.priceBasis.type === 'raw') return '原始模型价（1x）'
-  return `用户分组：${displayText(snapshot.priceBasis.group)}（${displayNumber(snapshot.priceBasis.ratio)}x）`
+function displayAmount(
+  amount: number | null,
+  dimension: QuotePriceDimension,
+  labels: QuotationHtmlLabels
+): string {
+  return typeof amount === 'number' && Number.isFinite(amount)
+    ? escapeHtml(formatQuoteAmount(amount, dimension.currency))
+    : escapeHtml(labels.emptyValue)
 }
 
-function statusLabel(dimension: QuotePriceDimension): string {
-  return dimension.status === 'needs_confirmation' ? '待确认' : '已确认'
+function priceBasisLabel(
+  snapshot: QuotationSnapshot,
+  labels: QuotationHtmlLabels
+): string {
+  if (snapshot.priceBasis.type === 'raw') {
+    return escapeHtml(labels.rawPriceBasis)
+  }
+  return `${escapeHtml(labels.groupPriceBasis)}: ${displayText(snapshot.priceBasis.group, labels)} (${displayNumber(snapshot.priceBasis.ratio, labels)}x)`
 }
 
-function renderDimension(dimension: QuotePriceDimension): string {
+function statusLabel(
+  dimension: QuotePriceDimension,
+  labels: QuotationHtmlLabels
+): string {
+  return escapeHtml(
+    dimension.status === 'needs_confirmation'
+      ? labels.needsConfirmation
+      : labels.ready
+  )
+}
+
+function renderDimension(
+  dimension: QuotePriceDimension,
+  labels: QuotationHtmlLabels
+): string {
   const statusClass =
     dimension.status === 'needs_confirmation' ? 'status pending' : 'status'
   return `<tr>
-    <td>${displayText(dimension.label)}</td>
-    <td>${displayText(dimension.sourceType)}</td>
-    <td class="number">${escapeHtml(formatQuoteAmount(dimension.catalogAmount, dimension.currency))}</td>
-    <td class="number">${escapeHtml(formatQuoteAmount(dimension.sourceAmount, dimension.currency))}</td>
-    <td class="number quote-price">${escapeHtml(formatQuoteAmount(dimension.quoteAmount, dimension.currency))}</td>
-    <td>${displayText(dimension.currency)}</td>
-    <td>${displayText(dimension.unit)}</td>
-    <td>${displayText(dimension.condition)}</td>
-    <td><span class="${statusClass}">${statusLabel(dimension)}</span></td>
+    <td>${displayText(dimension.label, labels)}</td>
+    <td>${displayText(labels.sourceTypes[dimension.sourceType], labels)}</td>
+    <td class="number">${displayAmount(dimension.catalogAmount, dimension, labels)}</td>
+    <td class="number">${displayAmount(dimension.sourceAmount, dimension, labels)}</td>
+    <td class="number quote-price">${displayAmount(dimension.quoteAmount, dimension, labels)}</td>
+    <td>${displayText(dimension.currency, labels)}</td>
+    <td>${displayText(dimension.unit, labels)}</td>
+    <td>${displayText(dimension.condition, labels)}</td>
+    <td><span class="${statusClass}">${statusLabel(dimension, labels)}</span></td>
   </tr>`
 }
 
-function unavailableLabel(model: QuoteModelSection): string {
+function unavailableLabel(
+  model: QuoteModelSection,
+  labels: QuotationHtmlLabels
+): string {
   if (model.available) return ''
   if (model.unavailableReason === 'group_unavailable') {
-    return '<span class="status pending">所选分组不可用</span>'
+    return `<span class="status pending">${escapeHtml(labels.groupUnavailable)}</span>`
   }
-  return '<span class="status pending">价格目录中不存在</span>'
+  return `<span class="status pending">${escapeHtml(labels.catalogMissing)}</span>`
 }
 
-function renderModel(model: QuoteModelSection): string {
-  const dimensions = model.dimensions.map(renderDimension).join('\n')
-  const emptyRow = `<tr><td colspan="9" class="empty">没有可显示的价格维度</td></tr>`
+function renderUsageExample(
+  example: QuoteUsageExample,
+  labels: QuotationHtmlLabels
+): string {
+  const facts = Object.entries(example.facts)
+    .map(
+      ([key, value]) => `<div class="usage-fact">
+        <dt>${displayText(key, labels)}</dt>
+        <dd>${typeof value === 'number' ? displayNumber(value, labels) : displayText(value, labels)}</dd>
+      </div>`
+    )
+    .join('\n')
+
+  return `<article class="usage-example">
+    <h4>${displayText(example.label, labels)}</h4>
+    <dl class="usage-facts">${facts}</dl>
+  </article>`
+}
+
+function renderUsageExamples(
+  model: QuoteModelSection,
+  labels: QuotationHtmlLabels
+): string {
+  const examples = model.usageExamples ?? []
+  if (examples.length === 0) return ''
+
+  return `<section class="usage-examples">
+    <h4 class="usage-title">${escapeHtml(labels.usageExamples)}</h4>
+    ${examples.map((example) => renderUsageExample(example, labels)).join('\n')}
+  </section>`
+}
+
+function renderModel(
+  model: QuoteModelSection,
+  labels: QuotationHtmlLabels
+): string {
+  const dimensions = model.dimensions
+    .map((dimension) => renderDimension(dimension, labels))
+    .join('\n')
+  const emptyRow = `<tr><td colspan="9" class="empty">${escapeHtml(labels.noDimensions)}</td></tr>`
 
   return `<section class="model-block">
     <div class="model-heading">
       <div>
-        <h3>${displayText(model.displayName)}</h3>
-        <p class="model-id">${displayText(model.modelId)}</p>
+        <h3>${displayText(model.displayName, labels)}</h3>
+        <p class="model-id">${displayText(model.modelId, labels)}</p>
       </div>
-      ${unavailableLabel(model)}
+      ${unavailableLabel(model, labels)}
     </div>
     <table>
       <thead>
         <tr>
-          <th>价格维度</th>
-          <th>来源类型</th>
-          <th>目录原价</th>
-          <th>基准价格</th>
-          <th>报价</th>
-          <th>币种</th>
-          <th>单位</th>
-          <th>条件</th>
-          <th>状态</th>
+          <th>${escapeHtml(labels.priceDimension)}</th>
+          <th>${escapeHtml(labels.sourceType)}</th>
+          <th>${escapeHtml(labels.catalogPrice)}</th>
+          <th>${escapeHtml(labels.basisPrice)}</th>
+          <th>${escapeHtml(labels.quotePrice)}</th>
+          <th>${escapeHtml(labels.currency)}</th>
+          <th>${escapeHtml(labels.unit)}</th>
+          <th>${escapeHtml(labels.condition)}</th>
+          <th>${escapeHtml(labels.status)}</th>
         </tr>
       </thead>
       <tbody>${dimensions || emptyRow}</tbody>
     </table>
+    ${renderUsageExamples(model, labels)}
   </section>`
 }
 
-function renderProvider(provider: QuoteProviderSection): string {
-  const models = provider.models.map(renderModel).join('\n')
+function renderProvider(
+  provider: QuoteProviderSection,
+  labels: QuotationHtmlLabels
+): string {
+  const models = provider.models
+    .map((model) => renderModel(model, labels))
+    .join('\n')
   const note = provider.note
-    ? `<div class="provider-note"><strong>Provider 备注</strong><div>${escapeHtml(provider.note)}</div></div>`
+    ? `<div class="provider-note"><strong>${escapeHtml(labels.providerNote)}</strong><div>${escapeHtml(provider.note)}</div></div>`
     : ''
 
   return `<section class="provider-block">
     <div class="provider-heading">
-      <h2>${displayText(provider.providerName)}</h2>
+      <h2>${displayText(provider.providerName, labels)}</h2>
       <div class="provider-pricing">
-        <span>折扣：${displayDiscount(provider.discount)}</span>
-        <span>折扣系数：${displayNumber(provider.discountCoefficient)}</span>
+        <span>${escapeHtml(labels.discount)}: ${displayDiscount(provider.discount, labels)}</span>
+        <span>${escapeHtml(labels.discountCoefficient)}: ${displayNumber(provider.discountCoefficient, labels)}</span>
       </div>
     </div>
     ${note}
-    ${models || '<p class="empty">此 Provider 没有选中的模型。</p>'}
+    ${models || `<p class="empty">${escapeHtml(labels.noProviderModels)}</p>`}
   </section>`
 }
 
-export function buildQuotationHtml(snapshot: QuotationSnapshot): string {
-  const providers = snapshot.providers.map(renderProvider).join('\n')
+export function buildQuotationHtml(
+  snapshot: QuotationSnapshot,
+  { locale, labels }: QuotationHtmlOptions
+): string {
+  const providers = snapshot.providers
+    .map((provider) => renderProvider(provider, labels))
+    .join('\n')
 
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="${escapeHtml(locale)}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="${escapeHtml(CSP)}">
-  <title>${displayText(snapshot.title)}</title>
+  <title>${displayText(snapshot.title, labels)}</title>
   <style>
     :root { color-scheme: light; font-family: Arial, "Noto Sans SC", sans-serif; color: #172033; background: #eef1f5; }
     * { box-sizing: border-box; }
@@ -168,6 +295,14 @@ export function buildQuotationHtml(snapshot: QuotationSnapshot): string {
     .model-block { margin-top: 5mm; break-inside: avoid; page-break-inside: avoid; }
     .model-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 4mm; }
     .model-id { margin-bottom: 2mm; color: #5f6b7a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; overflow-wrap: anywhere; }
+    .usage-examples { max-width: 100%; margin-top: 4mm; }
+    .usage-title { margin: 0 0 2mm; font-size: 13px; }
+    .usage-example { max-width: 100%; margin-top: 2mm; padding: 2.5mm; border: 1px solid #d7dce3; break-inside: avoid; page-break-inside: avoid; overflow: hidden; }
+    .usage-example h4 { margin: 0 0 1.5mm; font-size: 12px; overflow-wrap: anywhere; }
+    .usage-facts { display: grid; gap: 1mm; margin: 0; overflow-wrap: anywhere; }
+    .usage-fact { display: grid; grid-template-columns: minmax(24mm, 1fr) minmax(0, 2fr); gap: 3mm; min-width: 0; }
+    .usage-fact dt { color: #5f6b7a; font-weight: 700; }
+    .usage-fact dd { min-width: 0; margin: 0; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10px; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
@@ -185,7 +320,7 @@ export function buildQuotationHtml(snapshot: QuotationSnapshot): string {
       body { padding: 0; }
       .sheet { width: auto; min-height: auto; margin: 0; padding: 0; box-shadow: none; }
       .document-header { break-after: avoid; page-break-after: avoid; }
-      .provider-block, .model-block, .provider-note, tr { break-inside: avoid; page-break-inside: avoid; }
+      .provider-block, .model-block, .provider-note, .usage-example, tr { break-inside: avoid; page-break-inside: avoid; }
     }
     @media (max-width: 720px) {
       body { padding: 0; }
@@ -199,18 +334,18 @@ export function buildQuotationHtml(snapshot: QuotationSnapshot): string {
 <body>
   <main class="sheet">
     <header class="document-header">
-      <h1>${displayText(snapshot.title)}</h1>
+      <h1>${displayText(snapshot.title, labels)}</h1>
       <dl class="metadata">
-        <div><dt>客户</dt><dd>${displayText(snapshot.customer)}</dd></div>
-        <div><dt>报价人</dt><dd>${displayText(snapshot.quotedBy)}</dd></div>
-        <div><dt>报价日期</dt><dd>${displayText(snapshot.quoteDate)}</dd></div>
-        <div><dt>全局折扣</dt><dd>${displayDiscount(snapshot.globalDiscount)}</dd></div>
-        <div><dt>价格基准</dt><dd>${priceBasisLabel(snapshot)}</dd></div>
-        <div><dt>价格版本</dt><dd>${displayText(snapshot.pricingVersion)}</dd></div>
-        <div><dt>价格获取时间</dt><dd>${displayText(snapshot.fetchedAt)}</dd></div>
+        <div><dt>${escapeHtml(labels.customer)}</dt><dd>${displayText(snapshot.customer, labels)}</dd></div>
+        <div><dt>${escapeHtml(labels.quotedBy)}</dt><dd>${displayText(snapshot.quotedBy, labels)}</dd></div>
+        <div><dt>${escapeHtml(labels.quoteDate)}</dt><dd>${displayText(snapshot.quoteDate, labels)}</dd></div>
+        <div><dt>${escapeHtml(labels.globalDiscount)}</dt><dd>${displayDiscount(snapshot.globalDiscount, labels)}</dd></div>
+        <div><dt>${escapeHtml(labels.priceBasis)}</dt><dd>${priceBasisLabel(snapshot, labels)}</dd></div>
+        <div><dt>${escapeHtml(labels.pricingVersion)}</dt><dd>${displayText(snapshot.pricingVersion, labels)}</dd></div>
+        <div><dt>${escapeHtml(labels.fetchedAt)}</dt><dd>${displayText(snapshot.fetchedAt, labels)}</dd></div>
       </dl>
     </header>
-    ${providers || '<p class="empty-state">没有选中的模型。</p>'}
+    ${providers || `<p class="empty-state">${escapeHtml(labels.noModels)}</p>`}
   </main>
 </body>
 </html>`

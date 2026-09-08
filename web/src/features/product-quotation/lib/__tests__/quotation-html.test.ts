@@ -22,7 +22,106 @@ import { describe, test, vi } from 'vitest'
 
 import type { QuotationSnapshot } from '../../types'
 import { downloadQuotationHtml } from '../download-html'
-import { buildQuotationHtml, escapeHtml } from '../quotation-html'
+import {
+  buildQuotationHtml,
+  escapeHtml,
+  type QuotationHtmlLabels,
+  type QuotationHtmlOptions,
+} from '../quotation-html'
+
+const enLabels = Object.freeze({
+  emptyValue: '—',
+  customer: 'Customer',
+  quotedBy: 'Quoted by',
+  quoteDate: 'Quote date',
+  globalDiscount: 'Global discount',
+  priceBasis: 'Price basis',
+  pricingVersion: 'Pricing version',
+  fetchedAt: 'Pricing fetched at',
+  rawPriceBasis: 'Raw model price (1x)',
+  groupPriceBasis: 'User group',
+  discount: 'Discount',
+  discountCoefficient: 'Discount coefficient',
+  discountSuffix: '/10',
+  providerNote: 'Provider note',
+  priceDimension: 'Price dimension',
+  sourceType: 'Source type',
+  catalogPrice: 'Catalog price',
+  basisPrice: 'Basis price',
+  quotePrice: 'Quoted price',
+  currency: 'Currency',
+  unit: 'Unit',
+  condition: 'Condition',
+  status: 'Status',
+  ready: 'Confirmed',
+  needsConfirmation: 'Needs confirmation',
+  groupUnavailable: 'Unavailable for selected group',
+  catalogMissing: 'Missing from pricing catalog',
+  noDimensions: 'No price dimensions to display.',
+  noProviderModels: 'No selected models for this provider.',
+  noModels: 'No selected models.',
+  usageExamples: 'Usage examples',
+  sourceTypes: Object.freeze({
+    fixed_token: 'Fixed token',
+    request: 'Per request',
+    dynamic: 'Dynamic',
+    task_usage: 'Task usage',
+    video: 'Video',
+    grok: 'Grok',
+  }),
+}) satisfies QuotationHtmlLabels
+
+const zhLabels = Object.freeze({
+  emptyValue: '—',
+  customer: '客户',
+  quotedBy: '报价人',
+  quoteDate: '报价日期',
+  globalDiscount: '全局折扣',
+  priceBasis: '价格基准',
+  pricingVersion: '价格版本',
+  fetchedAt: '价格获取时间',
+  rawPriceBasis: '原始模型价（1x）',
+  groupPriceBasis: '用户分组',
+  discount: '折扣',
+  discountCoefficient: '折扣系数',
+  discountSuffix: ' 折',
+  providerNote: 'Provider 备注',
+  priceDimension: '价格维度',
+  sourceType: '来源类型',
+  catalogPrice: '目录原价',
+  basisPrice: '基准价格',
+  quotePrice: '报价',
+  currency: '币种',
+  unit: '单位',
+  condition: '条件',
+  status: '状态',
+  ready: '已确认',
+  needsConfirmation: '待确认',
+  groupUnavailable: '所选分组不可用',
+  catalogMissing: '价格目录中不存在',
+  noDimensions: '没有可显示的价格维度',
+  noProviderModels: '此 Provider 没有选中的模型。',
+  noModels: '没有选中的模型。',
+  usageExamples: '用量示例',
+  sourceTypes: Object.freeze({
+    fixed_token: '固定 Token',
+    request: '按次',
+    dynamic: '动态',
+    task_usage: 'Task 用量',
+    video: '视频',
+    grok: 'Grok',
+  }),
+}) satisfies QuotationHtmlLabels
+
+const zhOptions = Object.freeze({
+  locale: 'zh-CN',
+  labels: zhLabels,
+}) satisfies QuotationHtmlOptions
+
+const enOptions = Object.freeze({
+  locale: 'en',
+  labels: enLabels,
+}) satisfies QuotationHtmlOptions
 
 function quotationSnapshot(
   overrides: Partial<QuotationSnapshot> = {}
@@ -101,7 +200,7 @@ describe('standalone quotation HTML', () => {
 
   test('renders every price dimension separately, including currency, unit, condition, and confirmation state', () => {
     const snapshot = deepFreeze(quotationSnapshot())
-    const html = buildQuotationHtml(snapshot)
+    const html = buildQuotationHtml(snapshot, zhOptions)
 
     assert.match(html, /Acme &amp; Partners/)
     assert.match(html, /Provider A/)
@@ -135,7 +234,7 @@ describe('standalone quotation HTML', () => {
       })
     )
 
-    const html = buildQuotationHtml(snapshot)
+    const html = buildQuotationHtml(snapshot, zhOptions)
 
     assert.ok(html.includes(escapeHtml(longNote)))
     assert.equal(snapshot.providers[0]?.note, longNote)
@@ -184,7 +283,7 @@ describe('standalone quotation HTML', () => {
       ],
     })
 
-    const html = buildQuotationHtml(snapshot)
+    const html = buildQuotationHtml(snapshot, zhOptions)
 
     assert.equal(html.includes(attack), false)
     assert.equal(html.includes('<script'), false)
@@ -193,7 +292,7 @@ describe('standalone quotation HTML', () => {
   })
 
   test('is script-free and self-contained with restrictive CSP and A4 print protection', () => {
-    const html = buildQuotationHtml(quotationSnapshot())
+    const html = buildQuotationHtml(quotationSnapshot(), zhOptions)
 
     assert.match(html, /^<!doctype html>/i)
     assert.match(html, /<meta charset="utf-8">/i)
@@ -213,17 +312,92 @@ describe('standalone quotation HTML', () => {
     )
     assert.equal(/\b(?:src|href)\s*=/i.test(html), false)
   })
+
+  test('renders all usage example labels and fact key/value pairs as escaped, printable text', () => {
+    const attack = `<img src=x onerror="alert('usage')">&`
+    const snapshot = quotationSnapshot()
+    const model = snapshot.providers[0]?.models[0]
+    assert.ok(model)
+    model.usageExamples = [
+      {
+        label: `Starter ${attack}`,
+        facts: {
+          [`seconds ${attack}`]: 15,
+          [`mode ${attack}`]: `pro ${attack}`,
+        },
+      },
+      {
+        label: 'Batch render',
+        facts: { clips: 4, credits: 2.5 },
+      },
+    ]
+
+    const html = buildQuotationHtml(deepFreeze(snapshot), enOptions)
+
+    assert.match(html, /<h4>Starter &lt;img/)
+    assert.match(html, /seconds &lt;img/)
+    assert.match(html, />15<\/dd>/)
+    assert.match(html, /mode &lt;img/)
+    assert.match(html, /pro &lt;img/)
+    assert.match(html, /<h4>Batch render<\/h4>/)
+    assert.match(html, />clips<\/dt>/)
+    assert.match(html, />4<\/dd>/)
+    assert.match(html, />credits<\/dt>/)
+    assert.match(html, />2\.5<\/dd>/)
+    assert.equal(html.includes(attack), false)
+    assert.equal(html.includes('<img'), false)
+    assert.match(html, /\.usage-example[^}]*max-width:\s*100%/)
+    assert.match(html, /\.usage-example[^}]*break-inside:\s*avoid/)
+    assert.match(html, /\.usage-facts[^}]*overflow-wrap:\s*anywhere/)
+  })
+
+  test('uses explicit Chinese and English labels and sets the requested document language', () => {
+    const zhHtml = buildQuotationHtml(
+      deepFreeze(quotationSnapshot()),
+      deepFreeze(zhOptions)
+    )
+    const enHtml = buildQuotationHtml(
+      deepFreeze(quotationSnapshot()),
+      deepFreeze(enOptions)
+    )
+
+    assert.match(zhHtml, /<html lang="zh-CN">/)
+    assert.match(zhHtml, /<th>价格维度<\/th>/)
+    assert.match(zhHtml, /<dt>客户<\/dt>/)
+    assert.match(enHtml, /<html lang="en">/)
+    assert.match(enHtml, /<th>Price dimension<\/th>/)
+    assert.match(enHtml, /<dt>Customer<\/dt>/)
+    assert.match(enHtml, /Needs confirmation/)
+    assert.equal(enHtml.includes('价格维度'), false)
+    assert.equal(enHtml.includes('待确认'), false)
+  })
+
+  test('escapes hostile locale and translated label text', () => {
+    const attack = `"><img src=x onerror="alert('translation')">&`
+    const html = buildQuotationHtml(quotationSnapshot(), {
+      locale: attack,
+      labels: { ...enLabels, customer: attack },
+    })
+    const parsed = new DOMParser().parseFromString(html, 'text/html')
+
+    assert.equal(parsed.documentElement.lang, attack)
+    assert.equal(parsed.querySelector('[onerror]'), null)
+    assert.equal(html.includes(`<dt>${attack}</dt>`), false)
+    assert.ok(html.includes(`<dt>${escapeHtml(attack)}</dt>`))
+  })
 })
 
 describe('quotation HTML download', () => {
-  test('downloads a UTF-8 HTML Blob with a sanitized filename and revokes the URL after clicking', () => {
+  test('downloads localized UTF-8 HTML with a sanitized filename and revokes the URL after clicking', async () => {
     const events: string[] = []
     let downloadedFilename = ''
+    let downloadedBlob: Blob | null = null
     const createObjectURL = vi
       .spyOn(URL, 'createObjectURL')
       .mockImplementation((blob) => {
         if (!(blob instanceof Blob)) assert.fail('expected an HTML Blob')
         assert.equal(blob.type, 'text/html;charset=utf-8')
+        downloadedBlob = blob
         events.push('create')
         return 'blob:quotation'
       })
@@ -242,10 +416,21 @@ describe('quotation HTML download', () => {
     )
 
     downloadQuotationHtml(
-      quotationSnapshot({ title: ' Acme / Q3:*? ', quoteDate: '2026-09-08' })
+      quotationSnapshot({ title: ' Acme / Q3:*? ', quoteDate: '2026-09-08' }),
+      enOptions
     )
 
+    const blobToRead = downloadedBlob
+    assert.ok(blobToRead)
+    const exportedHtml = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.addEventListener('load', () => resolve(String(reader.result)))
+      reader.addEventListener('error', () => reject(reader.error))
+      reader.readAsText(blobToRead)
+    })
     assert.equal(downloadedFilename, 'Acme  Q3-2026-09-08.html')
+    assert.match(exportedHtml, /<html lang="en">/)
+    assert.match(exportedHtml, /<dt>Customer<\/dt>/)
     assert.deepEqual(events, ['create', 'click', 'revoke'])
     assert.equal(createObjectURL.mock.calls.length, 1)
     assert.equal(revokeObjectURL.mock.calls.length, 1)

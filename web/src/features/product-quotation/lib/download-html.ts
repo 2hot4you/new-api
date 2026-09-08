@@ -18,10 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { QuotationSnapshot } from '../types'
 import { sanitizeQuotationFilename } from './quotation-format'
-import { buildQuotationHtml } from './quotation-html'
+import { buildQuotationHtml, type QuotationHtmlOptions } from './quotation-html'
 
-export function downloadQuotationHtml(snapshot: QuotationSnapshot): void {
-  const blob = new Blob([buildQuotationHtml(snapshot)], {
+export function downloadQuotationHtml(
+  snapshot: QuotationSnapshot,
+  options: QuotationHtmlOptions
+): void {
+  const blob = new Blob([buildQuotationHtml(snapshot, options)], {
     type: 'text/html;charset=utf-8',
   })
   const objectUrl = URL.createObjectURL(blob)
