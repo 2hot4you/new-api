@@ -159,6 +159,7 @@ export type ModelCapability =
 export type PricingData = {
   success: boolean
   message?: string
+  pricing_version?: string
   data: PricingModel[]
   vendors: PricingVendor[]
   group_ratio: Record<string, number>
