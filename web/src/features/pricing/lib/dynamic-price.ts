@@ -254,7 +254,7 @@ export function formatDynamicUnitPrice(
     (valuePerMillionTokens * groupRatio) /
     TOKEN_UNIT_DIVISORS[options.tokenUnit]
   if (options.billingCurrency === 'CNY') {
-    return `¥${formatCNYPrice(priceUSD)}`
+    return `${options.showCurrencySymbol === false ? '' : '¥'}${formatCNYPrice(priceUSD)}`
   }
   const displayPrice = applyRechargeRate(
     priceUSD,
@@ -280,7 +280,7 @@ export function formatTaskUsageUnitPrice(
   const usdExchangeRate = options.usdExchangeRate ?? 1
   const priceUSD = valuePerUnit * groupRatio
   if (options.billingCurrency === 'CNY') {
-    return `¥${formatCNYPrice(priceUSD)}`
+    return `${options.showCurrencySymbol === false ? '' : '¥'}${formatCNYPrice(priceUSD)}`
   }
   const displayPrice = applyRechargeRate(
     priceUSD,

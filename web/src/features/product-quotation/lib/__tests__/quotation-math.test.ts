@@ -224,6 +224,30 @@ describe('canonical quotation snapshot', () => {
     )
   })
 
+  test('propagates CNY through every task-usage quotation dimension', () => {
+    const snapshot = buildSnapshot([
+      pricingModel({
+        model_name: 'task-cny',
+        billing_mode: 'tiered_expr',
+        billing_currency: 'CNY',
+        billing_expr:
+          'u("mode") == "pro" ? tier("pro", 0.2 + u("seconds") * 0.8) : tier("base", 0.1 + u("seconds") * 0.4)',
+        billing_usage_schema: {
+          mode: { enum: ['base', 'pro'] },
+          seconds: { type: 'number', unit: 'second' },
+        },
+      }),
+    ])
+
+    const dimensions = snapshot.providers[0]?.models[0]?.dimensions ?? []
+    assert.equal(dimensions.length, 4)
+    assert.ok(dimensions.every((dimension) => dimension.currency === 'CNY'))
+    assert.deepEqual(
+      dimensions.map((dimension) => dimension.catalogAmount),
+      [0.2, 0.8, 0.1, 0.4]
+    )
+  })
+
   test('preserves task base charges, units, enum conditions, and every tier', () => {
     const snapshot = buildSnapshot([
       pricingModel({

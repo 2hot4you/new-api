@@ -62,6 +62,31 @@ describe('compact model directory pricing summary', () => {
     })
   })
 
+  test('keeps CNY task ranges and examples on the compact card', () => {
+    const summary = getCompactPricingSummary(
+      model({
+        model_name: 'task-cny',
+        billing_mode: 'tiered_expr',
+        billing_currency: 'CNY',
+        billing_expr:
+          'u("mode") == "pro" ? tier("pro", 0.2 + u("seconds") * 0.8) : tier("base", 0.1 + u("seconds") * 0.4)',
+        billing_usage_schema: {
+          mode: { enum: ['base', 'pro'] },
+          seconds: { type: 'number', unit: 'second' },
+        },
+        billing_usage_examples: [
+          { label: 'Pro · 5s', facts: { mode: 'pro', seconds: 5 } },
+        ],
+      }),
+      options
+    )
+
+    assert.equal(summary.kind, 'task')
+    if (summary.kind !== 'task') return
+    assert.equal(summary.value, '¥0.4 – ¥0.8')
+    assert.equal(summary.example, 'Pro · 5s ≈ ¥4.2')
+  })
+
   test('describes time-window pricing from the expression instead of the model ID', () => {
     const summary = getCompactPricingSummary(
       model({
