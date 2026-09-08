@@ -1,0 +1,12 @@
+{
+  "id": "update-temporary-asset-ttl-168h",
+  "title": "将临时素材有效期统一为 168 小时",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档并提交；等待用户决定是否推送",
+  "createdAt": "2026-09-08T16:40:00+08:00",
+  "branch": "develop"
+}
