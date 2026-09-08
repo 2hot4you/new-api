@@ -3,11 +3,13 @@ package router
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,6 +98,10 @@ func TestGetOpenAIVideoRouteRendersJimengTask(t *testing.T) {
 	engine := gin.New()
 	SetVideoRouter(engine)
 	SetTaskPluginProtocolRouter(engine)
+	signedPlaybackURL, err := url.Parse(service.BuildSignedVideoProxyPath(task.TaskID, task.UserId))
+	require.NoError(t, err)
+	tamperedQuery := signedPlaybackURL.Query()
+	tamperedQuery.Set("signature", "tampered")
 	request := httptest.NewRequest(http.MethodGet, "/v1/videos/task_jimeng_public", nil)
 	request.Header.Set("Authorization", "Bearer sk-jimengfetch")
 	recorder := httptest.NewRecorder()
@@ -129,6 +135,8 @@ func TestGetOpenAIVideoRouteRendersJimengTask(t *testing.T) {
 	}{
 		{name: "missing credential rejected", wantStatus: http.StatusUnauthorized},
 		{name: "access rejected", query: "?access=not-a-video-credential", wantStatus: http.StatusUnauthorized},
+		{name: "signed playback accepted", query: "?" + signedPlaybackURL.RawQuery, wantStatus: http.StatusOK},
+		{name: "tampered playback rejected", query: "?" + tamperedQuery.Encode(), wantStatus: http.StatusUnauthorized},
 		{name: "bearer accepted", authorization: "Bearer sk-jimengfetch", wantStatus: http.StatusOK},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
