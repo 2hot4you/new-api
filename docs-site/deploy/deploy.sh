@@ -15,6 +15,7 @@ staging_dir=''
 snapshot_dir=''
 next_snapshot_dir=''
 headers_file=''
+health_body_file=''
 public_dir=''
 rollback_ready=0
 archive_owned=0
@@ -37,6 +38,9 @@ cleanup() {
   fi
   if [[ -n "$headers_file" && -f "$headers_file" ]]; then
     rm -f -- "$headers_file"
+  fi
+  if [[ -n "$health_body_file" && -f "$health_body_file" ]]; then
+    rm -f -- "$health_body_file"
   fi
   if ((archive_owned == 1)) && [[ -f "$archive_path" ]]; then
     rm -f -- "$archive_path"
@@ -111,7 +115,7 @@ if [[ ! -d "$public_dir" || ! -w "$public_dir" ]]; then
   fail 'public documentation directory is missing or not writable'
 fi
 
-for command_name in sha256sum tar rsync curl "$flock_bin"; do
+for command_name in sha256sum tar rsync curl mktemp "$flock_bin"; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     fail "required command is unavailable: $command_name"
   fi
@@ -128,6 +132,7 @@ exec 9>"$state_dir/deploy.lock"
 if ! "$flock_bin" -n 9; then
   fail 'another documentation deployment is in progress'
 fi
+health_body_file=$(mktemp "$state_dir/health-body-$release_id.XXXXXX")
 
 actual_sha256=$(sha256sum "$archive_path" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
 expected_sha256=$(printf '%s' "$archive_sha256" | tr '[:upper:]' '[:lower:]')
@@ -199,8 +204,11 @@ check_redirect() {
 
 check_redirect '/docs'
 check_redirect '/docs/'
-if ! curl --fail --silent --show-error --max-time 15 "$site_origin/docs/quick-start" \
-  | grep -Fq 'Molii 开发者文档'; then
+if ! curl --fail --silent --show-error --max-time 15 \
+  --output "$health_body_file" "$site_origin/docs/quick-start"; then
+  fail 'public quick-start request failed'
+fi
+if ! grep -Fq 'Molii 开发者文档' "$health_body_file"; then
   fail 'public quick-start health check failed'
 fi
 
