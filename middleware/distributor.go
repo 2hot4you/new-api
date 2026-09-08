@@ -194,9 +194,12 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": common.GetContextKeyString(c, constant.ContextKeyUsingGroup), "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
 				return
 			}
+			if setupErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); setupErr != nil {
+				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, setupErr.MaskSensitiveError(), setupErr.GetErrorCode())
+				return
+			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)
@@ -217,6 +220,9 @@ func channelMatchesExpectedTaskPlugin(c *gin.Context, channel *model.Channel, ex
 		return expected != "" && channel.GetSetting().TaskPluginKey == expected
 	}
 	if expected == "" {
+		return true
+	}
+	if slices.Contains(service.TaskPluginChannelTypesForRequest(c, expected), channel.Type) {
 		return true
 	}
 

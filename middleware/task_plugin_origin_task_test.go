@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -404,6 +405,36 @@ func TestDistributeHonorsOriginTaskChannelPin(t *testing.T) {
 	}
 	assert.True(t, nextCalled)
 	assert.Equal(t, channel.Id, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
+}
+
+func TestDistributeAbortsWhenSelectedChannelSetupFails(t *testing.T) {
+	require.NoError(t, appI18n.Init())
+	setupOriginTaskDB(t)
+	channel := insertOriginTaskChannel(t, common.ChannelStatusEnabled)
+	channel.ChannelInfo = model.ChannelInfo{
+		IsMultiKey:         true,
+		MultiKeySize:       1,
+		MultiKeyStatusList: map[int]int{0: common.ChannelStatusManuallyDisabled},
+	}
+	require.NoError(t, model.DB.Save(channel).Error)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/vendor/jobs", strings.NewReader(`{}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("resolved_task_model", "resolved-model")
+	service.GetChannelConstraints(c).AddPin(dto.ChannelPin{
+		ChannelId: channel.Id,
+		Source:    dto.PinSourceOriginTask,
+		Rank:      dto.PinRankOriginTask,
+		RetryMode: dto.PinRetrySameChannel,
+	})
+
+	Distribute()(c)
+
+	assert.True(t, c.IsAborted())
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), string(relaytypes.ErrorCodeChannelNoAvailableKey))
 }
 
 func TestDistributeTokenPinBeatsOriginPin(t *testing.T) {

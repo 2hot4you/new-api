@@ -104,6 +104,37 @@ func TestSharedEndpointRebindsToSelectedLegacyProvider(t *testing.T) {
 	assert.True(t, channelMatchesExpectedTaskPlugin(c, geminiChannel, "vertex-shared"), "a retry may select another declared provider")
 }
 
+func TestChannelMatchesExpectedTaskPluginAllowsUnifiedStarAIEndpoint(t *testing.T) {
+	registry := jsplugin.NewRegistry()
+	plugin, err := registry.Register(distributorOpenAIVideoPluginSource(), jsplugin.Options{})
+	require.NoError(t, err)
+	generation := registry.Generation()
+	const modelName = "doubao-seedance-2-0-fast-260128"
+
+	c, _ := gin.CreateTestContext(nil)
+	c.Set(jsplugin.ContextKeyPinnedPlugin, jsplugin.PinnedPlugin{Generation: generation, Plugin: plugin})
+	c.Set(jsplugin.ContextKeyPinnedEndpoint, jsplugin.PinnedEndpoint{
+		Generation: generation,
+		Plugin:     plugin,
+		Protocol:   "openai_video",
+		Model:      modelName,
+	})
+	c.Set("expected_task_plugin_key", "doubao")
+
+	channel := &model.Channel{
+		Id:     61,
+		Type:   constant.ChannelTypeStarAI,
+		Name:   "starai-fast",
+		Key:    "sk-test",
+		Models: modelName,
+	}
+	assert.True(t, channelMatchesExpectedTaskPlugin(c, channel, "doubao"))
+	require.Nil(t, SetupContextForSelectedChannel(c, channel, modelName))
+	assert.Equal(t, constant.ChannelTypeStarAI, c.GetInt(string(constant.ContextKeyChannelType)))
+	assert.Equal(t, "https://openapi.starcube.art", c.GetString(string(constant.ContextKeyChannelBaseUrl)))
+	assert.False(t, channelMatchesExpectedTaskPlugin(c, &model.Channel{Type: constant.ChannelTypeMoliiGrokAIGC}, "doubao"))
+}
+
 func distributorTaskPluginSource(key string, channelType int) string {
 	return fmt.Sprintf(`
 export const meta = {
@@ -146,4 +177,30 @@ export const protocols = {openai_responses: {
   renderFinal: function() { return {output: []}; },
 }};
 `, key, key, channelType)
+}
+
+func distributorOpenAIVideoPluginSource() string {
+	return `
+export const meta = {
+  apiVersion: 1,
+  key: "doubao",
+  name: "Doubao Test",
+  version: "1.0.0",
+  author: {name: "Test"},
+  channelTypes: [54, 45],
+  models: ["doubao-seedance-2-0-fast-260128"],
+  fetchMode: "per_task",
+  protocols: ["openai_video"],
+};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {taskId: "task"}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {status: "SUCCESS"}; }
+export function listArtifacts() { return []; }
+export function buildContentRequest() { return {url: "https://example.com"}; }
+export const protocols = {openai_video: {
+  decodeRequest: function(ctx) { return {kind: "submit", model: ctx.model, requestBody: ctx.body.value}; },
+  render: function(_ctx, task) { return task; },
+}};
+`
 }

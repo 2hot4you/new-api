@@ -31,8 +31,14 @@ func AppendTaskPluginIdentityFilter(c *gin.Context, pluginKey string) {
 	GetChannelConstraints(c).AddFilter(dto.ChannelFilter{
 		Kind:                   dto.FilterTaskPluginIdentity,
 		TaskPluginKey:          pluginKey,
-		TaskPluginChannelTypes: pinnedTaskPluginChannelTypes(c, pluginKey),
+		TaskPluginChannelTypes: TaskPluginChannelTypesForRequest(c, pluginKey),
 	})
+}
+
+// TaskPluginChannelTypesForRequest returns the legacy and explicitly bridged
+// native channel types accepted by the pinned task endpoint for this request.
+func TaskPluginChannelTypesForRequest(c *gin.Context, expected string) []int {
+	return pinnedTaskPluginChannelTypes(c, expected)
 }
 
 type RetryParam struct {
