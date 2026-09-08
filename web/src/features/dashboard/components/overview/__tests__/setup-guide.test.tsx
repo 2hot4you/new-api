@@ -25,6 +25,7 @@ import {
 } from '@tanstack/react-router'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MotionConfig } from 'motion/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -101,7 +102,9 @@ async function renderOverview() {
   await router.load()
   return render(
     <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
+      <MotionConfig skipAnimations>
+        <RouterProvider router={router} />
+      </MotionConfig>
     </QueryClientProvider>
   )
 }

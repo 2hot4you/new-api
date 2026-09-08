@@ -42,6 +42,7 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { AuditLogs } from '..'
+import { getAuditLogs } from '../api'
 import { AuditLogViewer } from '../components/audit-log-viewer'
 
 it.each([
@@ -139,36 +140,42 @@ it.each([
 ])(
   'shows the target and business outcome for %s directly in the event cell',
   async (action, params, headline, outcome) => {
+    const filters = { p: 1, page_size: 20 }
+    const data = {
+      total: 1,
+      items: [
+        {
+          event_id: 'token-event',
+          created_at: 1788600600,
+          username: 'root',
+          actor_role: 100,
+          category: 'security',
+          action,
+          success: action !== 'generic',
+          status: 200,
+          other: { op: { action, params } },
+        },
+      ],
+    }
     vi.spyOn(api, 'get').mockResolvedValue({
       data: {
         success: true,
-        data: {
-          total: 1,
-          items: [
-            {
-              event_id: 'token-event',
-              created_at: 1788600600,
-              username: 'root',
-              actor_role: 100,
-              category: 'security',
-              action,
-              success: action !== 'generic',
-              status: 200,
-              other: { op: { action, params } },
-            },
-          ],
-        },
+        data,
       },
     })
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    await client.prefetchQuery({
+      queryKey: ['audit', undefined, 'self', filters],
+      queryFn: () => getAuditLogs('self', filters),
     })
     render(
       <QueryClientProvider client={client}>
         <AuditLogViewer scope='self' />
       </QueryClientProvider>
     )
-    const cell = await screen.findByRole('cell', { name: new RegExp(headline) })
+    const cell = screen.getByRole('cell', { name: new RegExp(headline) })
     expect(cell).toHaveTextContent(headline)
     if ('id' in params || 'target_user_id' in params) {
       expect(cell).toHaveTextContent('(ID: 11)')
