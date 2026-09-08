@@ -205,6 +205,7 @@ it('shows unlimited with cumulative usage and explains it on demand', async () =
   expect(within(button).getByText('Unlimited')).toHaveClass('text-left')
   expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   await userEvent.click(button)
+  expect(button).toHaveAttribute('aria-expanded', 'true')
   const detail = await screen.findByRole('dialog')
   expect(within(detail).getByText('120')).toBeInTheDocument()
   expect(detail).toHaveTextContent(
@@ -228,6 +229,7 @@ it('keeps small custom-currency amounts exact and shows full values in the detai
   expect(button).toHaveTextContent('0.0038')
   expect(button).not.toHaveTextContent('🐱')
   await userEvent.click(button)
+  expect(button).toHaveAttribute('aria-expanded', 'true')
   const detail = await screen.findByRole('dialog')
   expect(within(detail).getByText('0.0022')).toBeInTheDocument()
   expect(within(detail).getByText('0.006')).toBeInTheDocument()
@@ -270,6 +272,7 @@ it('opens details with the keyboard and restores focus when Escape closes them',
   const button = screen.getByRole('button')
   act(() => button.focus())
   await user.keyboard('{Enter}')
+  expect(button).toHaveAttribute('aria-expanded', 'true')
   const detail = await screen.findByRole('dialog')
   expect(within(detail).getByText('80')).toBeInTheDocument()
   expect(within(detail).getByText('120')).toBeInTheDocument()
@@ -289,6 +292,7 @@ it('keeps a long amount within its column while showing the full amount in detai
   expect(button).toHaveClass('w-full', 'min-w-0')
   expect(within(button).getByText('246,913,578')).toHaveClass('truncate')
   await userEvent.click(button)
+  expect(button).toHaveAttribute('aria-expanded', 'true')
   expect(
     within(await screen.findByRole('dialog')).getAllByText('246,913,578')
   ).toHaveLength(2)
@@ -327,7 +331,10 @@ async function renderKeysPage(status = 1, overrides: Partial<ApiKey> = {}) {
   client.setQueryData(['status'], {})
   clients.push(client)
   const root = createRootRoute()
-  const auth = createRoute({ getParentRoute: () => root, id: '_authenticated' })
+  const auth = createRoute({
+    getParentRoute: () => root,
+    id: '_authenticated',
+  })
   const keysRoute = createRoute({
     getParentRoute: () => auth,
     path: 'keys/',
@@ -470,10 +477,7 @@ it('keeps full mobile information without group or quota section headings', asyn
     ).not.toBeInTheDocument()
     expect(screen.getByText('default')).toBeInTheDocument()
     expect(screen.getByText('1x')).toBeInTheDocument()
-    expect(screen.getByText(zh.translation['Models'])).toBeInTheDocument()
-    expect(
-      screen.getByText(zh.translation['IP Restriction'])
-    ).toBeInTheDocument()
+    expect(screen.getAllByText(zh.translation['Unlimited'])).toHaveLength(2)
   } finally {
     await i18n.changeLanguage('en')
   }
@@ -513,14 +517,20 @@ it('keeps mobile quota readable and opens complete model and IP restrictions by 
     'font-normal',
     'text-right'
   )
-  await userEvent.click(screen.getByRole('button', { name: /Models: 2 model/ }))
+  const modelRestrictions = screen.getByRole('button', {
+    name: 'View model restrictions: 2 model(s)',
+  })
+  await userEvent.click(modelRestrictions)
+  expect(modelRestrictions).toHaveAttribute('aria-expanded', 'true')
   let details = await screen.findByRole('dialog')
   expect(within(details).getByText('model-alpha')).toBeVisible()
   expect(within(details).getByText('model-beta-with-a-long-name')).toBeVisible()
   await userEvent.keyboard('{Escape}')
-  await userEvent.click(
-    screen.getByRole('button', { name: /IP Restriction: 2 IP/ })
-  )
+  const ipRestrictions = screen.getByRole('button', {
+    name: 'View IP restrictions: 192.0.2.1, 2 IP(s)',
+  })
+  await userEvent.click(ipRestrictions)
+  expect(ipRestrictions).toHaveAttribute('aria-expanded', 'true')
   details = await screen.findByRole('dialog')
   expect(within(details).getByText('192.0.2.1')).toBeVisible()
   expect(within(details).getByText('2001:db8::1')).toBeVisible()

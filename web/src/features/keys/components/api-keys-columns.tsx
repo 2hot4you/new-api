@@ -17,8 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
-import { useMemo } from 'react'
+import type { CellContext, ColumnDef } from '@tanstack/react-table'
+import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -173,6 +173,12 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
   const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const justNowLabel = t('Just now')
+  const quotaCell = useCallback(
+    ({ row }: CellContext<ApiKey, unknown>) => (
+      <ApiKeyQuotaCell apiKey={row.original} now={now} />
+    ),
+    [now]
+  )
   return [
     {
       id: 'select',
@@ -251,7 +257,7 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
       id: 'quota',
       accessorKey: 'remain_quota',
       header: `${t('Quota')} (${quotaUnit})`,
-      cell: ({ row }) => <ApiKeyQuotaCell apiKey={row.original} now={now} />,
+      cell: quotaCell,
       size: 260,
       minSize: 260,
     },
