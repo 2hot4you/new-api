@@ -594,5 +594,5 @@ describe('metadata editing', () => {
       'Unsaved metadata draft'
     )
     client.clear()
-  }, 15_000)
+  })
 })

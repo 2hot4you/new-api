@@ -1,0 +1,12 @@
+{
+  "id": "raise-vitest-timeout",
+  "title": "调整 rc.36 前端完整交互测试超时预算",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend-tests",
+  "currentPhase": "completed",
+  "nextAction": "归档并快进 develop",
+  "createdAt": "2026-09-09T13:56:00+08:00",
+  "branch": "upgrade/upstream-rc36"
+}

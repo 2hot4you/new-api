@@ -257,7 +257,7 @@ it('requests channel models and distinguishes catalog policy from availability u
       'No channel is configured. This model will not appear in the model square.'
     )
   ).toBeVisible()
-}, 15_000)
+})
 
 it('keeps channel rows individually selectable and disables metadata mutations for mixed selection', async () => {
   await renderList()
