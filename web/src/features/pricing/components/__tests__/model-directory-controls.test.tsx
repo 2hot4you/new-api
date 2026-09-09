@@ -174,7 +174,8 @@ describe('model directory category and filter controls', () => {
               { id: 2, name: 'xAI', icon: 'Grok' },
               { id: 3, name: 'ByteDance', icon: 'Doubao' },
             ]}
-            groups={['default']}
+            groups={['default', 'discount']}
+            groupRatios={{ default: 1, discount: 0.5 }}
             groupMetadata={{
               default: { icon: 'DeepSeek.Color', description: 'Primary' },
             }}
@@ -211,6 +212,8 @@ describe('model directory category and filter controls', () => {
         ?.getAttribute('data-icon-key'),
       'DeepSeek.Color'
     )
+    assert.match(container.textContent ?? '', /x1\.0/)
+    assert.match(container.textContent ?? '', /x0\.5/)
 
     await act(async () => root.unmount())
     container.remove()

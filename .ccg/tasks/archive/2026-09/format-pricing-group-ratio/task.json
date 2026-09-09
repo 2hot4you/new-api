@@ -1,0 +1,12 @@
+{
+  "id": "format-pricing-group-ratio",
+  "title": "统一模型广场分组倍率的小数位展示",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-09-09T00:00:00Z",
+  "branch": "fix/seedance-mtoken-label"
+}
