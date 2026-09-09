@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+
 import { describe, test } from 'vitest'
 
 import {
@@ -22,6 +23,7 @@ describe('model catalog metadata form mapping', () => {
       icon: 'OpenAI',
       tags: 'chat,long-context',
       vendor_id: 3,
+      billing_currency: 'CNY',
       status: 1,
       created_time: 1,
       updated_time: 2,
@@ -51,6 +53,7 @@ describe('model catalog metadata form mapping', () => {
     assert.equal(payload.display_name, 'Catalog Model')
     assert.equal(payload.description, '中文简介')
     assert.equal(payload.description_en, 'English description')
+    assert.equal(payload.billing_currency, 'CNY')
     assert.equal(payload.marketplace_enabled, true)
     assert.equal(payload.context_length, 1_000_000)
     assert.equal(payload.max_output_tokens, 65_536)
@@ -91,6 +94,7 @@ describe('model catalog metadata form mapping', () => {
     assert.equal(defaults.max_input_images, 0)
     assert.equal(defaults.min_duration, 0)
     assert.equal(defaults.max_duration, 0)
+    assert.equal(defaults.billing_currency, 'USD')
   })
 })
 
@@ -123,6 +127,7 @@ describe('model catalog metadata validation', () => {
     reference_modalities: [],
     enable_groups: [],
     quota_types: [],
+    billing_currency: 'USD',
   }
 
   test('accepts only supported modality and capability values', () => {
@@ -153,6 +158,14 @@ describe('model catalog metadata validation', () => {
       model_name: 'invalid-limits',
       context_length: -1,
       max_output_tokens: -1,
+    })
+    assert.equal(invalid.success, false)
+  })
+
+  test('rejects unsupported billing currencies', () => {
+    const invalid = modelFormSchema.safeParse({
+      ...validForm,
+      billing_currency: 'EUR',
     })
     assert.equal(invalid.success, false)
   })

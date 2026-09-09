@@ -383,6 +383,9 @@ func migrateDB() error {
 	if err := BackfillLocalMarketplaceMetadata(DB); err != nil {
 		return err
 	}
+	if err := migrateModelBillingCurrency(DB); err != nil {
+		return err
+	}
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err
 	}

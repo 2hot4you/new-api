@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import {
+  formatBillingCurrencyFromUSD,
+  formatCatalogCurrencyAmount,
+} from '@/lib/currency'
 
 import { TOKEN_UNIT_DIVISORS } from '../constants'
 import type {
@@ -253,8 +256,13 @@ export function formatDynamicUnitPrice(
   const priceUSD =
     (valuePerMillionTokens * groupRatio) /
     TOKEN_UNIT_DIVISORS[options.tokenUnit]
-  if (options.billingCurrency === 'CNY') {
-    return `${options.showCurrencySymbol === false ? '' : '¥'}${formatCNYPrice(priceUSD)}`
+  if (options.billingCurrency) {
+    return formatCatalogCurrencyAmount(priceUSD, options.billingCurrency, {
+      showSymbol: options.showCurrencySymbol ?? true,
+      digitsLarge: 4,
+      digitsSmall: 6,
+      abbreviate: false,
+    })
   }
   const displayPrice = applyRechargeRate(
     priceUSD,
@@ -279,8 +287,13 @@ export function formatTaskUsageUnitPrice(
   const priceRate = options.priceRate ?? 1
   const usdExchangeRate = options.usdExchangeRate ?? 1
   const priceUSD = valuePerUnit * groupRatio
-  if (options.billingCurrency === 'CNY') {
-    return `${options.showCurrencySymbol === false ? '' : '¥'}${formatCNYPrice(priceUSD)}`
+  if (options.billingCurrency) {
+    return formatCatalogCurrencyAmount(priceUSD, options.billingCurrency, {
+      showSymbol: options.showCurrencySymbol ?? true,
+      digitsLarge: 4,
+      digitsSmall: 6,
+      abbreviate: false,
+    })
   }
   const displayPrice = applyRechargeRate(
     priceUSD,
@@ -294,11 +307,6 @@ export function formatTaskUsageUnitPrice(
     digitsSmall: 6,
     abbreviate: false,
   })
-}
-
-function formatCNYPrice(value: number): string {
-  const digits = Math.abs(value) >= 1 ? 4 : 6
-  return String(Number(value.toFixed(digits)))
 }
 
 function formatTokenBoundary(value: number): string {

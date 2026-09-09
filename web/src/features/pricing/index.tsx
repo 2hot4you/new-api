@@ -53,6 +53,7 @@ export function Pricing() {
     vendors,
     groupRatio,
     usableGroup,
+    groupMetadata,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -236,6 +237,7 @@ export function Pricing() {
             vendors={vendors || []}
             groups={availableGroups}
             groupRatios={groupRatio}
+            groupMetadata={groupMetadata}
             tags={availableTags}
             models={models || []}
             hasActiveFilters={hasActiveFilters}
@@ -296,6 +298,7 @@ export function Pricing() {
               vendors={vendors || []}
               groups={availableGroups}
               groupRatios={groupRatio}
+              groupMetadata={groupMetadata}
               tags={availableTags}
               models={models || []}
               hasActiveFilters={hasActiveFilters}

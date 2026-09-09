@@ -87,6 +87,7 @@ export interface PricingSidebarProps {
   vendors: PricingVendor[]
   groups: string[]
   groupRatios?: Record<string, number>
+  groupMetadata?: Record<string, { icon?: string; description?: string }>
   tags: string[]
   models: PricingModel[]
   hasActiveFilters: boolean
@@ -205,11 +206,23 @@ export function PricingSidebar(props: PricingSidebarProps) {
       value: FILTER_ALL,
       label: t('All Groups'),
     },
-    ...props.groups.map((group) => ({
-      value: group,
-      label: group,
-      suffix: formatGroupRatio(props.groupRatios?.[group]),
-    })),
+    ...props.groups.map((group) => {
+      const icon = props.groupMetadata?.[group]?.icon
+      return {
+        value: group,
+        label: group,
+        suffix: formatGroupRatio(props.groupRatios?.[group]),
+        icon: icon ? (
+          <span
+            data-pricing-group-icon={group}
+            data-icon-key={icon}
+            className='flex size-4 shrink-0 items-center justify-center'
+          >
+            {getLobeIcon(icon, 14)}
+          </span>
+        ) : undefined,
+      }
+    }),
   ]
 
   const quotaOptions: FilterOption[] = [

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test } from 'vitest'
 
 import { SORT_OPTIONS } from '../../constants'
 import { getModelCategories } from '../../lib/model-directory'
@@ -175,6 +175,9 @@ describe('model directory category and filter controls', () => {
               { id: 3, name: 'ByteDance', icon: 'Doubao' },
             ]}
             groups={['default']}
+            groupMetadata={{
+              default: { icon: 'DeepSeek.Color', description: 'Primary' },
+            }}
             tags={['agent']}
             models={models}
             hasActiveFilters={false}
@@ -202,6 +205,12 @@ describe('model directory category and filter controls', () => {
     assert.match(container.textContent ?? '', /DeepSeek/)
     assert.match(container.textContent ?? '', /Reasoning/)
     assert.match(container.textContent ?? '', /1M/)
+    assert.equal(
+      container
+        .querySelector('[data-pricing-group-icon="default"]')
+        ?.getAttribute('data-icon-key'),
+      'DeepSeek.Color'
+    )
 
     await act(async () => root.unmount())
     container.remove()

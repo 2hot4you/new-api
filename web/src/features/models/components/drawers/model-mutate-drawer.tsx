@@ -430,6 +430,28 @@ export function ModelMutateDrawer(props: {
 
                       <FormField
                         control={form.control}
+                        name='billing_currency'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Billing currency')}</FormLabel>
+                            <FormControl>
+                              <Combobox
+                                options={[
+                                  { value: 'USD', label: 'USD ($)' },
+                                  { value: 'CNY', label: 'CNY (¥)' },
+                                ]}
+                                onValueChange={field.onChange}
+                                value={field.value}
+                                className='w-full'
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
                         name='tags'
                         render={({ field }) => (
                           <FormItem>
@@ -744,6 +766,7 @@ export function ModelMutateDrawer(props: {
               {(savedModel.name_rule === 0 || pricingName) && (
                 <ModelPricingPanel
                   onDirtyChange={setPricingDirty}
+                  billingCurrency={savedModel.billing_currency}
                   key={
                     savedModel.name_rule === 0
                       ? savedModel.model_name

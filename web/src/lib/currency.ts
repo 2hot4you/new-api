@@ -485,6 +485,22 @@ export function formatBillingCurrencyFromUSD(
   return formatCurrencyValue(value, merged, meta)
 }
 
+/** Format a catalog amount already denominated in its model-level currency. */
+export function formatCatalogCurrencyAmount(
+  amount: number | null | undefined,
+  currency: 'USD' | 'CNY',
+  options?: CurrencyFormatOptions
+): string {
+  if (amount == null || Number.isNaN(amount)) return '-'
+  const merged = mergeOptions(options)
+  return formatCurrencyValue(amount, merged, {
+    kind: 'currency',
+    symbol: currency === 'CNY' ? '¥' : '$',
+    currencyCode: currency,
+    exchangeRate: 1,
+  })
+}
+
 /**
  * Format raw quota values (token units) to display currency.
  *

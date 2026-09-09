@@ -277,3 +277,22 @@ func TestNormalizeMarketplaceMetadataLimitsOutputTokensToLLM(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeCatalogMetadataBillingCurrency(t *testing.T) {
+	t.Run("defaults an empty currency to USD", func(t *testing.T) {
+		entry := Model{}
+		require.NoError(t, entry.NormalizeCatalogMetadata())
+		require.Equal(t, "USD", entry.BillingCurrency)
+	})
+
+	t.Run("normalizes a supported currency", func(t *testing.T) {
+		entry := Model{BillingCurrency: " cny "}
+		require.NoError(t, entry.NormalizeCatalogMetadata())
+		require.Equal(t, "CNY", entry.BillingCurrency)
+	})
+
+	t.Run("rejects an unsupported currency", func(t *testing.T) {
+		entry := Model{BillingCurrency: "EUR"}
+		require.ErrorContains(t, entry.NormalizeCatalogMetadata(), "billing_currency")
+	})
+}

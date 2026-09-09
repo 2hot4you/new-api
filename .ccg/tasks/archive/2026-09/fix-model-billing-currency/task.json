@@ -1,0 +1,12 @@
+{
+  "id": "fix-model-billing-currency",
+  "title": "修复模型级币种持久化并补充分组筛选图标",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-09-09T00:00:00Z",
+  "branch": "fix/model-billing-currency"
+}

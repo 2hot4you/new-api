@@ -55,6 +55,7 @@ type Model struct {
 	Icon                  string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
 	Tags                  string         `json:"tags,omitempty" gorm:"type:varchar(255)"`
 	VendorID              int            `json:"vendor_id,omitempty" gorm:"index"`
+	BillingCurrency       string         `json:"billing_currency" gorm:"type:varchar(3);not null;default:'USD'"`
 	Endpoints             string         `json:"endpoints,omitempty" gorm:"type:text"`
 	Status                int            `json:"status" gorm:"default:1"`
 	SyncOfficial          int            `json:"sync_official" gorm:"default:1"`
@@ -338,7 +339,7 @@ func (mi *Model) UpdateTx(tx *gorm.DB) error {
 		return err
 	}
 	mi.UpdatedTime = common.GetTimestamp()
-	columns := []string{"model_name", "display_name", "description", "description_en", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "context_length", "max_output_tokens", "knowledge_cutoff", "release_date", "input_modalities", "output_modalities", "capabilities", "metadata_source", "metadata_verified_at", "marketplace_enabled", "supported_parameters", "supported_resolutions", "supported_aspect_ratios", "max_input_images", "output_formats", "min_duration", "max_duration", "reference_modalities", "updated_time"}
+	columns := []string{"model_name", "display_name", "description", "description_en", "icon", "tags", "vendor_id", "billing_currency", "endpoints", "status", "sync_official", "name_rule", "context_length", "max_output_tokens", "knowledge_cutoff", "release_date", "input_modalities", "output_modalities", "capabilities", "metadata_source", "metadata_verified_at", "marketplace_enabled", "supported_parameters", "supported_resolutions", "supported_aspect_ratios", "max_input_images", "output_formats", "min_duration", "max_duration", "reference_modalities", "updated_time"}
 	// 使用 Select 强制更新所有字段，包括零值
 	return tx.Model(&Model{}).Where("id = ?", mi.Id).
 		Select(columns).
@@ -377,6 +378,13 @@ func validateCatalogValues(field string, values []string, allowed map[string]str
 // NormalizeCatalogMetadata normalizes optional catalog facts before they are
 // persisted. It intentionally does not invent missing metadata.
 func (mi *Model) NormalizeCatalogMetadata() error {
+	mi.BillingCurrency = strings.ToUpper(strings.TrimSpace(mi.BillingCurrency))
+	if mi.BillingCurrency == "" {
+		mi.BillingCurrency = "USD"
+	}
+	if mi.BillingCurrency != "USD" && mi.BillingCurrency != "CNY" {
+		return fmt.Errorf("billing_currency must be USD or CNY")
+	}
 	mi.KnowledgeCutoff = strings.TrimSpace(mi.KnowledgeCutoff)
 	mi.ReleaseDate = strings.TrimSpace(mi.ReleaseDate)
 	mi.MetadataSource = strings.TrimSpace(mi.MetadataSource)

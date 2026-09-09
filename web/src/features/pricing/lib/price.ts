@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import {
+  formatBillingCurrencyFromUSD,
+  formatCatalogCurrencyAmount,
+} from '@/lib/currency'
 
 import { QUOTA_TYPE_VALUES, TOKEN_UNIT_DIVISORS } from '../constants'
 import type { PricingModel, TokenUnit, PriceType } from '../types'
@@ -138,6 +141,17 @@ function applyRechargeRate(
   return (price * priceRate) / usdExchangeRate
 }
 
+function formatModelCatalogPrice(
+  model: PricingModel,
+  price: number,
+  options: Parameters<typeof formatBillingCurrencyFromUSD>[1]
+): string {
+  if (model.billing_currency) {
+    return formatCatalogCurrencyAmount(price, model.billing_currency, options)
+  }
+  return formatBillingCurrencyFromUSD(price, options)
+}
+
 /**
  * Format token-based price for display
  */
@@ -166,7 +180,7 @@ export function formatPrice(
   )
 
   const price = priceInUSD / TOKEN_UNIT_DIVISORS[tokenUnit]
-  return formatBillingCurrencyFromUSD(price, {
+  return formatModelCatalogPrice(model, price, {
     showSymbol: showCurrencySymbol,
     digitsLarge: 4,
     digitsSmall: 6,
@@ -202,7 +216,7 @@ export function formatGroupPrice(
   )
 
   const price = priceInUSD / TOKEN_UNIT_DIVISORS[tokenUnit]
-  return formatBillingCurrencyFromUSD(price, {
+  return formatModelCatalogPrice(model, price, {
     digitsLarge: 4,
     digitsSmall: 6,
     abbreviate: false,
@@ -234,7 +248,7 @@ export function formatFixedPrice(
     usdExchangeRate
   )
 
-  return formatBillingCurrencyFromUSD(priceInUSD, {
+  return formatModelCatalogPrice(model, priceInUSD, {
     digitsLarge: 4,
     digitsSmall: 4,
     abbreviate: false,
@@ -267,7 +281,7 @@ export function formatRequestPrice(
     usdExchangeRate
   )
 
-  return formatBillingCurrencyFromUSD(priceInUSD, {
+  return formatModelCatalogPrice(model, priceInUSD, {
     showSymbol: showCurrencySymbol,
     digitsLarge: 4,
     digitsSmall: 4,

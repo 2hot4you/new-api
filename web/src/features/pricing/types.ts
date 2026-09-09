@@ -103,8 +103,8 @@ export type PricingModel = {
   billing_usage_schema?: BillingUsageSchema
   /** Display-only labeled usage vectors for pricing examples. */
   billing_usage_examples?: BillingUsageExample[]
-  /** Currency of tiered-expression coefficients when it is not system USD. */
-  billing_currency?: 'CNY'
+  /** Currency in which this model's catalog coefficients are stored. */
+  billing_currency?: 'USD' | 'CNY'
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
   /** Resolution and reference-video aware pricing for video generation. */
@@ -165,6 +165,7 @@ export type PricingData = {
   vendors: PricingVendor[]
   group_ratio: Record<string, number>
   usable_group: Record<string, { desc: string; ratio: number }>
+  group_metadata?: Record<string, { icon?: string; description?: string }>
   supported_endpoint: Record<string, { path?: string; method?: string }>
   auto_groups: string[]
 }

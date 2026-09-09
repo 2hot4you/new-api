@@ -11,6 +11,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type publicPricingGroupMetadata struct {
+	Icon        string `json:"icon,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+func buildPublicPricingGroupMetadata(usableGroup map[string]string) map[string]publicPricingGroupMetadata {
+	metadata := make(map[string]publicPricingGroupMetadata, len(usableGroup))
+	for group, description := range usableGroup {
+		metadata[group] = publicPricingGroupMetadata{Description: description}
+	}
+	for _, configured := range ratio_setting.GetGroupMetadataCopy() {
+		entry, ok := metadata[configured.Name]
+		if !ok {
+			continue
+		}
+		entry.Icon = configured.Icon
+		metadata[configured.Name] = entry
+	}
+	return metadata
+}
+
 func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string]string) []model.Pricing {
 	if len(pricing) == 0 {
 		return pricing
@@ -70,6 +91,7 @@ func GetPricing(c *gin.Context) {
 		"vendors":            model.GetVendors(),
 		"group_ratio":        groupRatio,
 		"usable_group":       usableGroup,
+		"group_metadata":     buildPublicPricingGroupMetadata(usableGroup),
 		"supported_endpoint": model.GetSupportedEndpointMap(),
 		"auto_groups":        service.GetUserAutoGroup(group),
 		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",

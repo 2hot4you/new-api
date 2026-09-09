@@ -45,6 +45,7 @@ import { modelPricingDisplay, pricingFromDraft, pricingRow } from './pricing'
 
 export function ModelPricingPanel(props: {
   modelName: string
+  billingCurrency?: 'USD' | 'CNY'
   onDirtyChange?: (dirty: boolean) => void
 }) {
   const { t } = useTranslation()
@@ -117,7 +118,10 @@ export function ModelPricingPanel(props: {
     )
   }
   if (!editData || !entry) return <LoadingState />
-  const effectivePricing = modelPricingDisplay(entry)
+  const effectivePricing = {
+    ...modelPricingDisplay(entry),
+    billing_currency: props.billingCurrency ?? 'USD',
+  }
 
   return (
     <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>

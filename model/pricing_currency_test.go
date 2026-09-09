@@ -10,18 +10,18 @@ import (
 
 func TestPricingResponsePublishesCatalogBillingCurrency(t *testing.T) {
 	tests := []struct {
-		name         string
-		modelName    string
-		wantCurrency string
-		wantVideo    bool
-		wantGrok     bool
+		name           string
+		modelName      string
+		wantCurrency   string
+		storedCurrency string
+		wantVideo      bool
+		wantGrok       bool
 	}{
-		{name: "MiniMax direct CNY expression", modelName: "minimax-m3", wantCurrency: "CNY"},
-		{name: "Qwen Flash direct CNY expression", modelName: "qwen3.5-flash", wantCurrency: "CNY"},
-		{name: "Qwen Plus direct CNY expression", modelName: "qwen3.5-plus", wantCurrency: "CNY"},
-		{name: "StarAI direct CNY matrix", modelName: "doubao-seedance-2-0-260128", wantCurrency: "CNY", wantVideo: true},
-		{name: "Grok direct CNY matrix", modelName: "grok-imagine-image", wantCurrency: "CNY", wantGrok: true},
-		{name: "ordinary USD pricing", modelName: "catalog-usd-model"},
+		{name: "stored CNY expression", modelName: "minimax-m3", storedCurrency: "CNY", wantCurrency: "CNY"},
+		{name: "stored USD expression", modelName: "qwen3.5-flash", storedCurrency: "USD", wantCurrency: "USD"},
+		{name: "stored USD StarAI matrix", modelName: "doubao-seedance-2-0-260128", storedCurrency: "USD", wantCurrency: "USD", wantVideo: true},
+		{name: "stored CNY Grok matrix", modelName: "grok-imagine-image", storedCurrency: "CNY", wantCurrency: "CNY", wantGrok: true},
+		{name: "ordinary USD pricing", modelName: "catalog-usd-model", storedCurrency: "USD", wantCurrency: "USD"},
 	}
 
 	for _, tt := range tests {
@@ -30,6 +30,7 @@ func TestPricingResponsePublishesCatalogBillingCurrency(t *testing.T) {
 			row := completePublishedLLM()
 			row.ModelName = tt.modelName
 			row.DisplayName = tt.modelName
+			row.BillingCurrency = tt.storedCurrency
 			seedVendorPriceGroupAndEndpoint(t, &row)
 
 			pricing := findPricingModel(GetPricing(), row.ModelName)
@@ -40,11 +41,7 @@ func TestPricingResponsePublishesCatalogBillingCurrency(t *testing.T) {
 
 			response, err := json.Marshal(pricing)
 			require.NoError(t, err)
-			if tt.wantCurrency == "" {
-				assert.NotContains(t, string(response), `"billing_currency"`)
-			} else {
-				assert.Contains(t, string(response), `"billing_currency":"CNY"`)
-			}
+			assert.Contains(t, string(response), `"billing_currency":"`+tt.wantCurrency+`"`)
 		})
 	}
 }
