@@ -16,18 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Row, PaginationState } from '@tanstack/react-table'
-import { useState, useCallback } from 'react'
+import type { Row } from '@tanstack/react-table'
+import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
-  DataTablePagination,
   DataTableRow,
   DataTableView,
   useDataTable,
 } from '@/components/data-table'
 
-import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
+import { DEFAULT_TOKEN_UNIT } from '../constants'
 import type { PricingModel, TokenUnit } from '../types'
 import { usePricingColumns } from './pricing-columns'
 
@@ -55,11 +54,6 @@ export function PricingTable(props: PricingTableProps) {
     onModelClick,
   } = props
 
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: DEFAULT_PRICING_PAGE_SIZE,
-  })
-
   const columns = usePricingColumns({
     tokenUnit,
     priceRate,
@@ -71,11 +65,9 @@ export function PricingTable(props: PricingTableProps) {
   const { table } = useDataTable({
     data: models,
     columns,
-    pageCount: Math.ceil(models.length / pagination.pageSize),
-    pagination,
-    onPaginationChange: setPagination,
     manualPagination: false,
     withFilteredRowModel: false,
+    withPaginationRowModel: false,
     withSortedRowModel: false,
     withFacetedRowModel: false,
   })
@@ -108,8 +100,6 @@ export function PricingTable(props: PricingTableProps) {
           />
         )}
       />
-
-      {!isLoading && models.length > 0 && <DataTablePagination table={table} />}
     </div>
   )
 }

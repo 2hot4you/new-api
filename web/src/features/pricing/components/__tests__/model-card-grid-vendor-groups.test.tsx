@@ -128,7 +128,7 @@ describe('high-density model directory grid', () => {
     container.remove()
   })
 
-  test('paginates a large model directory', async () => {
+  test('renders a large model directory without pagination controls', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -149,8 +149,8 @@ describe('high-density model directory grid', () => {
       )
     })
 
-    assert.equal(container.querySelectorAll('[data-model-card]').length, 20)
-    assert.match(container.textContent ?? '', /Previous page|Next page/)
+    assert.equal(container.querySelectorAll('[data-model-card]').length, 25)
+    assert.doesNotMatch(container.textContent ?? '', /Previous page|Next page/)
 
     await act(async () => root.unmount())
     queryClient.clear()

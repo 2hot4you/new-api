@@ -1,0 +1,12 @@
+{
+  "id": "pricing-infinite-scroll",
+  "title": "模型广场改为无限滚动并固定筛选栏",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交范围内变更",
+  "createdAt": "2026-09-09T16:17:14Z",
+  "branch": "fix/seedance-mtoken-label"
+}

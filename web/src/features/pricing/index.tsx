@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
+import { LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -40,6 +41,7 @@ import {
   QUOTA_TYPES,
 } from './constants'
 import { serializeSortOption, useFilters } from './hooks/use-filters'
+import { useInfiniteModels } from './hooks/use-infinite-models'
 import { usePricingData } from './hooks/use-pricing-data'
 import { getModelCategories } from './lib/model-directory'
 
@@ -93,6 +95,8 @@ export function Pricing() {
     clearFilters,
     clearSearch,
   } = useFilters(models || [])
+  const { visibleModels, hasMore, sentinelRef } =
+    useInfiniteModels(filteredModels)
 
   const directorySearch = useMemo(
     () => ({
@@ -180,7 +184,7 @@ export function Pricing() {
     if (viewMode === 'table') {
       return (
         <PricingTable
-          models={filteredModels}
+          models={visibleModels}
           priceRate={priceRate}
           usdExchangeRate={usdExchangeRate}
           tokenUnit={tokenUnit}
@@ -192,7 +196,7 @@ export function Pricing() {
     }
     return (
       <ModelCardGrid
-        models={filteredModels}
+        models={visibleModels}
         onModelClick={handleModelClick}
         priceRate={priceRate}
         usdExchangeRate={usdExchangeRate}
@@ -242,7 +246,7 @@ export function Pricing() {
             models={models || []}
             hasActiveFilters={hasActiveFilters}
             onClearFilters={clearFilters}
-            className='hover-scrollbar sticky top-16 hidden max-h-[calc(100dvh-4rem)] self-start overflow-y-auto xl:block'
+            className='hover-scrollbar sticky top-16 hidden max-h-[calc(100dvh-4rem)] self-start overflow-y-auto overscroll-contain xl:block'
           />
 
           <main className='min-w-0 border-r'>
@@ -307,6 +311,21 @@ export function Pricing() {
             />
 
             <div className='min-w-0'>{renderPricingContent()}</div>
+            <div
+              ref={sentinelRef}
+              data-pricing-infinite-scroll-sentinel='true'
+              className='flex min-h-8 items-center justify-center py-2'
+            >
+              {hasMore && (
+                <div
+                  role='status'
+                  aria-label={t('Loading')}
+                  className='text-muted-foreground'
+                >
+                  <LoaderCircle className='size-4 animate-spin' />
+                </div>
+              )}
+            </div>
           </main>
         </div>
       </PageTransition>

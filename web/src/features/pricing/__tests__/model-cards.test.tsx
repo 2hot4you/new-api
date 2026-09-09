@@ -377,7 +377,7 @@ describe('model cards', () => {
     expect(onModelClick).toHaveBeenCalledWith('example-model')
   })
 
-  it('paginates the model cards and disables navigation at both boundaries', async () => {
+  it('renders every supplied model without pagination controls', () => {
     queryClient.setQueryData(['perf-metrics-summary', 24], {
       success: true,
       data: { models: [] },
@@ -385,19 +385,19 @@ describe('model cards', () => {
     const models = Array.from({ length: 21 }, (_, index) =>
       pricingModel({ id: index + 1, model_name: `model-${index + 1}` })
     )
-    const user = userEvent.setup()
     render(
       <QueryClientProvider client={queryClient}>
         <ModelCardGrid models={models} onModelClick={vi.fn()} />
       </QueryClientProvider>
     )
-    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled()
-    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(20)
-    await user.click(screen.getByRole('button', { name: 'Next page' }))
-    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(1)
+    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(21)
+    expect(
+      screen.queryByRole('button', { name: 'Previous page' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Next page' })
+    ).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'model-21' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: 'Previous page' }))
     expect(screen.getByRole('heading', { name: 'model-1' })).toBeVisible()
   })
 
