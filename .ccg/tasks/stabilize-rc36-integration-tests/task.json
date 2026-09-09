@@ -1,0 +1,12 @@
+{
+  "id": "stabilize-rc36-integration-tests",
+  "title": "稳定 rc.36 合并前完整前端交互测试",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend-tests",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并合并升级分支到 develop",
+  "createdAt": "2026-09-09T13:34:00+08:00",
+  "branch": "upgrade/upstream-rc36"
+}
