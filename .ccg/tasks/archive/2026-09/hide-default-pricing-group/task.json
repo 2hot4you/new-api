@@ -1,0 +1,12 @@
+{
+  "id": "hide-default-pricing-group",
+  "title": "在模型广场隐藏 default 分组",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交变更",
+  "createdAt": "2026-09-09T18:46:05Z",
+  "branch": "fix/hide-default-pricing-group"
+}

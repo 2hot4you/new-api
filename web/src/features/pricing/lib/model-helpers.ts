@@ -55,6 +55,15 @@ export function getAvailableGroups(
     .filter((g) => modelEnableGroups.includes(g))
 }
 
+/** Get user-facing groups for the pricing directory filters. */
+export function getPricingFilterGroups(
+  usableGroup: Record<string, { desc: string; ratio: number }>
+): string[] {
+  return Object.keys(usableGroup).filter(
+    (group) => group !== 'default' && !EXCLUDED_GROUPS.includes(group)
+  )
+}
+
 /**
  * Read a configured group ratio while preserving valid zero ratios.
  */

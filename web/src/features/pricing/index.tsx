@@ -36,7 +36,6 @@ import {
 import {
   DEFAULT_TOKEN_UNIT,
   ENDPOINT_TYPES,
-  EXCLUDED_GROUPS,
   FILTER_ALL,
   QUOTA_TYPES,
 } from './constants'
@@ -44,6 +43,7 @@ import { serializeSortOption, useFilters } from './hooks/use-filters'
 import { useInfiniteModels } from './hooks/use-infinite-models'
 import { usePricingData } from './hooks/use-pricing-data'
 import { getModelCategories } from './lib/model-directory'
+import { getPricingFilterGroups } from './lib/model-helpers'
 
 export function Pricing() {
   const { t } = useTranslation()
@@ -157,10 +157,7 @@ export function Pricing() {
   }, [directorySearch, navigate])
 
   const availableGroups = useMemo(
-    () =>
-      Object.keys(usableGroup || {}).filter(
-        (g) => !EXCLUDED_GROUPS.includes(g)
-      ),
+    () => getPricingFilterGroups(usableGroup || {}),
     [usableGroup]
   )
   const categories = useMemo(() => getModelCategories(models || []), [models])
