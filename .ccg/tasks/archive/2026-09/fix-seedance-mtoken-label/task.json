@@ -1,0 +1,12 @@
+{
+  "id": "fix-seedance-mtoken-label",
+  "title": "修复 Seedance 百万 Token 单位误显示为月度",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-09-09T00:00:00Z",
+  "branch": "fix/seedance-mtoken-label"
+}

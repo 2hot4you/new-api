@@ -246,7 +246,7 @@ function CompactPricing(props: { summary: CompactPricingSummary }) {
         <div className='shrink-0 text-right'>
           <div className='font-mono text-sm font-semibold'>{summary.from}</div>
           <div className='text-muted-foreground/60 text-[10px]'>
-            {t('from')} / {t(summary.unit)}
+            {t('from')} / {t(summary.unit === '1M' ? '1M token' : summary.unit)}
           </div>
         </div>
       )}
