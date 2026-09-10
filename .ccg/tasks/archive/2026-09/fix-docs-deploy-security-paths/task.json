@@ -1,0 +1,12 @@
+{
+  "id": "fix-docs-deploy-security-paths",
+  "title": "修复文档部署中的安全页面源码路径",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并推送 develop",
+  "createdAt": "2026-09-10T06:59:25Z",
+  "branch": "develop"
+}
