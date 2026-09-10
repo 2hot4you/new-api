@@ -83,12 +83,16 @@ const guides = {
     ],
   },
   'profile-and-security': {
-    routeFiles: ['web/src/routes/_authenticated/profile/index.tsx'],
+    routeFiles: [
+      'web/src/routes/_authenticated/profile/index.tsx',
+      'web/src/routes/_authenticated/security/index.tsx',
+    ],
     sourceFiles: [
       'web/src/features/profile/index.tsx',
       'web/src/features/profile/components/profile-settings-card.tsx',
-      'web/src/features/profile/components/login-sessions-card.tsx',
-      'web/src/features/profile/components/two-fa-card.tsx',
+      'web/src/features/security/index.tsx',
+      'web/src/features/security/components/login-sessions-card.tsx',
+      'web/src/features/security/components/two-fa-card.tsx',
     ],
   },
 } as const;
