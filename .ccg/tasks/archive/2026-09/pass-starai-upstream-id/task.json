@@ -1,0 +1,12 @@
+{
+  "id": "pass-starai-upstream-id",
+  "title": "透传 StarAI 视频任务 upstream_id",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交推送",
+  "createdAt": "2026-09-10T14:30:00+08:00",
+  "branch": "fix/starai-upstream-id-passthrough"
+}
