@@ -96,6 +96,6 @@ Fast/Mini 不支持 `1080p` 和 `4k`；2.5 不支持 `4k`。这些组合会在�
 }
 ```
 
-用 `GET /v1/videos/{task_id}` 查询，状态为 `queued`、`in_progress`、`completed` 或 `failed`。完成后响应会提供经过严格校验的火山 TOS 签名视频 URL；签名会过期，请及时使用。请遵守[异步任务](../api-basics/async-tasks)中的退避、总超时和“不自动重试付费 POST”规则。
+用 `GET /v1/videos/{task_id}` 查询，状态为 `queued`、`in_progress`、`completed` 或 `failed`。查询响应可能包含可选的 `upstream_id`，该字段只用于联系技术支持时定位上游任务；轮询和下载始终使用 Molii 返回的公共 `id` / `task_id`。完成后响应会提供经过严格校验的火山 TOS 签名视频 URL；签名会过期，请及时使用。请遵守[异步任务](../api-basics/async-tasks)中的退避、总超时和“不自动重试付费 POST”规则。
 
 多模态输入的角色和互斥规则较严格，请在提交前阅读[多模态输入指南](../guides/seedance-multimodal)。

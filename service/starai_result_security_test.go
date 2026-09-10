@@ -82,6 +82,7 @@ func TestSanitizeStarAIResponseBodyRecursivelyRedactsSecretsAndIDs(t *testing.T)
 		"authorization":"Bearer top-secret",
 		"data":{
 			"task_id":"starai_upstream_secret_id",
+			"data":{"upstream_id":"cgt-20260910134819-q4gsz"},
 			"api_key":"sk-starai-secret",
 			"x-api-key":"x-api-key-secret",
 			"api_token":"api-token-secret",
@@ -115,6 +116,8 @@ func TestSanitizeStarAIResponseBodyRecursivelyRedactsSecretsAndIDs(t *testing.T)
 
 	data := decoded["data"].(map[string]any)
 	assert.Equal(t, publicTaskID, data["task_id"])
+	diagnosticData := data["data"].(map[string]any)
+	assert.Equal(t, "cgt-20260910134819-q4gsz", diagnosticData["upstream_id"])
 	assert.Equal(t, "[REDACTED]", data["api_key"])
 	assert.Equal(t, "[REDACTED]", data["x-api-key"])
 	assert.Equal(t, "[REDACTED]", data["api_token"])
@@ -147,6 +150,38 @@ func TestSanitizeStarAIResponseBodyFailsClosed(t *testing.T) {
 	assert.JSONEq(t, `{"error":{"message":"upstream response unavailable"}}`, string(sanitized))
 	assert.NotContains(t, string(sanitized), "real-id")
 	assert.NotContains(t, string(sanitized), "secret")
+}
+
+func TestExtractStarAIDiagnosticUpstreamIDUsesOnlyNestedPublicField(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "nested diagnostic id",
+			body: `{"data":{"task_id":"task_private_provider_id","data":{"upstream_id":"  cgt-20260910134819-q4gsz  "}}}`,
+			want: "cgt-20260910134819-q4gsz",
+		},
+		{
+			name: "does not expose provider task id",
+			body: `{"data":{"task_id":"task_private_provider_id","data":{}}}`,
+		},
+		{
+			name: "ignores wrong level",
+			body: `{"data":{"upstream_id":"wrong-level","data":{}}}`,
+		},
+		{
+			name: "malformed response",
+			body: `{"data":`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, ExtractStarAIDiagnosticUpstreamID([]byte(test.body)))
+		})
+	}
 }
 
 func TestSanitizeURLForLogRedactsCredentialsAndSignedQuery(t *testing.T) {

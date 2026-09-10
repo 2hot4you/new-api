@@ -256,12 +256,15 @@ curl --fail-with-body --silent --show-error \
 }
 ```
 
+`upstream_id` 是上游在查询响应中提供的可选诊断 ID，可在联系技术支持排查任务时一并提供。它不是 Molii 任务 ID；轮询、下载和其他后续请求必须继续使用创建响应中的 `id`（兼容字段为 `task_id`）。上游未提供该字段时，响应中不会出现它。
+
 成功响应：
 
 ```json
 {
   "id": "task_public_789",
   "task_id": "task_public_789",
+  "upstream_id": "cgt-20260910134819-q4gsz",
   "object": "video",
   "model": "doubao-seedance-2-5-260628",
   "status": "completed",
@@ -435,7 +438,7 @@ curl --fail-with-body --silent --show-error \
 }
 ```
 
-保存公共任务 ID。客户端不得构造或记录供应商任务标识。
+保存创建响应中的公共任务 ID。后续查询可能额外返回 `upstream_id` 作为技术支持排障信息，但客户端不得用它替代公共任务 ID 发起请求。
 
 ### 错误与重试
 
@@ -478,6 +481,7 @@ curl --fail-with-body --silent --show-error \
   "message": "",
   "data": {
     "task_id": "task_public_789",
+    "upstream_id": "cgt-20260910134819-q4gsz",
     "status": "IN_PROGRESS",
     "progress": "42%",
     "fail_reason": "",
@@ -485,6 +489,8 @@ curl --fail-with-body --silent --show-error \
   }
 }
 ```
+
+`upstream_id` 为可选诊断字段，语义与推荐查询接口一致；轮询和下载仍使用 `task_id`。
 
 兼容状态为 `SUBMITTED`、`QUEUED`、`IN_PROGRESS`、`SUCCESS` 或 `FAILURE`。只有 `SUCCESS` 与 `FAILURE` 是终态。
 

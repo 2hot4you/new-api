@@ -801,6 +801,46 @@ func TestConvertToOpenAIVideoUsesPublicID(t *testing.T) {
 	assert.Equal(t, 2, video.Usage.ToolUsage.WebSearch)
 }
 
+func TestConvertToOpenAIVideoPassesThroughDiagnosticUpstreamID(t *testing.T) {
+	task := &model.Task{
+		TaskID:     "task_public",
+		Status:     model.TaskStatusSuccess,
+		Properties: model.Properties{OriginModelName: ModelList[0]},
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "task_private_provider_id",
+		},
+		Data: []byte(`{
+			"code":"success",
+			"data":{
+				"task_id":"task_public",
+				"status":"SUCCESS",
+				"data":{
+					"id":"task_public",
+					"upstream_id":"cgt-20260910134819-q4gsz",
+					"status":"succeeded"
+				}
+			}
+		}`),
+	}
+
+	body, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
+	require.NoError(t, err)
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(body, &response))
+	assert.Equal(t, "cgt-20260910134819-q4gsz", response["upstream_id"])
+	assert.NotContains(t, string(body), "task_private_provider_id")
+}
+
+func TestConvertToOpenAIVideoOmitsMissingDiagnosticUpstreamID(t *testing.T) {
+	task := &model.Task{TaskID: "task_public", Status: model.TaskStatusSuccess}
+
+	body, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
+	require.NoError(t, err)
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(body, &response))
+	assert.NotContains(t, response, "upstream_id")
+}
+
 func TestConvertToOpenAIVideoDoesNotExposeUnsignedResultURL(t *testing.T) {
 	task := &model.Task{
 		TaskID: "task_unsigned",

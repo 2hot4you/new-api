@@ -4345,6 +4345,10 @@
             "description": "任务 ID (兼容旧接口)",
             "deprecated": true
           },
+          "upstream_id": {
+            "type": "string",
+            "description": "上游返回的可选诊断 ID，仅用于技术支持排障；不能用于查询或下载任务"
+          },
           "object": {
             "type": "string",
             "description": "对象类型",

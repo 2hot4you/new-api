@@ -240,11 +240,12 @@ describe('Seedance and temporary asset documentation contract', () => {
     for (const status of ['queued', 'in_progress', 'completed', 'failed']) {
       expect(reference).toContain(status);
     }
+    expect(reference).toContain('upstream_id');
     expect(reference).toContain('/v1/assets');
     expect(reference).toContain('asset://');
     expect(reference).toContain('单个 2–15 秒，所有参考视频总时长不超过 15 秒');
     expect(reference).toContain('单条 2–15 秒，所有参考音频总时长不超过 15 秒');
-    expect(reference).not.toMatch(/StarAI|lfxqai|channel_id|upstream_id/iu);
+    expect(reference).not.toMatch(/StarAI|lfxqai|channel_id|upstream_task_id/iu);
   });
 
   test('Seedance parameter guide records defaults, enums, and supported tools', async () => {
@@ -390,7 +391,7 @@ describe('Seedance and temporary asset documentation contract', () => {
     const sources = await Promise.all(pages.map(page));
     const combined = sources.join('\n');
 
-    expect(combined).not.toMatch(/StarAI|lfxqai|channel_id|upstream_id|\/api\/channel|\/api\/admin|Redis|PostgreSQL|MySQL|SQLite/iu);
+    expect(combined).not.toMatch(/StarAI|lfxqai|channel_id|upstream_task_id|\/api\/channel|\/api\/admin|Redis|PostgreSQL|MySQL|SQLite/iu);
     expect(combined).not.toMatch(/\bsk-[A-Za-z0-9_-]{16,}\b/);
   });
 });

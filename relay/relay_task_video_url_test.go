@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -32,6 +33,35 @@ func TestTaskModel2DtoPassesThroughSignedTOSURLForSuccessfulStarAITask(t *testin
 
 	result := TaskModel2Dto(task)
 	assert.Equal(t, resultURL, result.ResultURL)
+}
+
+func TestTaskModel2DtoPassesThroughStarAIDiagnosticUpstreamID(t *testing.T) {
+	task := &model.Task{
+		TaskID:   "task_public_result",
+		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)),
+		Status:   model.TaskStatusInProgress,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "task_private_provider_id",
+		},
+		Data: []byte(`{
+			"code":"success",
+			"data":{
+				"task_id":"task_public_result",
+				"data":{"upstream_id":"cgt-20260910134819-q4gsz"}
+			}
+		}`),
+	}
+
+	body, err := common.Marshal(dto.TaskResponse[any]{
+		Code: dto.TaskSuccessCode,
+		Data: TaskModel2Dto(task),
+	})
+	require.NoError(t, err)
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(body, &response))
+	data := response["data"].(map[string]any)
+	assert.Equal(t, "cgt-20260910134819-q4gsz", data["upstream_id"])
+	assert.NotContains(t, string(body), "task_private_provider_id")
 }
 
 func TestTaskModel2DtoDoesNotExposeUnsignedStarAIResultURL(t *testing.T) {

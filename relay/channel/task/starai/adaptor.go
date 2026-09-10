@@ -346,6 +346,7 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	video := dto.NewOpenAIVideo()
 	video.ID = originTask.TaskID
 	video.TaskID = originTask.TaskID
+	video.UpstreamID = service.ExtractStarAIDiagnosticUpstreamID(originTask.Data)
 	video.Model = originTask.Properties.OriginModelName
 	video.Status = originTask.Status.ToVideoStatus()
 	video.SetProgressStr(originTask.Progress)

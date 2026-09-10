@@ -78,6 +78,24 @@ func SanitizeStarAIResponseBody(body []byte, publicTaskID string) []byte {
 	return sanitized
 }
 
+// ExtractStarAIDiagnosticUpstreamID returns the provider's public diagnostic
+// identifier from a sanitized task query response. It intentionally reads only
+// data.data.upstream_id and never falls back to task_id or the internal channel
+// task identifier used for polling.
+func ExtractStarAIDiagnosticUpstreamID(body []byte) string {
+	var response struct {
+		Data struct {
+			Data struct {
+				UpstreamID string `json:"upstream_id"`
+			} `json:"data"`
+		} `json:"data"`
+	}
+	if err := common.Unmarshal(body, &response); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(response.Data.Data.UpstreamID)
+}
+
 // RewriteStarAIVideoResponseURLs replaces every public result/video URL in a
 // sanitized StarAI response with the same Molii playback URL. This prevents
 // callers from accidentally using a copied or redacted upstream TOS URL.

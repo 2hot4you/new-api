@@ -684,8 +684,12 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	resultURL := task.GetResultURL()
 	taskData := task.Data
+	upstreamID := ""
 	isStarAI := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
 	isMoliiGrok := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
+	if isStarAI {
+		upstreamID = service.ExtractStarAIDiagnosticUpstreamID(taskData)
+	}
 	if isStarAI && task.Status == model.TaskStatusSuccess {
 		resultURL = ""
 		if service.IsSignedStarAIPrivateTOSURL(task.PrivateData.ResultURL) {
@@ -703,6 +707,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		CreatedAt:  task.CreatedAt,
 		UpdatedAt:  task.UpdatedAt,
 		TaskID:     task.TaskID,
+		UpstreamID: upstreamID,
 		Platform:   string(task.Platform),
 		UserId:     task.UserId,
 		Group:      task.Group,
