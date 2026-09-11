@@ -7,9 +7,11 @@ release_id=${2:-}
 archive_path=${3:-}
 archive_sha256=${4:-}
 site_origin=${5:-}
+site_marker=${6:-}
 
 public_root=${DOCS_DEPLOY_ROOT:-/opt/1panel/www/sites}
-private_root=${DOCS_PRIVATE_ROOT:-/opt/molii}
+molii_private_root=${MOLII_PRIVATE_ROOT:-/opt/molii}
+ixiaozu_private_root=${IXIAOZU_PRIVATE_ROOT:-/opt/ixiaozu}
 flock_bin=${FLOCK_BIN:-flock}
 staging_dir=''
 snapshot_dir=''
@@ -79,13 +81,20 @@ trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 
 case "$environment" in
-  production)
+  production-molii)
     public_dir="$public_root/molii.co/index/docs"
+    environment_root="$molii_private_root/production"
     expected_origin='https://molii.co'
     ;;
   development)
     public_dir="$public_root/dev.molii.co/index/docs"
+    environment_root="$molii_private_root/development"
     expected_origin='https://dev.molii.co'
+    ;;
+  production-ixiaozu)
+    public_dir="$public_root/aigc.ixiaozu.cn/index/docs"
+    environment_root="$ixiaozu_private_root/production"
+    expected_origin='https://aigc.ixiaozu.cn'
     ;;
   *)
     fail "unsupported environment: $environment"
@@ -98,12 +107,14 @@ fi
 if [[ "$site_origin" != "$expected_origin" ]]; then
   fail "site origin does not match $environment"
 fi
+if [[ -z "$site_marker" || ${#site_marker} -gt 160 ]]; then
+  fail 'site marker must contain between 1 and 160 characters'
+fi
 if [[ ! "$archive_sha256" =~ ^[a-fA-F0-9]{64}$ ]]; then
   fail 'artifact checksum must be a SHA-256 value'
 fi
 
-environment_root="$private_root/$environment"
-expected_archive="$environment_root/molii-docs-$release_id.tar.gz"
+expected_archive="$environment_root/docs-$environment-$release_id.tar.gz"
 if [[ "$archive_path" != "$expected_archive" ]]; then
   fail 'artifact path does not match the release destination'
 fi
@@ -175,7 +186,7 @@ fi
 if [[ ! -d "$staging_dir/assets" ]]; then
   fail 'documentation artifact is missing assets/'
 fi
-if ! grep -Fq 'Molii 开发者文档' "$staging_dir/quick-start/index.html"; then
+if ! grep -Fq -- "$site_marker" "$staging_dir/quick-start/index.html"; then
   fail 'quick-start page does not contain the expected site marker'
 fi
 
@@ -208,7 +219,7 @@ if ! curl --fail --silent --show-error --max-time 15 \
   --output "$health_body_file" "$site_origin/docs/quick-start"; then
   fail 'public quick-start request failed'
 fi
-if ! grep -Fq 'Molii 开发者文档' "$health_body_file"; then
+if ! grep -Fq -- "$site_marker" "$health_body_file"; then
   fail 'public quick-start health check failed'
 fi
 

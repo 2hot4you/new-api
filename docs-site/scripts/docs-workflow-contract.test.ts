@@ -12,12 +12,19 @@ test('documentation deploys independently for main and develop', async () => {
 
   expect(workflow).toContain('main');
   expect(workflow).toContain('develop');
-  expect(workflow).toContain('https://molii.co');
-  expect(workflow).toContain('https://dev.molii.co');
+  expect(workflow).toContain('"id":"development"');
+  expect(workflow).toContain('"id":"production-molii"');
+  expect(workflow).toContain('"id":"production-ixiaozu"');
+  expect(workflow).toContain('fail-fast: false');
+  expect(workflow).toContain('target: ${{ fromJSON(needs.prepare.outputs.targets) }}');
+  expect(workflow).toContain('name: ${{ matrix.target.environment }}');
   expect(workflow).toContain('DOCS_BASE_URL: /docs/');
-  expect(workflow).toContain("DOCS_ENV: ${{ needs.prepare.outputs.environment }}");
+  expect(workflow).toContain('DOCS_ENV: ${{ vars.DOCS_ENV }}');
+  expect(workflow).toContain('DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL }}');
+  expect(workflow).toContain('DOCS_API_BASE_URL: ${{ vars.DOCS_API_BASE_URL }}');
   expect(workflow).toContain("cancel-in-progress: false");
-  expect(workflow).toContain('docs-deploy-${{ needs.prepare.outputs.environment }}');
+  expect(workflow).toContain('docs-deploy-${{ matrix.target.id }}');
+  expect(workflow).toContain('partial_success');
 });
 
 test('documentation build uses the pinned toolchain and complete safety gates', async () => {
@@ -38,6 +45,7 @@ test('documentation build uses the pinned toolchain and complete safety gates', 
   expect(workflow).toContain('bun run check:secrets');
   expect(workflow).toContain('bun run api:lint');
   expect(workflow).toContain('bun run catalog:check');
+  expect(workflow).toContain('bun run brand:prepare');
   expect(workflow).toContain('bun run build');
   expect(workflow).toContain('bun run check:links');
   expect(workflow).toContain('actions/upload-artifact@');
@@ -54,7 +62,7 @@ test('injects the configured Algolia search values only into Development builds'
   ]) {
     expect(workflow).toContain(`secrets.${variableName}`);
     expect(workflow).toContain(
-      `needs.prepare.outputs.environment == 'development' && secrets.${variableName} || ''`,
+      `matrix.target.id == 'development' && secrets.${variableName} || ''`,
     );
     expect(workflow).not.toContain(`vars.${variableName}`);
   }
@@ -91,10 +99,33 @@ test('documentation deployment reuses only infrastructure credentials', async ()
 
   expect(workflow).toContain('docs-site/deploy/deploy.sh');
   expect(workflow).toContain('sha256sum');
-  expect(workflow).toContain('molii-docs-${GITHUB_SHA}.tar.gz');
+  expect(workflow).toContain('docs-${TARGET_ID}-${GITHUB_SHA}.tar.gz');
   expect(workflow).not.toMatch(
     /SQL_DSN|REDIS_CONN_STRING|SESSION_SECRET|CRYPTO_SECRET|MOLII_API_KEY/,
   );
+});
+
+test('documentation build receives every selected brand value and source asset', async () => {
+  const workflow = await Bun.file(docsWorkflowPath).text();
+
+  for (const variableName of [
+    'DOCS_BRAND_ID',
+    'DOCS_SITE_TITLE',
+    'DOCS_TAGLINE',
+    'DOCS_NAVBAR_TITLE',
+    'DOCS_LOGO_PATH',
+    'DOCS_FAVICON_PATH',
+    'DOCS_SOCIAL_IMAGE_PATH',
+    'DOCS_DEFAULT_FONT',
+    'DOCS_LOGO_SOURCE_URL',
+    'DOCS_FAVICON_SOURCE_URL',
+    'DOCS_SOCIAL_IMAGE_SOURCE_URL',
+  ]) {
+    expect(workflow).toContain(`${variableName}: \${{ vars.${variableName} }}`);
+  }
+
+  expect(workflow).toContain('docs-${{ matrix.target.id }}-${{ github.sha }}');
+  expect(workflow).toContain('name: ${{ matrix.target.environment }}');
 });
 
 test('application deployment ignores documentation-only pushes', async () => {
