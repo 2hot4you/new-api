@@ -24,6 +24,10 @@ import { describe, test } from 'vitest'
 import { Window } from 'happy-dom'
 
 const themeCss = readFileSync(resolve(process.cwd(), 'src/styles/theme.css'), 'utf8')
+const presetCss = readFileSync(
+  resolve(process.cwd(), 'src/styles/theme-presets.css'),
+  'utf8'
+)
 
 const LIGHT_CHARCOAL_TOKENS = {
   '--primary': 'oklch(0.28 0 0)',
@@ -106,5 +110,13 @@ describe('system theme color contract', () => {
     }
 
     window.close()
+  })
+
+  test('keeps monospace utilities independent from the site body font', () => {
+    assert.match(presetCss, /\.font-mono/)
+    assert.doesNotMatch(
+      presetCss,
+      /\[data-theme-font='serif'\]\s+:is\([^)]*(?:code|kbd|pre|samp)/
+    )
   })
 })

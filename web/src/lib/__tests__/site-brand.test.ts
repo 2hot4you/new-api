@@ -5,6 +5,7 @@ import type { SiteBrand } from '../../../build/site-brand'
 import { resolveRuntimeSiteBrand } from '../../config/site-brand'
 import { resolveSystemName } from '../constants'
 import { resolveFaviconUrl } from '../dom-utils'
+import { resolveDefaultThemeCustomization } from '../theme-customization'
 
 const IXIAOZU_BRAND: SiteBrand = {
   id: 'ixiaozu',
@@ -32,6 +33,14 @@ describe('site brand runtime fallbacks', () => {
     assert.equal(
       resolveFaviconUrl('/ixiaozu-logo.png', IXIAOZU_BRAND),
       '/ixiaozu-favicon.png'
+    )
+  })
+
+  test('uses each site profile font as the theme default', () => {
+    assert.equal(resolveDefaultThemeCustomization('serif').font, 'serif')
+    assert.equal(
+      resolveDefaultThemeCustomization(IXIAOZU_BRAND.defaultFont).font,
+      'sans'
     )
   })
 })

@@ -23,6 +23,8 @@ For commercial licensing, please contact support@quantumnous.com
  * provider without breaking React Fast Refresh boundaries.
  */
 
+import { SITE_BRAND } from '@/config/site-brand'
+
 export const THEME_PRESETS = [
   {
     value: 'default',
@@ -115,13 +117,21 @@ export type ThemeCustomization = {
   contentLayout: ContentLayout
 }
 
-export const DEFAULT_THEME_CUSTOMIZATION: ThemeCustomization = {
-  preset: 'anthropic',
-  font: 'serif',
-  radius: 'md',
-  scale: 'sm',
-  contentLayout: 'full',
+export function resolveDefaultThemeCustomization(
+  font: ResolvedThemeFont
+): ThemeCustomization {
+  return {
+    preset: 'anthropic',
+    font,
+    radius: 'md',
+    scale: 'sm',
+    contentLayout: 'full',
+  }
 }
+
+export const DEFAULT_THEME_CUSTOMIZATION = resolveDefaultThemeCustomization(
+  SITE_BRAND.defaultFont
+)
 
 export const THEME_PRESET_VALUES = new Set(
   THEME_PRESETS.map((p) => p.value)
