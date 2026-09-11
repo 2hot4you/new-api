@@ -3,6 +3,7 @@
 set -eu
 
 docs_base_url=${DOCS_BASE_URL:-/}
+docs_site_title=${DOCS_SITE_TITLE:-Molii 开发者文档}
 case "$docs_base_url" in
   *://*|*\?*|*\#*)
     echo 'DOCS_BASE_URL must be a path.' >&2
@@ -42,7 +43,7 @@ while :; do
     cat "$log_file" >&2
     exit 1
   fi
-  if curl --fail --silent "$crawl_url" | grep -Eq '<title data-rh="true">[^<]*Molii 开发者文档</title>'; then
+  if curl --fail --silent "$crawl_url" | grep -Fq -- "$docs_site_title"; then
     # A different process may already own port 3100. Confirm that the preview
     # process which we started is still alive before accepting the response.
     sleep 1

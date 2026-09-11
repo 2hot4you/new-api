@@ -8,10 +8,12 @@ test('the internal link checker serves the configured base path and crawls from 
   const checker = await Bun.file(checkerPath).text();
 
   expect(checker).toContain('DOCS_BASE_URL');
+  expect(checker).toContain('DOCS_SITE_TITLE');
   expect(checker).toContain('docs_base_url');
   expect(checker).toContain('site_url="http://127.0.0.1:3100${docs_base_url}"');
   expect(checker).toContain('crawl_url="${site_url}quick-start"');
   expect(checker).toContain('curl --fail --silent "$crawl_url"');
+  expect(checker).toContain('grep -Fq -- "$docs_site_title"');
   expect(checker).toContain('linkinator "$crawl_url"');
   expect(checker).not.toContain("site_url='http://127.0.0.1:3100/'");
 });
