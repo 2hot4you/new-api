@@ -1,12 +1,12 @@
 {
   "id": "design-new-api-cicd",
   "title": "设计 new-api 三环境双生产站点部署、品牌与 Telegram 通知方案",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "devops",
-  "currentPhase": "review",
-  "nextAction": "完成最终差异审查、归档任务并保留功能分支供用户决定集成方式",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并保留功能分支供用户决定集成方式",
   "createdAt": "2026-08-18T00:00:00Z",
   "branch": "develop"
 }

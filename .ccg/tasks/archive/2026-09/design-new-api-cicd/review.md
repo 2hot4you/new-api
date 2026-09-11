@@ -42,6 +42,11 @@
 - Generated iXiaozu docs used the iXiaozu canonical/API origin, brand assets,
   title, navbar/footer identity, and sans font; no Molii deployment URL or
   Molii brand asset fallback was present in the inspected output.
+- A local browser smoke check rendered the iXiaozu application title and the
+  arbitrary `iXiaozu` homepage brand with the expected pink/blue per-grapheme
+  sequence, shared typography, spacing, and accessible unsplit heading. The
+  local build intentionally used `/logo.png` as a placeholder; the real
+  iXiaozu logo URL remains a required operator-provided environment value.
 - Both full application Docker images were built successfully during image
   validation. A later redundant Molii rebuild was cancelled after its remote
   dependency download stalled; this was not a compile or test failure.
