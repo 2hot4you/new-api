@@ -4,12 +4,30 @@ ARG VCS_REF=unknown
 FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS builder
 
 ARG APP_VERSION
+ARG VITE_SITE_PROFILE
+ARG VITE_SITE_TITLE
+ARG VITE_SITE_DESCRIPTION
+ARG VITE_SITE_LOGO
+ARG VITE_SITE_FAVICON
+ARG VITE_SITE_APPLE_TOUCH_ICON
+ARG VITE_SITE_BANNER_BRAND
+ARG VITE_SITE_DEFAULT_FONT
 
 WORKDIR /build/web
 COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY ./web ./
-RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION="${APP_VERSION}" bun run build
+RUN DISABLE_ESLINT_PLUGIN='true' \
+    VITE_REACT_APP_VERSION="${APP_VERSION}" \
+    VITE_SITE_PROFILE="${VITE_SITE_PROFILE}" \
+    VITE_SITE_TITLE="${VITE_SITE_TITLE}" \
+    VITE_SITE_DESCRIPTION="${VITE_SITE_DESCRIPTION}" \
+    VITE_SITE_LOGO="${VITE_SITE_LOGO}" \
+    VITE_SITE_FAVICON="${VITE_SITE_FAVICON}" \
+    VITE_SITE_APPLE_TOUCH_ICON="${VITE_SITE_APPLE_TOUCH_ICON}" \
+    VITE_SITE_BANNER_BRAND="${VITE_SITE_BANNER_BRAND}" \
+    VITE_SITE_DEFAULT_FONT="${VITE_SITE_DEFAULT_FONT}" \
+    bun run build
 
 FROM golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS builder2
 
@@ -38,8 +56,8 @@ FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0
 ARG APP_VERSION
 ARG VCS_REF
 
-LABEL org.opencontainers.image.title="New API - Molii backend" \
-      org.opencontainers.image.description="New API backend with Molii authentication and Molii Volcengine Imagine API integration" \
+LABEL org.opencontainers.image.title="New API multi-site gateway" \
+      org.opencontainers.image.description="Multi-site AI API gateway and administration service" \
       org.opencontainers.image.source="https://github.com/2hot4you/new-api" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.version="${APP_VERSION}" \

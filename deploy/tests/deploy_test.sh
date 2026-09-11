@@ -349,7 +349,7 @@ print("target=" + str(port["target"]))
 }
 
 test_workflow_delivery_contract() {
-  local workflow content
+  local workflow content dockerfile dockerfile_content
   workflow="$PROJECT_ROOT/.github/workflows/deploy.yml"
   if [[ ! -f "$workflow" ]]; then
     fail 'deployment workflow exists'
@@ -357,11 +357,13 @@ test_workflow_delivery_contract() {
   fi
 
   content=$(<"$workflow")
+  dockerfile="$PROJECT_ROOT/Dockerfile"
+  dockerfile_content=$(<"$dockerfile")
   assert_contains "$content" '- main' 'workflow deploys main pushes'
   assert_contains "$content" '- develop' 'workflow deploys develop pushes'
   assert_contains "$content" 'packages: write' 'workflow can publish GHCR images'
   assert_contains "$content" "ghcr.io/\${{ github.repository }}" 'workflow publishes to the repository GHCR package'
-  assert_contains "$content" "@\${{ needs.build.outputs.digest }}" 'workflow deploys an immutable image digest'
+  assert_contains "$content" "@\${{ steps.build.outputs.digest }}" 'workflow deploys an immutable image digest'
   assert_contains "$content" 'DEPLOY_SSH_KNOWN_HOSTS' 'workflow uses a pinned SSH host key secret'
   assert_not_contains "$content" 'ssh-keyscan' 'workflow does not trust a network-discovered SSH host key'
   assert_contains "$content" "group: deploy-\${{ github.ref_name }}" 'workflow serializes deployment per branch environment'
@@ -375,6 +377,32 @@ test_workflow_delivery_contract() {
   assert_contains "$content" 'verify_repeated_startup:' 'workflow exposes an explicit repeated-startup gate'
   assert_not_contains "$content" 'SQL_DSN' 'workflow does not receive the PostgreSQL secret'
   assert_not_contains "$content" 'REDIS_CONN_STRING' 'workflow does not receive the Redis secret'
+  assert_contains "$content" 'targets: ${{ steps.target.outputs.targets }}' 'prepare exports a deployment target matrix'
+  assert_contains "$content" 'target: ${{ fromJSON(needs.prepare.outputs.targets) }}' 'release consumes the deployment target matrix'
+  assert_contains "$content" 'fail-fast: false' 'one production failure does not cancel its peer'
+  assert_contains "$content" 'name: ${{ matrix.target.environment }}' 'each release selects its own GitHub Environment'
+  assert_contains "$content" '"id":"development"' 'develop maps to the development target'
+  assert_contains "$content" '"id":"production-molii"' 'main maps to Molii production'
+  assert_contains "$content" '"id":"production-ixiaozu"' 'main maps to iXiaozu production'
+  assert_contains "$content" 'DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}' 'deployment directory comes from the selected GitHub Environment'
+  assert_contains "$content" 'HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL }}' 'health URL comes from the selected GitHub Environment'
+  assert_contains "$content" 'SITE_DOMAIN: ${{ vars.DEPLOY_SITE_DOMAIN }}' 'site domain comes from the selected GitHub Environment'
+
+  for variable in \
+    VITE_SITE_PROFILE \
+    VITE_SITE_TITLE \
+    VITE_SITE_DESCRIPTION \
+    VITE_SITE_LOGO \
+    VITE_SITE_FAVICON \
+    VITE_SITE_APPLE_TOUCH_ICON \
+    VITE_SITE_BANNER_BRAND \
+    VITE_SITE_DEFAULT_FONT; do
+    assert_contains "$content" "$variable=\${{ vars.$variable }}" "workflow passes $variable to the image build"
+    assert_contains "$dockerfile_content" "ARG $variable" "Dockerfile declares $variable in the frontend stage"
+  done
+
+  assert_contains "$content" 'deploy-result-${{ matrix.target.id }}-${{ github.sha }}' 'each target publishes an independent result record'
+  assert_contains "$content" 'partial_success' 'summary distinguishes partial production success'
 }
 
 test_app_version_fits_setup_schema() {

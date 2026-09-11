@@ -1,4 +1,4 @@
-name: Build and deploy Molii
+name: Build and deploy application
 
 on:
   push:
@@ -13,12 +13,12 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Optional branch, tag, or commit to deploy to the selected environment
+        description: Optional branch, tag, or commit for development acceptance
         required: false
         default: ''
         type: string
       backup_postgres:
-        description: Create and verify a server-side PostgreSQL backup before deployment
+        description: Create and verify a development PostgreSQL backup before deployment
         required: false
         default: false
         type: boolean
@@ -37,15 +37,12 @@ concurrency:
 
 jobs:
   prepare:
-    name: Resolve deployment target
+    name: Resolve deployment targets
     runs-on: ubuntu-latest
     outputs:
-      environment: ${{ steps.target.outputs.environment }}
-      deploy_dir: ${{ steps.target.outputs.deploy_dir }}
-      health_url: ${{ steps.target.outputs.health_url }}
-      image_tag: ${{ steps.target.outputs.image_tag }}
+      targets: ${{ steps.target.outputs.targets }}
     steps:
-      - name: Map branch to environment
+      - name: Map branch to target matrix
         id: target
         env:
           BRANCH_NAME: ${{ github.ref_name }}
@@ -60,16 +57,10 @@ jobs:
 
           case "$BRANCH_NAME" in
             main)
-              echo 'environment=production' >> "$GITHUB_OUTPUT"
-              echo 'deploy_dir=/opt/molii/production' >> "$GITHUB_OUTPUT"
-              echo 'health_url=https://molii.co/api/status' >> "$GITHUB_OUTPUT"
-              echo 'image_tag=production' >> "$GITHUB_OUTPUT"
+              echo 'targets=[{"id":"production-molii","environment":"production-molii","image_tag":"production-molii","brand_profile":"molii"},{"id":"production-ixiaozu","environment":"production-ixiaozu","image_tag":"production-ixiaozu","brand_profile":"ixiaozu"}]' >> "$GITHUB_OUTPUT"
               ;;
             develop)
-              echo 'environment=development' >> "$GITHUB_OUTPUT"
-              echo 'deploy_dir=/opt/molii/development' >> "$GITHUB_OUTPUT"
-              echo 'health_url=https://dev.molii.co/api/status' >> "$GITHUB_OUTPUT"
-              echo 'image_tag=development' >> "$GITHUB_OUTPUT"
+              echo 'targets=[{"id":"development","environment":"development","image_tag":"development","brand_profile":"molii"}]' >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "::error::Unsupported deployment branch: $BRANCH_NAME"
@@ -110,8 +101,10 @@ jobs:
         working-directory: web
         run: bun run typecheck
 
-      - name: Build frontend for backend embedding
+      - name: Build Molii verification frontend
         working-directory: web
+        env:
+          VITE_SITE_PROFILE: molii
         run: bun run build
 
       - name: Vet root module
@@ -134,31 +127,69 @@ jobs:
       - name: Test deployment contracts
         run: bash deploy/tests/deploy_test.sh
 
-  build:
-    name: Build and publish image
+  release:
+    name: Release ${{ matrix.target.id }}
     needs:
       - prepare
       - verify
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
-      source_sha: ${{ steps.app_version.outputs.sha }}
+    environment:
+      name: ${{ matrix.target.environment }}
+      url: ${{ vars.DEPLOY_HEALTH_URL }}
     env:
       REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+      DEPLOY_ENVIRONMENT: ${{ matrix.target.id }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+      HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL }}
+      SITE_DOMAIN: ${{ vars.DEPLOY_SITE_DOMAIN }}
+      SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+      SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+      GHCR_TOKEN: ${{ github.token }}
+      GHCR_USERNAME: ${{ github.actor }}
     steps:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.source_ref || github.sha }}
 
+      - name: Validate selected environment
+        env:
+          EXPECTED_PROFILE: ${{ matrix.target.brand_profile }}
+          VITE_SITE_PROFILE: ${{ vars.VITE_SITE_PROFILE }}
+          VITE_SITE_TITLE: ${{ vars.VITE_SITE_TITLE }}
+          VITE_SITE_DESCRIPTION: ${{ vars.VITE_SITE_DESCRIPTION }}
+          VITE_SITE_LOGO: ${{ vars.VITE_SITE_LOGO }}
+          VITE_SITE_FAVICON: ${{ vars.VITE_SITE_FAVICON }}
+          VITE_SITE_APPLE_TOUCH_ICON: ${{ vars.VITE_SITE_APPLE_TOUCH_ICON }}
+          VITE_SITE_BANNER_BRAND: ${{ vars.VITE_SITE_BANNER_BRAND }}
+          VITE_SITE_DEFAULT_FONT: ${{ vars.VITE_SITE_DEFAULT_FONT }}
+        run: |
+          for value_name in DEPLOY_DIR HEALTH_URL SITE_DOMAIN SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS VITE_SITE_PROFILE VITE_SITE_TITLE VITE_SITE_DESCRIPTION VITE_SITE_LOGO VITE_SITE_FAVICON VITE_SITE_APPLE_TOUCH_ICON VITE_SITE_BANNER_BRAND VITE_SITE_DEFAULT_FONT; do
+            if [[ -z "${!value_name}" ]]; then
+              echo "::error::Required GitHub Environment value is empty: $value_name"
+              exit 1
+            fi
+          done
+          if [[ "$VITE_SITE_PROFILE" != "$EXPECTED_PROFILE" ]]; then
+            echo "::error::VITE_SITE_PROFILE must be $EXPECTED_PROFILE for $DEPLOY_ENVIRONMENT"
+            exit 1
+          fi
+
       - name: Resolve application version
         id: app_version
         env:
-          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+          IMAGE_TAG: ${{ matrix.target.image_tag }}
         run: |
           GIT_SHA=$(git rev-parse HEAD)
           printf 'sha=%s\n' "$GIT_SHA" >> "$GITHUB_OUTPUT"
@@ -179,7 +210,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Build and push amd64 image
+      - name: Build and push target image
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -187,53 +218,26 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.REGISTRY_IMAGE }}:${{ needs.prepare.outputs.image_tag }}
-            ${{ env.REGISTRY_IMAGE }}:${{ needs.prepare.outputs.image_tag }}-${{ github.sha }}
+            ${{ env.REGISTRY_IMAGE }}:${{ matrix.target.image_tag }}
+            ${{ env.REGISTRY_IMAGE }}:${{ matrix.target.image_tag }}-${{ steps.app_version.outputs.sha }}
           build-args: |
             APP_VERSION=${{ steps.app_version.outputs.value }}
-            VCS_REF=${{ github.sha }}
-          cache-from: type=gha,scope=${{ needs.prepare.outputs.image_tag }}
-          cache-to: type=gha,mode=max,scope=${{ needs.prepare.outputs.image_tag }}
+            VCS_REF=${{ steps.app_version.outputs.sha }}
+            VITE_SITE_PROFILE=${{ vars.VITE_SITE_PROFILE }}
+            VITE_SITE_TITLE=${{ vars.VITE_SITE_TITLE }}
+            VITE_SITE_DESCRIPTION=${{ vars.VITE_SITE_DESCRIPTION }}
+            VITE_SITE_LOGO=${{ vars.VITE_SITE_LOGO }}
+            VITE_SITE_FAVICON=${{ vars.VITE_SITE_FAVICON }}
+            VITE_SITE_APPLE_TOUCH_ICON=${{ vars.VITE_SITE_APPLE_TOUCH_ICON }}
+            VITE_SITE_BANNER_BRAND=${{ vars.VITE_SITE_BANNER_BRAND }}
+            VITE_SITE_DEFAULT_FONT=${{ vars.VITE_SITE_DEFAULT_FONT }}
+          cache-from: type=gha,scope=${{ matrix.target.image_tag }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.image_tag }}
           provenance: mode=max
           sbom: true
 
-  deploy:
-    name: Deploy ${{ needs.prepare.outputs.environment }}
-    needs:
-      - prepare
-      - build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: read
-    environment:
-      name: ${{ needs.prepare.outputs.environment }}
-      url: ${{ needs.prepare.outputs.health_url }}
-    env:
-      DEPLOY_DIR: ${{ needs.prepare.outputs.deploy_dir }}
-      DEPLOY_ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
-      HEALTH_URL: ${{ needs.prepare.outputs.health_url }}
-      IMAGE_REFERENCE: ghcr.io/${{ github.repository }}@${{ needs.build.outputs.digest }}
-      SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
-      SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-      SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
-      SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-      SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
-      GHCR_TOKEN: ${{ github.token }}
-      GHCR_USERNAME: ${{ github.actor }}
-    steps:
-      - name: Check out deployment assets
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
       - name: Configure SSH
         run: |
-          for value_name in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS; do
-            if [ -z "${!value_name}" ]; then
-              echo "::error::Required secret is empty: $value_name"
-              exit 1
-            fi
-          done
           install -m 700 -d "$HOME/.ssh"
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
           chmod 600 "$HOME/.ssh/id_ed25519"
@@ -246,15 +250,15 @@ jobs:
             docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
 
       - name: Upload development backup helper
-        if: inputs.backup_postgres && needs.prepare.outputs.environment == 'development'
+        if: inputs.backup_postgres && matrix.target.id == 'development'
         run: |
           scp -P "$SSH_PORT" deploy/backup-postgres.sh \
             "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/backup-postgres.sh"
 
       - name: Back up development PostgreSQL
-        if: inputs.backup_postgres && needs.prepare.outputs.environment == 'development'
+        if: inputs.backup_postgres && matrix.target.id == 'development'
         env:
-          BACKUP_NAME: new-api-before-${{ needs.build.outputs.source_sha }}.dump
+          BACKUP_NAME: new-api-before-${{ steps.app_version.outputs.sha }}.dump
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             "chmod 700 '$DEPLOY_DIR/backup-postgres.sh' && '$DEPLOY_DIR/backup-postgres.sh' '$DEPLOY_DIR' '$BACKUP_NAME'"
@@ -267,12 +271,14 @@ jobs:
             "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/deploy.sh"
 
       - name: Deploy immutable image
+        env:
+          IMAGE_REFERENCE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             "chmod 700 '$DEPLOY_DIR/deploy.sh' && '$DEPLOY_DIR/deploy.sh' '$DEPLOY_ENVIRONMENT' '$IMAGE_REFERENCE' '$HEALTH_URL'"
 
       - name: Verify repeated development startup
-        if: inputs.verify_repeated_startup && needs.prepare.outputs.environment == 'development'
+        if: inputs.verify_repeated_startup && matrix.target.id == 'development'
         run: |
           ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             sh -s -- "$DEPLOY_DIR" "$HEALTH_URL" <<'REMOTE'
@@ -298,29 +304,49 @@ jobs:
 
           test "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name")" = healthy
           curl --silent --show-error --fail --max-time 15 "$health_url" | grep -Eq '"success"[[:space:]]*:[[:space:]]*true'
-          printf 'Repeated startup is healthy; previous image reference remains at %s/.rc30-previous-image\n' "$deploy_dir"
+          printf 'Repeated startup is healthy; deployment remains at %s\n' "$deploy_dir"
           REMOTE
 
-  notify:
-    name: Notify Telegram
-    if: ${{ always() }}
-    needs:
-      - prepare
-      - verify
-      - build
-      - deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      DEPLOY_RESULT: ${{ needs.deploy.result }}
-      TARGET_ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
-    steps:
-      - name: Send deployment result
-        continue-on-error: true
+      - name: Record target result
+        if: ${{ always() }}
+        env:
+          TARGET_ID: ${{ matrix.target.id }}
+          TARGET_RESULT: ${{ job.status }}
         run: |
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open(f"deploy-result-{os.environ['TARGET_ID']}.json", "w", encoding="utf-8") as result_file:
+              json.dump(
+                  {
+                      "id": os.environ["TARGET_ID"],
+                      "domain": os.environ.get("SITE_DOMAIN", ""),
+                      "result": os.environ["TARGET_RESULT"],
+                  },
+                  result_file,
+              )
+          PY
+
+      - name: Upload target result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deploy-result-${{ matrix.target.id }}-${{ github.sha }}
+          path: deploy-result-${{ matrix.target.id }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Notify Telegram
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DEPLOY_RESULT: ${{ job.status }}
+          TARGET_ENVIRONMENT: ${{ matrix.target.id }}
+        run: |
+          if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo 'Telegram secrets are not configured; skipping notification.'
             exit 0
           fi
@@ -331,8 +357,8 @@ jobs:
             *) icon='❌'; status='失败' ;;
           esac
 
-          message="$icon Molii 部署$status
-          环境: ${TARGET_ENVIRONMENT:-unknown}
+          message="$icon 应用部署$status
+          站点: ${TARGET_ENVIRONMENT} (${SITE_DOMAIN})
           分支: $GITHUB_REF_NAME
           提交: ${GITHUB_SHA:0:12}
           操作者: $GITHUB_ACTOR
@@ -342,3 +368,59 @@ jobs:
             --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" \
             --data-urlencode "text=$message"
+
+  summary:
+    name: Summarize application releases
+    if: ${{ always() }}
+    needs:
+      - prepare
+      - verify
+      - release
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Download target results
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: deploy-result-*-${{ github.sha }}
+          path: deployment-results
+          merge-multiple: true
+
+      - name: Write release summary
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          python3 - <<'PY'
+          import glob
+          import json
+          import os
+
+          expected = 2 if os.environ["BRANCH_NAME"] == "main" else 1
+          records = []
+          for path in glob.glob("deployment-results/*.json"):
+              with open(path, encoding="utf-8") as result_file:
+                  records.append(json.load(result_file))
+
+          results = [record.get("result", "failure") for record in records]
+          if len(records) == expected and all(result == "success" for result in results):
+              overall = "success"
+          elif any(result == "success" for result in results):
+              overall = "partial_success"
+          elif any(result == "cancelled" for result in results):
+              overall = "cancelled"
+          else:
+              overall = "failure"
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("## Application deployment summary\n\n")
+              summary.write(f"- Overall: `{overall}`\n")
+              summary.write(f"- Verification: `{os.environ['VERIFY_RESULT']}`\n")
+              summary.write(f"- Result records: `{len(records)}/{expected}`\n")
+              for record in sorted(records, key=lambda item: item.get("id", "")):
+                  summary.write(
+                      f"- {record.get('id', 'unknown')} ({record.get('domain', '')}): "
+                      f"`{record.get('result', 'failure')}`\n"
+                  )
+          PY
