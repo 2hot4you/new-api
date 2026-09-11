@@ -2,11 +2,14 @@ package common
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -15,6 +18,34 @@ import (
 
 var RDB *redis.Client
 var RedisEnabled = true
+
+func parseRedisOptions(connectionString string, tlsCAFile string) (*redis.Options, error) {
+	opt, err := redis.ParseURL(connectionString)
+	if err != nil {
+		return nil, err
+	}
+
+	tlsCAFile = strings.TrimSpace(tlsCAFile)
+	if tlsCAFile == "" {
+		return opt, nil
+	}
+	if opt.TLSConfig == nil {
+		return nil, errors.New("REDIS_TLS_CA_FILE requires a rediss:// connection")
+	}
+
+	caPEM, err := os.ReadFile(tlsCAFile)
+	if err != nil {
+		return nil, fmt.Errorf("read Redis TLS CA %q: %w", tlsCAFile, err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("parse Redis TLS CA %q: no certificates found", tlsCAFile)
+	}
+
+	opt.TLSConfig.RootCAs = caPool
+	opt.TLSConfig.MinVersion = tls.VersionTLS12
+	return opt, nil
+}
 
 func RedisKeyCacheSeconds() int {
 	return SyncFrequency
@@ -32,9 +63,9 @@ func InitRedisClient() (err error) {
 		SyncFrequency = 60
 	}
 	SysLog("Redis is enabled")
-	opt, err := redis.ParseURL(os.Getenv("REDIS_CONN_STRING"))
+	opt, err := parseRedisOptions(os.Getenv("REDIS_CONN_STRING"), os.Getenv("REDIS_TLS_CA_FILE"))
 	if err != nil {
-		FatalLog("failed to parse Redis connection string: " + err.Error())
+		FatalLog("failed to configure Redis connection: " + err.Error())
 	}
 	opt.PoolSize = GetEnvOrDefault("REDIS_POOL_SIZE", 10)
 	RDB = redis.NewClient(opt)
@@ -54,9 +85,9 @@ func InitRedisClient() (err error) {
 }
 
 func ParseRedisOption() *redis.Options {
-	opt, err := redis.ParseURL(os.Getenv("REDIS_CONN_STRING"))
+	opt, err := parseRedisOptions(os.Getenv("REDIS_CONN_STRING"), os.Getenv("REDIS_TLS_CA_FILE"))
 	if err != nil {
-		FatalLog("failed to parse Redis connection string: " + err.Error())
+		FatalLog("failed to configure Redis connection: " + err.Error())
 	}
 	return opt
 }

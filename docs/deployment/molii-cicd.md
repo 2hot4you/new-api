@@ -30,8 +30,8 @@ Molii 服务器创建：
 sudo adduser --disabled-password --gecos '' molii-deploy
 sudo usermod -aG docker molii-deploy
 sudo install -d -m 0750 -o molii-deploy -g molii-deploy \
-  /opt/molii/development /opt/molii/development/data /opt/molii/development/logs \
-  /opt/molii/production /opt/molii/production/data /opt/molii/production/logs
+  /opt/molii/development /opt/molii/development/data /opt/molii/development/logs /opt/molii/development/certs \
+  /opt/molii/production /opt/molii/production/data /opt/molii/production/logs /opt/molii/production/certs
 ```
 
 iXiaozu 服务器创建：
@@ -40,7 +40,8 @@ iXiaozu 服务器创建：
 sudo adduser --disabled-password --gecos '' molii-deploy
 sudo usermod -aG docker molii-deploy
 sudo install -d -m 0750 -o molii-deploy -g molii-deploy \
-  /opt/ixiaozu/production /opt/ixiaozu/production/data /opt/ixiaozu/production/logs
+  /opt/ixiaozu/production /opt/ixiaozu/production/data /opt/ixiaozu/production/logs \
+  /opt/ixiaozu/production/certs
 ```
 
 已有账号时跳过 `adduser`。确认账号能运行 `docker info` 和 `docker compose version`，不要把 Docker socket 改成全局可写。
@@ -76,6 +77,7 @@ Environment Secrets：
 ```dotenv
 SQL_DSN=postgresql://APP_USER:URL_ENCODED_PASSWORD@POSTGRES_HOST:5432/APP_DATABASE?sslmode=require
 REDIS_CONN_STRING=rediss://REDIS_USER:URL_ENCODED_PASSWORD@REDIS_HOST:6379/0
+REDIS_TLS_CA_FILE=/app/certs/redis-ca.pem
 SESSION_SECRET=AT_LEAST_32_RANDOM_CHARACTERS
 CRYPTO_SECRET=ANOTHER_32_RANDOM_CHARACTERS
 TZ=Asia/Shanghai
@@ -87,6 +89,8 @@ SESSION_COOKIE_TRUSTED_URL=https://TARGET_DOMAIN
 ```
 
 三套配置必须使用不同 PostgreSQL 数据库/账号、Redis 实例或逻辑隔离、会话密钥和加密密钥。数据库与 Redis 白名单仅放行对应服务器，用户和渠道配置不会在生产站之间同步。
+
+使用云数据库私有 CA 时，将证书放入目标目录的 `certs/`，容器会将其只读挂载到 `/app/certs`。PostgreSQL DSN 应使用 `sslmode=verify-full&sslrootcert=/app/certs/<certificate>.pem`；Redis 必须使用 `rediss://`，并通过 `REDIS_TLS_CA_FILE=/app/certs/<certificate>.pem` 指定 CA。应用不会跳过服务端身份校验，配置的证书缺失或无法解析时会拒绝启动。
 
 ## 五、反向代理与文档目录
 

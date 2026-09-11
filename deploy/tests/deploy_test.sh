@@ -184,6 +184,16 @@ test_maps_all_deployment_targets() {
       "$(<"$fixture/$directory/.deploy.env")" \
       "DEPLOY_ENV=$deploy_environment" \
       "$target writes the expected runtime environment"
+    if [[ -d "$fixture/$directory/certs" ]]; then
+      pass "$target prepares the certificate mount directory"
+    else
+      fail "$target prepares the certificate mount directory"
+    fi
+    if find "$fixture/$directory/certs" -maxdepth 0 -perm 0750 | grep -q .; then
+      pass "$target protects the certificate mount directory"
+    else
+      fail "$target protects the certificate mount directory"
+    fi
     rm -rf "$fixture"
   done <<'TARGETS'
 development|molii/development|https://dev.molii.co/api/status|development|molii-development
@@ -332,11 +342,17 @@ config = json.load(sys.stdin)
 services = config["services"]
 app = services["new-api"]
 port = app["ports"][0]
+certificate_mount = next(
+    (mount for mount in app.get("volumes", []) if mount.get("target") == "/app/certs"),
+    None,
+)
 print("services=" + ",".join(sorted(services)))
 print("container=" + app["container_name"])
 print("host_ip=" + port["host_ip"])
 print("published=" + str(port["published"]))
 print("target=" + str(port["target"]))
+print("certificate_mount=" + str(bool(certificate_mount)).lower())
+print("certificate_mount_read_only=" + str(bool(certificate_mount and certificate_mount.get("read_only"))).lower())
 ' <<<"$rendered")
 
     assert_contains "$summary" 'services=new-api' "$environment Compose contains only the application service"
@@ -344,8 +360,21 @@ print("target=" + str(port["target"]))
     assert_contains "$summary" 'host_ip=127.0.0.1' "$environment binds only to loopback"
     assert_contains "$summary" "published=$port" "$environment publishes the expected host port"
     assert_contains "$summary" 'target=3000' "$environment targets the application port"
+    assert_contains "$summary" 'certificate_mount=true' "$environment mounts the certificate directory"
+    assert_contains "$summary" 'certificate_mount_read_only=true' "$environment mounts certificates read-only"
     rm -rf "$fixture"
   done
+}
+
+test_ixiaozu_runtime_template_uses_verified_tls() {
+  local template content
+  template="$PROJECT_ROOT/deploy/env/production-ixiaozu.env.example"
+  content=$(<"$template")
+
+  assert_contains "$content" 'sslmode=verify-full' 'iXiaozu PostgreSQL verifies the server identity'
+  assert_contains "$content" 'sslrootcert=/app/certs/tencentdb-postgresql-ca.pem' 'iXiaozu PostgreSQL loads its CA inside the container'
+  assert_contains "$content" 'REDIS_CONN_STRING=rediss://' 'iXiaozu Redis enables TLS'
+  assert_contains "$content" 'REDIS_TLS_CA_FILE=/app/certs/tencentdb-redis-ca.pem' 'iXiaozu Redis loads its CA inside the container'
 }
 
 test_workflow_delivery_contract() {
@@ -436,6 +465,7 @@ test_requires_runtime_secrets
 test_successful_deploy_keeps_requested_image
 test_failed_deploy_rolls_back_previous_image
 test_compose_isolates_both_environments
+test_ixiaozu_runtime_template_uses_verified_tls
 test_workflow_delivery_contract
 test_app_version_fits_setup_schema
 

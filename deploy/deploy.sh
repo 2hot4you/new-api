@@ -57,6 +57,8 @@ for command_name in docker curl flock; do
 done
 
 [[ -d "$DEPLOY_DIR" ]] || die "deployment directory does not exist: $DEPLOY_DIR"
+mkdir -p "$DEPLOY_DIR/certs"
+chmod 0750 "$DEPLOY_DIR/certs"
 cd "$DEPLOY_DIR"
 
 readonly RUNTIME_ENV=.env.runtime
