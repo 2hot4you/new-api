@@ -126,11 +126,16 @@ ENV
 new_fixture() {
   local fixture
   fixture=$(mktemp -d)
-  mkdir -p "$fixture/root/production" "$fixture/root/development"
-  : >"$fixture/root/production/docker-compose.yml"
-  : >"$fixture/root/development/docker-compose.yml"
-  write_runtime_env "$fixture/root/production/.env.runtime"
-  write_runtime_env "$fixture/root/development/.env.runtime"
+  mkdir -p \
+    "$fixture/molii/production" \
+    "$fixture/molii/development" \
+    "$fixture/ixiaozu/production"
+  : >"$fixture/molii/production/docker-compose.yml"
+  : >"$fixture/molii/development/docker-compose.yml"
+  : >"$fixture/ixiaozu/production/docker-compose.yml"
+  write_runtime_env "$fixture/molii/production/.env.runtime"
+  write_runtime_env "$fixture/molii/development/.env.runtime"
+  write_runtime_env "$fixture/ixiaozu/production/.env.runtime"
   create_mocks "$fixture"
   printf '%s\n' "$fixture"
 }
@@ -139,7 +144,8 @@ run_deploy() {
   local fixture=$1
   shift
   PATH="$fixture/bin:$PATH" \
-    DEPLOY_ROOT="$fixture/root" \
+    MOLII_DEPLOY_ROOT="$fixture/molii" \
+    IXIAOZU_DEPLOY_ROOT="$fixture/ixiaozu" \
     HEALTH_ATTEMPTS=1 \
     HEALTH_INTERVAL_SECONDS=0 \
     MOCK_LOG="$fixture/mock.log" \
@@ -163,12 +169,60 @@ test_rejects_unknown_environment() {
   rm -rf "$fixture"
 }
 
+test_maps_all_deployment_targets() {
+  local fixture target directory health_url deploy_environment project saved_project
+  while IFS='|' read -r target directory health_url deploy_environment project; do
+    fixture=$(new_fixture)
+    run_deploy \
+      "$fixture" \
+      "$target" \
+      ghcr.io/2hot4you/new-api@sha256:abc \
+      "$health_url"
+    saved_project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$fixture/$directory/.deploy.env")
+    assert_equals "$saved_project" "$project" "$target uses its isolated Compose project"
+    assert_contains \
+      "$(<"$fixture/$directory/.deploy.env")" \
+      "DEPLOY_ENV=$deploy_environment" \
+      "$target writes the expected runtime environment"
+    rm -rf "$fixture"
+  done <<'TARGETS'
+development|molii/development|https://dev.molii.co/api/status|development|molii-development
+production-molii|molii/production|https://molii.co/api/status|production-molii|molii-production
+production-ixiaozu|ixiaozu/production|https://aigc.ixiaozu.cn/api/status|production-ixiaozu|ixiaozu-production
+TARGETS
+}
+
+test_rejects_mismatched_health_url() {
+  local fixture output status
+  fixture=$(new_fixture)
+  set +e
+  output=$(run_deploy \
+    "$fixture" \
+    production-ixiaozu \
+    ghcr.io/2hot4you/new-api@sha256:abc \
+    https://molii.co/api/status 2>&1)
+  status=$?
+  set -e
+  if (( status != 0 )); then
+    pass 'mismatched target and health URL returns nonzero'
+  else
+    fail 'mismatched target and health URL returns nonzero'
+  fi
+  assert_contains "$output" 'health URL must be https://aigc.ixiaozu.cn/api/status' 'mismatched health URL is rejected before deployment'
+  if [[ ! -s "$fixture/mock.log" ]]; then
+    pass 'mismatched health URL runs no Docker or curl commands'
+  else
+    fail 'mismatched health URL runs no Docker or curl commands'
+  fi
+  rm -rf "$fixture"
+}
+
 test_requires_runtime_secrets() {
   local fixture output status
   fixture=$(new_fixture)
-  rm "$fixture/root/production/.env.runtime"
+  rm "$fixture/molii/production/.env.runtime"
   set +e
-  output=$(run_deploy "$fixture" production ghcr.io/2hot4you/new-api@sha256:abc https://molii.co/api/status 2>&1)
+  output=$(run_deploy "$fixture" production-molii ghcr.io/2hot4you/new-api@sha256:abc https://molii.co/api/status 2>&1)
   status=$?
   set -e
   if (( status != 0 )); then
@@ -178,11 +232,11 @@ test_requires_runtime_secrets() {
   fi
   assert_contains "$output" '.env.runtime' 'missing runtime file is identified'
 
-  write_runtime_env "$fixture/root/production/.env.runtime"
-  sed -i.bak 's/^SESSION_SECRET=.*/SESSION_SECRET=/' "$fixture/root/production/.env.runtime"
-  rm -f "$fixture/root/production/.env.runtime.bak"
+  write_runtime_env "$fixture/molii/production/.env.runtime"
+  sed -i.bak 's/^SESSION_SECRET=.*/SESSION_SECRET=/' "$fixture/molii/production/.env.runtime"
+  rm -f "$fixture/molii/production/.env.runtime.bak"
   set +e
-  output=$(run_deploy "$fixture" production ghcr.io/2hot4you/new-api@sha256:abc https://molii.co/api/status 2>&1)
+  output=$(run_deploy "$fixture" production-molii ghcr.io/2hot4you/new-api@sha256:abc https://molii.co/api/status 2>&1)
   status=$?
   set -e
   if (( status != 0 )); then
@@ -201,9 +255,9 @@ test_successful_deploy_keeps_requested_image() {
   MOCK_PREVIOUS_IMAGE='ghcr.io/2hot4you/new-api@sha256:old' \
     MOCK_UNHEALTHY_ATTEMPTS=0 \
     MOCK_PUBLIC_HEALTH=success \
-    run_deploy "$fixture" production "$image" https://molii.co/api/status
+    run_deploy "$fixture" production-molii "$image" https://molii.co/api/status
 
-  saved_image=$(sed -n 's/^IMAGE=//p' "$fixture/root/production/.deploy.env")
+  saved_image=$(sed -n 's/^IMAGE=//p' "$fixture/molii/production/.deploy.env")
   assert_equals "$saved_image" "$image" 'successful deploy records the requested image'
   log=$(<"$fixture/mock.log")
   assert_contains "$log" 'compose --env-file .deploy.env pull' 'successful deploy pulls the image'
@@ -219,7 +273,7 @@ test_failed_deploy_rolls_back_previous_image() {
   output=$(MOCK_PREVIOUS_IMAGE='ghcr.io/2hot4you/new-api@sha256:old' \
     MOCK_UNHEALTHY_ATTEMPTS=1 \
     MOCK_PUBLIC_HEALTH=success \
-    run_deploy "$fixture" production ghcr.io/2hot4you/new-api@sha256:new https://molii.co/api/status 2>&1)
+    run_deploy "$fixture" production-molii ghcr.io/2hot4you/new-api@sha256:new https://molii.co/api/status 2>&1)
   status=$?
   set -e
 
@@ -229,7 +283,7 @@ test_failed_deploy_rolls_back_previous_image() {
     fail 'failed release remains failed after rollback'
   fi
   assert_contains "$output" 'rollback succeeded' 'failed release reports successful rollback'
-  saved_image=$(sed -n 's/^IMAGE=//p' "$fixture/root/production/.deploy.env")
+  saved_image=$(sed -n 's/^IMAGE=//p' "$fixture/molii/production/.deploy.env")
   assert_equals "$saved_image" 'ghcr.io/2hot4you/new-api@sha256:old' 'rollback restores the previous image'
   up_count=$(grep -c 'compose --env-file .deploy.env up -d --remove-orphans' "$fixture/mock.log")
   assert_equals "$up_count" '2' 'rollback starts Compose a second time'
@@ -244,14 +298,21 @@ test_compose_isolates_both_environments() {
     return
   fi
 
-  for environment in production development; do
-    if [[ "$environment" == production ]]; then
-      port=3000
-      container=molii-production
-    else
-      port=3010
-      container=molii-development
-    fi
+  for environment in production-molii production-ixiaozu development; do
+    case "$environment" in
+      production-molii)
+        port=3000
+        container=molii-production
+        ;;
+      production-ixiaozu)
+        port=3000
+        container=ixiaozu-production
+        ;;
+      development)
+        port=3010
+        container=molii-development
+        ;;
+    esac
 
     fixture=$(mktemp -d)
     cp "$compose_file" "$fixture/docker-compose.yml"
@@ -341,6 +402,8 @@ test_app_version_fits_setup_schema() {
 
 printf 'TAP version 13\n'
 test_rejects_unknown_environment
+test_maps_all_deployment_targets
+test_rejects_mismatched_health_url
 test_requires_runtime_secrets
 test_successful_deploy_keeps_requested_image
 test_failed_deploy_rolls_back_previous_image

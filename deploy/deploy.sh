@@ -5,7 +5,8 @@ set -Eeuo pipefail
 readonly ENVIRONMENT=${1:-}
 readonly IMAGE_REFERENCE=${2:-}
 readonly REQUESTED_HEALTH_URL=${3:-}
-readonly DEPLOY_ROOT=${DEPLOY_ROOT:-/opt/molii}
+readonly MOLII_DEPLOY_ROOT=${MOLII_DEPLOY_ROOT:-/opt/molii}
+readonly IXIAOZU_DEPLOY_ROOT=${IXIAOZU_DEPLOY_ROOT:-/opt/ixiaozu}
 readonly HEALTH_ATTEMPTS=${HEALTH_ATTEMPTS:-36}
 readonly HEALTH_INTERVAL_SECONDS=${HEALTH_INTERVAL_SECONDS:-5}
 
@@ -19,20 +20,29 @@ die() {
 }
 
 case "$ENVIRONMENT" in
-  production)
-    readonly DEPLOY_DIR="$DEPLOY_ROOT/production"
+  production-molii)
+    readonly DEPLOY_DIR="$MOLII_DEPLOY_ROOT/production"
     readonly HOST_PORT=3000
     readonly CONTAINER_NAME=molii-production
     readonly EXPECTED_HEALTH_URL=https://molii.co/api/status
+    readonly COMPOSE_PROJECT_NAME=molii-production
+    ;;
+  production-ixiaozu)
+    readonly DEPLOY_DIR="$IXIAOZU_DEPLOY_ROOT/production"
+    readonly HOST_PORT=3000
+    readonly CONTAINER_NAME=ixiaozu-production
+    readonly EXPECTED_HEALTH_URL=https://aigc.ixiaozu.cn/api/status
+    readonly COMPOSE_PROJECT_NAME=ixiaozu-production
     ;;
   development)
-    readonly DEPLOY_DIR="$DEPLOY_ROOT/development"
+    readonly DEPLOY_DIR="$MOLII_DEPLOY_ROOT/development"
     readonly HOST_PORT=3010
     readonly CONTAINER_NAME=molii-development
     readonly EXPECTED_HEALTH_URL=https://dev.molii.co/api/status
+    readonly COMPOSE_PROJECT_NAME=molii-development
     ;;
   *)
-    die "unsupported environment '$ENVIRONMENT'; expected production or development"
+    die "unsupported environment '$ENVIRONMENT'; expected development, production-molii, or production-ixiaozu"
     ;;
 esac
 
@@ -74,7 +84,7 @@ write_deploy_env() {
     printf 'HOST_PORT=%s\n' "$HOST_PORT"
     printf 'CONTAINER_NAME=%s\n' "$CONTAINER_NAME"
     printf 'DEPLOY_ENV=%s\n' "$ENVIRONMENT"
-    printf 'COMPOSE_PROJECT_NAME=molii-%s\n' "$ENVIRONMENT"
+    printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
   } >"$temporary_file"
   chmod 600 "$temporary_file"
   mv "$temporary_file" "$DEPLOY_ENV"
