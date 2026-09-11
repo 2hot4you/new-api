@@ -4,6 +4,11 @@ ARG VCS_REF=unknown
 FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS builder
 
 ARG APP_VERSION
+
+WORKDIR /build/web
+COPY web/package.json web/bun.lock ./
+RUN bun install --frozen-lockfile
+
 ARG VITE_SITE_PROFILE
 ARG VITE_SITE_TITLE
 ARG VITE_SITE_DESCRIPTION
@@ -13,9 +18,6 @@ ARG VITE_SITE_APPLE_TOUCH_ICON
 ARG VITE_SITE_BANNER_BRAND
 ARG VITE_SITE_DEFAULT_FONT
 
-WORKDIR /build/web
-COPY web/package.json web/bun.lock ./
-RUN bun install --frozen-lockfile
 COPY ./web ./
 RUN DISABLE_ESLINT_PLUGIN='true' \
     VITE_REACT_APP_VERSION="${APP_VERSION}" \
