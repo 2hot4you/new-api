@@ -6,10 +6,16 @@ import { pluginReact } from '@rsbuild/plugin-react'
 import { pluginTailwindcss } from '@rsbuild/plugin-tailwindcss'
 import { tanstackRouter } from '@tanstack/router-plugin/rspack'
 
+import { resolveSiteBrand } from './build/site-brand'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig(({ envMode }) => {
   const env = loadEnv({ mode: envMode, prefixes: ['VITE_'] })
+  const siteBrand = resolveSiteBrand({
+    ...env.rawPublicVars,
+    ...process.env,
+  })
   const serverUrl =
     process.env.VITE_REACT_APP_SERVER_URL ||
     env.rawPublicVars.VITE_REACT_APP_SERVER_URL ||
@@ -53,6 +59,9 @@ export default defineConfig(({ envMode }) => {
       },
     },
     source: {
+      define: {
+        __SITE_BRAND__: JSON.stringify(siteBrand),
+      },
       entry: {
         index: './src/main.tsx',
       },
@@ -64,6 +73,7 @@ export default defineConfig(({ envMode }) => {
     },
     html: {
       template: './index.html',
+      templateParameters: { siteBrand },
     },
     server: {
       host: '0.0.0.0',
