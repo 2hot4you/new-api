@@ -10,6 +10,7 @@
     "catalog:sync": "bun scripts/sync-model-catalog.mjs",
     "catalog:generate": "bun scripts/generate-model-docs.mjs",
     "catalog:check": "bun scripts/generate-model-docs.mjs --check",
+    "brand:prepare": "bun scripts/prepare-brand-assets.ts",
     "predev": "bun run catalog:generate",
     "prebuild": "bun run catalog:generate && docusaurus clear",
     "dev": "docusaurus start --host 127.0.0.1 --port 3100",
