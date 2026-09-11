@@ -20,21 +20,23 @@ function sha256(path: string) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
-describe('Molii favicon assets', () => {
-  test('declares the versioned browser and Apple icons', () => {
+describe('site favicon assets', () => {
+  test('templates browser and Apple icons from the active site profile', () => {
     const html = readFileSync(resolve(webRoot, 'index.html'), 'utf8')
 
-    assert.match(html, /href="\/molii-favicon-32\.png\?v=4"/)
-    assert.match(html, /href="\/apple-touch-icon\.png\?v=4"/)
+    assert.match(html, /href="<%= siteBrand\.favicon %>"/)
+    assert.match(html, /href="<%= siteBrand\.appleTouchIcon %>"/)
     assert.doesNotMatch(html, /molii-favicon\.svg/)
     assert.doesNotMatch(html, /rel="icon"[^>]+href="\/logo\.png"/)
   })
 
-  test('uses Molii Gateway before the application starts', () => {
+  test('templates metadata before the application starts', () => {
     const html = readFileSync(resolve(webRoot, 'index.html'), 'utf8')
 
-    assert.match(html, /<title>Molii Gateway<\/title>/)
-    assert.match(html, /<meta name="title" content="Molii Gateway" \/>/)
+    assert.match(html, /<title><%= siteBrand\.title %><\/title>/)
+    assert.match(html, /content="<%= siteBrand\.title %>"/)
+    assert.match(html, /content="<%= siteBrand\.description %>"/)
+    assert.doesNotMatch(html, /<title>Molii Gateway<\/title>/)
     assert.doesNotMatch(html, /<title>New API<\/title>/)
   })
 

@@ -4,20 +4,20 @@ import { describe, test } from 'vitest'
 import { Window } from 'happy-dom'
 
 import {
-  MOLII_FAVICON_URL,
   applySystemFaviconToDom,
   resolveFaviconUrl,
 } from '../dom-utils'
+import { DEFAULT_FAVICON } from '../constants'
 
 describe('favicon branding', () => {
   test('uses the dedicated Molii favicon for the default system logo', () => {
-    assert.equal(resolveFaviconUrl('/logo.png'), MOLII_FAVICON_URL)
+    assert.equal(resolveFaviconUrl('/logo.png'), DEFAULT_FAVICON)
   })
 
   test('recognizes an absolute default system logo URL', () => {
     assert.equal(
       resolveFaviconUrl('http://127.0.0.1:3000/logo.png'),
-      MOLII_FAVICON_URL
+      DEFAULT_FAVICON
     )
   })
 
@@ -48,7 +48,7 @@ describe('favicon branding', () => {
 
       const icons = domWindow.document.querySelectorAll('link[rel~="icon"]')
       assert.equal(icons.length, 1)
-      assert.equal(icons[0].getAttribute('href'), MOLII_FAVICON_URL)
+      assert.equal(icons[0].getAttribute('href'), DEFAULT_FAVICON)
     } finally {
       Object.defineProperty(globalThis, 'window', {
         configurable: true,

@@ -16,14 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { DEFAULT_LOGO } from './constants'
+import type { SiteBrand } from '../../build/site-brand'
+import { SITE_BRAND } from '@/config/site-brand'
 
-export const MOLII_FAVICON_URL = '/molii-favicon-32.png?v=4'
+import { DEFAULT_FAVICON } from './constants'
 
-export function resolveFaviconUrl(url: string) {
+export function resolveFaviconUrl(url: string, brand: SiteBrand = SITE_BRAND) {
   try {
     const parsed = new URL(url, 'https://molii.local')
-    if (parsed.pathname === DEFAULT_LOGO) return MOLII_FAVICON_URL
+    const brandLogo = new URL(brand.logo, 'https://molii.local')
+    if (parsed.pathname === brandLogo.pathname) return brand.favicon
   } catch {
     // Keep malformed custom values unchanged for the caller to reject.
   }
@@ -50,5 +52,5 @@ export function applyFaviconToDom(url: string) {
 
 export function applySystemFaviconToDom(logo: unknown) {
   const systemLogo = typeof logo === 'string' ? logo.trim() : ''
-  applyFaviconToDom(systemLogo || DEFAULT_LOGO)
+  applyFaviconToDom(systemLogo || DEFAULT_FAVICON)
 }

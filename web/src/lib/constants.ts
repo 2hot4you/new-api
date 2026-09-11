@@ -20,13 +20,20 @@ For commercial licensing, please contact support@quantumnous.com
  * Application-wide constants
  */
 
-// System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'Molii Gateway'
-export const DEFAULT_LOGO = '/logo.png'
+import type { SiteBrand } from '../../build/site-brand'
+import { SITE_BRAND } from '@/config/site-brand'
 
-export function resolveSystemName(value: unknown): string {
+// System Configuration Defaults
+export const DEFAULT_SYSTEM_NAME = SITE_BRAND.title
+export const DEFAULT_LOGO = SITE_BRAND.logo
+export const DEFAULT_FAVICON = SITE_BRAND.favicon
+
+export function resolveSystemName(
+  value: unknown,
+  brand: SiteBrand = SITE_BRAND
+): string {
   const name = typeof value === 'string' ? value.trim() : ''
-  if (!name || /^new\s*api$/i.test(name)) return DEFAULT_SYSTEM_NAME
+  if (!name || /^new\s*api$/i.test(name)) return brand.title
   return name
 }
 
