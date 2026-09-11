@@ -10,6 +10,22 @@ const validEnvironment = {
   DOCS_SITE_URL: 'http://127.0.0.1:3100',
   DOCS_BASE_URL: '/',
   DOCS_API_BASE_URL: 'http://127.0.0.1:3000',
+  DOCS_BRAND_ID: 'molii',
+};
+
+const ixiaozuEnvironment = {
+  DOCS_ENV: 'production',
+  DOCS_SITE_URL: 'https://aigc.ixiaozu.cn',
+  DOCS_BASE_URL: '/docs/',
+  DOCS_API_BASE_URL: 'https://aigc.ixiaozu.cn',
+  DOCS_BRAND_ID: 'ixiaozu',
+  DOCS_SITE_TITLE: 'iXiaozu 开发者文档',
+  DOCS_TAGLINE: 'iXiaozu AI 创作平台开发指南',
+  DOCS_NAVBAR_TITLE: 'iXiaozu',
+  DOCS_LOGO_PATH: 'img/brand/logo.svg',
+  DOCS_FAVICON_PATH: 'img/brand/favicon.png',
+  DOCS_SOCIAL_IMAGE_PATH: 'img/brand/social.png',
+  DOCS_DEFAULT_FONT: 'sans',
 };
 
 test('rejects a site URL with a path', () => {
@@ -46,6 +62,55 @@ test('prevents search indexing during development', () => {
   ).toBe(false);
 });
 
+test('resolves a complete iXiaozu documentation brand', () => {
+  expect(resolvePublicConfig(ixiaozuEnvironment).brand).toEqual({
+    id: 'ixiaozu',
+    siteTitle: 'iXiaozu 开发者文档',
+    tagline: 'iXiaozu AI 创作平台开发指南',
+    navbarTitle: 'iXiaozu',
+    logoPath: 'img/brand/logo.svg',
+    faviconPath: 'img/brand/favicon.png',
+    socialImagePath: 'img/brand/social.png',
+    defaultFont: 'sans',
+  });
+});
+
+test('rejects incomplete or unknown documentation brands', () => {
+  expect(() =>
+    resolvePublicConfig({
+      ...ixiaozuEnvironment,
+      DOCS_SITE_TITLE: '',
+    }),
+  ).toThrow('DOCS_SITE_TITLE must be set for ixiaozu');
+  expect(() =>
+    resolvePublicConfig({
+      ...validEnvironment,
+      DOCS_BRAND_ID: 'unknown',
+    }),
+  ).toThrow('DOCS_BRAND_ID');
+});
+
+test('rejects unsafe brand asset paths and unsupported fonts', () => {
+  for (const logoPath of [
+    'https://assets.example/logo.svg',
+    '../img/brand/logo.svg',
+    '/img/brand/logo.svg',
+  ]) {
+    expect(() =>
+      resolvePublicConfig({
+        ...ixiaozuEnvironment,
+        DOCS_LOGO_PATH: logoPath,
+      }),
+    ).toThrow('DOCS_LOGO_PATH');
+  }
+  expect(() =>
+    resolvePublicConfig({
+      ...ixiaozuEnvironment,
+      DOCS_DEFAULT_FONT: 'comic-sans',
+    }),
+  ).toThrow('DOCS_DEFAULT_FONT');
+});
+
 test('resolves the public /docs/ deployment contract for both environments', () => {
   expect(
     resolvePublicConfig({
@@ -53,12 +118,23 @@ test('resolves the public /docs/ deployment contract for both environments', () 
       DOCS_SITE_URL: 'https://dev.molii.co',
       DOCS_BASE_URL: '/docs/',
       DOCS_API_BASE_URL: 'https://dev.molii.co',
+      DOCS_BRAND_ID: 'molii',
     }),
   ).toEqual({
     siteUrl: 'https://dev.molii.co',
     baseUrl: '/docs/',
     apiBaseUrl: 'https://dev.molii.co',
     noIndex: true,
+    brand: {
+      id: 'molii',
+      siteTitle: 'Molii 开发者文档',
+      tagline: '构建可靠、可扩展的 AI 创作体验',
+      navbarTitle: 'Molii',
+      logoPath: 'img/molii-wordmark.png',
+      faviconPath: 'img/molii-favicon-32.png?v=4',
+      socialImagePath: 'img/molii-mark.svg',
+      defaultFont: 'serif',
+    },
   });
 
   expect(
@@ -67,12 +143,23 @@ test('resolves the public /docs/ deployment contract for both environments', () 
       DOCS_SITE_URL: 'https://molii.co',
       DOCS_BASE_URL: '/docs/',
       DOCS_API_BASE_URL: 'https://molii.co',
+      DOCS_BRAND_ID: 'molii',
     }),
   ).toEqual({
     siteUrl: 'https://molii.co',
     baseUrl: '/docs/',
     apiBaseUrl: 'https://molii.co',
     noIndex: false,
+    brand: {
+      id: 'molii',
+      siteTitle: 'Molii 开发者文档',
+      tagline: '构建可靠、可扩展的 AI 创作体验',
+      navbarTitle: 'Molii',
+      logoPath: 'img/molii-wordmark.png',
+      faviconPath: 'img/molii-favicon-32.png?v=4',
+      socialImagePath: 'img/molii-mark.svg',
+      defaultFont: 'serif',
+    },
   });
 });
 
@@ -97,6 +184,7 @@ test('enables Algolia only for a fully configured development build', () => {
       DOCS_SITE_URL: 'https://molii.co',
       DOCS_BASE_URL: '/docs/',
       DOCS_API_BASE_URL: 'https://molii.co',
+      DOCS_BRAND_ID: 'molii',
     }).algolia,
   ).toBeUndefined();
 });

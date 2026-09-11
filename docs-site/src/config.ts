@@ -7,10 +7,22 @@ export interface PublicAlgoliaConfig {
   indexName: string;
 }
 
+export interface PublicBrandConfig {
+  id: 'molii' | 'ixiaozu';
+  siteTitle: string;
+  tagline: string;
+  navbarTitle: string;
+  logoPath: string;
+  faviconPath: string;
+  socialImagePath: string;
+  defaultFont: 'sans' | 'serif';
+}
+
 export interface PublicConfig {
   algolia?: PublicAlgoliaConfig;
   apiBaseUrl: string;
   baseUrl: string;
+  brand: PublicBrandConfig;
   noIndex: boolean;
   siteUrl: string;
 }
@@ -20,6 +32,17 @@ const publicVariables = new Set([
   'DOCS_SITE_URL',
   'DOCS_BASE_URL',
   'DOCS_API_BASE_URL',
+  'DOCS_BRAND_ID',
+  'DOCS_SITE_TITLE',
+  'DOCS_TAGLINE',
+  'DOCS_NAVBAR_TITLE',
+  'DOCS_LOGO_PATH',
+  'DOCS_FAVICON_PATH',
+  'DOCS_SOCIAL_IMAGE_PATH',
+  'DOCS_DEFAULT_FONT',
+  'DOCS_LOGO_SOURCE_URL',
+  'DOCS_FAVICON_SOURCE_URL',
+  'DOCS_SOCIAL_IMAGE_SOURCE_URL',
   'DOCS_ALGOLIA_APP_ID',
   'DOCS_ALGOLIA_SEARCH_API_KEY',
   'DOCS_ALGOLIA_INDEX_NAME',
@@ -70,6 +93,90 @@ function normalizeBaseUrl(value: string): string {
   return normalizedPath ? `/${normalizedPath}/` : '/';
 }
 
+const moliiBrand: PublicBrandConfig = {
+  id: 'molii',
+  siteTitle: 'Molii 开发者文档',
+  tagline: '构建可靠、可扩展的 AI 创作体验',
+  navbarTitle: 'Molii',
+  logoPath: 'img/molii-wordmark.png',
+  faviconPath: 'img/molii-favicon-32.png?v=4',
+  socialImagePath: 'img/molii-mark.svg',
+  defaultFont: 'serif',
+};
+
+function requiredForBrand(
+  environment: PublicEnvironment,
+  name: string,
+  brandId: PublicBrandConfig['id'],
+): string {
+  const value = environment[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} must be set for ${brandId}.`);
+  }
+  return value;
+}
+
+function brandAssetPath(value: string, name: string): string {
+  if (
+    !value.startsWith('img/brand/') ||
+    value.includes('..') ||
+    value.includes('\\') ||
+    value.includes('://') ||
+    value.includes('?') ||
+    value.includes('#') ||
+    !/\.(?:png|jpe?g|webp|svg|ico)$/i.test(value)
+  ) {
+    throw new Error(`${name} must be a relative file under img/brand/.`);
+  }
+  return value;
+}
+
+function resolveBrand(environment: PublicEnvironment): PublicBrandConfig {
+  const id = required(environment, 'DOCS_BRAND_ID');
+  if (id !== 'molii' && id !== 'ixiaozu') {
+    throw new Error('DOCS_BRAND_ID must be either molii or ixiaozu.');
+  }
+
+  const configuredFields = [
+    'DOCS_SITE_TITLE',
+    'DOCS_TAGLINE',
+    'DOCS_NAVBAR_TITLE',
+    'DOCS_LOGO_PATH',
+    'DOCS_FAVICON_PATH',
+    'DOCS_SOCIAL_IMAGE_PATH',
+    'DOCS_DEFAULT_FONT',
+  ].filter((name) => environment[name]?.trim());
+
+  if (id === 'molii' && configuredFields.length === 0) {
+    return moliiBrand;
+  }
+
+  const defaultFont = requiredForBrand(environment, 'DOCS_DEFAULT_FONT', id);
+  if (defaultFont !== 'sans' && defaultFont !== 'serif') {
+    throw new Error('DOCS_DEFAULT_FONT must be either sans or serif.');
+  }
+
+  return {
+    id,
+    siteTitle: requiredForBrand(environment, 'DOCS_SITE_TITLE', id),
+    tagline: requiredForBrand(environment, 'DOCS_TAGLINE', id),
+    navbarTitle: requiredForBrand(environment, 'DOCS_NAVBAR_TITLE', id),
+    logoPath: brandAssetPath(
+      requiredForBrand(environment, 'DOCS_LOGO_PATH', id),
+      'DOCS_LOGO_PATH',
+    ),
+    faviconPath: brandAssetPath(
+      requiredForBrand(environment, 'DOCS_FAVICON_PATH', id),
+      'DOCS_FAVICON_PATH',
+    ),
+    socialImagePath: brandAssetPath(
+      requiredForBrand(environment, 'DOCS_SOCIAL_IMAGE_PATH', id),
+      'DOCS_SOCIAL_IMAGE_PATH',
+    ),
+    defaultFont,
+  };
+}
+
 function assertNoSecrets(environment: PublicEnvironment): void {
   for (const [name, value] of Object.entries(environment)) {
     if (name.startsWith('DOCS_') && !publicVariables.has(name) && secretName.test(name) && value) {
@@ -113,6 +220,7 @@ export function resolvePublicConfig(environment: PublicEnvironment): PublicConfi
     siteUrl: originUrl(required(environment, 'DOCS_SITE_URL'), 'DOCS_SITE_URL'),
     baseUrl: normalizeBaseUrl(required(environment, 'DOCS_BASE_URL')),
     apiBaseUrl: originUrl(required(environment, 'DOCS_API_BASE_URL'), 'DOCS_API_BASE_URL'),
+    brand: resolveBrand(environment),
     noIndex: docsEnvironment !== 'production',
   };
 }
