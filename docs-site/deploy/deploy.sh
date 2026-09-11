@@ -216,7 +216,7 @@ check_redirect() {
 check_redirect '/docs'
 check_redirect '/docs/'
 if ! curl --fail --silent --show-error --max-time 15 \
-  --output "$health_body_file" "$site_origin/docs/quick-start"; then
+  --output "$health_body_file" "$site_origin/docs/quick-start/"; then
   fail 'public quick-start request failed'
 fi
 if ! grep -Fq -- "$site_marker" "$health_body_file"; then

@@ -97,9 +97,16 @@ case "$url" in
     fi
     printf '308'
     ;;
-  */docs/quick-start)
+  */docs/quick-start|*/docs/quick-start/)
     if [[ "${MOCK_HEALTH:-success}" == failed ]]; then
       exit 22
+    elif [[ "${MOCK_HEALTH:-success}" == redirect && "$url" != */docs/quick-start/ ]]; then
+      body='<html><body>Moved Permanently</body></html>'
+      if [[ -n "$output" ]]; then
+        printf '%s' "$body" >"$output"
+      else
+        printf '%s' "$body"
+      fi
     elif [[ "${MOCK_HEALTH:-success}" == large ]]; then
       body="<title data-rh=\"true\">${MOCK_SITE_MARKER:-Molii 开发者文档}</title>"
       if [[ -n "$output" ]]; then
@@ -365,6 +372,29 @@ test_large_health_response_does_not_fail_after_marker_match() {
   assert_equals "$content" 'new-release-large' 'large public page keeps the new documentation release'
 }
 
+test_health_check_uses_canonical_directory_url() {
+  local fixture public_dir content status
+  fixture=$(new_fixture)
+  public_dir="$fixture/public/aigc.ixiaozu.cn/index/docs"
+  mkdir -p "$public_dir/quick-start"
+  printf 'previous\n' >"$public_dir/quick-start/index.html"
+  make_artifact "$fixture" production-ixiaozu release-redirect 'iXiaozu 开发者文档'
+
+  set +e
+  MOCK_HEALTH=redirect MOCK_SITE_MARKER='iXiaozu 开发者文档' run_deploy \
+    "$fixture" production-ixiaozu release-redirect "$ARTIFACT_PATH" "$ARTIFACT_SHA" \
+    https://aigc.ixiaozu.cn 'iXiaozu 开发者文档' >/dev/null 2>&1
+  status=$?
+  set -e
+  assert_equals "$status" '0' 'public health check uses the canonical quick-start directory URL'
+  if [[ -f "$public_dir/assets/main.js" ]]; then
+    content=$(<"$public_dir/assets/main.js")
+  else
+    content='missing'
+  fi
+  assert_equals "$content" 'new-release-redirect' 'redirected health check keeps the new documentation release'
+}
+
 test_missing_marker_restores_previous_content() {
   local fixture public_dir content status
   fixture=$(new_fixture)
@@ -419,6 +449,7 @@ test_ixiaozu_publish_uses_independent_roots_and_marker
 test_rejects_cross_site_origin
 test_failed_health_check_restores_previous_content
 test_large_health_response_does_not_fail_after_marker_match
+test_health_check_uses_canonical_directory_url
 test_missing_marker_restores_previous_content
 test_health_body_does_not_follow_predictable_symlink
 

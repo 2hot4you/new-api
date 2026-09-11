@@ -1,0 +1,12 @@
+{
+  "id": "follow-docs-health-redirect",
+  "title": "修复文档部署健康检查未跟随目录跳转",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "devops",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并发布修复",
+  "createdAt": "2026-09-11T17:55:11Z",
+  "branch": "feat/multi-site-deployment-branding"
+}
