@@ -199,4 +199,3 @@ git commit -m "ci: build site-specific application images"
 - [ ] Simulate iXiaozu success plus Molii failure and assert iXiaozu remains deployed.
 - [ ] Inspect the complete diff for shared secrets, hard-coded credentials, mutable-image deployment, and accidental data synchronization.
 - [ ] Record exact outcomes and the unavailable external CCG model-wrapper limitation in the review file.
-

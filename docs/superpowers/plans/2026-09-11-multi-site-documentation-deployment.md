@@ -207,4 +207,3 @@ git commit -m "ci: deploy branded docs to both production sites"
 - [ ] Inspect generated canonical URLs, sitemap URLs, API examples, navbar, footer, font, logo, favicon, and social metadata for every target.
 - [ ] Verify the iXiaozu artifact can be opened with network disabled and does not request Molii brand assets.
 - [ ] Record exact commands, results, remaining operator-provided public asset URLs, and the unavailable external CCG model-wrapper limitation in the review file.
-

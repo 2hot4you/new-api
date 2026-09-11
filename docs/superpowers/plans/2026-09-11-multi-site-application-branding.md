@@ -276,4 +276,3 @@ git commit -m "feat: use site-specific default typography"
 - [ ] Inspect each generated `dist/index.html` for title, description, favicon, Apple icon, and absence of cross-brand strings.
 - [ ] Open both local builds at desktop and mobile widths; verify logo, title, banner font, alternating characters, accessible text, and runtime `/api/status` override.
 - [ ] Record exact commands and results in the CCG review file.
-
