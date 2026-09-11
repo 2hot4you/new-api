@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { describe, test } from 'vitest'
 
 import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, test } from 'vitest'
 
 import { HeaderBrand } from '../header-brand'
 
@@ -10,6 +10,7 @@ function renderBrand(
 ) {
   return renderToStaticMarkup(
     <HeaderBrand
+      brandId='molii'
       systemLogo='/logo.png'
       siteName='Molii'
       loading={false}

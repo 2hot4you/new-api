@@ -24,6 +24,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
+import { SITE_BRAND } from '@/config/site-brand'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { DEFAULT_LOGO } from '@/lib/constants'
@@ -46,14 +47,16 @@ interface SystemBrandInlineContentProps {
   logo: string
   name: string
   logoAlt: string
+  brandId: typeof SITE_BRAND.id
 }
 
 export function SystemBrandInlineContent({
   logo,
   name,
   logoAlt,
+  brandId,
 }: SystemBrandInlineContentProps) {
-  if (logo === DEFAULT_LOGO) {
+  if (brandId === 'molii' && logo === DEFAULT_LOGO) {
     return (
       <MoliiWordmark
         data-console-wordmark
@@ -105,7 +108,12 @@ export function SystemBrand(props: SystemBrandProps) {
           'hover:bg-accent focus-visible:ring-ring/40 focus-visible:ring-2'
         )}
       >
-        <SystemBrandInlineContent logo={logo} name={name} logoAlt={t('Logo')} />
+        <SystemBrandInlineContent
+          brandId={SITE_BRAND.id}
+          logo={logo}
+          name={name}
+          logoAlt={t('Logo')}
+        />
       </Link>
     )
   }

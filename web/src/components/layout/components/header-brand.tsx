@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Skeleton } from '@/components/ui/skeleton'
 import { DEFAULT_LOGO } from '@/lib/constants'
 
+import type { SiteBrandId } from '../../../../build/site-brand'
 import { HeaderLogo } from './header-logo'
 import { MoliiWordmark } from './molii-wordmark'
 
@@ -27,6 +28,7 @@ export interface HeaderBrandProps {
   siteName: string
   loading: boolean
   logoLoaded: boolean
+  brandId: SiteBrandId
   customLogo?: React.ReactNode
 }
 
@@ -35,9 +37,11 @@ export function HeaderBrand({
   siteName,
   loading,
   logoLoaded,
+  brandId,
   customLogo,
 }: HeaderBrandProps) {
-  const useMoliiWordmark = !customLogo && systemLogo === DEFAULT_LOGO
+  const useMoliiWordmark =
+    brandId === 'molii' && !customLogo && systemLogo === DEFAULT_LOGO
 
   if (useMoliiWordmark) {
     if (loading) {

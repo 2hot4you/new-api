@@ -1,0 +1,12 @@
+{
+  "id": "fix-cross-brand-logo",
+  "title": "修复 iXiaozu 默认 Logo 被渲染为 Molii 字标",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交 develop/main",
+  "createdAt": "2026-09-11T18:33:24Z",
+  "branch": "feat/multi-site-deployment-branding"
+}

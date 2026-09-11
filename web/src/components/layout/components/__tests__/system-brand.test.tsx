@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict'
-import { describe, test } from 'vitest'
 
 import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, test } from 'vitest'
 
 import { SystemBrandInlineContent } from '../system-brand'
 
 describe('console inline brand', () => {
   test('uses the shared Molii wordmark without the legacy logo and name', () => {
     const markup = renderToStaticMarkup(
-      <SystemBrandInlineContent logo='/logo.png' name='Molii' logoAlt='Logo' />
+      <SystemBrandInlineContent
+        brandId='molii'
+        logo='/logo.png'
+        name='Molii'
+        logoAlt='Logo'
+      />
     )
 
     assert.match(markup, /data-molii-wordmark="true"/)
@@ -21,6 +26,7 @@ describe('console inline brand', () => {
   test('preserves the configured console logo and name', () => {
     const markup = renderToStaticMarkup(
       <SystemBrandInlineContent
+        brandId='molii'
         logo='/custom-brand.png'
         name='Custom Brand'
         logoAlt='Logo'
