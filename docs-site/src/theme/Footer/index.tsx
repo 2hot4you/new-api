@@ -2,6 +2,7 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import type { ReactNode } from 'react';
 
+import type { PublicBrandConfig } from '../../config';
 import { ProviderIcon, type ProviderName } from './provider-icons';
 import styles from './styles.module.css';
 
@@ -119,9 +120,9 @@ function VendorColumn({ platformUrl }: { platformUrl: (path: string) => string }
   );
 }
 
-function BrandLink({ children, href }: { children: ReactNode; href: string }) {
+function BrandLink({ children, href, name }: { children: ReactNode; href: string; name: string }) {
   return (
-    <a href={href} className={styles.brandLink} aria-label='返回 Molii 首页'>
+    <a href={href} className={styles.brandLink} aria-label={`返回 ${name} 首页`}>
       {children}
     </a>
   );
@@ -129,7 +130,8 @@ function BrandLink({ children, href }: { children: ReactNode; href: string }) {
 
 export default function Footer() {
   const { siteConfig } = useDocusaurusContext();
-  const logoUrl = useBaseUrl('/img/molii-wordmark.png');
+  const docsBrand = siteConfig.customFields?.docsBrand as PublicBrandConfig;
+  const logoUrl = useBaseUrl(`/${docsBrand.logoPath}`);
   const quickStartUrl = useBaseUrl('/quick-start');
   const apiReferenceUrl = useBaseUrl('/api-reference');
   const authenticationUrl = useBaseUrl('/api-basics/authentication');
@@ -172,8 +174,8 @@ export default function Footer() {
       <div className={styles.container}>
         <div className={styles.grid}>
           <div className={styles.brand}>
-            <BrandLink href={platformUrl('/')}>
-              <img src={logoUrl} alt='Molii' className={styles.wordmark} />
+            <BrandLink href={platformUrl('/')} name={docsBrand.navbarTitle}>
+              <img src={logoUrl} alt={docsBrand.navbarTitle} className={styles.wordmark} />
             </BrandLink>
             <p className={styles.description}>
               通过统一 API Key 连接语言、图片与视频模型，并提供透明计费和完整生成记录。
@@ -192,7 +194,9 @@ export default function Footer() {
         </div>
 
         <div className={styles.bottom}>
-          <span>© {new Date().getFullYear()} Molii. 保留所有权利。</span>
+          <span>
+            © {new Date().getFullYear()} {docsBrand.navbarTitle}. 保留所有权利。
+          </span>
           <span className={styles.attribution}>
             <span>OpenAI、Anthropic 与 Gemini 兼容 API</span>
             <span aria-hidden='true' className={styles.dot}>

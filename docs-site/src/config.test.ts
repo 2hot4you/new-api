@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import siteConfig from '../docusaurus.config';
 import { resolvePublicConfig } from './config';
+import { createSiteConfig } from './site-config';
 
 const validEnvironment = {
   DOCS_ENV: 'development',
@@ -215,4 +216,47 @@ test('links the documentation wordmark to the configured site origin', () => {
     href: siteConfig.url,
     target: '_self',
   });
+});
+
+test('builds Docusaurus presentation from the selected brand', () => {
+  const publicConfig = resolvePublicConfig(ixiaozuEnvironment);
+  const config = createSiteConfig(publicConfig);
+  const themeConfig = config.themeConfig as {
+    image?: string;
+    navbar?: {
+      title?: string;
+      logo?: { alt?: string; src?: string; href?: string };
+    };
+  };
+
+  expect(config).toMatchObject({
+    title: 'iXiaozu 开发者文档',
+    tagline: 'iXiaozu AI 创作平台开发指南',
+    favicon: 'img/brand/favicon.png',
+    url: 'https://aigc.ixiaozu.cn',
+    baseUrl: '/docs/',
+  });
+  expect(themeConfig.image).toBe('img/brand/social.png');
+  expect(themeConfig.navbar).toMatchObject({
+    title: 'iXiaozu',
+    logo: {
+      alt: 'iXiaozu',
+      src: 'img/brand/logo.svg',
+      href: 'https://aigc.ixiaozu.cn',
+    },
+  });
+  expect(config.customFields).toMatchObject({
+    apiBaseUrl: 'https://aigc.ixiaozu.cn',
+    docsBrand: publicConfig.brand,
+  });
+});
+
+test('injects the selected documentation font before paint', () => {
+  const config = createSiteConfig(resolvePublicConfig(ixiaozuEnvironment));
+  const plugin = (config.plugins as Array<() => {
+    injectHtmlTags: () => { headTags: Array<{ innerHTML?: string }> };
+  }>)[0]();
+  const tags = plugin.injectHtmlTags().headTags;
+
+  expect(tags[0]?.innerHTML).toContain("dataset.docsFont = 'sans'");
 });

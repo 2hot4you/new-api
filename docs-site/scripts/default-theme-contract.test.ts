@@ -11,7 +11,7 @@ async function source(relativePath: string) {
 
 describe('Docusaurus default-theme contract', () => {
   test('uses the official Docusaurus shell with a scoped footer replacement', async () => {
-    const config = await source('docusaurus.config.ts');
+    const config = await source('src/site-config.ts');
     const fonts = await source('src/css/fonts.css');
 
     expect(config).toContain("customCss: './src/css/fonts.css'");
@@ -32,7 +32,7 @@ describe('Docusaurus default-theme contract', () => {
   });
 
   test('uses only the default Docs renderer for guides and API reference pages', async () => {
-    const config = await source('docusaurus.config.ts');
+    const config = await source('src/site-config.ts');
 
     expect(config).toContain("'@cmfcmf/docusaurus-search-local'");
     expect(config).not.toContain('docusaurus-plugin-openapi-docs');
@@ -43,7 +43,8 @@ describe('Docusaurus default-theme contract', () => {
     expect(config).toContain('disableSwitch: true');
     expect(config).toContain('respectPrefersColorScheme: false');
     expect(config).not.toContain("title: 'Molii'");
-    expect(config).toContain("src: 'img/molii-wordmark.png'");
+    expect(config).toContain('src: brand.logoPath');
+    expect(config).toContain("title: brand.id === 'molii' ? undefined : brand.navbarTitle");
     for (const label of ['开始使用', '平台与账户', '开发指南', '模型与能力', 'API 参考', '帮助与更新']) {
       expect(config).toContain(`label: '${label}'`);
     }
@@ -62,13 +63,13 @@ describe('Docusaurus default-theme contract', () => {
   });
 
   test('uses the exact New API favicon asset', async () => {
-    const config = await source('docusaurus.config.ts');
+    const config = await source('src/site-config.ts');
     const [docsFavicon, appFavicon] = await Promise.all([
       readFile(join(siteRoot, 'static/img/molii-favicon-32.png')),
       readFile(join(siteRoot, '../web/public/molii-favicon-32.png')),
     ]);
 
-    expect(config).toContain("favicon: 'img/molii-favicon-32.png?v=4'");
+    expect(config).toContain('favicon: brand.faviconPath');
     expect(config).not.toContain("favicon: 'img/molii-mark.svg'");
     expect(docsFavicon.equals(appFavicon)).toBe(true);
   });
@@ -90,8 +91,17 @@ describe('Docusaurus default-theme contract', () => {
     }
     expect(footer).toContain('通过统一 API Key 连接语言、图片与视频模型');
     expect(footer).toContain('OpenAI、Anthropic 与 Gemini 兼容 API');
+    expect(footer).toContain('docsBrand');
     expect(footer).toContain('New API');
     expect(footer).toContain('QuantumNous');
+  });
+
+  test('supports site-selected serif and sans typography without changing code fonts', async () => {
+    const fonts = await source('src/css/fonts.css');
+
+    expect(fonts).toContain("[data-docs-font='serif']");
+    expect(fonts).toContain("[data-docs-font='sans']");
+    expect(fonts).toContain(':is(code, kbd, pre, samp)');
   });
 
   test('keeps platform links at the origin root and docs links under the configured base path', async () => {

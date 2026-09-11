@@ -5,14 +5,33 @@
   font-size: 12px;
   --ifm-navbar-height: 42px;
   --ifm-navbar-padding-vertical: 4px;
-  --ifm-font-family-base:
+  --docs-font-serif:
     'Lora Variable', 'Lora', 'Source Serif Pro', 'Source Serif 4',
     'Noto Serif SC', 'Noto Serif TC', 'Noto Serif JP', 'Noto Serif KR',
     'Source Han Serif SC', 'Source Han Serif TC', 'Source Han Serif',
     'Songti SC', 'STSong', 'STSongti-SC-Regular', 'PingFang SC', 'SimSun',
     'NSimSun', '宋体', 'FangSong', '仿宋', 'KaiTi', '楷体', Georgia,
     'Times New Roman', Cambria, 'Liberation Serif', serif;
+  --docs-font-sans:
+    'Public Sans Variable', 'Public Sans', 'Noto Sans SC', 'Noto Sans TC',
+    'Noto Sans JP', 'Noto Sans KR', 'PingFang SC', 'Microsoft YaHei',
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ifm-font-family-base: var(--docs-font-serif);
   --ifm-heading-font-family: var(--ifm-font-family-base);
+}
+
+[data-docs-font='serif'] {
+  --ifm-font-family-base: var(--docs-font-serif);
+  --ifm-heading-font-family: var(--docs-font-serif);
+}
+
+[data-docs-font='sans'] {
+  --ifm-font-family-base: var(--docs-font-sans);
+  --ifm-heading-font-family: var(--docs-font-sans);
+}
+
+:is(code, kbd, pre, samp) {
+  font-family: var(--ifm-font-family-monospace);
 }
 
 .navbar {

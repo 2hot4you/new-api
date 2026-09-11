@@ -1,6 +1,5 @@
-import type { Config } from '@docusaurus/types';
-
 import { resolvePublicConfig } from './src/config';
+import { createSiteConfig } from './src/site-config';
 
 const publicConfig = resolvePublicConfig({
   ...process.env,
@@ -11,79 +10,4 @@ const publicConfig = resolvePublicConfig({
   DOCS_BRAND_ID: process.env.DOCS_BRAND_ID ?? 'molii',
 });
 
-const config: Config = {
-  title: 'Molii 开发者文档',
-  tagline: '构建可靠、可扩展的 AI 创作体验',
-  favicon: 'img/molii-favicon-32.png?v=4',
-  url: publicConfig.siteUrl,
-  baseUrl: publicConfig.baseUrl,
-  organizationName: 'molii',
-  projectName: 'developer-docs',
-  onBrokenLinks: 'throw',
-  onBrokenAnchors: 'throw',
-  onDuplicateRoutes: 'throw',
-  noIndex: publicConfig.noIndex,
-  markdown: {
-    hooks: {
-      onBrokenMarkdownImages: 'throw',
-      onBrokenMarkdownLinks: 'throw',
-    },
-  },
-  i18n: {
-    defaultLocale: 'zh-Hans',
-    locales: ['zh-Hans'],
-  },
-  presets: [
-    [
-      'classic',
-      {
-        docs: {
-          routeBasePath: '/',
-          sidebarPath: './sidebars.ts',
-        },
-        blog: false,
-        theme: {
-          customCss: './src/css/fonts.css',
-        },
-      },
-    ],
-  ],
-  themes: publicConfig.algolia
-    ? []
-    : [['@cmfcmf/docusaurus-search-local', { indexBlog: false, language: ['zh'] }]],
-  themeConfig: {
-    ...(publicConfig.algolia
-      ? {
-          algolia: publicConfig.algolia,
-        }
-      : {}),
-    image: 'img/molii-mark.svg',
-    colorMode: {
-      defaultMode: 'light',
-      disableSwitch: true,
-      respectPrefersColorScheme: false,
-    },
-    navbar: {
-      logo: {
-        alt: 'Molii',
-        src: 'img/molii-wordmark.png',
-        href: publicConfig.siteUrl,
-        target: '_self',
-      },
-      items: [
-        { label: '开始使用', to: '/quick-start' },
-        { label: '平台与账户', to: '/platform' },
-        { label: '开发指南', to: '/api-basics' },
-        { label: '模型与能力', to: '/models' },
-        { label: 'API 参考', to: '/api-reference' },
-        { label: '帮助与更新', to: '/help' },
-      ],
-    },
-  },
-  customFields: {
-    apiBaseUrl: publicConfig.apiBaseUrl,
-    noIndex: publicConfig.noIndex,
-  },
-};
-
-export default config;
+export default createSiteConfig(publicConfig);
