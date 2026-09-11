@@ -74,6 +74,36 @@ jobs:
     timeout-minutes: 25
     env:
       GOWORK: 'off'
+      TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/new_api_ci?sslmode=disable
+      FULL_MIGRATION_POSTGRES_TEST_DSN: postgresql://postgres:postgres@127.0.0.1:5432/new_api_full_migration?sslmode=disable
+      MARKETPLACE_ORDER_POSTGRES_TEST_DSN: postgresql://postgres:postgres@127.0.0.1:5432/new_api_marketplace_order?sslmode=disable
+      MODEL_MARKETPLACE_POSTGRES_TEST_DSN: postgresql://postgres:postgres@127.0.0.1:5432/new_api_model_marketplace?sslmode=disable
+      MODEL_BILLING_CURRENCY_POSTGRES_TEST_DSN: postgresql://postgres:postgres@127.0.0.1:5432/new_api_model_billing_currency?sslmode=disable
+      REDEMPTION_POSTGRES_TEST_DSN: postgresql://postgres:postgres@127.0.0.1:5432/new_api_redemption_batch?sslmode=disable
+      TEST_REDIS_DSN: redis://127.0.0.1:6379/0
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: new_api_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d new_api_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -107,6 +137,18 @@ jobs:
           VITE_SITE_PROFILE: molii
         run: bun run build
 
+      - name: Create isolated PostgreSQL test databases
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql --host 127.0.0.1 --username postgres --dbname new_api_ci --set ON_ERROR_STOP=1 <<'SQL'
+          CREATE DATABASE new_api_full_migration;
+          CREATE DATABASE new_api_marketplace_order;
+          CREATE DATABASE new_api_model_marketplace;
+          CREATE DATABASE new_api_model_billing_currency;
+          CREATE DATABASE new_api_redemption_batch;
+          SQL
+
       - name: Vet root module
         run: go vet ./...
 
@@ -123,6 +165,9 @@ jobs:
 
       - name: Test root and relaykit modules
         run: make test
+
+      - name: Run request lifecycle Race Detector
+        run: go test -race ./common ./middleware ./service ./controller ./relay ./router -count=1
 
       - name: Test deployment contracts
         run: bash deploy/tests/deploy_test.sh

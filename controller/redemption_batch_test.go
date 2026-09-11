@@ -42,9 +42,9 @@ func TestDeleteRedemptionBatch(t *testing.T) {
 				logDriver = mysql.Open(logDSN)
 				dbType = common.DatabaseTypeMySQL
 			case "postgres":
-				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				dsn := os.Getenv("REDEMPTION_POSTGRES_TEST_DSN")
 				if dsn == "" {
-					t.Skip("TEST_POSTGRES_DSN is not configured")
+					t.Skip("REDEMPTION_POSTGRES_TEST_DSN is not configured")
 				}
 				driver = postgres.Open(dsn)
 				logDSN := os.Getenv("TEST_POSTGRES_LOG_DSN")

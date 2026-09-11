@@ -378,7 +378,7 @@ test_ixiaozu_runtime_template_uses_verified_tls() {
 }
 
 test_workflow_delivery_contract() {
-  local workflow content dockerfile dockerfile_content
+  local workflow content ci_workflow ci_content dockerfile dockerfile_content
   workflow="$PROJECT_ROOT/.github/workflows/deploy.yml"
   if [[ ! -f "$workflow" ]]; then
     fail 'deployment workflow exists'
@@ -386,6 +386,8 @@ test_workflow_delivery_contract() {
   fi
 
   content=$(<"$workflow")
+  ci_workflow="$PROJECT_ROOT/.github/workflows/ci.yml"
+  ci_content=$(<"$ci_workflow")
   dockerfile="$PROJECT_ROOT/Dockerfile"
   dockerfile_content=$(<"$dockerfile")
   assert_contains "$content" '- main' 'workflow deploys main pushes'
@@ -404,6 +406,19 @@ test_workflow_delivery_contract() {
   assert_contains "$content" 'Candidate source refs are restricted to development deployments' 'candidate source refs cannot target production'
   assert_contains "$content" 'backup_postgres:' 'workflow exposes an explicit PostgreSQL backup gate'
   assert_contains "$content" 'verify_repeated_startup:' 'workflow exposes an explicit repeated-startup gate'
+  assert_contains "$content" 'TEST_POSTGRES_DSN: postgresql://' 'deployment verification uses an explicit PostgreSQL test database'
+  assert_contains "$content" 'TEST_REDIS_DSN: redis://' 'deployment verification uses an explicit Redis test database'
+  assert_contains "$content" 'image: postgres:15-alpine' 'deployment verification provisions PostgreSQL 15'
+  assert_contains "$content" 'image: redis:7-alpine' 'deployment verification provisions Redis 7'
+  assert_contains "$content" 'CREATE DATABASE new_api_full_migration;' 'deployment verification creates the full migration database'
+  assert_contains "$content" 'CREATE DATABASE new_api_marketplace_order;' 'deployment verification creates the marketplace order database'
+  assert_contains "$content" 'CREATE DATABASE new_api_model_marketplace;' 'deployment verification creates the model marketplace database'
+  assert_contains "$content" 'CREATE DATABASE new_api_model_billing_currency;' 'deployment verification creates the model billing currency database'
+  assert_contains "$content" 'REDEMPTION_POSTGRES_TEST_DSN: postgresql://' 'deployment verification isolates redemption PostgreSQL tests'
+  assert_contains "$content" 'CREATE DATABASE new_api_redemption_batch;' 'deployment verification creates the redemption test database'
+  assert_contains "$content" 'go test -race ./common ./middleware ./service ./controller ./relay ./router -count=1' 'deployment verification runs the request lifecycle race detector'
+  assert_contains "$ci_content" 'REDEMPTION_POSTGRES_TEST_DSN: postgresql://' 'pull request CI isolates redemption PostgreSQL tests'
+  assert_contains "$ci_content" 'CREATE DATABASE new_api_redemption_batch;' 'pull request CI creates the redemption test database'
   assert_not_contains "$content" 'SQL_DSN' 'workflow does not receive the PostgreSQL secret'
   assert_not_contains "$content" 'REDIS_CONN_STRING' 'workflow does not receive the Redis secret'
   assert_contains "$content" 'targets: ${{ steps.target.outputs.targets }}' 'prepare exports a deployment target matrix'

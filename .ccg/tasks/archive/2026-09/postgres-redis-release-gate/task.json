@@ -1,0 +1,12 @@
+{
+  "id": "postgres-redis-release-gate",
+  "title": "Use PostgreSQL and Redis for the deployment verification gate",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci",
+  "currentPhase": "completed",
+  "nextAction": "Archive task and commit the verified release gate",
+  "createdAt": "2026-09-11T12:00:00Z",
+  "branch": "feat/multi-site-deployment-branding"
+}
