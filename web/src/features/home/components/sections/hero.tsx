@@ -20,6 +20,7 @@ import { ArrowUpRight, BookOpen, Layers3, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { SITE_BRAND } from '@/config/site-brand'
 import type { PricingModel } from '@/features/pricing/types'
 import { useStatus } from '@/hooks/use-status'
 
@@ -35,6 +36,10 @@ interface HeroProps {
 export function Hero(props: HeroProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
+  const brandSentence = t('Create with Molii.').replace(
+    'Molii',
+    SITE_BRAND.bannerBrand
+  )
   const docsUrl =
     (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
 
@@ -69,7 +74,10 @@ export function Hero(props: HeroProps) {
             {t('Build with every kind of AI.')}
           </span>
           <span className='text-muted-foreground mt-2 block text-balance sm:whitespace-nowrap'>
-            <MoliiBrandSentence sentence={t('Create with Molii.')} />
+            <MoliiBrandSentence
+              sentence={brandSentence}
+              brandName={SITE_BRAND.bannerBrand}
+            />
           </span>
         </h1>
 
