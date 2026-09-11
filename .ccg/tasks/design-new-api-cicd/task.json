@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "devops",
   "currentPhase": "planning",
-  "nextAction": "提交双生产站点与独立品牌设计，等待用户审阅",
+  "nextAction": "用户选择实施方式后，从 origin/develop 隔离执行三个实施计划",
   "createdAt": "2026-08-18T00:00:00Z",
   "branch": "develop"
 }
