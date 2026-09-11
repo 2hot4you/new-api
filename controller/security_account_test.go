@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/textproto"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -208,6 +209,10 @@ func TestSecurityAccountDeletionRechecksTransactionAndConsumesFailedProof(t *tes
 }
 
 func TestSecurityAccountDeletionConcurrentRequestsHaveOneWinner(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("TEST_POSTGRES_DSN")) == "" {
+		t.Skip("TEST_POSTGRES_DSN is required for the concurrent account deletion contract")
+	}
+	t.Setenv("TEST_SECURITY_DIALECT", "postgres")
 	user, identity := setupSecurityEnrollmentTest(t)
 	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountDelete}, "password")
 	start := make(chan struct{})

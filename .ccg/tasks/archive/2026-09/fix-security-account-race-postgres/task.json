@@ -1,0 +1,12 @@
+{
+  "id": "fix-security-account-race-postgres",
+  "title": "修复账户删除并发测试在 CI race 检查中使用 SQLite 导致的失败",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并推送修复后重新运行 develop CI/CD",
+  "createdAt": "2026-09-11T23:25:00+08:00",
+  "branch": "feat/multi-site-deployment-branding"
+}
