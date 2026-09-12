@@ -1,0 +1,12 @@
+{
+  "id": "sync-catalog-pricing-environments",
+  "title": "同步开发环境模型广场与定价目录到两个生产环境",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并由用户选择是否合并或推送",
+  "createdAt": "2026-09-12T00:00:00+08:00",
+  "branch": "feat/catalog-pricing-sync"
+}
