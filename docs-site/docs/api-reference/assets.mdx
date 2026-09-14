@@ -136,12 +136,31 @@ HTTP `200`：
 | `expires_at` | integer | 过期时间；通常为创建后 168 小时，过期后不能再引用 |
 | `verified_at` | integer | 最近验证时间 |
 | `preview_url` | string | 可能存在的短期预览入口 |
+| `error` | object | 仅失败时返回，包含经过安全处理的 `code` 和 `message` |
+
+素材审核失败时仍返回 HTTP `200`，并通过业务状态和 `error` 描述原因：
+
+```json
+{
+  "id": "asset_public_123",
+  "asset_type": "image",
+  "status": "FAILED",
+  "error": {
+    "code": "InputImageSensitiveContentDetected",
+    "message": "The request failed because the input image may contain sensitive information."
+  },
+  "created_at": 1785744000,
+  "expires_at": 1786348800,
+  "verified_at": 1785744001
+}
+```
 
 ### 错误与重试
 
 - `404`：素材不存在、已清理或不属于当前用户。
 - `429`、暂时性 `5xx` 和传输错误：GET 可有界退避。
 - 素材仍在处理时继续轮询，但设置总截止时间。
+- `status` 为 `FAILED` 时停止轮询，并读取 `error.code` 与 `error.message`；修正输入后创建新素材。
 - 素材过期后应重新创建，不要继续提交旧 `asset://` URI。
 
 ### 计费

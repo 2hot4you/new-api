@@ -9,9 +9,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -46,6 +48,8 @@ type StarAIAssetBinding struct {
 	CreatedAt             int64  `json:"created_at"`
 	ExpiresAt             int64  `json:"expires_at"`
 	VerifiedAt            int64  `json:"verified_at"`
+	ErrorCode             string `json:"error_code,omitempty"`
+	ErrorMessage          string `json:"error_message,omitempty"`
 }
 
 type StarAIAssetStats struct {
@@ -68,8 +72,21 @@ type StarAIAssetVerificationConfig struct {
 
 type starAIAssetVerificationResponse struct {
 	Status string                           `json:"status"`
+	Error  *starAIAssetVerificationError    `json:"error,omitempty"`
 	Data   *starAIAssetVerificationResponse `json:"data,omitempty"`
 }
+
+type starAIAssetVerificationError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+var (
+	starAIAssetURLPattern    = regexp.MustCompile(`(?i)https?://[^\s"'<>]+`)
+	starAIAssetSecretPattern = regexp.MustCompile(`(?i)(bearer\s+|sk-|(?:api[_-]?key|token|secret|authorization)[=:]\s*)[a-z0-9._-]+`)
+	starAIAssetIDPattern     = regexp.MustCompile(`(?i)\b(?:asset|task)-[a-z0-9_-]{8,}\b`)
+	starAIBrandPattern       = regexp.MustCompile(`(?i)\bstar[\s_-]*ai\b`)
+)
 
 func (r *starAIAssetVerificationResponse) payload() *starAIAssetVerificationResponse {
 	if r.Data != nil {
@@ -89,6 +106,39 @@ func NormalizeStarAIAssetStatus(status string) string {
 	default:
 		return strings.ToUpper(strings.TrimSpace(status))
 	}
+}
+
+func SanitizeStarAIAssetErrorMessage(value string) string {
+	value = starAIAssetURLPattern.ReplaceAllString(value, "[URL]")
+	value = starAIAssetSecretPattern.ReplaceAllString(value, "[REDACTED]")
+	value = starAIAssetIDPattern.ReplaceAllString(value, "[ID]")
+	value = common.MaskSensitiveInfo(value)
+	value = starAIBrandPattern.ReplaceAllString(value, "Molii Volcengine Imagine API")
+	value = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, value)
+	value = strings.Join(strings.Fields(value), " ")
+	runes := []rune(value)
+	if len(runes) > 240 {
+		value = string(runes[:240]) + "…"
+	}
+	return strings.TrimSpace(value)
+}
+
+func SanitizeStarAIAssetErrorCode(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' {
+			return r
+		}
+		return -1
+	}, value)
+	if len(value) > 64 {
+		value = value[:64]
+	}
+	return value
 }
 
 func StarAIChannelKeyFingerprint(key string) string {
@@ -289,10 +339,26 @@ func DeleteStarAIAssetBindingForAdmin(id string) error {
 }
 
 func UpdateStarAIAssetStatus(binding *StarAIAssetBinding, status string) error {
+	errorCode, errorMessage := "", ""
+	if NormalizeStarAIAssetStatus(status) == "FAILED" {
+		errorCode = binding.ErrorCode
+		errorMessage = binding.ErrorMessage
+	}
+	return UpdateStarAIAssetVerification(binding, status, errorCode, errorMessage)
+}
+
+func UpdateStarAIAssetVerification(binding *StarAIAssetBinding, status, errorCode, errorMessage string) error {
 	if binding == nil || !common.RedisEnabled || common.RDB == nil {
 		return ErrStarAIAssetUnavailable
 	}
 	binding.Status = NormalizeStarAIAssetStatus(status)
+	if binding.Status == "FAILED" {
+		binding.ErrorCode = SanitizeStarAIAssetErrorCode(errorCode)
+		binding.ErrorMessage = SanitizeStarAIAssetErrorMessage(errorMessage)
+	} else {
+		binding.ErrorCode = ""
+		binding.ErrorMessage = ""
+	}
 	binding.VerifiedAt = time.Now().Unix()
 	ttl, err := common.RDB.TTL(context.Background(), starAIAssetKey(binding.ID)).Result()
 	if err != nil || ttl <= 0 {
@@ -386,7 +452,13 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 	if status == "" {
 		return "", fmt.Errorf("%w: response status missing", ErrStarAIAssetVerify)
 	}
-	if err := UpdateStarAIAssetStatus(binding, status); err != nil {
+	payload := envelope.payload()
+	errorCode, errorMessage := "", ""
+	if payload.Error != nil {
+		errorCode = payload.Error.Code
+		errorMessage = payload.Error.Message
+	}
+	if err := UpdateStarAIAssetVerification(binding, status, errorCode, errorMessage); err != nil {
 		return "", err
 	}
 	switch status {
@@ -394,6 +466,11 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 		return "asset://" + binding.UpstreamID, nil
 	case "EXPIRED":
 		return "", ErrStarAIAssetExpired
+	case "FAILED":
+		if binding.ErrorMessage != "" {
+			return "", fmt.Errorf("%w: %s", ErrStarAIAssetVerify, binding.ErrorMessage)
+		}
+		return "", fmt.Errorf("%w: status=FAILED", ErrStarAIAssetVerify)
 	default:
 		return "", fmt.Errorf("%w (status=%s)", ErrStarAIAssetNotReady, status)
 	}

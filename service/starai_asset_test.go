@@ -148,6 +148,42 @@ func TestResolveStarAIAssetURIMarksUpstreamNotFoundExpired(t *testing.T) {
 	require.Positive(t, stored.VerifiedAt)
 }
 
+func TestResolveStarAIAssetURIReturnsAndPersistsUpstreamFailureReason(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{
+		UpstreamID: "asset-sensitive",
+		UserID:     42,
+		AssetType:  "image",
+		Status:     "PROCESSING",
+	}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"asset_type":"image",
+			"status":"FAILED",
+			"error":{
+				"code":"InputImageSensitiveContentDetected",
+				"message":"The request failed because the input image may contain sensitive information."
+			}
+		}`))
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{
+		BaseURL: server.URL,
+		APIKey:  "asset-test-key",
+	})
+	require.ErrorIs(t, err, ErrStarAIAssetVerify)
+	require.Contains(t, err.Error(), "sensitive information")
+
+	stored, err := GetStarAIAssetBinding(binding.ID, 42)
+	require.NoError(t, err)
+	require.Equal(t, "FAILED", stored.Status)
+	require.Equal(t, "InputImageSensitiveContentDetected", stored.ErrorCode)
+	require.Contains(t, stored.ErrorMessage, "sensitive information")
+}
+
 func TestResolveStarAIAssetURIUsesSourceURLAcrossDifferentChannelKeys(t *testing.T) {
 	useStarAIAssetRedis(t)
 	var upstreamRequests atomic.Int32

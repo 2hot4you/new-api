@@ -60,6 +60,7 @@ import {
   type TemporaryAsset,
   TEMPORARY_ASSET_GRID_CLASS_NAME,
   filterTemporaryAssets,
+  getAssetFailureDescription,
   getAssetStatusLabel,
   getAssetStatusVariant,
   getAssetTypeLabel,
@@ -556,6 +557,7 @@ export function TemporaryAssets() {
                     )
                     const hours = Math.floor(remaining / 3600)
                     const uri = `asset://${item.id}`
+                    const failureDescription = getAssetFailureDescription(item)
                     return (
                       <div
                         key={item.id}
@@ -714,6 +716,12 @@ export function TemporaryAssets() {
                                 )}
                               </span>
                             </div>
+                            {item.status.toUpperCase() === 'FAILED' &&
+                              failureDescription && (
+                                <div className='border-destructive/30 bg-destructive/10 text-destructive rounded-md border px-2.5 py-2 text-xs leading-5 break-words'>
+                                  {failureDescription}
+                                </div>
+                              )}
                             <div className='flex justify-end gap-1'>
                               <Button
                                 variant='ghost'

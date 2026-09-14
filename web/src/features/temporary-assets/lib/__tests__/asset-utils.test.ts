@@ -7,12 +7,14 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import assert from 'node:assert/strict'
+
 import { describe, test } from 'vitest'
 
 import {
   TEMPORARY_ASSET_GRID_CLASS_NAME,
   type TemporaryAsset,
   filterTemporaryAssets,
+  getAssetFailureDescription,
   getAssetStatusLabel,
   getPendingAssetIDs,
   toggleTemporaryAssetSelection,
@@ -70,6 +72,21 @@ describe('temporary asset display behavior', () => {
     const expired = { ...active, status: 'EXPIRED' }
     assert.equal(getAssetStatusLabel(expired.status), 'Expired')
     assert.deepEqual(getPendingAssetIDs([expired]), [])
+  })
+
+  test('formats the structured upstream failure for the asset card', () => {
+    const failed = {
+      ...assets[2],
+      error: {
+        code: 'InputImageSensitiveContentDetected',
+        message: 'The input image may contain sensitive information.',
+      },
+    }
+    assert.equal(
+      getAssetFailureDescription(failed),
+      'InputImageSensitiveContentDetected: The input image may contain sensitive information.'
+    )
+    assert.equal(getAssetFailureDescription(assets[0]), '')
   })
 
   test('combines type, partial ID, and timestamp filters', () => {

@@ -158,3 +158,62 @@ func TestRefreshLegacyStarAIAssetDoesNotQueryAnArbitraryChannelKey(t *testing.T)
 	require.Same(t, binding, refreshed)
 	require.Zero(t, upstreamRequests.Load())
 }
+
+func TestRefreshStarAIAssetPersistsAndReturnsBusinessFailure(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	redisServer := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	previousRedisEnabled, previousRDB := common.RedisEnabled, common.RDB
+	common.RedisEnabled, common.RDB = true, redisClient
+	t.Cleanup(func() {
+		_ = redisClient.Close()
+		common.RedisEnabled, common.RDB = previousRedisEnabled, previousRDB
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"asset_type":"image",
+			"status":"FAILED",
+			"error":{
+				"code":"InputImageSensitiveContentDetected",
+				"message":"The request failed because https://cdn.example.com/input.png may contain sensitive information. Request ID: request-1234567890"
+			}
+		}`))
+	}))
+	t.Cleanup(server.Close)
+	baseURL := server.URL
+	channel := &model.Channel{
+		Type:    constant.ChannelTypeStarAI,
+		Status:  common.ChannelStatusEnabled,
+		Name:    "asset failure",
+		Key:     "asset-failure-key",
+		BaseURL: &baseURL,
+	}
+	require.NoError(t, db.Create(channel).Error)
+	binding := &service.StarAIAssetBinding{
+		UpstreamID: "asset-upstream-failed",
+		ChannelID:  channel.Id,
+		UserID:     42,
+		AssetType:  "image",
+		Status:     "PROCESSING",
+	}
+	require.NoError(t, service.SaveStarAIAssetBinding(binding))
+
+	refreshed, err := refreshStarAIAsset(nil, binding)
+	require.NoError(t, err)
+	require.Equal(t, "FAILED", refreshed.Status)
+	require.Equal(t, "InputImageSensitiveContentDetected", refreshed.ErrorCode)
+	require.NotContains(t, refreshed.ErrorMessage, "cdn.example.com")
+	require.Contains(t, refreshed.ErrorMessage, "sensitive information")
+
+	stored, err := service.GetStarAIAssetBinding(binding.ID, 42)
+	require.NoError(t, err)
+	require.Equal(t, refreshed.ErrorCode, stored.ErrorCode)
+	require.Equal(t, refreshed.ErrorMessage, stored.ErrorMessage)
+
+	response := safeStarAIAsset(refreshed)
+	require.NotNil(t, response.Error)
+	require.Equal(t, "InputImageSensitiveContentDetected", response.Error.Code)
+	require.Equal(t, refreshed.ErrorMessage, response.Error.Message)
+}

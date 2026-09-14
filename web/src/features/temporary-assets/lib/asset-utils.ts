@@ -28,6 +28,10 @@ export type TemporaryAsset = {
   created_at: number
   expires_at: number
   verified_at: number
+  error?: {
+    code?: string
+    message: string
+  }
 }
 
 type AssetFilters = {
@@ -87,6 +91,13 @@ export function getPendingAssetIDs(items: TemporaryAsset[]) {
         )
     )
     .map((item) => item.id)
+}
+
+export function getAssetFailureDescription(item: TemporaryAsset) {
+  const code = item.error?.code?.trim() ?? ''
+  const message = item.error?.message?.trim() ?? ''
+  if (code && message) return `${code}: ${message}`
+  return message || code
 }
 
 export function filterTemporaryAssets(

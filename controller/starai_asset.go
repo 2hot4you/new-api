@@ -8,10 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -45,27 +43,34 @@ type completeStarAICOSUploadRequest struct {
 }
 
 type starAIAssetResponse struct {
-	ID          string `json:"id"`
-	UserID      int    `json:"user_id,omitempty"`
-	Username    string `json:"username,omitempty"`
-	AssetType   string `json:"asset_type"`
-	Name        string `json:"name,omitempty"`
-	SourceURL   string `json:"source_url,omitempty"`
-	PreviewURL  string `json:"preview_url,omitempty"`
-	SourceKind  string `json:"source_kind,omitempty"`
-	FileName    string `json:"file_name,omitempty"`
-	ContentType string `json:"content_type,omitempty"`
-	FileSize    int64  `json:"file_size,omitempty"`
-	Status      string `json:"status"`
-	CreatedAt   int64  `json:"created_at"`
-	ExpiresAt   int64  `json:"expires_at"`
-	VerifiedAt  int64  `json:"verified_at"`
+	ID          string                    `json:"id"`
+	UserID      int                       `json:"user_id,omitempty"`
+	Username    string                    `json:"username,omitempty"`
+	AssetType   string                    `json:"asset_type"`
+	Name        string                    `json:"name,omitempty"`
+	SourceURL   string                    `json:"source_url,omitempty"`
+	PreviewURL  string                    `json:"preview_url,omitempty"`
+	SourceKind  string                    `json:"source_kind,omitempty"`
+	FileName    string                    `json:"file_name,omitempty"`
+	ContentType string                    `json:"content_type,omitempty"`
+	FileSize    int64                     `json:"file_size,omitempty"`
+	Status      string                    `json:"status"`
+	CreatedAt   int64                     `json:"created_at"`
+	ExpiresAt   int64                     `json:"expires_at"`
+	VerifiedAt  int64                     `json:"verified_at"`
+	Error       *starAIAssetErrorResponse `json:"error,omitempty"`
+}
+
+type starAIAssetErrorResponse struct {
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message"`
 }
 
 type starAIAssetUpstreamResponse struct {
 	ID        string                       `json:"id"`
 	Status    string                       `json:"status"`
 	AssetType string                       `json:"asset_type"`
+	Error     *starAIAssetErrorResponse    `json:"error,omitempty"`
 	Data      *starAIAssetUpstreamResponse `json:"data,omitempty"`
 }
 
@@ -80,13 +85,6 @@ type starAIAssetUpstreamFailure struct {
 func (e *starAIAssetUpstreamFailure) Error() string {
 	return e.Reason
 }
-
-var (
-	starAIAssetURLPattern    = regexp.MustCompile(`(?i)https?://[^\s"'<>]+`)
-	starAIAssetSecretPattern = regexp.MustCompile(`(?i)(bearer\s+|sk-|(?:api[_-]?key|token|secret|authorization)[=:]\s*)[a-z0-9._-]+`)
-	starAIAssetIDPattern     = regexp.MustCompile(`(?i)\b(?:asset|task)-[a-z0-9_-]{8,}\b`)
-	starAIBrandPattern       = regexp.MustCompile(`(?i)\bstar[\s_-]*ai\b`)
-)
 
 func starAIAssetStringField(value any, keys ...string) string {
 	wanted := make(map[string]struct{}, len(keys))
@@ -125,36 +123,11 @@ func starAIAssetStringField(value any, keys ...string) string {
 }
 
 func sanitizeStarAIAssetErrorText(value string) string {
-	value = starAIAssetURLPattern.ReplaceAllString(value, "[URL]")
-	value = starAIAssetSecretPattern.ReplaceAllString(value, "[REDACTED]")
-	value = starAIAssetIDPattern.ReplaceAllString(value, "[ID]")
-	value = common.MaskSensitiveInfo(value)
-	value = starAIBrandPattern.ReplaceAllString(value, "Molii Volcengine Imagine API")
-	value = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return ' '
-		}
-		return r
-	}, value)
-	value = strings.Join(strings.Fields(value), " ")
-	runes := []rune(value)
-	if len(runes) > 240 {
-		value = string(runes[:240]) + "…"
-	}
-	return strings.TrimSpace(value)
+	return service.SanitizeStarAIAssetErrorMessage(value)
 }
 
 func sanitizeStarAIAssetErrorCode(value string) string {
-	value = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' {
-			return r
-		}
-		return -1
-	}, value)
-	if len(value) > 64 {
-		value = value[:64]
-	}
-	return value
+	return service.SanitizeStarAIAssetErrorCode(value)
 }
 
 func parseStarAIAssetUpstreamFailure(operation string, status int, body []byte, cause error) *starAIAssetUpstreamFailure {
@@ -235,7 +208,11 @@ func safeStarAIAsset(binding *service.StarAIAssetBinding) starAIAssetResponse {
 	} else if sourceKind == "" && binding.SourceURL != "" {
 		sourceKind = "url"
 	}
-	return starAIAssetResponse{ID: binding.ID, AssetType: binding.AssetType, Name: binding.Name, SourceURL: binding.SourceURL, PreviewURL: previewURL, SourceKind: sourceKind, FileName: binding.FileName, ContentType: binding.ContentType, FileSize: binding.FileSize, Status: binding.Status, CreatedAt: binding.CreatedAt, ExpiresAt: binding.ExpiresAt, VerifiedAt: binding.VerifiedAt}
+	response := starAIAssetResponse{ID: binding.ID, AssetType: binding.AssetType, Name: binding.Name, SourceURL: binding.SourceURL, PreviewURL: previewURL, SourceKind: sourceKind, FileName: binding.FileName, ContentType: binding.ContentType, FileSize: binding.FileSize, Status: binding.Status, CreatedAt: binding.CreatedAt, ExpiresAt: binding.ExpiresAt, VerifiedAt: binding.VerifiedAt}
+	if binding.ErrorCode != "" || binding.ErrorMessage != "" {
+		response.Error = &starAIAssetErrorResponse{Code: binding.ErrorCode, Message: binding.ErrorMessage}
+	}
+	return response
 }
 
 func safeStarAIAssetForAdmin(binding *service.StarAIAssetBinding) starAIAssetResponse {
@@ -338,6 +315,10 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 	binding.AssetType = input.AssetType
 	binding.Name = input.Name
 	binding.Status = initialStatus
+	if upstream.Error != nil && initialStatus == "FAILED" {
+		binding.ErrorCode = sanitizeStarAIAssetErrorCode(upstream.Error.Code)
+		binding.ErrorMessage = sanitizeStarAIAssetErrorText(upstream.Error.Message)
+	}
 	if err := service.SaveStarAIAssetBinding(binding); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "temporary asset mapping unavailable"})
 		return nil, false
@@ -472,7 +453,12 @@ func refreshStarAIAsset(c *gin.Context, binding *service.StarAIAssetBinding) (*s
 	if upstream.AssetType != "" {
 		binding.AssetType = upstream.AssetType
 	}
-	if err := service.UpdateStarAIAssetStatus(binding, binding.Status); err != nil {
+	errorCode, errorMessage := "", ""
+	if upstream.Error != nil {
+		errorCode = upstream.Error.Code
+		errorMessage = upstream.Error.Message
+	}
+	if err := service.UpdateStarAIAssetVerification(binding, binding.Status, errorCode, errorMessage); err != nil {
 		return nil, err
 	}
 	return binding, nil
