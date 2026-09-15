@@ -35,7 +35,7 @@ sidebar_position: 1
 
 - HTTP(S) URL 应能被媒体处理服务直接访问，并在排队和处理期间保持有效。不要使用需要 Cookie、登录页或自定义鉴权头的链接。
 - Data URL 可用于声明支持它的图片或音频输入；较大媒体更适合使用公开 URL 或临时素材。
-- `asset://asset-molii-...` 只能引用当前账户创建、尚未过期且状态可用的[临时素材](./temporary-assets)。
+- `asset://asset-...` 只能引用当前用户创建、尚未过期且状态可用的[临时素材](./temporary-assets)。即使知道其他用户的素材 ID，也不能查询或引用对方素材。
 
 ## 有效示例
 
@@ -71,7 +71,7 @@ sidebar_position: 1
     { "type": "text", "text": "沿用人物服装、镜头节奏和环境声音" },
     {
       "type": "image_url",
-      "image_url": { "url": "asset://asset-molii-exampleimage" },
+      "image_url": { "url": "asset://asset-20260915123000-image1" },
       "role": "reference_image"
     },
     {
@@ -81,7 +81,7 @@ sidebar_position: 1
     },
     {
       "type": "audio_url",
-      "audio_url": { "url": "asset://asset-molii-exampleaudio" },
+      "audio_url": { "url": "asset://asset-20260915123000-audio1" },
       "role": "reference_audio"
     }
   ],

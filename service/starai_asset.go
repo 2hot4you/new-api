@@ -27,6 +27,7 @@ var (
 	ErrStarAIAssetExpired     = errors.New("temporary asset has expired upstream")
 	ErrStarAIAssetNotReady    = errors.New("temporary asset is not ready upstream")
 	ErrStarAIAssetVerify      = errors.New("temporary asset upstream verification failed")
+	ErrStarAIAssetAmbiguous   = errors.New("temporary asset ID is shared by multiple users")
 )
 
 type StarAIAssetBinding struct {
@@ -146,16 +147,28 @@ func StarAIChannelKeyFingerprint(key string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func starAIAssetKey(id string) string       { return "starai:asset:" + id }
+func starAIAssetLegacyKey(id string) string { return "starai:asset:" + id }
+func starAIAssetUserKey(userID int, id string) string {
+	return fmt.Sprintf("starai:asset:user:%d:%s", userID, id)
+}
 func starAIAssetIndexKey(userID int) string { return fmt.Sprintf("starai:assets:user:%d", userID) }
+
+func starAIAssetBindingKey(binding *StarAIAssetBinding) string {
+	if binding.ID != "" && binding.UpstreamID != "" && binding.ID != binding.UpstreamID {
+		return starAIAssetLegacyKey(binding.ID)
+	}
+	return starAIAssetUserKey(binding.UserID, binding.ID)
+}
 
 func SaveStarAIAssetBinding(binding *StarAIAssetBinding) error {
 	if !common.RedisEnabled || common.RDB == nil {
 		return ErrStarAIAssetUnavailable
 	}
-	if binding.ID == "" {
-		binding.ID = "asset-molii-" + strings.ToLower(common.GetRandomString(24))
+	if strings.TrimSpace(binding.UpstreamID) == "" {
+		return errors.New("temporary asset upstream ID is required")
 	}
+	binding.UpstreamID = strings.TrimSpace(binding.UpstreamID)
+	binding.ID = binding.UpstreamID
 	now := time.Now()
 	ttl := time.Duration(constant.StarAIAssetTTLHours) * time.Hour
 	if ttl <= 0 {
@@ -170,7 +183,7 @@ func SaveStarAIAssetBinding(binding *StarAIAssetBinding) error {
 	}
 	ctx := context.Background()
 	pipe := common.RDB.TxPipeline()
-	pipe.Set(ctx, starAIAssetKey(binding.ID), body, ttl)
+	pipe.Set(ctx, starAIAssetUserKey(binding.UserID, binding.ID), body, ttl)
 	pipe.ZAdd(ctx, starAIAssetIndexKey(binding.UserID), &redis.Z{Score: float64(binding.CreatedAt), Member: binding.ID})
 	pipe.Expire(ctx, starAIAssetIndexKey(binding.UserID), ttl+time.Hour)
 	if binding.COSKey != "" {
@@ -181,21 +194,27 @@ func SaveStarAIAssetBinding(binding *StarAIAssetBinding) error {
 }
 
 func GetStarAIAssetBinding(id string, userID int) (*StarAIAssetBinding, error) {
-	binding, err := GetStarAIAssetBindingForAdmin(id)
-	if err != nil {
-		return nil, err
-	}
-	if binding.UserID != userID {
-		return nil, ErrStarAIAssetForbidden
-	}
-	return binding, nil
-}
-
-func GetStarAIAssetBindingForAdmin(id string) (*StarAIAssetBinding, error) {
 	if !common.RedisEnabled || common.RDB == nil {
 		return nil, ErrStarAIAssetUnavailable
 	}
-	body, err := common.RDB.Get(context.Background(), starAIAssetKey(id)).Bytes()
+	body, err := common.RDB.Get(context.Background(), starAIAssetUserKey(userID, id)).Bytes()
+	if err == nil {
+		var binding StarAIAssetBinding
+		if err := common.Unmarshal(body, &binding); err != nil {
+			return nil, err
+		}
+		if binding.UserID != userID {
+			return nil, ErrStarAIAssetForbidden
+		}
+		return &binding, nil
+	}
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, err
+	}
+	if !strings.HasPrefix(id, "asset-molii-") {
+		return nil, ErrStarAIAssetNotFound
+	}
+	body, err = common.RDB.Get(context.Background(), starAIAssetLegacyKey(id)).Bytes()
 	if errors.Is(err, redis.Nil) {
 		return nil, ErrStarAIAssetNotFound
 	}
@@ -206,7 +225,57 @@ func GetStarAIAssetBindingForAdmin(id string) (*StarAIAssetBinding, error) {
 	if err := common.Unmarshal(body, &binding); err != nil {
 		return nil, err
 	}
+	if binding.UserID != userID {
+		return nil, ErrStarAIAssetForbidden
+	}
 	return &binding, nil
+}
+
+func GetStarAIAssetBindingForAdmin(id string) (*StarAIAssetBinding, error) {
+	if !common.RedisEnabled || common.RDB == nil {
+		return nil, ErrStarAIAssetUnavailable
+	}
+	ctx := context.Background()
+	if strings.HasPrefix(id, "asset-molii-") {
+		body, err := common.RDB.Get(ctx, starAIAssetLegacyKey(id)).Bytes()
+		if err == nil {
+			var binding StarAIAssetBinding
+			if err := common.Unmarshal(body, &binding); err != nil {
+				return nil, err
+			}
+			return &binding, nil
+		}
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return nil, err
+		}
+	}
+	var found *StarAIAssetBinding
+	iterator := common.RDB.Scan(ctx, 0, "starai:asset:user:*", 200).Iterator()
+	for iterator.Next(ctx) {
+		body, err := common.RDB.Get(ctx, iterator.Val()).Bytes()
+		if errors.Is(err, redis.Nil) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var binding StarAIAssetBinding
+		if common.Unmarshal(body, &binding) != nil || binding.ID != id {
+			continue
+		}
+		if found != nil {
+			return nil, ErrStarAIAssetAmbiguous
+		}
+		copy := binding
+		found = &copy
+	}
+	if err := iterator.Err(); err != nil {
+		return nil, err
+	}
+	if found == nil {
+		return nil, ErrStarAIAssetNotFound
+	}
+	return found, nil
 }
 
 func ListStarAIAssetBindings(userID int) ([]StarAIAssetBinding, error) {
@@ -236,7 +305,7 @@ func ListAllStarAIAssetBindings() ([]StarAIAssetBinding, error) {
 	}
 	ctx := context.Background()
 	items := make([]StarAIAssetBinding, 0)
-	iterator := common.RDB.Scan(ctx, 0, "starai:asset:asset-molii-*", 200).Iterator()
+	iterator := common.RDB.Scan(ctx, 0, "starai:asset:*", 200).Iterator()
 	for iterator.Next(ctx) {
 		body, err := common.RDB.Get(ctx, iterator.Val()).Bytes()
 		if errors.Is(err, redis.Nil) {
@@ -265,7 +334,7 @@ func GetStarAIAssetStats() (*StarAIAssetStats, error) {
 	stats := &StarAIAssetStats{ByType: map[string]int{"image": 0, "video": 0, "audio": 0}}
 	users := make(map[int]struct{})
 	now := time.Now().Unix()
-	iterator := common.RDB.Scan(ctx, 0, "starai:asset:asset-molii-*", 200).Iterator()
+	iterator := common.RDB.Scan(ctx, 0, "starai:asset:*", 200).Iterator()
 	for iterator.Next(ctx) {
 		body, err := common.RDB.Get(ctx, iterator.Val()).Bytes()
 		if err != nil {
@@ -309,7 +378,7 @@ func DeleteStarAIAssetBinding(id string, userID int) error {
 	}
 	ctx := context.Background()
 	pipe := common.RDB.TxPipeline()
-	pipe.Del(ctx, starAIAssetKey(binding.ID))
+	pipe.Del(ctx, starAIAssetBindingKey(binding))
 	pipe.ZRem(ctx, starAIAssetIndexKey(userID), binding.ID)
 	_, err = pipe.Exec(ctx)
 	if err == nil && binding.COSKey != "" {
@@ -327,7 +396,7 @@ func DeleteStarAIAssetBindingForAdmin(id string) error {
 	}
 	ctx := context.Background()
 	pipe := common.RDB.TxPipeline()
-	pipe.Del(ctx, starAIAssetKey(binding.ID))
+	pipe.Del(ctx, starAIAssetBindingKey(binding))
 	pipe.ZRem(ctx, starAIAssetIndexKey(binding.UserID), binding.ID)
 	_, err = pipe.Exec(ctx)
 	if err == nil && binding.COSKey != "" {
@@ -360,12 +429,13 @@ func UpdateStarAIAssetVerification(binding *StarAIAssetBinding, status, errorCod
 		binding.ErrorMessage = ""
 	}
 	binding.VerifiedAt = time.Now().Unix()
-	ttl, err := common.RDB.TTL(context.Background(), starAIAssetKey(binding.ID)).Result()
+	key := starAIAssetBindingKey(binding)
+	ttl, err := common.RDB.TTL(context.Background(), key).Result()
 	if err != nil || ttl <= 0 {
 		return ErrStarAIAssetNotFound
 	}
 	body, _ := common.Marshal(binding)
-	return common.RDB.Set(context.Background(), starAIAssetKey(binding.ID), body, ttl).Err()
+	return common.RDB.Set(context.Background(), key, body, ttl).Err()
 }
 
 func UpdateStarAIAssetSourceURL(binding *StarAIAssetBinding, sourceURL string) error {
@@ -373,7 +443,8 @@ func UpdateStarAIAssetSourceURL(binding *StarAIAssetBinding, sourceURL string) e
 		return ErrStarAIAssetUnavailable
 	}
 	binding.SourceURL = strings.TrimSpace(sourceURL)
-	ttl, err := common.RDB.TTL(context.Background(), starAIAssetKey(binding.ID)).Result()
+	key := starAIAssetBindingKey(binding)
+	ttl, err := common.RDB.TTL(context.Background(), key).Result()
 	if err != nil || ttl <= 0 {
 		return ErrStarAIAssetNotFound
 	}
@@ -381,7 +452,7 @@ func UpdateStarAIAssetSourceURL(binding *StarAIAssetBinding, sourceURL string) e
 	if err != nil {
 		return err
 	}
-	return common.RDB.Set(context.Background(), starAIAssetKey(binding.ID), body, ttl).Err()
+	return common.RDB.Set(context.Background(), key, body, ttl).Err()
 }
 
 func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config StarAIAssetVerificationConfig) (string, error) {
@@ -389,9 +460,6 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 		return raw, nil
 	}
 	id := strings.TrimPrefix(raw, "asset://")
-	if !strings.HasPrefix(id, "asset-molii-") {
-		return "", ErrStarAIAssetForbidden
-	}
 	binding, err := GetStarAIAssetBinding(id, userID)
 	if err != nil {
 		return "", err
