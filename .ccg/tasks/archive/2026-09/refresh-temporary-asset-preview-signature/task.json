@@ -1,0 +1,12 @@
+{
+  "id": "refresh-temporary-asset-preview-signature",
+  "title": "临时素材预览签名失效时前端自动刷新并重试",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务，等待用户决定是否提交并推送",
+  "createdAt": "2026-09-15T11:40:00Z",
+  "branch": "fix/temporary-asset-preview-refresh"
+}

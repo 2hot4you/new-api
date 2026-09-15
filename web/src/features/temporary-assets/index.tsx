@@ -6,16 +6,7 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import {
-  CheckSquare2,
-  Copy,
-  ExternalLink,
-  Image,
-  Music,
-  RefreshCw,
-  Trash2,
-  Video,
-} from 'lucide-react'
+import { CheckSquare2, Copy, RefreshCw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -40,6 +31,11 @@ import dayjs from '@/lib/dayjs'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
+import {
+  AssetAudioPreview,
+  AssetPreview,
+  AssetPreviewLink,
+} from './components/asset-preview'
 import { AssetRefreshButton } from './components/asset-refresh-button'
 import {
   AssetTypeFilter,
@@ -88,59 +84,6 @@ function getAssetErrorMessage(error: unknown): string | undefined {
   if (!data || typeof data !== 'object') return undefined
   const message = 'message' in data ? data.message : undefined
   return typeof message === 'string' ? message : undefined
-}
-
-const assetIcon = { image: Image, video: Video, audio: Music }
-
-function AssetPreview(props: {
-  item: TemporaryAsset
-  alt: string
-  missingLabel: string
-  failedLabel: string
-}) {
-  const [failed, setFailed] = useState(false)
-  const Icon = assetIcon[props.item.asset_type] ?? Image
-  const previewURL = props.item.preview_url || props.item.source_url
-  if (!previewURL) {
-    return (
-      <div className='text-muted-foreground flex flex-col items-center gap-2 px-3 text-center text-xs'>
-        <Icon className='size-5' />
-        <span>{props.missingLabel}</span>
-      </div>
-    )
-  }
-  if (failed) {
-    return (
-      <div className='text-muted-foreground flex flex-col items-center gap-2 px-3 text-center text-xs'>
-        <Icon className='size-5' />
-        <span>{props.failedLabel}</span>
-      </div>
-    )
-  }
-  if (props.item.asset_type === 'image') {
-    return (
-      <img
-        src={previewURL}
-        alt={props.alt}
-        className='size-full object-cover'
-        loading='lazy'
-        referrerPolicy='no-referrer'
-        onError={() => setFailed(true)}
-      />
-    )
-  }
-  if (props.item.asset_type === 'video') {
-    return (
-      <video
-        src={previewURL}
-        className='size-full object-cover'
-        controls
-        preload='metadata'
-        onError={() => setFailed(true)}
-      />
-    )
-  }
-  return <Music className='size-5' />
 }
 
 export function TemporaryAssets() {
@@ -276,6 +219,21 @@ export function TemporaryAssets() {
         next.delete(id)
         return next
       })
+    }
+  }
+
+  const refreshPreviewURL = async (item: TemporaryAsset) => {
+    if (item.source_kind !== 'cos') return undefined
+    try {
+      const refreshedAsset = await refreshTemporaryAsset(
+        (url) => api.get(url),
+        isAdmin,
+        item.id
+      )
+      setItems((current) => replaceTemporaryAsset(current, refreshedAsset))
+      return refreshedAsset.preview_url || refreshedAsset.source_url
+    } catch {
+      return undefined
     }
   }
 
@@ -584,11 +542,16 @@ export function TemporaryAssets() {
                             />
                           </div>
                           <AssetPreview
-                            key={`${item.id}:${item.preview_url ?? item.source_url ?? ''}`}
+                            key={item.id}
                             item={item}
                             alt={item.name || t('Temporary Asset')}
                             missingLabel={t('No preview URL saved')}
                             failedLabel={t('Preview failed to load')}
+                            onRefreshPreview={
+                              item.source_kind === 'cos'
+                                ? () => refreshPreviewURL(item)
+                                : undefined
+                            }
                           />
                         </div>
                         <div className='flex min-w-0 flex-1 flex-col gap-2 p-3'>
@@ -635,30 +598,27 @@ export function TemporaryAssets() {
                                 .format('YYYY-MM-DD HH:mm:ss')}
                             </div>
                           )}
-                          {(item.preview_url || item.source_url) && (
-                            <a
-                              href={item.preview_url || item.source_url}
-                              target='_blank'
-                              rel='noreferrer'
-                              className='text-muted-foreground hover:text-foreground flex min-w-0 items-center gap-1 text-xs'
-                            >
-                              <ExternalLink className='size-3 shrink-0' />
-                              <span className='truncate'>
-                                {item.source_kind === 'cos'
-                                  ? t('Open COS preview')
-                                  : item.source_url}
-                              </span>
-                            </a>
-                          )}
-                          {(item.preview_url || item.source_url) &&
-                            item.asset_type === 'audio' && (
-                              <audio
-                                src={item.preview_url || item.source_url}
-                                controls
-                                preload='none'
-                                className='h-8 w-full'
-                              />
-                            )}
+                          <AssetPreviewLink
+                            item={item}
+                            label={
+                              item.source_kind === 'cos'
+                                ? t('Open COS preview')
+                                : (item.source_url ?? '')
+                            }
+                            onRefreshPreview={
+                              item.source_kind === 'cos'
+                                ? () => refreshPreviewURL(item)
+                                : undefined
+                            }
+                          />
+                          <AssetAudioPreview
+                            item={item}
+                            onRefreshPreview={
+                              item.source_kind === 'cos'
+                                ? () => refreshPreviewURL(item)
+                                : undefined
+                            }
+                          />
                           {!item.preview_url && !item.source_url && (
                             <div className='bg-muted/40 space-y-2 rounded-md p-2'>
                               <p className='text-muted-foreground text-[11px] leading-4'>
