@@ -182,7 +182,7 @@ Base64 Data URL：
 Molii 临时素材：
 ```json
 {
-  "url": "asset://asset-molii-xxxxxxxx"
+  "url": "asset://asset-20260915123000-a1b2c"
 }
 ```
 图片媒体要求：
@@ -212,7 +212,7 @@ Molii 临时素材：
 |---|---|---|---|
 |`type`|string|是|`video_url`|
 |`video_url`|object|是|视频对象|
-|`video_url.url`|string|是|公网 URL 或 `asset://asset-molii-...`|
+|`video_url.url`|string|是|公网 URL 或 `asset://asset-...`|
 |`role`|string|是|`reference_video`|
 
 视频媒体要求：
@@ -245,7 +245,7 @@ Molii 临时素材：
 |---|---|---|---|
 |`type`|string|是|`audio_url`|
 |`audio_url`|object|是|音频对象|
-|`audio_url.url`|string|是|公网 URL、Data URL 或 `asset://asset-molii-...`|
+|`audio_url.url`|string|是|公网 URL、Data URL 或 `asset://asset-...`|
 |`role`|string|是|`reference_audio`|
 
 音频媒体要求：
@@ -789,7 +789,7 @@ curl "$MOLII_BASE_URL/v1/videos/task_xxx/content" \
 
 - 素材与创建它的 Molii 用户绑定；
 - 其他用户不能查询或使用；
-- 默认有效期为 24 小时，实际以响应 `expires_at` 为准；
+- 默认有效期为 168 小时（7 天），实际以响应 `expires_at` 为准；
 - 素材适合即传即用，不应长期保存素材 ID；
 - 本接口接收公开 HTTP/HTTPS URL，不接收本地文件路径。
 ### 1. 创建临时素材
@@ -825,7 +825,7 @@ curl "$MOLII_BASE_URL/v1/assets" \
 成功：
 ```json
 {
-  "id": "asset-molii-xxxxxxxxxxxxxxxxxxxxxxxx"
+  "id": "asset-20260915123000-a1b2c"
 }
 ```
 ### 2. 查询临时素材
@@ -833,13 +833,13 @@ curl "$MOLII_BASE_URL/v1/assets" \
 GET https://aigc.claudeye.com/v1/assets/{id}
 ```
 ```bash
-curl "$MOLII_BASE_URL/v1/assets/asset-molii-xxx" \
+curl "$MOLII_BASE_URL/v1/assets/asset-20260915123000-a1b2c" \
   -H "Authorization: Bearer $MOLII_API_KEY"
 ```
 响应示例：
 ```json
 {
-  "id": "asset-molii-xxx",
+  "id": "asset-20260915123000-a1b2c",
   "asset_type": "video",
   "name": "动作参考视频",
   "source_url": "https://cdn.example.com/reference.mp4",
@@ -860,12 +860,12 @@ curl "$MOLII_BASE_URL/v1/assets/asset-molii-xxx" \
 |`FAILED`|处理失败|否|
 |`EXPIRED`|已过期或上游已删除|否|
 ### 3. 在视频请求中使用
-将 Molii 素材 ID 加上 `asset://` 前缀：
+将创建响应返回的上游素材 ID 加上 `asset://` 前缀：
 ```json
 {
   "type": "video_url",
   "video_url": {
-    "url": "asset://asset-molii-xxx"
+    "url": "asset://asset-20260915123000-a1b2c"
   },
   "role": "reference_video"
 }
@@ -876,7 +876,7 @@ curl "$MOLII_BASE_URL/v1/assets/asset-molii-xxx" \
 DELETE https://aigc.claudeye.com/v1/assets/{id}
 ```
 ```bash
-curl -X DELETE "$MOLII_BASE_URL/v1/assets/asset-molii-xxx" \
+curl -X DELETE "$MOLII_BASE_URL/v1/assets/asset-20260915123000-a1b2c" \
   -H "Authorization: Bearer $MOLII_API_KEY"
 ```
 成功：

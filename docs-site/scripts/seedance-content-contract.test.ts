@@ -297,7 +297,9 @@ describe('Seedance and temporary asset documentation contract', () => {
     expect(assets).toContain('POST /v1/assets');
     expect(assets).toContain('GET /v1/assets/{id}');
     expect(assets).toContain('DELETE /v1/assets/{id}');
-    expect(assets).toContain('asset://asset-molii-');
+    expect(assets).toContain('asset://asset-');
+    expect(assets).not.toContain('asset://asset-molii-');
+    expect(assets).toContain('当前用户');
     for (const type of ['image', 'video', 'audio']) expect(assets).toContain(type);
     for (const state of ['PROCESSING', 'ACTIVE', 'SUCCESS', 'FAILED', 'EXPIRED']) {
       expect(assets).toContain(state);

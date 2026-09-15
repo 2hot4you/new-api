@@ -58,7 +58,7 @@ HTTP `200`：
 
 ```json
 {
-  "id": "asset_public_123"
+  "id": "asset-20260915123000-a1b2c"
 }
 ```
 
@@ -68,7 +68,7 @@ HTTP `200`：
 {
   "type": "image_url",
   "image_url": {
-    "url": "asset://asset_public_123"
+    "url": "asset://asset-20260915123000-a1b2c"
   },
   "role": "reference_image"
 }
@@ -105,7 +105,7 @@ HTTP `200`：
 
 ```bash
 curl --fail-with-body --silent --show-error \
-  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset_public_123" \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset-20260915123000-a1b2c" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Accept: application/json"
 ```
@@ -116,7 +116,7 @@ HTTP `200`：
 
 ```json
 {
-  "id": "asset_public_123",
+  "id": "asset-20260915123000-a1b2c",
   "asset_type": "image",
   "name": "reference-image",
   "status": "ready",
@@ -142,7 +142,7 @@ HTTP `200`：
 
 ```json
 {
-  "id": "asset_public_123",
+  "id": "asset-20260915123000-a1b2c",
   "asset_type": "image",
   "status": "FAILED",
   "error": {
@@ -188,7 +188,7 @@ HTTP `200`：
 ```bash
 curl --fail-with-body --silent --show-error \
   --request DELETE \
-  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset_public_123" \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset-20260915123000-a1b2c" \
   --header "Authorization: Bearer $MOLII_API_KEY" \
   --header "Accept: application/json"
 ```

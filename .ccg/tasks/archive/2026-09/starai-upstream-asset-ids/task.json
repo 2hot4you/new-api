@@ -1,0 +1,12 @@
+{
+  "id": "starai-upstream-asset-ids",
+  "title": "透传 StarAI 上游素材 ID 并保持用户隔离",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
+  "createdAt": "2026-09-15T00:00:00+08:00",
+  "branch": "fix/starai-upstream-asset-ids"
+}

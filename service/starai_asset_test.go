@@ -48,7 +48,7 @@ func TestSaveStarAIAssetBindingUsesSevenDayDefaultTTL(t *testing.T) {
 	require.NoError(t, SaveStarAIAssetBinding(binding))
 
 	require.WithinDuration(t, startedAt.Add(168*time.Hour), time.Unix(binding.ExpiresAt, 0), time.Second)
-	ttl, err := common.RDB.TTL(context.Background(), starAIAssetKey(binding.ID)).Result()
+	ttl, err := common.RDB.TTL(context.Background(), starAIAssetBindingKey(binding)).Result()
 	require.NoError(t, err)
 	require.InDelta(t, (168 * time.Hour).Seconds(), ttl.Seconds(), 1)
 	cleanupAt, err := common.RDB.ZScore(context.Background(), starAICOSCleanupIndexKey, binding.COSKey).Result()
@@ -78,22 +78,21 @@ func TestStarAIAssetBindingOwnershipLifecycle(t *testing.T) {
 		Status:     "PROCESSING",
 	}
 	require.NoError(t, SaveStarAIAssetBinding(binding))
-	require.NotEmpty(t, binding.ID)
-	require.NotEqual(t, binding.ID, binding.UpstreamID)
+	require.Equal(t, binding.UpstreamID, binding.ID)
 
 	got, err := GetStarAIAssetBinding(binding.ID, 42)
 	require.NoError(t, err)
 	require.Equal(t, "asset-upstream-secret", got.UpstreamID)
 	require.Equal(t, "https://cdn.example.com/opening.mp4", got.SourceURL)
-	ttlBeforeUpdate, err := common.RDB.TTL(context.Background(), starAIAssetKey(binding.ID)).Result()
+	ttlBeforeUpdate, err := common.RDB.TTL(context.Background(), starAIAssetBindingKey(binding)).Result()
 	require.NoError(t, err)
 	require.NoError(t, UpdateStarAIAssetSourceURL(got, " https://cdn.example.com/recovered.mp4 "))
 	require.Equal(t, "https://cdn.example.com/recovered.mp4", got.SourceURL)
-	ttlAfterUpdate, err := common.RDB.TTL(context.Background(), starAIAssetKey(binding.ID)).Result()
+	ttlAfterUpdate, err := common.RDB.TTL(context.Background(), starAIAssetBindingKey(binding)).Result()
 	require.NoError(t, err)
 	require.Equal(t, ttlBeforeUpdate, ttlAfterUpdate)
 	_, err = GetStarAIAssetBinding(binding.ID, 7)
-	require.ErrorIs(t, err, ErrStarAIAssetForbidden)
+	require.ErrorIs(t, err, ErrStarAIAssetNotFound)
 
 	_, err = ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, verification)
 	require.ErrorIs(t, err, ErrStarAIAssetNotReady)
@@ -126,10 +125,107 @@ func TestStarAIAssetBindingOwnershipLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, ErrStarAIAssetNotFound)
 }
 
-func TestResolveStarAIAssetURIRejectsRawUpstreamID(t *testing.T) {
+func TestStarAIAssetBindingsAreScopedByUserForTheSameUpstreamID(t *testing.T) {
+	useStarAIAssetRedis(t)
+	first := &StarAIAssetBinding{
+		UpstreamID: "asset-shared-upstream-id",
+		UserID:     42,
+		TokenID:    7,
+		AssetType:  "image",
+		Name:       "first user asset",
+		Status:     "ACTIVE",
+	}
+	second := &StarAIAssetBinding{
+		UpstreamID: "asset-shared-upstream-id",
+		UserID:     84,
+		TokenID:    9,
+		AssetType:  "image",
+		Name:       "second user asset",
+		Status:     "ACTIVE",
+	}
+	require.NoError(t, SaveStarAIAssetBinding(first))
+	require.NoError(t, SaveStarAIAssetBinding(second))
+
+	firstStored, err := GetStarAIAssetBinding(first.UpstreamID, first.UserID)
+	require.NoError(t, err)
+	require.Equal(t, first.Name, firstStored.Name)
+	require.Equal(t, first.TokenID, firstStored.TokenID)
+
+	secondStored, err := GetStarAIAssetBinding(second.UpstreamID, second.UserID)
+	require.NoError(t, err)
+	require.Equal(t, second.Name, secondStored.Name)
+	require.Equal(t, second.TokenID, secondStored.TokenID)
+
+	all, err := ListAllStarAIAssetBindings()
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+
+	require.NoError(t, DeleteStarAIAssetBinding(first.UpstreamID, first.UserID))
+	remaining, err := GetStarAIAssetBinding(second.UpstreamID, second.UserID)
+	require.NoError(t, err)
+	require.Equal(t, second.Name, remaining.Name)
+}
+
+func TestStarAIAssetBindingRejectsAnotherUsersUpstreamID(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{
+		UpstreamID: "asset-owned-by-user-84",
+		UserID:     84,
+		TokenID:    9,
+		AssetType:  "image",
+		Status:     "ACTIVE",
+	}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+
+	_, err := GetStarAIAssetBinding(binding.UpstreamID, 42)
+	require.ErrorIs(t, err, ErrStarAIAssetNotFound)
+}
+
+func TestStarAIAssetBindingAllowsSameUserAcrossTokens(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{
+		UpstreamID: "asset-shared-across-user-tokens",
+		UserID:     42,
+		TokenID:    7,
+		AssetType:  "image",
+		Status:     "ACTIVE",
+	}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+
+	stored, err := GetStarAIAssetBinding(binding.UpstreamID, 42)
+	require.NoError(t, err)
+	require.Equal(t, 7, stored.TokenID)
+}
+
+func TestGetStarAIAssetBindingReadsLegacyMoliiID(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{
+		ID:         "asset-molii-legacy12345678",
+		UpstreamID: "asset-upstream-legacy12345678",
+		UserID:     42,
+		AssetType:  "image",
+		Status:     "ACTIVE",
+		CreatedAt:  time.Now().Unix(),
+		ExpiresAt:  time.Now().Add(time.Hour).Unix(),
+	}
+	body, err := common.Marshal(binding)
+	require.NoError(t, err)
+	require.NoError(t, common.RDB.Set(
+		context.Background(),
+		"starai:asset:"+binding.ID,
+		body,
+		time.Hour,
+	).Err())
+
+	stored, err := GetStarAIAssetBinding(binding.ID, 42)
+	require.NoError(t, err)
+	require.Equal(t, binding.UpstreamID, stored.UpstreamID)
+}
+
+func TestResolveStarAIAssetURIRejectsUnboundUpstreamID(t *testing.T) {
 	useStarAIAssetRedis(t)
 	_, err := ResolveStarAIAssetURI(context.Background(), "asset://asset-upstream-secret", 42, StarAIAssetVerificationConfig{})
-	require.True(t, errors.Is(err, ErrStarAIAssetForbidden))
+	require.True(t, errors.Is(err, ErrStarAIAssetNotFound))
 	require.Equal(t, "https://example.com/a.png", mustResolveUnchanged(t, "https://example.com/a.png"))
 }
 

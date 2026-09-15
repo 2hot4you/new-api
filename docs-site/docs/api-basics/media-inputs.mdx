@@ -17,7 +17,7 @@ sidebar_position: 4
 | HTTP(S) URL | `https://example.invalid/media.png` | Grok 图像/视频输入、Seedance 支持的 content 输入、素材登记 | 服务端必须在任务处理期间可读 |
 | Data URL | `data:image/png;base64,...` | 仅限声明支持的 Seedance content 字段 | Base64 会增大请求体，不适合大文件 |
 | Molii file ID | `{ "file_id": "file_xxx" }` | Grok 图片编辑、视频生成、编辑、延长和参考图 | 仅属于上传用户，固定保留 24 小时 |
-| asset URI | `asset://asset_public_123` | 仅限声明支持的 Seedance content 字段 | 默认保留 168 小时；素材必须属于当前 API Key 且未过期 |
+| asset URI | `asset://asset-20260915123000-a1b2c` | 仅限声明支持的 Seedance content 字段 | 默认保留 168 小时；素材必须属于当前用户且未过期 |
 
 Grok 输入接受 URL 或 Molii `file_id`，不接受 `asset://` URI。Seedance 的 content 输入可根据具体模型支持 Data URL 或 asset URI；字段形状、MIME 类型和大小上限将在具体模型页展开，提交前应以该模型页为准。
 
