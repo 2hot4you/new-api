@@ -1593,6 +1593,8 @@ func applyTaskBillingUserDeltaTx(tx *gorm.DB, userID int, walletDelta int64, use
 	return &user, nil
 }
 
+// Stored balances and cumulative counters use the JavaScript-safe wallet
+// domain. The narrower common.MaxQuota bound remains reserved for one request.
 func saturatingTaskBillingQuota(current int64, delta int64) int {
 	if current < 0 {
 		current = 0
@@ -1603,14 +1605,14 @@ func saturatingTaskBillingQuota(current int64, delta int64) int {
 		}
 		return int(current + delta)
 	}
-	if current >= int64(common.MaxQuota) || delta > int64(common.MaxQuota)-current {
-		return common.MaxQuota
+	if current >= int64(common.MaxWalletQuota) || delta > int64(common.MaxWalletQuota)-current {
+		return common.MaxWalletQuota
 	}
 	return int(current + delta)
 }
 
 func boundedTaskBillingQuotaAdd(current int64, delta int64) (int, error) {
-	minimum, maximum := int64(common.MinQuota), int64(common.MaxQuota)
+	minimum, maximum := -int64(common.MaxWalletQuota), int64(common.MaxWalletQuota)
 	if current < minimum || current > maximum {
 		return 0, fmt.Errorf("current quota out of range: %d", current)
 	}

@@ -416,6 +416,36 @@ func TestTaskBillingDeltaTxWalletRefund(t *testing.T) {
 	assert.Equal(t, TaskBillingJobStatusSucceeded, job.Status)
 }
 
+func TestTaskBillingDeltaTxUpdatesPersistedQuotasAboveSingleRequestLimit(t *testing.T) {
+	prepareTaskBillingDeltaTxTest(t)
+	task, _ := seedTaskBillingDeltaTx(t, "wallet", 200, 186)
+	const walletQuota = 4_997_697_697
+	usedQuota := common.MaxQuota + 1_000
+	requestCount := common.MaxQuota + 2_000
+	tokenRemainQuota := common.MaxQuota + 3_000
+	tokenUsedQuota := common.MaxQuota + 4_000
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", task.UserId).Updates(map[string]any{
+		"quota":         walletQuota,
+		"used_quota":    usedQuota,
+		"request_count": requestCount,
+	}).Error)
+	require.NoError(t, DB.Model(&Token{}).Where("id = ?", task.PrivateData.TokenId).Updates(map[string]any{
+		"remain_quota": tokenRemainQuota,
+		"used_quota":   tokenUsedQuota,
+	}).Error)
+
+	require.NoError(t, applyTaskBillingDeltaForTest(t, task, 186))
+	user, token, channel, storedTask, job := reloadTaskBillingDeltaRows(t, task)
+	assert.Equal(t, walletQuota+14, user.Quota)
+	assert.Equal(t, usedQuota+186, user.UsedQuota)
+	assert.Equal(t, requestCount+1, user.RequestCount)
+	assert.Equal(t, tokenRemainQuota+14, token.RemainQuota)
+	assert.Equal(t, tokenUsedQuota-14, token.UsedQuota)
+	assert.EqualValues(t, 186, channel.UsedQuota)
+	assert.Equal(t, 186, storedTask.Quota)
+	assert.Equal(t, TaskBillingJobStatusSucceeded, job.Status)
+}
+
 func TestTaskBillingDeltaTxSubscriptionSettleAndRefund(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -476,15 +506,15 @@ func TestTaskBillingDeltaTxSaturatesStatisticsWithoutWrapping(t *testing.T) {
 	prepareTaskBillingDeltaTxTest(t)
 	task, _ := seedTaskBillingDeltaTx(t, "wallet", 100, 100)
 	require.NoError(t, DB.Model(&User{}).Where("id = ?", task.UserId).Updates(map[string]any{
-		"used_quota":    common.MaxQuota - 10,
-		"request_count": common.MaxQuota,
+		"used_quota":    common.MaxWalletQuota - 10,
+		"request_count": common.MaxWalletQuota,
 	}).Error)
 	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", task.ChannelId).Update("used_quota", int64(math.MaxInt64-10)).Error)
 
 	require.NoError(t, applyTaskBillingDeltaForTest(t, task, 100))
 	user, _, channel, _, _ := reloadTaskBillingDeltaRows(t, task)
-	assert.Equal(t, common.MaxQuota, user.UsedQuota)
-	assert.Equal(t, common.MaxQuota, user.RequestCount)
+	assert.Equal(t, common.MaxWalletQuota, user.UsedQuota)
+	assert.Equal(t, common.MaxWalletQuota, user.RequestCount)
 	assert.EqualValues(t, int64(math.MaxInt64), channel.UsedQuota)
 }
 
