@@ -65,10 +65,9 @@ type StarAIAssetStats struct {
 }
 
 type StarAIAssetVerificationConfig struct {
-	ChannelID int
-	BaseURL   string
-	APIKey    string
-	Proxy     string
+	BaseURL string
+	APIKey  string
+	Proxy   string
 }
 
 type starAIAssetVerificationResponse struct {
@@ -464,21 +463,9 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 	if err != nil {
 		return "", err
 	}
-	keyChanged := binding.ChannelKeyFingerprint != "" &&
-		binding.ChannelKeyFingerprint != StarAIChannelKeyFingerprint(config.APIKey)
-	if config.ChannelID > 0 && (binding.ChannelID != config.ChannelID || keyChanged) {
-		if binding.COSKey != "" {
-			resolved, resolveErr := GetStarAICOSPreviewURL(ctx, binding.COSKey)
-			if resolveErr != nil {
-				return "", fmt.Errorf("%w: source URL unavailable", ErrStarAIAssetVerify)
-			}
-			return resolved, nil
-		}
-		if sourceURL := strings.TrimSpace(binding.SourceURL); sourceURL != "" {
-			return sourceURL, nil
-		}
-		return "", fmt.Errorf("%w: source URL unavailable", ErrStarAIAssetVerify)
-	}
+	// StarAI asset IDs are shared across API keys. The local binding lookup
+	// above remains the authorization boundary; verification uses the key of
+	// the channel selected for this generation request.
 	baseURL := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
 	if baseURL == "" || strings.TrimSpace(config.APIKey) == "" {
 		return "", ErrStarAIAssetVerify

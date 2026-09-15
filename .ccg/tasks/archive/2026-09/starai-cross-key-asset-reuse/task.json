@@ -1,0 +1,12 @@
+{
+  "id": "starai-cross-key-asset-reuse",
+  "title": "修复 StarAI 素材跨渠道 Key 复用",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
+  "createdAt": "2026-09-15T00:00:00+08:00",
+  "branch": "fix/starai-cross-key-assets"
+}

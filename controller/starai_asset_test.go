@@ -17,6 +17,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func useControllerStarAIAssetRedis(t *testing.T) {
+	t.Helper()
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	previousEnabled, previousRDB := common.RedisEnabled, common.RDB
+	common.RedisEnabled, common.RDB = true, client
+	t.Cleanup(func() {
+		_ = client.Close()
+		common.RedisEnabled, common.RDB = previousEnabled, previousRDB
+	})
+}
+
 func TestValidatePublicAssetURL(t *testing.T) {
 	for _, raw := range []string{
 		"http://localhost/a.png",
@@ -133,11 +145,14 @@ func TestCreateStarAIAssetRecordsItsChannelAndKeyOwnership(t *testing.T) {
 	require.Equal(t, binding.ChannelKeyFingerprint, stored.ChannelKeyFingerprint)
 }
 
-func TestRefreshLegacyStarAIAssetDoesNotQueryAnArbitraryChannelKey(t *testing.T) {
+func TestRefreshLegacyStarAIAssetUsesAnEnabledChannel(t *testing.T) {
 	db := setupSingleStarAIChannelTestDB(t)
+	useControllerStarAIAssetRedis(t)
 	var upstreamRequests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var authorization atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamRequests.Add(1)
+		authorization.Store(r.Header.Get("Authorization"))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
 	}))
@@ -153,12 +168,55 @@ func TestRefreshLegacyStarAIAssetDoesNotQueryAnArbitraryChannelKey(t *testing.T)
 		}).Error)
 	}
 
-	binding := &service.StarAIAssetBinding{UpstreamID: "legacy-asset", Status: "ACTIVE"}
+	binding := &service.StarAIAssetBinding{UpstreamID: "legacy-asset", UserID: 42, Status: "PROCESSING"}
+	require.NoError(t, service.SaveStarAIAssetBinding(binding))
 	refreshed, err := refreshStarAIAsset(nil, binding)
 
 	require.NoError(t, err)
 	require.Same(t, binding, refreshed)
-	require.Zero(t, upstreamRequests.Load())
+	require.Equal(t, int32(1), upstreamRequests.Load())
+	require.Equal(t, "Bearer first-key", authorization.Load())
+}
+
+func TestRefreshStarAIAssetFallsBackWhenOriginalChannelIsDisabled(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	useControllerStarAIAssetRedis(t)
+	var authorization atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization.Store(r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
+	}))
+	t.Cleanup(server.Close)
+	baseURL := server.URL
+	disabled := &model.Channel{
+		Type:    constant.ChannelTypeStarAI,
+		Status:  common.ChannelStatusManuallyDisabled,
+		Name:    "disabled original",
+		Key:     "disabled-key",
+		BaseURL: &baseURL,
+	}
+	require.NoError(t, db.Create(disabled).Error)
+	require.NoError(t, db.Create(&model.Channel{
+		Type:    constant.ChannelTypeStarAI,
+		Status:  common.ChannelStatusEnabled,
+		Name:    "enabled fallback",
+		Key:     "fallback-key",
+		BaseURL: &baseURL,
+	}).Error)
+
+	binding := &service.StarAIAssetBinding{
+		UpstreamID: "asset-created-on-disabled-channel",
+		ChannelID:  disabled.Id,
+		UserID:     42,
+		Status:     "PROCESSING",
+	}
+	require.NoError(t, service.SaveStarAIAssetBinding(binding))
+	refreshed, err := refreshStarAIAsset(nil, binding)
+
+	require.NoError(t, err)
+	require.Equal(t, "ACTIVE", refreshed.Status)
+	require.Equal(t, "Bearer fallback-key", authorization.Load())
 }
 
 func TestRefreshStarAIAssetPersistsAndReturnsBusinessFailure(t *testing.T) {
