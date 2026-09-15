@@ -1,0 +1,12 @@
+{
+  "id": "fix-async-billing-bigint",
+  "title": "修复异步任务结算对 PostgreSQL bigint 余额的错误 int32 限制",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "等待选择是否合并到 develop",
+  "createdAt": "2026-09-15T08:00:00Z",
+  "branch": "fix/async-billing-bigint"
+}
