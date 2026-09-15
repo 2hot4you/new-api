@@ -583,7 +583,7 @@ curl --fail-with-body --silent --show-error \
 成功响应：
 
 ```json
-{"id": "asset-molii-example123"}
+{"id": "asset-20260915123000-a1b2c"}
 ```
 
 ### 8.2 查询素材状态
@@ -593,7 +593,7 @@ GET /v1/assets/{id}
 ```
 
 ```bash
-ASSET_ID="asset-molii-example123"
+ASSET_ID="asset-20260915123000-a1b2c"
 
 curl --fail-with-body --silent --show-error \
   --url "${MOLII_API_BASE_URL%/}/v1/assets/${ASSET_ID}" \
@@ -605,7 +605,7 @@ curl --fail-with-body --silent --show-error \
 
 ```json
 {
-  "id": "asset-molii-example123",
+  "id": "asset-20260915123000-a1b2c",
   "asset_type": "video",
   "name": "reference-video-01",
   "source_url": "https://cdn.example.com/reference.mp4",
@@ -626,7 +626,7 @@ curl --fail-with-body --silent --show-error \
 ```json
 {
   "type": "video_url",
-  "video_url": {"url": "asset://asset-molii-example123"},
+  "video_url": {"url": "asset://asset-20260915123000-a1b2c"},
   "role": "reference_video"
 }
 ```
@@ -645,7 +645,7 @@ curl --fail-with-body --silent --show-error \
       {"type": "text", "text": "延续参考视频的镜头运动，进入夜晚的城市街道"},
       {
         "type": "video_url",
-        "video_url": {"url": "asset://asset-molii-example123"},
+        "video_url": {"url": "asset://asset-20260915123000-a1b2c"},
         "role": "reference_video"
       }
     ],
@@ -666,7 +666,7 @@ DELETE /v1/assets/{id}
 ```
 
 ```bash
-ASSET_ID="asset-molii-example123"
+ASSET_ID="asset-20260915123000-a1b2c"
 
 curl --fail-with-body --silent --show-error \
   --request DELETE \

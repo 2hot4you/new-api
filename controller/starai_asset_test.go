@@ -123,6 +123,8 @@ func TestCreateStarAIAssetRecordsItsChannelAndKeyOwnership(t *testing.T) {
 	}, &service.StarAIAssetBinding{SourceURL: "https://cdn.example.com/reference.png", SourceKind: "url"})
 
 	require.True(t, ok)
+	require.Equal(t, "asset-upstream", binding.ID)
+	require.Equal(t, "asset-upstream", safeStarAIAsset(binding).ID)
 	require.Equal(t, channel.Id, binding.ChannelID)
 	require.Equal(t, service.StarAIChannelKeyFingerprint(channel.Key), binding.ChannelKeyFingerprint)
 	stored, err := service.GetStarAIAssetBinding(binding.ID, 42)

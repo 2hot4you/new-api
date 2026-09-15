@@ -12,7 +12,7 @@ sidebar_position: 2
 
 临时素材把一个可公开读取的媒体 URL 登记为短期 `asset://` 引用。它适用于 Seedance 图片、视频和音频输入，默认有效期为 168 小时（7 天），不等同于永久文件存储。
 
-所有端点都使用 `Authorization: Bearer $MOLII_API_KEY`。素材归属于创建它的账户；同一账户可以用自己的有效 API Key 查询、删除和引用素材。其他账户的素材不会对你可见。
+所有端点都使用 `Authorization: Bearer $MOLII_API_KEY`。素材归属于创建它的当前用户账户；同一用户可以用自己的不同有效 API Key 查询、删除和引用素材。其他用户的素材不会对你可见，也不能被引用。
 
 ## 1. 创建素材
 
@@ -41,10 +41,10 @@ curl --fail-with-body --silent --show-error \
   }'
 ```
 
-成功响应只返回公开素材 ID：
+成功响应直接返回素材服务分配的 ID。Molii 不会再生成另一套公开素材 ID：
 
 ```json
-{ "id": "asset-molii-example123" }
+{ "id": "asset-20260915123000-a1b2c" }
 ```
 
 创建是有副作用的操作。如果连接在响应前中断，先通过自己的请求记录确认结果，不要盲目自动重发。
@@ -55,7 +55,7 @@ curl --fail-with-body --silent --show-error \
 
 ```bash
 curl --fail-with-body --silent --show-error \
-  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset-molii-example123" \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset-20260915123000-a1b2c" \
   --header "Authorization: Bearer $MOLII_API_KEY"
 ```
 
@@ -63,7 +63,7 @@ curl --fail-with-body --silent --show-error \
 
 ```json
 {
-  "id": "asset-molii-example123",
+  "id": "asset-20260915123000-a1b2c",
   "asset_type": "image",
   "name": "角色参考图",
   "status": "ACTIVE",
@@ -92,7 +92,7 @@ curl --fail-with-body --silent --show-error \
 ```json
 {
   "type": "image_url",
-  "image_url": { "url": "asset://asset-molii-example123" },
+  "image_url": { "url": "asset://asset-20260915123000-a1b2c" },
   "role": "reference_image"
 }
 ```
@@ -106,7 +106,7 @@ curl --fail-with-body --silent --show-error \
 ```bash
 curl --fail-with-body --silent --show-error \
   --request DELETE \
-  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset-molii-example123" \
+  --url "${MOLII_API_BASE_URL%/}/v1/assets/asset-20260915123000-a1b2c" \
   --header "Authorization: Bearer $MOLII_API_KEY"
 ```
 

@@ -168,6 +168,29 @@ func TestTemporaryAssetIsVerifiedBeforeBuildingUpstreamRequest(t *testing.T) {
 	assert.Equal(t, "asset://asset-upstream-reference", payload.Content[1].ImageURL.URL)
 	assert.Equal(t, int32(1), verificationRequests.Load(), "request build must reuse the verification result from validation")
 
+	foreignBinding := &service.StarAIAssetBinding{UpstreamID: "asset-owned-by-another-user", UserID: 84, AssetType: "image", Status: "ACTIVE"}
+	require.NoError(t, service.SaveStarAIAssetBinding(foreignBinding))
+	foreignRequest := relaycommon.TaskSubmitReq{
+		Model: ModelList[0],
+		Metadata: map[string]any{"content": []any{
+			map[string]any{"type": "text", "text": "attempt to use another user's reference"},
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": "asset://" + foreignBinding.ID}, "role": "reference_image"},
+		}},
+	}
+	foreignCtx, foreignInfo := newTaskContext(t, foreignRequest)
+	foreignCtx.Set("id", 42)
+	foreignInfo.UserId = 42
+	foreignInfo.ChannelBaseUrl = upstream.URL
+	foreignInfo.ApiKey = "starai-secret"
+	foreignInfo.UpstreamModelName = ModelList[0]
+	foreignAdaptor := &TaskAdaptor{}
+	foreignAdaptor.Init(foreignInfo)
+	foreignTaskErr := foreignAdaptor.ValidateRequestAndSetAction(foreignCtx, foreignInfo)
+	require.NotNil(t, foreignTaskErr)
+	assert.Equal(t, "invalid_request", foreignTaskErr.Code)
+	assert.Equal(t, http.StatusBadRequest, foreignTaskErr.StatusCode)
+	assert.Equal(t, int32(1), verificationRequests.Load(), "another user's upstream asset ID must never be probed")
+
 	verificationStatus.Store(http.StatusNotFound)
 	expiredBinding := &service.StarAIAssetBinding{UpstreamID: "asset-expired-reference", UserID: 42, AssetType: "image", Status: "ACTIVE"}
 	require.NoError(t, service.SaveStarAIAssetBinding(expiredBinding))
