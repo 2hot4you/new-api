@@ -224,8 +224,18 @@ func TestGetStarAIAssetBindingReadsLegacyMoliiID(t *testing.T) {
 
 func TestResolveStarAIAssetURIRejectsUnboundUpstreamID(t *testing.T) {
 	useStarAIAssetRedis(t)
-	_, err := ResolveStarAIAssetURI(context.Background(), "asset://asset-upstream-secret", 42, StarAIAssetVerificationConfig{})
+	var upstreamRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamRequests.Add(1)
+		_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
+	}))
+	t.Cleanup(server.Close)
+	_, err := ResolveStarAIAssetURI(context.Background(), "asset://asset-upstream-secret", 42, StarAIAssetVerificationConfig{
+		BaseURL: server.URL,
+		APIKey:  "asset-test-key",
+	})
 	require.True(t, errors.Is(err, ErrStarAIAssetNotFound))
+	require.Zero(t, upstreamRequests.Load(), "ownership must be checked before querying upstream")
 	require.Equal(t, "https://example.com/a.png", mustResolveUnchanged(t, "https://example.com/a.png"))
 }
 
@@ -280,12 +290,15 @@ func TestResolveStarAIAssetURIReturnsAndPersistsUpstreamFailureReason(t *testing
 	require.Contains(t, stored.ErrorMessage, "sensitive information")
 }
 
-func TestResolveStarAIAssetURIUsesSourceURLAcrossDifferentChannelKeys(t *testing.T) {
+func TestResolveStarAIAssetURIReusesUpstreamIDAcrossDifferentChannelKeys(t *testing.T) {
 	useStarAIAssetRedis(t)
 	var upstreamRequests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var authorization atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamRequests.Add(1)
-		w.WriteHeader(http.StatusNotFound)
+		authorization.Store(r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
 	}))
 	t.Cleanup(server.Close)
 	binding := &StarAIAssetBinding{
@@ -300,22 +313,25 @@ func TestResolveStarAIAssetURIUsesSourceURLAcrossDifferentChannelKeys(t *testing
 	require.NoError(t, SaveStarAIAssetBinding(binding))
 
 	resolved, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{
-		ChannelID: 22,
-		BaseURL:   server.URL,
-		APIKey:    "different-key",
+		BaseURL: server.URL,
+		APIKey:  "different-key",
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, "https://cdn.example.com/reference.png", resolved)
-	require.Zero(t, upstreamRequests.Load(), "an upstream asset ID must not be queried with a different channel key")
+	require.Equal(t, "asset://asset-created-by-another-key", resolved)
+	require.Equal(t, int32(1), upstreamRequests.Load())
+	require.Equal(t, "Bearer different-key", authorization.Load())
 }
 
-func TestResolveStarAIAssetURIUsesSourceURLAfterChannelKeyRotation(t *testing.T) {
+func TestResolveStarAIAssetURIReusesUpstreamIDAfterChannelKeyRotation(t *testing.T) {
 	useStarAIAssetRedis(t)
 	var upstreamRequests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var authorization atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamRequests.Add(1)
-		w.WriteHeader(http.StatusNotFound)
+		authorization.Store(r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"SUCCESS"}`))
 	}))
 	t.Cleanup(server.Close)
 	binding := &StarAIAssetBinding{
@@ -331,14 +347,14 @@ func TestResolveStarAIAssetURIUsesSourceURLAfterChannelKeyRotation(t *testing.T)
 	require.NoError(t, SaveStarAIAssetBinding(binding))
 
 	resolved, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{
-		ChannelID: 11,
-		BaseURL:   server.URL,
-		APIKey:    "new-key",
+		BaseURL: server.URL,
+		APIKey:  "new-key",
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, "https://cdn.example.com/reference.png", resolved)
-	require.Zero(t, upstreamRequests.Load(), "an upstream asset ID must not be queried after its channel key changes")
+	require.Equal(t, "asset://asset-created-by-old-key", resolved)
+	require.Equal(t, int32(1), upstreamRequests.Load())
+	require.Equal(t, "Bearer new-key", authorization.Load())
 }
 
 func mustResolveUnchanged(t *testing.T, value string) string {

@@ -230,14 +230,15 @@ func isDashboardAssetRequest(c *gin.Context) bool {
 func getStarAIAssetChannel(binding *service.StarAIAssetBinding) (*model.Channel, error) {
 	if binding != nil && binding.ChannelID > 0 {
 		channel, err := model.GetChannelById(binding.ChannelID, true)
-		if err != nil {
-			return nil, err
-		}
-		if channel.Type != constant.ChannelTypeStarAI {
+		if err == nil && channel.Type != constant.ChannelTypeStarAI {
 			return nil, errors.New("temporary asset channel type mismatch")
 		}
-		return channel, nil
+		if err == nil && channel.Status == common.ChannelStatusEnabled {
+			return channel, nil
+		}
 	}
+	// StarAI asset IDs are shared across API keys, so an enabled channel can
+	// refresh bindings whose original channel was removed or disabled.
 	return model.GetFirstEnabledChannelByType(constant.ChannelTypeStarAI)
 }
 
@@ -423,11 +424,6 @@ func CompleteStarAICOSUpload(c *gin.Context) {
 }
 
 func refreshStarAIAsset(c *gin.Context, binding *service.StarAIAssetBinding) (*service.StarAIAssetBinding, error) {
-	// Legacy bindings predate channel ownership. Querying their upstream ID
-	// with whichever channel happens to sort first could cross API-key scopes.
-	if binding.ChannelID == 0 {
-		return binding, nil
-	}
 	channel, err := getStarAIAssetChannel(binding)
 	if err != nil {
 		return nil, err
