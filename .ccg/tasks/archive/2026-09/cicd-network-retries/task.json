@@ -1,0 +1,12 @@
+{
+  "id": "cicd-network-retries",
+  "title": "为三个部署环境增加安全的 CI/CD 网络重试",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "devops",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地变更",
+  "createdAt": "2026-09-16T15:30:00Z",
+  "branch": "feat/cicd-network-retries"
+}

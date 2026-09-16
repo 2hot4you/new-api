@@ -2,6 +2,8 @@
 
 set -Eeuo pipefail
 
+readonly SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+readonly RETRY_HELPER="$SCRIPT_DIR/retry.sh"
 readonly ENVIRONMENT=${1:-}
 readonly IMAGE_REFERENCE=${2:-}
 readonly REQUESTED_HEALTH_URL=${3:-}
@@ -9,6 +11,13 @@ readonly MOLII_DEPLOY_ROOT=${MOLII_DEPLOY_ROOT:-/opt/molii}
 readonly IXIAOZU_DEPLOY_ROOT=${IXIAOZU_DEPLOY_ROOT:-/opt/ixiaozu}
 readonly HEALTH_ATTEMPTS=${HEALTH_ATTEMPTS:-36}
 readonly HEALTH_INTERVAL_SECONDS=${HEALTH_INTERVAL_SECONDS:-5}
+
+[[ -f "$RETRY_HELPER" ]] || {
+  printf '[deploy] error: missing retry helper: %s\n' "$RETRY_HELPER" >&2
+  exit 1
+}
+# shellcheck source=retry.sh
+source "$RETRY_HELPER"
 
 log() {
   printf '[deploy] %s\n' "$*"
@@ -160,9 +169,19 @@ log "deploying $IMAGE_REFERENCE to $ENVIRONMENT"
 write_deploy_env "$IMAGE_REFERENCE"
 
 docker compose --env-file "$DEPLOY_ENV" config --quiet || fail_release 'Compose validation failed'
-docker compose --env-file "$DEPLOY_ENV" pull || fail_release 'image pull failed'
+RETRY_ATTEMPTS="${DEPLOY_PULL_ATTEMPTS:-5}" \
+  RETRY_INITIAL_DELAY_SECONDS="${RETRY_INITIAL_DELAY_SECONDS:-3}" \
+  RETRY_MAX_DELAY_SECONDS="${RETRY_MAX_DELAY_SECONDS:-30}" \
+  retry_with_backoff \
+    'image pull' \
+    docker compose --env-file "$DEPLOY_ENV" pull \
+  || fail_release 'image pull failed'
 docker compose --env-file "$DEPLOY_ENV" up -d --remove-orphans || fail_release 'Compose update failed'
 wait_for_container || fail_release 'container health check failed'
-check_public_health || fail_release "public health check failed: $EXPECTED_HEALTH_URL"
+RETRY_ATTEMPTS="${PUBLIC_HEALTH_ATTEMPTS:-6}" \
+  RETRY_INITIAL_DELAY_SECONDS="${PUBLIC_HEALTH_INITIAL_DELAY_SECONDS:-2}" \
+  RETRY_MAX_DELAY_SECONDS="${PUBLIC_HEALTH_MAX_DELAY_SECONDS:-10}" \
+  retry_with_backoff 'public health check' check_public_health \
+  || fail_release "public health check failed: $EXPECTED_HEALTH_URL"
 
 log "deployment succeeded: $ENVIRONMENT is healthy at $EXPECTED_HEALTH_URL"

@@ -80,6 +80,18 @@ if [[ "${1:-}" == "inspect" && "$*" == *".State.Health"* ]]; then
   exit 0
 fi
 
+if [[ "$*" == "compose --env-file .deploy.env pull" ]]; then
+  count=0
+  if [[ -f "$MOCK_PULL_COUNT_FILE" ]]; then
+    count=$(<"$MOCK_PULL_COUNT_FILE")
+  fi
+  count=$((count + 1))
+  printf '%s' "$count" >"$MOCK_PULL_COUNT_FILE"
+  if (( count <= ${MOCK_PULL_FAILURES:-0} )); then
+    exit 1
+  fi
+fi
+
 exit 0
 MOCK
 
@@ -87,6 +99,15 @@ MOCK
 #!/usr/bin/env bash
 set -Eeuo pipefail
 printf '%s\n' "$*" >>"$MOCK_LOG"
+count=0
+if [[ -f "$MOCK_PUBLIC_COUNT_FILE" ]]; then
+  count=$(<"$MOCK_PUBLIC_COUNT_FILE")
+fi
+count=$((count + 1))
+printf '%s' "$count" >"$MOCK_PUBLIC_COUNT_FILE"
+if (( count <= ${MOCK_PUBLIC_FAILURES:-0} )); then
+  exit 28
+fi
 if [[ "${MOCK_PUBLIC_HEALTH:-success}" == "success" ]]; then
   printf '{"success":true}\n'
   exit 0
@@ -150,6 +171,10 @@ run_deploy() {
     HEALTH_INTERVAL_SECONDS=0 \
     MOCK_LOG="$fixture/mock.log" \
     MOCK_HEALTH_COUNT_FILE="$fixture/health-count" \
+    MOCK_PULL_COUNT_FILE="$fixture/pull-count" \
+    MOCK_PUBLIC_COUNT_FILE="$fixture/public-count" \
+    RETRY_INITIAL_DELAY_SECONDS=0 \
+    RETRY_MAX_DELAY_SECONDS=0 \
     "$DEPLOY_SCRIPT" "$@"
 }
 
@@ -273,6 +298,46 @@ test_successful_deploy_keeps_requested_image() {
   assert_contains "$log" 'compose --env-file .deploy.env pull' 'successful deploy pulls the image'
   assert_contains "$log" 'compose --env-file .deploy.env up -d --remove-orphans' 'successful deploy starts Compose'
   assert_contains "$log" 'https://molii.co/api/status' 'successful deploy checks the public endpoint'
+  rm -rf "$fixture"
+}
+
+test_image_pull_retries_transient_network_failures() {
+  local fixture log pull_count
+  fixture=$(new_fixture)
+
+  MOCK_PULL_FAILURES=2 \
+    DEPLOY_PULL_ATTEMPTS=4 \
+    run_deploy \
+      "$fixture" \
+      production-ixiaozu \
+      ghcr.io/2hot4you/new-api@sha256:new \
+      https://aigc.ixiaozu.cn/api/status
+
+  pull_count=$(<"$fixture/pull-count")
+  assert_equals "$pull_count" '3' 'image pull retries two transient failures before succeeding'
+  log=$(<"$fixture/mock.log")
+  assert_contains "$log" 'compose --env-file .deploy.env up -d --remove-orphans' 'container update runs once after a successful pull retry'
+  rm -rf "$fixture"
+}
+
+test_public_health_retries_without_restarting_the_container() {
+  local fixture public_count up_count
+  fixture=$(new_fixture)
+
+  MOCK_PUBLIC_FAILURES=2 \
+    PUBLIC_HEALTH_ATTEMPTS=4 \
+    PUBLIC_HEALTH_INITIAL_DELAY_SECONDS=0 \
+    PUBLIC_HEALTH_MAX_DELAY_SECONDS=0 \
+    run_deploy \
+      "$fixture" \
+      production-ixiaozu \
+      ghcr.io/2hot4you/new-api@sha256:new \
+      https://aigc.ixiaozu.cn/api/status
+
+  public_count=$(<"$fixture/public-count")
+  assert_equals "$public_count" '3' 'public health check retries two transient failures before succeeding'
+  up_count=$(grep -c 'compose --env-file .deploy.env up -d --remove-orphans' "$fixture/mock.log")
+  assert_equals "$up_count" '1' 'public health retry does not repeat the container update'
   rm -rf "$fixture"
 }
 
@@ -447,6 +512,11 @@ test_workflow_delivery_contract() {
 
   assert_contains "$content" 'deploy-result-${{ matrix.target.id }}-${{ github.sha }}' 'each target publishes an independent result record'
   assert_contains "$content" 'partial_success' 'summary distinguishes partial production success'
+  assert_contains "$content" "bash deploy/retry.sh 'SSH connectivity'" 'all deployment targets retry the SSH connectivity probe'
+  assert_contains "$content" "bash deploy/retry.sh 'runner GHCR login'" 'all deployment targets retry runner GHCR authentication'
+  assert_contains "$content" "bash deploy/retry.sh 'server GHCR login'" 'all deployment targets retry server GHCR authentication'
+  assert_contains "$content" "bash deploy/retry.sh 'deployment asset upload'" 'all deployment targets retry deployment asset uploads'
+  assert_not_contains "$content" "bash deploy/retry.sh 'immutable deployment'" 'workflow does not blindly retry the state-changing deployment command'
 }
 
 test_app_version_fits_setup_schema() {
@@ -478,6 +548,8 @@ test_maps_all_deployment_targets
 test_rejects_mismatched_health_url
 test_requires_runtime_secrets
 test_successful_deploy_keeps_requested_image
+test_image_pull_retries_transient_network_failures
+test_public_health_retries_without_restarting_the_container
 test_failed_deploy_rolls_back_previous_image
 test_compose_isolates_both_environments
 test_ixiaozu_runtime_template_uses_verified_tls
