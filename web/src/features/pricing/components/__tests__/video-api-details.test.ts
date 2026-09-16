@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+
 import { describe, test } from 'vitest'
 
 import { buildSupportedParameters } from '../../lib/mock-stats'
@@ -144,6 +145,24 @@ describe('Seedance API details', () => {
     assert.deepEqual(watermark?.enumValues, ['true', 'false'])
     assert.equal(tools?.range, '0 or more items; each type must be web_search')
     assert.deepEqual(tools?.enumValues, ['web_search'])
+  })
+
+  test('shows the expanded Seedance 2.5 media limits', () => {
+    const parameters = buildSupportedParameters({
+      ...seedanceModel,
+      model_name: 'doubao-seedance-2-5-260628',
+      max_input_images: 30,
+    })
+    const content = parameters.find((parameter) => parameter.name === 'content')
+    const duration = parameters.find(
+      (parameter) => parameter.name === 'duration'
+    )
+
+    assert.equal(
+      content?.range,
+      'At least 1 item; up to 30 images, 10 videos, and 10 audio files; each reference video or audio file must be 2–15 seconds, with a 15-second combined limit per media type'
+    )
+    assert.equal(duration?.range, '-1 for smart duration, or 4–30 seconds')
   })
 
   test('documents reference video and audio duration limits in the content format table', async () => {

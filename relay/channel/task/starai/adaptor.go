@@ -696,8 +696,14 @@ func validatePayload(payload *requestPayload) error {
 	if textCount+imageCount+videoCount+audioCount == 0 || (imageCount+videoCount == 0 && textCount == 0) {
 		return fmt.Errorf("prompt or reference image/video is required")
 	}
-	if imageCount > 9 || videoCount > 3 || audioCount > 3 {
-		return fmt.Errorf("at most 9 images, 3 videos, and 3 audio files are supported")
+	capabilities := capabilitiesForModel(payload.Model)
+	if imageCount > capabilities.maxImages || videoCount > capabilities.maxVideos || audioCount > capabilities.maxAudioFiles {
+		return fmt.Errorf(
+			"at most %d images, %d videos, and %d audio files are supported",
+			capabilities.maxImages,
+			capabilities.maxVideos,
+			capabilities.maxAudioFiles,
+		)
 	}
 	frameScene := firstFrameCount > 0 || lastFrameCount > 0
 	referenceScene := referenceImageCount > 0 || videoCount > 0 || audioCount > 0

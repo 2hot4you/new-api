@@ -261,6 +261,7 @@ func TestBackfillLocalMarketplaceMetadataUsesValidatedLocalCapabilities(t *testi
 
 	seedance25 := loadMarketplaceRow(t, db, "doubao-seedance-2-5-260628")
 	require.Equal(t, []string{"480p", "720p", "1080p"}, seedance25.SupportedResolutions)
+	require.Equal(t, 30, seedance25.MaxInputImages)
 	require.Equal(t, 30, seedance25.MaxDuration)
 
 	image := loadMarketplaceRow(t, db, "grok-imagine-image-quality")
@@ -279,6 +280,31 @@ func TestBackfillLocalMarketplaceMetadataUsesValidatedLocalCapabilities(t *testi
 	video15 := loadMarketplaceRow(t, db, "grok-imagine-video-1.5")
 	require.Equal(t, []string{"480p", "720p", "1080p"}, video15.SupportedResolutions)
 	require.Equal(t, []string{"image"}, video15.ReferenceModalities)
+}
+
+func TestBackfillLocalMarketplaceMetadataCorrectsOnlyLegacySeedance25ImageLimit(t *testing.T) {
+	db := newMarketplaceMigrationTestDB(t)
+	require.NoError(t, db.Create(&Model{
+		ModelName:      "doubao-seedance-2-5-260628",
+		Description:    "existing catalog description",
+		VendorID:       1,
+		Status:         1,
+		MaxInputImages: 9,
+	}).Error)
+	require.NoError(t, db.Create(&Model{
+		ModelName:      "doubao-seedance-2-0-260128",
+		Description:    "existing catalog description",
+		VendorID:       1,
+		Status:         1,
+		MaxInputImages: 12,
+	}).Error)
+
+	require.NoError(t, BackfillLocalMarketplaceMetadata(db))
+
+	seedance25 := loadMarketplaceRow(t, db, "doubao-seedance-2-5-260628")
+	require.Equal(t, 30, seedance25.MaxInputImages)
+	customSeedance20 := loadMarketplaceRow(t, db, "doubao-seedance-2-0-260128")
+	require.Equal(t, 12, customSeedance20.MaxInputImages)
 }
 
 func TestBackfillLocalMarketplaceMetadataPreservesAdministratorValues(t *testing.T) {

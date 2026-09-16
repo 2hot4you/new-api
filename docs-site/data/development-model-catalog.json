@@ -1725,7 +1725,7 @@
         "video",
         "audio"
       ],
-      "max_input_images": 9,
+      "max_input_images": 30,
       "min_duration": 4,
       "max_duration": 30
     }

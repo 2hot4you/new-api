@@ -87,6 +87,33 @@ func TestBuildRejectsContractViolations(t *testing.T) {
 	}
 }
 
+func TestValidateSeedanceUsesModelSpecificMediaLimits(t *testing.T) {
+	referenceImages := func(count int) []contentItem {
+		items := make([]contentItem, 0, count)
+		for i := range count {
+			items = append(items, contentItem{
+				Type:     "image_url",
+				ImageURL: &mediaURL{URL: fmt.Sprintf("https://example.test/image-%d.png", i)},
+				Role:     "reference_image",
+			})
+		}
+		return items
+	}
+
+	require.NoError(t, validateSeedance(&seedanceRequest{
+		Model:   "doubao-seedance-2-5-260628",
+		Content: referenceImages(30),
+	}))
+	require.EqualError(t, validateSeedance(&seedanceRequest{
+		Model:   "doubao-seedance-2-5-260628",
+		Content: referenceImages(31),
+	}), "at most 30 images, 10 videos, and 10 audio files are supported")
+	require.EqualError(t, validateSeedance(&seedanceRequest{
+		Model:   "doubao-seedance-2-0-260128",
+		Content: referenceImages(10),
+	}), "at most 9 images, 3 videos, and 3 audio files are supported")
+}
+
 func TestBuildRejectsRetiredGrokVideoAlias(t *testing.T) {
 	retiredModel := "grok-imagine-video-1.5-" + "pre" + "view"
 	body := fmt.Sprintf(`{"model":%q,"prompt":"animate","image":{"url":"https://example.test/a.png"}}`, retiredModel)

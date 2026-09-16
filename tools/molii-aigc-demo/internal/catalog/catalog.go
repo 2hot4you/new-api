@@ -1,5 +1,7 @@
 package catalog
 
+import "fmt"
+
 // Field describes one UI-editable request field. Conditions use field names
 // from the same operation and are intentionally simple so a native client can
 // render them without evaluating code.
@@ -43,15 +45,15 @@ var imageRatios = []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2
 var seedanceRatios = []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"}
 var grokVideoRatios = []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"}
 
-func seedanceFields(resolutions []string) []Field {
+func seedanceFields(resolutions []string, maxDuration, maxImages, maxVideos, maxAudioFiles int) []Field {
 	return []Field{
 		{Name: "model", Label: "Model", Type: "select", Required: true},
 		{Name: "prompt", Label: "Prompt", Type: "textarea", Description: "At least prompt or valid content is required."},
-		{Name: "content", Label: "Ordered content", Type: "array", ItemType: "seedance_content", Description: "text, first/last frame, reference image/video/audio"},
+		{Name: "content", Label: "Ordered content", Type: "array", ItemType: "seedance_content", Description: fmt.Sprintf("text, first/last frame, reference image/video/audio; up to %d images, %d videos, and %d audio files", maxImages, maxVideos, maxAudioFiles)},
 		{Name: "generate_audio", Label: "Generate audio", Type: "boolean", Default: true},
 		{Name: "resolution", Label: "Resolution", Type: "select", Default: "720p", Options: resolutions},
 		{Name: "ratio", Label: "Aspect ratio", Type: "select", Default: "adaptive", Options: seedanceRatios},
-		{Name: "duration", Label: "Duration", Type: "integer", Default: 5, Minimum: intp(-1), Maximum: intp(15), Description: "-1 or an integer from 4 through 15."},
+		{Name: "duration", Label: "Duration", Type: "integer", Default: 5, Minimum: intp(-1), Maximum: intp(maxDuration), Description: fmt.Sprintf("-1 or an integer from 4 through %d.", maxDuration)},
 		{Name: "watermark", Label: "Watermark", Type: "boolean", Default: false},
 		{Name: "tools", Label: "Tools", Type: "array", ItemType: "web_search", Description: "Only {\"type\":\"web_search\"} is supported."},
 	}
@@ -117,12 +119,14 @@ func Models() []Model {
 		{ID: "seedance.asset.get", Label: "Get temporary asset", Method: "GET", Path: "/v1/assets/{id}", Fields: []Field{{Name: "id", Label: "Asset ID", Type: "text", Required: true}}},
 		{ID: "seedance.asset.delete", Label: "Delete temporary asset", Method: "DELETE", Path: "/v1/assets/{id}", Fields: []Field{{Name: "id", Label: "Asset ID", Type: "text", Required: true}}},
 	}
-	seedanceOps := func(resolutions []string) []Operation {
-		return append([]Operation{{ID: "seedance.video.generate", Label: "Video generation", Method: "POST", Path: "/v1/video/generations", Async: true, Generation: true, Fields: seedanceFields(resolutions)}}, seedanceAssets...)
+	seedanceOps := func(resolutions []string, maxDuration, maxImages, maxVideos, maxAudioFiles int) []Operation {
+		return append([]Operation{{ID: "seedance.video.generate", Label: "Video generation", Method: "POST", Path: "/v1/video/generations", Async: true, Generation: true, Fields: seedanceFields(resolutions, maxDuration, maxImages, maxVideos, maxAudioFiles)}}, seedanceAssets...)
 	}
 	return []Model{
-		{ID: "doubao-seedance-2-0-260128", Label: "Seedance 2.0", Provider: "seedance", Kind: "video", Operations: seedanceOps([]string{"480p", "720p", "1080p", "4k"})},
-		{ID: "doubao-seedance-2-0-fast-260128", Label: "Seedance 2.0 Fast", Provider: "seedance", Kind: "video", Operations: seedanceOps([]string{"480p", "720p"})},
+		{ID: "doubao-seedance-2-0-260128", Label: "Seedance 2.0", Provider: "seedance", Kind: "video", Operations: seedanceOps([]string{"480p", "720p", "1080p", "4k"}, 15, 9, 3, 3)},
+		{ID: "doubao-seedance-2-0-fast-260128", Label: "Seedance 2.0 Fast", Provider: "seedance", Kind: "video", Operations: seedanceOps([]string{"480p", "720p"}, 15, 9, 3, 3)},
+		{ID: "doubao-seedance-2-0-mini-260615", Label: "Seedance 2.0 Mini", Provider: "seedance", Kind: "video", Operations: seedanceOps([]string{"480p", "720p"}, 15, 9, 3, 3)},
+		{ID: "doubao-seedance-2-5-260628", Label: "Seedance 2.5", Provider: "seedance", Kind: "video", Operations: seedanceOps([]string{"480p", "720p", "1080p"}, 30, 30, 10, 10)},
 		{ID: "grok-imagine-image", Label: "Grok Imagine Image", Provider: "grok", Kind: "image", Operations: grokImageOperations("grok-imagine-image")},
 		{ID: "grok-imagine-image-quality", Label: "Grok Imagine Image Quality", Provider: "grok", Kind: "image", Operations: grokImageOperations("grok-imagine-image-quality")},
 		{ID: "grok-imagine-image-2.0", Label: "Grok Imagine Image 2.0", Provider: "grok", Kind: "image", Operations: grokImageOperations("grok-imagine-image-2.0")},

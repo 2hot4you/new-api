@@ -221,6 +221,15 @@ describe('Seedance and temporary asset documentation contract', () => {
       expect(modelPage).toContain('所有参考视频总时长不超过 15 秒');
       expect(modelPage).toContain('单条参考音频为 2–15 秒');
       expect(modelPage).toContain('所有参考音频总时长不超过 15 秒');
+      if (modelId === 'doubao-seedance-2-5-260628') {
+        expect(modelPage).toContain('最多提供 30 张参考图片');
+        expect(modelPage).toContain('最多提供 10 个参考视频');
+        expect(modelPage).toContain('最多提供 10 条参考音频');
+      } else {
+        expect(modelPage).toContain('最多提供 9 张参考图片');
+        expect(modelPage).toContain('最多提供 3 个参考视频');
+        expect(modelPage).toContain('最多提供 3 条参考音频');
+      }
     }
   });
 

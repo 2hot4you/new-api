@@ -179,6 +179,7 @@ describe('model catalog', () => {
     raw.data[4].display_name = 'Doubao Seedance 2.5';
     delete raw.data[4].supported_parameters;
     raw.data[4].supported_resolutions = ['480p', '720p', '1080p'];
+    raw.data[4].max_input_images = 30;
     raw.data[4].min_duration = 4;
     raw.data[4].max_duration = 30;
     const catalog = sanitizeCatalogResponse(raw);
@@ -196,6 +197,9 @@ describe('model catalog', () => {
     expect(page).toContain('/guides/seedance-multimodal');
     expect(page).toContain('/api-reference/assets');
     expect(page).toContain('/examples/seedance-curl');
+    expect(page).toContain('最多提供 30 张参考图片');
+    expect(page).toContain('最多提供 10 个参考视频');
+    expect(page).toContain('最多提供 10 条参考音频');
   });
 
   test('links all 54 snapshot endpoint declarations to their protocol references', async () => {

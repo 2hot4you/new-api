@@ -1,0 +1,12 @@
+{
+  "id": "fix-seedance25-media-limits",
+  "title": "按模型修正 Seedance 2.5 多模态素材数量上限",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并等待合并",
+  "createdAt": "2026-09-16T11:00:00Z",
+  "branch": "fix/seedance25-media-limits"
+}

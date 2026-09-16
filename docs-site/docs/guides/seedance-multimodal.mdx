@@ -17,9 +17,9 @@ sidebar_position: 1
 | `type` | 必需载荷 | `role` | 数量规则 |
 | --- | --- | --- | --- |
 | `text` | 非空 `text` | 不使用 | 文本数量没有额外上限 |
-| `image_url` | `image_url.url` | `first_frame`、`last_frame`、`reference_image`；省略按 `first_frame` 处理 | 所有图片合计最多 9 张；帧模式最多 2 张 |
-| `video_url` | `video_url.url` | 必须为 `reference_video` | 最多 3 个视频；单个 2–15 秒，所有参考视频总时长不超过 15 秒 |
-| `audio_url` | `audio_url.url` | 必须为 `reference_audio` | 最多 3 条音频；单条 2–15 秒，所有参考音频总时长不超过 15 秒 |
+| `image_url` | `image_url.url` | `first_frame`、`last_frame`、`reference_image`；省略按 `first_frame` 处理 | 标准/Fast/Mini 最多 9 张；2.5 最多 30 张；帧模式始终最多 2 张 |
+| `video_url` | `video_url.url` | 必须为 `reference_video` | 标准/Fast/Mini 最多 3 个；2.5 最多 10 个；单个 2–15 秒，所有参考视频总时长不超过 15 秒 |
+| `audio_url` | `audio_url.url` | 必须为 `reference_audio` | 标准/Fast/Mini 最多 3 条；2.5 最多 10 条；单条 2–15 秒，所有参考音频总时长不超过 15 秒 |
 
 请求至少需要非空文本，或至少一张图片/一个视频。参考音频不能单独作为唯一媒体输入，必须同时有 `reference_image` 或 `reference_video`。
 

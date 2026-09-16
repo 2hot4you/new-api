@@ -8,9 +8,10 @@ import (
 
 func TestCatalogContainsExactModels(t *testing.T) {
 	models := Models()
-	require.Len(t, models, 7)
+	require.Len(t, models, 9)
 	want := []string{
 		"doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128",
+		"doubao-seedance-2-0-mini-260615", "doubao-seedance-2-5-260628",
 		"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0", "grok-imagine-video",
 		"grok-imagine-video-1.5",
 	}
@@ -24,6 +25,17 @@ func TestCatalogContainsExactModels(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, standard.Operations, 4)
 	require.Equal(t, "seedance.asset.create", standard.Operations[1].ID)
+
+	seedance25, ok := FindModel("doubao-seedance-2-5-260628")
+	require.True(t, ok)
+	generate := seedance25.Operations[0]
+	fields := make(map[string]Field, len(generate.Fields))
+	for _, field := range generate.Fields {
+		fields[field.Name] = field
+	}
+	require.NotNil(t, fields["duration"].Maximum)
+	require.Equal(t, 30, *fields["duration"].Maximum)
+	require.Contains(t, fields["content"].Description, "30 images, 10 videos, and 10 audio files")
 
 	retiredModel := "grok-imagine-video-1.5-" + "pre" + "view"
 	_, ok = FindModel(retiredModel)

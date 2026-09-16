@@ -110,7 +110,7 @@ var localMarketplaceMetadataSeeds20260815 = []Model{
 		Capabilities:          []string{"video_generation", "video_editing", "audio_generation", "web_search"},
 		SupportedResolutions:  []string{"480p", "720p", "1080p"},
 		SupportedAspectRatios: []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"},
-		MaxInputImages:        9,
+		MaxInputImages:        30,
 		OutputFormats:         []string{"url"},
 		MinDuration:           4,
 		MaxDuration:           30,
@@ -277,8 +277,9 @@ func ensureModelMarketplaceMetadataSchema(db *gorm.DB) error {
 }
 
 // BackfillLocalMarketplaceMetadata migrates reviewed local catalog facts into
-// existing Model rows. It never creates models and never overwrites a non-empty
-// administrator value.
+// existing Model rows. It never creates models and does not overwrite non-empty
+// administrator values, except for narrowly scoped corrections of known legacy
+// system defaults.
 func BackfillLocalMarketplaceMetadata(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("backfill local marketplace metadata: database is nil")
@@ -290,6 +291,12 @@ func BackfillLocalMarketplaceMetadata(db *gorm.DB) error {
 	}
 
 	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Model{}).
+			Where("model_name = ? AND max_input_images = ?", "doubao-seedance-2-5-260628", 9).
+			UpdateColumn("max_input_images", 30).Error; err != nil {
+			return fmt.Errorf("correct Seedance 2.5 legacy image limit: %w", err)
+		}
+
 		var rows []Model
 		if err := tx.Where("model_name IN ?", modelNames).Find(&rows).Error; err != nil {
 			return fmt.Errorf("load local marketplace models: %w", err)

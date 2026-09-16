@@ -160,7 +160,7 @@ POST /v1/video/generations
 | --- | --- | --- |
 | `first_frame` | 首帧 | 必须正好 1 张 |
 | `last_frame` | 尾帧 | 最多 1 张，必须与首帧同时使用 |
-| `reference_image` | 多模态参考图片 | 图片总数最多 9 张 |
+| `reference_image` | 多模态参考图片 | 标准/Fast/Mini 最多 9 张；2.5 最多 30 张 |
 | 不填 | 按 `first_frame` 处理 | 仅建议单首帧场景使用 |
 
 图片支持 JPEG、PNG、WebP、BMP、TIFF、GIF；建议宽高比满足 `0.4 < 宽/高 < 2.5`，边长 300–6000 px，单张小于 30 MB，完整请求体不超过 64 MB。
@@ -184,7 +184,7 @@ POST /v1/video/generations
 | 格式 | MP4、MOV |
 | 分辨率 | 参考视频建议为 480p 或 720p |
 | 时长 | 单个 2–15 秒，所有参考视频合计不超过 15 秒 |
-| 数量 | 最多 3 个 |
+| 数量 | 标准/Fast/Mini 最多 3 个；2.5 最多 10 个 |
 | 画面 | 宽高比 0.4–2.5、边长 300–6000 px、409600–927408 像素 |
 | 大小 / 帧率 | 单个不超过 50 MB；24–60 FPS |
 
@@ -204,7 +204,7 @@ POST /v1/video/generations
 | URL | 公网 URL、音频 Data URL 或 `asset://` URI |
 | 格式 | WAV、MP3 |
 | 时长 | 单个 2–15 秒，所有参考音频合计不超过 15 秒 |
-| 数量 | 最多 3 个 |
+| 数量 | 标准/Fast/Mini 最多 3 个；2.5 最多 10 个 |
 | 大小 | 单个不超过 15 MB；完整请求体不超过 64 MB |
 
 音频 Data URL 格式：`data:audio/wav;base64,BASE64_DATA`。
@@ -215,7 +215,7 @@ POST /v1/video/generations
 - 多模态模式使用 `reference_image`、`reference_video`、`reference_audio`；
 - `first_frame` 或 `last_frame` 不能与任何 `reference_*` 项混用；
 - 多模态图片必须使用 `reference_image`；
-- 图片最多 9 张、视频最多 3 个、音频最多 3 个；
+- 标准/Fast/Mini 最多 9 张图片、3 个视频和 3 条音频；2.5 最多 30 张图片、10 个视频和 10 条音频；
 - 参考音频必须与至少一张参考图片或一个参考视频同时使用；
 - 纯文生视频只需要一个非空文本输入。
 

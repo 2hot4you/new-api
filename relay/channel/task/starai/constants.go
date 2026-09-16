@@ -18,12 +18,18 @@ var ModelList = []string{
 
 type modelCapabilities struct {
 	maxDuration         int
+	maxImages           int
+	maxVideos           int
+	maxAudioFiles       int
 	supportedResolution map[string]struct{}
 }
 
 func capabilitiesForModel(model string) modelCapabilities {
 	capabilities := modelCapabilities{
-		maxDuration: 15,
+		maxDuration:   15,
+		maxImages:     9,
+		maxVideos:     3,
+		maxAudioFiles: 3,
 		supportedResolution: map[string]struct{}{
 			"480p": {}, "720p": {}, "1080p": {}, "4k": {},
 		},
@@ -33,6 +39,9 @@ func capabilitiesForModel(model string) modelCapabilities {
 		capabilities.supportedResolution = map[string]struct{}{"480p": {}, "720p": {}}
 	case ModelSeedance25:
 		capabilities.maxDuration = 30
+		capabilities.maxImages = 30
+		capabilities.maxVideos = 10
+		capabilities.maxAudioFiles = 10
 		capabilities.supportedResolution = map[string]struct{}{"480p": {}, "720p": {}, "1080p": {}}
 	}
 	return capabilities

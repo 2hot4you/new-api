@@ -245,7 +245,13 @@ func validatePrompt(prompt string, required bool) error {
 }
 
 func validateSeedance(req *seedanceRequest) error {
-	if req.Model != "doubao-seedance-2-0-260128" && req.Model != "doubao-seedance-2-0-fast-260128" {
+	allowedModels := map[string]bool{
+		"doubao-seedance-2-0-260128":      true,
+		"doubao-seedance-2-0-fast-260128": true,
+		"doubao-seedance-2-0-mini-260615": true,
+		"doubao-seedance-2-5-260628":      true,
+	}
+	if !allowedModels[req.Model] {
 		return errors.New("unsupported Seedance model")
 	}
 	if req.GenerateAudio == nil {
@@ -263,7 +269,10 @@ func validateSeedance(req *seedanceRequest) error {
 	if !allowedResolution[req.Resolution] {
 		return errors.New("resolution must be one of 480p, 720p, 1080p, or 4k")
 	}
-	if req.Model == "doubao-seedance-2-0-fast-260128" && (req.Resolution == "1080p" || req.Resolution == "4k") {
+	if (req.Model == "doubao-seedance-2-0-fast-260128" || req.Model == "doubao-seedance-2-0-mini-260615") && (req.Resolution == "1080p" || req.Resolution == "4k") {
+		return fmt.Errorf("%s is not supported by %s", req.Resolution, req.Model)
+	}
+	if req.Model == "doubao-seedance-2-5-260628" && req.Resolution == "4k" {
 		return fmt.Errorf("%s is not supported by %s", req.Resolution, req.Model)
 	}
 	if req.Ratio == "" {
@@ -277,8 +286,12 @@ func validateSeedance(req *seedanceRequest) error {
 		v := 5
 		req.Duration = &v
 	}
-	if *req.Duration != -1 && (*req.Duration < 4 || *req.Duration > 15) {
-		return errors.New("duration must be -1 or between 4 and 15")
+	maxDuration := 15
+	if req.Model == "doubao-seedance-2-5-260628" {
+		maxDuration = 30
+	}
+	if *req.Duration != -1 && (*req.Duration < 4 || *req.Duration > maxDuration) {
+		return fmt.Errorf("duration must be -1 or between 4 and %d", maxDuration)
 	}
 	for _, item := range req.Tools {
 		if item.Type != "web_search" {
@@ -333,8 +346,17 @@ func validateSeedanceContent(req *seedanceRequest) error {
 	if textCount+imageCount+videoCount == 0 {
 		return errors.New("prompt or reference image/video is required")
 	}
-	if imageCount > 9 || videoCount > 3 || audioCount > 3 {
-		return errors.New("at most 9 images, 3 videos, and 3 audio files are supported")
+	maxImages, maxVideos, maxAudioFiles := 9, 3, 3
+	if req.Model == "doubao-seedance-2-5-260628" {
+		maxImages, maxVideos, maxAudioFiles = 30, 10, 10
+	}
+	if imageCount > maxImages || videoCount > maxVideos || audioCount > maxAudioFiles {
+		return fmt.Errorf(
+			"at most %d images, %d videos, and %d audio files are supported",
+			maxImages,
+			maxVideos,
+			maxAudioFiles,
+		)
 	}
 	frameScene := firstCount > 0 || lastCount > 0
 	referenceScene := refImageCount > 0 || videoCount > 0 || audioCount > 0

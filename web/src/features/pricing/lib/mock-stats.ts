@@ -910,6 +910,13 @@ const VIDEO_PARAMS: SupportedParameter[] = [
   },
 ]
 
+export function seedanceRequestLimitsForModel(modelName: string) {
+  if (modelName.toLowerCase() === 'doubao-seedance-2-5-260628') {
+    return { images: 30, videos: 10, audioFiles: 10, maxDuration: 30 }
+  }
+  return { images: 9, videos: 3, audioFiles: 3, maxDuration: 15 }
+}
+
 type ApiCategory = 'reasoning' | 'embedding' | 'image' | 'video' | 'chat'
 
 /** Derive the API-shape category from persisted capabilities and endpoints. */
@@ -965,6 +972,7 @@ export function buildSupportedParameters(
     return IMAGE_PARAMS
   }
   if (cat === 'video') {
+    const limits = seedanceRequestLimitsForModel(model.model_name)
     let resolutions = model.video_pricing?.rows.flatMap(
       (row) => row.resolutions
     )
@@ -976,6 +984,18 @@ export function buildSupportedParameters(
         return {
           ...parameter,
           enumValues: [model.model_name],
+        }
+      }
+      if (parameter.name === 'content') {
+        return {
+          ...parameter,
+          range: `At least 1 item; up to ${limits.images} images, ${limits.videos} videos, and ${limits.audioFiles} audio files; each reference video or audio file must be 2–15 seconds, with a 15-second combined limit per media type`,
+        }
+      }
+      if (parameter.name === 'duration') {
+        return {
+          ...parameter,
+          range: `-1 for smart duration, or 4–${limits.maxDuration} seconds`,
         }
       }
       if (parameter.name !== 'resolution') return parameter

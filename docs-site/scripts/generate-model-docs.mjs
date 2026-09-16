@@ -73,6 +73,15 @@ function isSeedanceModel(model) {
   return model.id.startsWith('doubao-seedance');
 }
 
+function seedanceMediaLimits(model) {
+  const isSeedance25 = model.id === 'doubao-seedance-2-5-260628';
+  return {
+    images: model.max_input_images ?? (isSeedance25 ? 30 : 9),
+    videos: isSeedance25 ? 10 : 3,
+    audioFiles: isSeedance25 ? 10 : 3,
+  };
+}
+
 function supportedParameters(model) {
   if (model.supported_parameters?.length) return model.supported_parameters;
   return isSeedanceModel(model) ? seedanceSupportedParameters : [];
@@ -142,6 +151,7 @@ function endpointSections(model) {
       sections.push(`### Images\n\n${endpointDeclaration('POST', '/v1/images/generations', type)}\n\n${postCurl('/v1/images/generations', { model: model.id, prompt: '描述所需图片' }, bearerHeaders)}${edits}`);
     } else if (type === 'openai-video') {
       if (isSeedanceModel(model)) {
+        const mediaLimits = seedanceMediaLimits(model);
         const status = getCurl('/v1/videos/$TASK_ID', 30);
         const content = getCurl('/v1/videos/$TASK_ID/content?download=1', 300, {
           accept: 'video/*',
@@ -198,8 +208,9 @@ ${content}
 
 参考媒体限制：
 
-- 最多提供 3 个参考视频；单个参考视频为 2–15 秒，所有参考视频总时长不超过 15 秒。
-- 最多提供 3 条参考音频；单条参考音频为 2–15 秒，所有参考音频总时长不超过 15 秒。
+- 最多提供 ${mediaLimits.images} 张参考图片。
+- 最多提供 ${mediaLimits.videos} 个参考视频；单个参考视频为 2–15 秒，所有参考视频总时长不超过 15 秒。
+- 最多提供 ${mediaLimits.audioFiles} 条参考音频；单条参考音频为 2–15 秒，所有参考音频总时长不超过 15 秒。
 - 参考音频不能单独作为唯一媒体输入，必须同时提供至少一张参考图片或一个参考视频。
 
 完整字段、组合限制和更多示例见 [Seedance API](/api-reference/seedance)、[多模态输入指南](/guides/seedance-multimodal)、[临时素材 API](/api-reference/assets) 与 [curl 完整流程](/examples/seedance-curl)。创建请求可能产生费用；网络结果不确定时不要重复提交 POST。`);

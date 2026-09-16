@@ -50,6 +50,7 @@ import {
 import { isGrokImagineModel } from '../lib/grok-model'
 import {
   buildSupportedParameters,
+  seedanceRequestLimitsForModel,
   type SupportedParameter,
 } from '../lib/mock-stats'
 import { replaceModelInPath } from '../lib/model-helpers'
@@ -644,8 +645,9 @@ function SupportedParametersTable(props: { params: SupportedParameter[] }) {
   )
 }
 
-function VideoContentFormatSection() {
+function VideoContentFormatSection(props: { modelName: string }) {
   const { t } = useTranslation()
+  const limits = seedanceRequestLimitsForModel(props.modelName)
   const rows = [
     {
       kind: t('Prompt text'),
@@ -666,7 +668,9 @@ function VideoContentFormatSection() {
       type: 'image_url',
       role: 'reference_image',
       description: t(
-        'Up to 9 images; every image in reference mode must use this role.'
+        limits.images === 30
+          ? 'Up to 30 images; every image in reference mode must use this role.'
+          : 'Up to 9 images; every image in reference mode must use this role.'
       ),
     },
     {
@@ -674,7 +678,9 @@ function VideoContentFormatSection() {
       type: 'video_url',
       role: 'reference_video',
       description: t(
-        'Up to 3 videos; each video must be 2–15 seconds and their combined duration must not exceed 15 seconds; this input selects the video-input price tier.'
+        limits.videos === 10
+          ? 'Up to 10 videos; each video must be 2–15 seconds and their combined duration must not exceed 15 seconds; this input selects the video-input price tier.'
+          : 'Up to 3 videos; each video must be 2–15 seconds and their combined duration must not exceed 15 seconds; this input selects the video-input price tier.'
       ),
     },
     {
@@ -682,7 +688,9 @@ function VideoContentFormatSection() {
       type: 'audio_url',
       role: 'reference_audio',
       description: t(
-        'Up to 3 audio files; each audio file must be 2–15 seconds and their combined duration must not exceed 15 seconds. Audio must be used with at least one reference image or video; audio alone does not select the video-input price tier.'
+        limits.audioFiles === 10
+          ? 'Up to 10 audio files; each audio file must be 2–15 seconds and their combined duration must not exceed 15 seconds. Audio must be used with at least one reference image or video; audio alone does not select the video-input price tier.'
+          : 'Up to 3 audio files; each audio file must be 2–15 seconds and their combined duration must not exceed 15 seconds. Audio must be used with at least one reference image or video; audio alone does not select the video-input price tier.'
       ),
     },
   ]
@@ -886,7 +894,9 @@ export function ModelDetailsApi(props: {
       <CodeSamplesSection model={props.model} endpointMap={props.endpointMap} />
       <AuthSection videoOnly={videoOnly} />
       <SupportedParametersSection model={props.model} />
-      {videoOnly && <VideoContentFormatSection />}
+      {videoOnly && (
+        <VideoContentFormatSection modelName={props.model.model_name} />
+      )}
       <RateLimitsSection />
     </div>
   )

@@ -743,6 +743,74 @@ func TestValidateEnforcesModelSpecificDurationAndResolutionLimits(t *testing.T) 
 	}
 }
 
+func TestValidatePayloadEnforcesModelSpecificMediaLimits(t *testing.T) {
+	referenceImages := func(count int) []contentItem {
+		items := make([]contentItem, 0, count)
+		for i := range count {
+			items = append(items, contentItem{
+				Type:     "image_url",
+				ImageURL: &mediaURL{URL: fmt.Sprintf("https://example.com/image-%d.png", i)},
+				Role:     "reference_image",
+			})
+		}
+		return items
+	}
+	referenceVideos := func(count int) []contentItem {
+		items := make([]contentItem, 0, count)
+		for i := range count {
+			items = append(items, contentItem{
+				Type:     "video_url",
+				VideoURL: &mediaURL{URL: fmt.Sprintf("https://example.com/video-%d.mp4", i)},
+				Role:     "reference_video",
+			})
+		}
+		return items
+	}
+	referenceAudio := func(count int) []contentItem {
+		items := referenceImages(1)
+		for i := range count {
+			items = append(items, contentItem{
+				Type:     "audio_url",
+				AudioURL: &mediaURL{URL: fmt.Sprintf("https://example.com/audio-%d.mp3", i)},
+				Role:     "reference_audio",
+			})
+		}
+		return items
+	}
+
+	tests := []struct {
+		name    string
+		model   string
+		content []contentItem
+		wantErr string
+	}{
+		{name: "seedance 2.5 accepts 30 images", model: ModelSeedance25, content: referenceImages(30)},
+		{name: "seedance 2.5 rejects 31 images", model: ModelSeedance25, content: referenceImages(31), wantErr: "at most 30 images, 10 videos, and 10 audio files are supported"},
+		{name: "seedance 2.5 accepts 10 videos", model: ModelSeedance25, content: referenceVideos(10)},
+		{name: "seedance 2.5 rejects 11 videos", model: ModelSeedance25, content: referenceVideos(11), wantErr: "at most 30 images, 10 videos, and 10 audio files are supported"},
+		{name: "seedance 2.5 accepts 10 audio files", model: ModelSeedance25, content: referenceAudio(10)},
+		{name: "seedance 2.5 rejects 11 audio files", model: ModelSeedance25, content: referenceAudio(11), wantErr: "at most 30 images, 10 videos, and 10 audio files are supported"},
+		{name: "seedance 2.0 still rejects 10 images", model: ModelSeedance20, content: referenceImages(10), wantErr: "at most 9 images, 3 videos, and 3 audio files are supported"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := &requestPayload{
+				Model:      test.model,
+				Content:    test.content,
+				Resolution: "720p",
+				Ratio:      "adaptive",
+			}
+			err := validatePayload(payload)
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, test.wantErr)
+		})
+	}
+}
+
 func TestValidateEnforcesDocumentedMediaAndModelRules(t *testing.T) {
 	tests := []struct {
 		name     string
