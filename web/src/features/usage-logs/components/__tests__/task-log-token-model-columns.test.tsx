@@ -79,10 +79,22 @@ const task: TaskLog = {
     origin_model_name: 'grok-imagine-video-1.5',
     upstream_model_name: 'grok-video-v2-internal',
   },
+  root_info: {
+    upstream_task_id: 'starai-upstream-private',
+    node_name: 'ixiaozu-production',
+  },
 }
 
-function CellProbe({ accessorKey }: { accessorKey: string }) {
-  const columns = useTaskLogsColumns(false)
+function CellProbe({
+  accessorKey,
+  isAdmin = false,
+  isRoot = false,
+}: {
+  accessorKey: string
+  isAdmin?: boolean
+  isRoot?: boolean
+}) {
+  const columns = useTaskLogsColumns(isAdmin, isRoot)
   const column = columns.find(
     (candidate) =>
       'accessorKey' in candidate && candidate.accessorKey === accessorKey
@@ -101,7 +113,10 @@ function CellProbe({ accessorKey }: { accessorKey: string }) {
   )
 }
 
-async function renderCell(accessorKey: string) {
+async function renderCell(
+  accessorKey: string,
+  options: { isAdmin?: boolean; isRoot?: boolean } = {}
+) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -109,7 +124,7 @@ async function renderCell(accessorKey: string) {
     root.render(
       <I18nextProvider i18n={i18n}>
         <UsageLogsProvider>
-          <CellProbe accessorKey={accessorKey} />
+          <CellProbe accessorKey={accessorKey} {...options} />
         </UsageLogsProvider>
       </I18nextProvider>
     )
@@ -138,6 +153,26 @@ describe('video task token and model columns', () => {
       true
     )
     assert.ok(rendered.container.querySelector('[aria-label="Grok"]'))
+    await act(async () => rendered.root.unmount())
+    rendered.container.remove()
+  })
+
+  test('opens root task diagnostics from the details column', async () => {
+    const rendered = await renderCell('fail_reason', {
+      isAdmin: true,
+      isRoot: true,
+    })
+    const detailsButton = [
+      ...rendered.container.querySelectorAll('button'),
+    ].find((button) => button.textContent?.includes('View details'))
+    assert.ok(detailsButton)
+
+    await act(async () => detailsButton.click())
+    assert.equal(
+      document.body.textContent?.includes('starai-upstream-private'),
+      true
+    )
+
     await act(async () => rendered.root.unmount())
     rendered.container.remove()
   })

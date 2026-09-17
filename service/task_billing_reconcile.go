@@ -132,13 +132,10 @@ func recordTaskBillingReconciliationEvent(ctx context.Context, job *model.TaskBi
 		content = "asynchronous task billing refunded"
 		quota = job.FromQuota
 	}
-	logTask := *task
-	logTask.PrivateData.UpstreamTaskID = ""
-	logTask.PrivateData.NodeName = ""
-	other := taskBillingOther(&logTask)
-	// Billing events are user-visible accounting records. The persisted task keeps
-	// root diagnostics, but an upstream task identifier must never be copied into
-	// the accounting log payload.
+	// Keep root diagnostics in the accounting log so root users can correlate an
+	// asynchronous billing event with its upstream task. Role-specific log
+	// formatting removes root_info before admin and user responses are serialized.
+	other := taskBillingOther(task)
 
 	other.SetPublic("is_task", true)
 	other.SetPublic("task_id", task.TaskID)

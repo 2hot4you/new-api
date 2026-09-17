@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
-import { CirclePlay, Clock3, KeyRound, Music, ReceiptText } from 'lucide-react'
+import {
+  CirclePlay,
+  Clock3,
+  Info,
+  KeyRound,
+  Music,
+  ReceiptText,
+} from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -51,6 +58,7 @@ import {
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
 import { TaskBillingDialog } from '../dialogs/task-billing-dialog'
+import { TaskDetailsDialog } from '../dialogs/task-details-dialog'
 import { TaskTimingDialog } from '../dialogs/task-timing-dialog'
 import { VideoPreviewDialog } from '../dialogs/video-preview-dialog'
 import { ModelBadge } from '../model-badge'
@@ -290,7 +298,10 @@ export function TaskDurationCell({
   )
 }
 
-export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
+export function useTaskLogsColumns(
+  isAdmin: boolean,
+  isRoot = false
+): ColumnDef<TaskLog>[] {
   const { t } = useTranslation()
   const columns: ColumnDef<TaskLog>[] = [
     {
@@ -487,11 +498,13 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
         const log = row.original
         const failReason = row.getValue('fail_reason') as string
         const status = log.status
-        const [dialogOpen, setDialogOpen] = useState(false)
+        const [failDialogOpen, setFailDialogOpen] = useState(false)
+        const [detailsDialogOpen, setDetailsDialogOpen] = useState(false)
         const videoParams = log.video_params
 
         const isSunoSuccess =
           log.platform === 'suno' && status === TASK_STATUS.SUCCESS
+        let audioPreview: React.ReactNode = null
         if (isSunoSuccess) {
           const data = parseTaskData(log.data)
           if (
@@ -502,16 +515,13 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
                 (c as Record<string, unknown>).audio_url
             )
           ) {
-            return <AudioPreviewCell log={log} />
+            audioPreview = <AudioPreviewCell log={log} />
           }
-        }
-
-        if (!failReason && !videoParams) {
-          return <span className='text-muted-foreground/60 text-xs'>-</span>
         }
 
         return (
           <div className='flex max-w-[280px] flex-col gap-1.5'>
+            {audioPreview}
             {videoParams && (
               <div className='flex flex-wrap gap-1'>
                 {videoParams.resolution && (
@@ -568,7 +578,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
                 <button
                   type='button'
                   className='group flex max-w-[260px] items-center gap-1 text-left text-xs'
-                  onClick={() => setDialogOpen(true)}
+                  onClick={() => setFailDialogOpen(true)}
                   title={t('Click to view full error message')}
                 >
                   <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
@@ -577,11 +587,31 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
                 </button>
                 <FailReasonDialog
                   failReason={failReason}
-                  open={dialogOpen}
-                  onOpenChange={setDialogOpen}
+                  open={failDialogOpen}
+                  onOpenChange={setFailDialogOpen}
                 />
               </>
             )}
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              className='text-muted-foreground hover:text-foreground h-auto w-fit gap-1 px-1.5 py-1 text-xs'
+              onClick={(event) => {
+                event.stopPropagation()
+                setDetailsDialogOpen(true)
+              }}
+            >
+              <Info className='size-3.5' />
+              {t('View details')}
+            </Button>
+            <TaskDetailsDialog
+              log={log}
+              isAdmin={isAdmin}
+              isRoot={isRoot}
+              open={detailsDialogOpen}
+              onOpenChange={setDetailsDialogOpen}
+            />
           </div>
         )
       },

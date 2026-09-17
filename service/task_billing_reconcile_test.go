@@ -145,6 +145,32 @@ func TestTaskBillingReconciliationSettleAndTargetZero(t *testing.T) {
 	}
 }
 
+func TestTaskBillingReconciliationEventPreservesRootTaskDiagnostics(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+	now := time.Now().Unix()
+	seedUser(t, 304, 900)
+	seedToken(t, 304, 304, "reconcile-root-diagnostics", 900)
+	seedChannel(t, 304)
+	task := makeTask(304, 304, 100, 304, BillingSourceWallet, 0)
+	task.PrivateData.UpstreamTaskID = "starai-upstream-private"
+	task.PrivateData.NodeName = "ixiaozu-production"
+	target := 35
+	job := seedReconciliationJob(t, task, model.TaskBillingOperationSettle, &target, now)
+
+	summary, err := runTaskBillingReconciliationOnceAt(context.Background(), "diagnostics-worker", now)
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Succeeded)
+
+	var event model.Log
+	require.NoError(t, model.LOG_DB.Where("request_id = ?", fmt.Sprintf("taskbill_%d", job.ID)).First(&event).Error)
+	other, err := common.StrToMap(event.Other)
+	require.NoError(t, err)
+	rootInfo, ok := other["root_info"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "starai-upstream-private", rootInfo["upstream_task_id"])
+	assert.Equal(t, "ixiaozu-production", rootInfo["node_name"])
+}
+
 func TestTaskBillingReconciliationPublishesAsyncUsageStatistics(t *testing.T) {
 	t.Run("successful task records actual tokens and a successful performance sample", func(t *testing.T) {
 		setupTaskBillingReconciliationTest(t)

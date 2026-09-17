@@ -518,9 +518,15 @@ func TestMoliiGrokFinalUsageSuccessLogsExactlyOnceAcrossStalePolls(t *testing.T)
 	assert.Equal(t, taskQuota, log.Quota)
 	assert.Contains(t, log.Other, `"grok_video_billing"`)
 	assert.Contains(t, log.Other, `"request_path":"/v1/videos/generations"`)
-	assert.NotContains(t, log.Other, upstreamID)
+	assert.Contains(t, log.Other, upstreamID)
 	assert.NotContains(t, log.Other, "vidgen.x.ai")
 	assert.NotContains(t, log.Other, "token=signed")
+	adminLog := *log
+	model.FormatAdminLogs([]*model.Log{&adminLog})
+	assert.NotContains(t, adminLog.Other, upstreamID)
+	rootLog := *log
+	model.FormatRootLogs([]*model.Log{&rootLog})
+	assert.Contains(t, rootLog.Other, upstreamID)
 
 	var user model.User
 	require.NoError(t, model.DB.First(&user, userID).Error)
@@ -668,7 +674,13 @@ func TestMoliiGrokFinalUsageFailureWritesErrorWithoutRefundLog(t *testing.T) {
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 	assert.Equal(t, 2500, log.Quota)
 	assert.NotContains(t, log.Content, "private raw failure")
-	assert.NotContains(t, log.Other, upstreamID)
+	assert.Contains(t, log.Other, upstreamID)
+	adminLog := *log
+	model.FormatAdminLogs([]*model.Log{&adminLog})
+	assert.NotContains(t, adminLog.Other, upstreamID)
+	rootLog := *log
+	model.FormatRootLogs([]*model.Log{&rootLog})
+	assert.Contains(t, rootLog.Other, upstreamID)
 }
 
 func TestMoliiGrokFinalUsageRefundFailureSuppressesTerminalErrorLog(t *testing.T) {
