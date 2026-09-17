@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-starai-upstream-task-id-visibility",
+  "title": "排查超级管理员无法看到 StarAI 上游任务 ID",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "等待用户确认是否实施最小修复",
+  "createdAt": "2026-09-18T00:00:00+08:00",
+  "branch": "fix/public-service-group-visibility"
+}
