@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -83,6 +84,38 @@ func TestTaskLogDTODoesNotInventHistoricalPluginProvenance(t *testing.T) {
 
 	assert.Nil(t, adminView.AdminInfo)
 	assert.Nil(t, adminView.RootInfo)
+}
+
+func TestTaskLogDTOExposesTimingOnlyToAdministrators(t *testing.T) {
+	task := &model.Task{
+		TaskID:     "task_timing_public",
+		Platform:   constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)),
+		SubmitTime: 1000,
+		StartTime:  1012,
+		FinishTime: 1025,
+		PrivateData: model.TaskPrivateData{Timing: &model.TaskTimingSnapshot{
+			PlatformSubmittedAt:        1000,
+			UpstreamSubmittedAt:        1001,
+			UpstreamStartedAt:          1010,
+			UpstreamFinishedAt:         1023,
+			PlatformFirstInProgressAt:  1012,
+			PlatformFinishedObservedAt: 1025,
+		}},
+	}
+
+	userView := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+	assert.Nil(t, userView.AdminInfo)
+
+	adminView := tasksToDto([]*model.Task{task}, false, common.RoleAdminUser)[0]
+	require.NotNil(t, adminView.AdminInfo)
+	require.NotNil(t, adminView.AdminInfo.Timing)
+	assert.EqualValues(t, 9, *adminView.AdminInfo.Timing.UpstreamQueueSeconds)
+	assert.EqualValues(t, 13, *adminView.AdminInfo.Timing.UpstreamGenerationSeconds)
+	assert.EqualValues(t, 2, *adminView.AdminInfo.Timing.FinishDetectionDelaySeconds)
+
+	userJSON, err := common.Marshal(userView)
+	require.NoError(t, err)
+	assert.NotContains(t, string(userJSON), "upstream_started_at")
 }
 
 func TestTaskLogDTOReplacesLegacyVideoURLWithAvailabilityFlag(t *testing.T) {

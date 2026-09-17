@@ -1,0 +1,12 @@
+{
+  "id": "seedance-task-observability",
+  "title": "完善 Seedance 使用日志与任务耗时可观测性",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并等待用户选择集成方式",
+  "createdAt": "2026-09-17T00:00:00Z",
+  "branch": "feat/seedance-task-observability"
+}

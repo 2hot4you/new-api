@@ -892,6 +892,33 @@ func TestConvertToOpenAIVideoUsesPublicID(t *testing.T) {
 	assert.Equal(t, 2, video.Usage.ToolUsage.WebSearch)
 }
 
+func TestValidateRequestCapturesInputMediaCounts(t *testing.T) {
+	metadata := map[string]any{
+		"resolution": "720p",
+		"ratio":      "16:9",
+		"duration":   15,
+		"content": []any{
+			map[string]any{"type": "text", "text": "prompt"},
+			map[string]any{"type": "image_url", "role": "reference_image", "image_url": map[string]any{"url": "https://media.example/image-1.png"}},
+			map[string]any{"type": "image_url", "role": "reference_image", "image_url": map[string]any{"url": "https://media.example/image-2.png"}},
+			map[string]any{"type": "video_url", "role": "reference_video", "video_url": map[string]any{"url": "https://media.example/video-1.mp4"}},
+			map[string]any{"type": "audio_url", "role": "reference_audio", "audio_url": map[string]any{"url": "https://media.example/audio-1.mp3"}},
+		},
+	}
+	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{Model: ModelList[3], Metadata: metadata})
+	info.UpstreamModelName = ModelList[3]
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(info)
+
+	taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
+
+	require.Nil(t, taskErr)
+	assert.True(t, info.VideoInputMediaCountsAvailable)
+	assert.Equal(t, 2, info.VideoInputImageCount)
+	assert.Equal(t, 1, info.VideoInputVideoCount)
+	assert.Equal(t, 1, info.VideoInputAudioCount)
+}
+
 func TestConvertToOpenAIVideoPassesThroughDiagnosticUpstreamID(t *testing.T) {
 	task := &model.Task{
 		TaskID:     "task_public",

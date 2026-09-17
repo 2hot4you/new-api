@@ -157,6 +157,56 @@ func TestTasksToDtoExposesOnlySignedStarAIPlaybackURL(t *testing.T) {
 	assert.Empty(t, items[1].ResultURL)
 }
 
+func TestTasksToDtoExposesSafeInputMediaCounts(t *testing.T) {
+	imageCount, videoCount, audioCount := 3, 2, 1
+	task := &model.Task{
+		TaskID:   "task_preview_media_counts",
+		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)),
+		Status:   model.TaskStatusInProgress,
+		PrivateData: model.TaskPrivateData{
+			InputMedia: &model.TaskInputMediaSummary{
+				ImageCount: imageCount,
+				VideoCount: videoCount,
+				AudioCount: audioCount,
+			},
+			BillingContext: &model.TaskBillingContext{EstimatedResolution: "720p"},
+		},
+	}
+
+	view := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+
+	require.NotNil(t, view.VideoParams)
+	require.NotNil(t, view.VideoParams.InputImageCount)
+	require.NotNil(t, view.VideoParams.InputVideoCount)
+	require.NotNil(t, view.VideoParams.InputAudioCount)
+	assert.Equal(t, imageCount, *view.VideoParams.InputImageCount)
+	assert.Equal(t, videoCount, *view.VideoParams.InputVideoCount)
+	assert.Equal(t, audioCount, *view.VideoParams.InputAudioCount)
+
+	encoded, err := common.Marshal(view)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "source_url")
+	assert.NotContains(t, string(encoded), "asset://")
+}
+
+func TestTasksToDtoLeavesHistoricalInputMediaCountsUnknown(t *testing.T) {
+	task := &model.Task{
+		TaskID:   "task_preview_legacy_counts",
+		Platform: constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI)),
+		Status:   model.TaskStatusInProgress,
+		PrivateData: model.TaskPrivateData{
+			BillingContext: &model.TaskBillingContext{EstimatedResolution: "720p"},
+		},
+	}
+
+	view := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+
+	require.NotNil(t, view.VideoParams)
+	assert.Nil(t, view.VideoParams.InputImageCount)
+	assert.Nil(t, view.VideoParams.InputVideoCount)
+	assert.Nil(t, view.VideoParams.InputAudioCount)
+}
+
 func TestTasksToDtoExposesOnlySignedMoliiGrokPlaybackURL(t *testing.T) {
 	previousAddress := system_setting.ServerAddress
 	system_setting.ServerAddress = "https://configured.example"

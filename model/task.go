@@ -116,6 +116,8 @@ type TaskPrivateData struct {
 	ResultURL      string                 `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
 	StoredResult   *TaskStoredResult      `json:"stored_result,omitempty"`
 	Execution      *TaskExecutionSnapshot `json:"execution,omitempty"`
+	Timing         *TaskTimingSnapshot    `json:"timing,omitempty"`
+	InputMedia     *TaskInputMediaSummary `json:"input_media,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -132,6 +134,25 @@ type TaskPrivateData struct {
 	PluginState json.RawMessage `json:"plugin_state,omitempty"`
 	// PollFailures counts consecutive unrecognized or transient poll outcomes.
 	PollFailures int `json:"poll_failures,omitempty"`
+}
+
+// TaskTimingSnapshot stores only provider-neutral timestamps needed for
+// operational diagnostics. It never contains raw upstream payloads or IDs.
+type TaskTimingSnapshot struct {
+	PlatformSubmittedAt        int64 `json:"platform_submitted_at,omitempty"`
+	UpstreamSubmittedAt        int64 `json:"upstream_submitted_at,omitempty"`
+	UpstreamStartedAt          int64 `json:"upstream_started_at,omitempty"`
+	UpstreamFinishedAt         int64 `json:"upstream_finished_at,omitempty"`
+	PlatformFirstInProgressAt  int64 `json:"platform_first_in_progress_at,omitempty"`
+	PlatformFinishedObservedAt int64 `json:"platform_finished_observed_at,omitempty"`
+}
+
+// TaskInputMediaSummary contains counts only. Source URLs, asset IDs and
+// prompts deliberately remain outside the durable task presentation data.
+type TaskInputMediaSummary struct {
+	ImageCount int `json:"image_count"`
+	VideoCount int `json:"video_count"`
+	AudioCount int `json:"audio_count"`
 }
 
 type TaskExecutionSnapshot struct {
@@ -235,7 +256,7 @@ func (p *TaskPrivateData) Scan(val any) error {
 
 func (p TaskPrivateData) Value() (driver.Value, error) {
 	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" &&
-		p.Execution == nil && p.StoredResult == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
+		p.Execution == nil && p.Timing == nil && p.InputMedia == nil && p.StoredResult == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
 		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
 		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 {
 		return nil, nil

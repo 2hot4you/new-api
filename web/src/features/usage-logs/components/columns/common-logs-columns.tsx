@@ -692,6 +692,29 @@ export function useCommonLogsColumns(
   }
 
   columns.push({
+    id: 'task_id',
+    header: t('Task ID'),
+    accessorFn: (row) => parseLogOther(row.other)?.task_id || '',
+    cell: ({ row }) => {
+      const taskId = parseLogOther(row.original.other)?.task_id
+      if (!taskId) {
+        return <span className='text-muted-foreground/60 text-xs'>-</span>
+      }
+      return (
+        <StatusBadge
+          label={taskId}
+          copyText={taskId}
+          variant='neutral'
+          size='sm'
+          className='border-border/60 bg-muted/30 !text-foreground max-w-[180px] truncate rounded-md border px-1.5 py-0.5 font-mono'
+        />
+      )
+    },
+    size: 190,
+    meta: { label: t('Task ID'), mobileTitle: true },
+  })
+
+  columns.push({
     accessorKey: 'token_name',
     header: t('Token'),
     cell: function TokenNameCell({ row }) {

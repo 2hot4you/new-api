@@ -418,12 +418,16 @@ export interface TaskLog {
     width?: number
     height?: number
     has_video: boolean
+    input_image_count?: number
+    input_video_count?: number
+    input_audio_count?: number
   }
   billing?: TaskBillingSummary
   admin_info?: {
     request_id?: string
     request_path?: string
     task_plugin?: TaskPluginInfo
+    timing?: TaskTimingInfo
   }
   root_info?: {
     task_plugin?: TaskPluginRuntimeInfo
@@ -434,6 +438,22 @@ export interface TaskLog {
   other?: string
   created_at?: number
   updated_at?: number
+}
+
+export interface TaskTimingInfo {
+  platform_submitted_at?: number
+  upstream_submitted_at?: number
+  upstream_started_at?: number
+  upstream_finished_at?: number
+  platform_first_in_progress_at?: number
+  platform_finished_observed_at?: number
+  submission_seconds?: number
+  upstream_queue_seconds?: number
+  upstream_generation_seconds?: number
+  upstream_total_seconds?: number
+  start_detection_delay_seconds?: number
+  finish_detection_delay_seconds?: number
+  platform_total_seconds?: number
 }
 
 export interface TaskPluginInfo {

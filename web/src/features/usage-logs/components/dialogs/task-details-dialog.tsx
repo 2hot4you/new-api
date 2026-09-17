@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils'
 
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
 import { resolveTaskDetailAccess } from '../../lib/task-details'
+import { buildUsageLogRequestLink } from '../../lib/task-log-links'
 import type { TaskLog } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
 
@@ -189,7 +190,18 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
             {props.log.admin_info?.request_id ? (
               <DetailRow
                 label={t('Request ID')}
-                value={props.log.admin_info.request_id}
+                value={
+                  <a
+                    href={buildUsageLogRequestLink(
+                      props.log.admin_info.request_id,
+                      props.log.submit_time,
+                      props.log.finish_time
+                    )}
+                    className='text-primary underline-offset-4 hover:underline'
+                  >
+                    {props.log.admin_info.request_id}
+                  </a>
+                }
                 mono
               />
             ) : null}

@@ -69,6 +69,10 @@ function DetailItem({
   )
 }
 
+function formatMediaCount(value: number | undefined, notRecordedLabel: string) {
+  return value == null ? notRecordedLabel : value.toLocaleString()
+}
+
 export function VideoPreviewDialog({
   open,
   onOpenChange,
@@ -335,6 +339,30 @@ export function VideoPreviewDialog({
             <DetailItem
               label={t('Reference Video')}
               value={t(params?.has_video ? 'Included' : 'Not included')}
+            />
+            <DetailItem
+              label={t('Images')}
+              value={formatMediaCount(
+                params?.input_image_count,
+                t('Not recorded')
+              )}
+              mono
+            />
+            <DetailItem
+              label={t('Videos')}
+              value={formatMediaCount(
+                params?.input_video_count,
+                t('Not recorded')
+              )}
+              mono
+            />
+            <DetailItem
+              label={t('Audio')}
+              value={formatMediaCount(
+                params?.input_audio_count,
+                t('Not recorded')
+              )}
+              mono
             />
             {log.properties?.origin_model_name ? (
               <div className='sm:col-span-2 lg:col-span-1 xl:col-span-2'>

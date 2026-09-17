@@ -478,6 +478,17 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.T
 					HasVideo:   bc.EstimatedHasVideo,
 				}
 			}
+			if media := task.PrivateData.InputMedia; media != nil {
+				if item.VideoParams == nil {
+					item.VideoParams = &dto.TaskVideoParams{}
+				}
+				imageCount := media.ImageCount
+				videoCount := media.VideoCount
+				audioCount := media.AudioCount
+				item.VideoParams.InputImageCount = &imageCount
+				item.VideoParams.InputVideoCount = &videoCount
+				item.VideoParams.InputAudioCount = &audioCount
+			}
 			item.Billing = taskBillingSummary(task, billingJobs[task.ID])
 		} else {
 			item.LegacyVideoAvailable = legacyVideoAvailable(task)
@@ -490,6 +501,9 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.T
 		}
 		if viewerRole >= common.RoleAdminUser {
 			adminInfo := &dto.TaskAdminInfo{}
+			if isStarAI {
+				adminInfo.Timing = service.BuildTaskTimingSummary(task)
+			}
 			if execution := task.PrivateData.Execution; execution != nil {
 				adminInfo.RequestID = execution.RequestID
 				adminInfo.RequestPath = execution.RequestPath
@@ -507,7 +521,7 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.T
 					}
 				}
 			}
-			if adminInfo.RequestID != "" || adminInfo.RequestPath != "" || adminInfo.TaskPlugin != nil {
+			if adminInfo.RequestID != "" || adminInfo.RequestPath != "" || adminInfo.TaskPlugin != nil || adminInfo.Timing != nil {
 				item.AdminInfo = adminInfo
 			}
 		}

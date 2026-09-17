@@ -80,6 +80,25 @@ type TaskAdminInfo struct {
 	RequestID   string          `json:"request_id,omitempty"`
 	RequestPath string          `json:"request_path,omitempty"`
 	TaskPlugin  *TaskPluginInfo `json:"task_plugin,omitempty"`
+	Timing      *TaskTimingInfo `json:"timing,omitempty"`
+}
+
+// TaskTimingInfo is an administrator-only, content-free timing projection.
+// Pointer durations distinguish an unavailable legacy value from a real zero.
+type TaskTimingInfo struct {
+	PlatformSubmittedAt         int64  `json:"platform_submitted_at,omitempty"`
+	UpstreamSubmittedAt         int64  `json:"upstream_submitted_at,omitempty"`
+	UpstreamStartedAt           int64  `json:"upstream_started_at,omitempty"`
+	UpstreamFinishedAt          int64  `json:"upstream_finished_at,omitempty"`
+	PlatformFirstInProgressAt   int64  `json:"platform_first_in_progress_at,omitempty"`
+	PlatformFinishedObservedAt  int64  `json:"platform_finished_observed_at,omitempty"`
+	SubmissionSeconds           *int64 `json:"submission_seconds,omitempty"`
+	UpstreamQueueSeconds        *int64 `json:"upstream_queue_seconds,omitempty"`
+	UpstreamGenerationSeconds   *int64 `json:"upstream_generation_seconds,omitempty"`
+	UpstreamTotalSeconds        *int64 `json:"upstream_total_seconds,omitempty"`
+	StartDetectionDelaySeconds  *int64 `json:"start_detection_delay_seconds,omitempty"`
+	FinishDetectionDelaySeconds *int64 `json:"finish_detection_delay_seconds,omitempty"`
+	PlatformTotalSeconds        *int64 `json:"platform_total_seconds,omitempty"`
 }
 type TaskRootInfo struct {
 	TaskPlugin     *TaskPluginRuntimeInfo `json:"task_plugin,omitempty"`
@@ -90,13 +109,16 @@ type TaskRootInfo struct {
 // TaskVideoParams contains only non-content generation metadata safe for task
 // log presentation. It deliberately excludes prompts, input URLs and results.
 type TaskVideoParams struct {
-	Resolution string `json:"resolution,omitempty"`
-	Ratio      string `json:"ratio,omitempty"`
-	Seconds    int    `json:"seconds,omitempty"`
-	FPS        int    `json:"fps,omitempty"`
-	Width      int    `json:"width,omitempty"`
-	Height     int    `json:"height,omitempty"`
-	HasVideo   bool   `json:"has_video"`
+	Resolution      string `json:"resolution,omitempty"`
+	Ratio           string `json:"ratio,omitempty"`
+	Seconds         int    `json:"seconds,omitempty"`
+	FPS             int    `json:"fps,omitempty"`
+	Width           int    `json:"width,omitempty"`
+	Height          int    `json:"height,omitempty"`
+	HasVideo        bool   `json:"has_video"`
+	InputImageCount *int   `json:"input_image_count,omitempty"`
+	InputVideoCount *int   `json:"input_video_count,omitempty"`
+	InputAudioCount *int   `json:"input_audio_count,omitempty"`
 }
 
 // TaskBillingSummary is the public-safe settlement view used by generation

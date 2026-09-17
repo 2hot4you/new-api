@@ -284,6 +284,10 @@ type RelayInfo struct {
 	EstimatedVideoUnitPrice        float64
 	EstimatedVideoInputUnitPrice   float64
 	EstimatedVideoOutputUnitPrices map[string]float64
+	VideoInputMediaCountsAvailable bool
+	VideoInputImageCount           int
+	VideoInputVideoCount           int
+	VideoInputAudioCount           int
 
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
 	// supported single-request bound (or NaN fallback) while computing this request's charge.

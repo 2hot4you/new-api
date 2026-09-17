@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
-import { CirclePlay, KeyRound, Music, ReceiptText } from 'lucide-react'
+import { CirclePlay, Clock3, KeyRound, Music, ReceiptText } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -30,6 +30,7 @@ import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { TASK_PLATFORMS, TASK_STATUS } from '../../constants'
+import { formatDuration } from '../../lib/format'
 import {
   taskActionMapper,
   taskPlatformMapper,
@@ -50,10 +51,11 @@ import {
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
 import { TaskBillingDialog } from '../dialogs/task-billing-dialog'
+import { TaskTimingDialog } from '../dialogs/task-timing-dialog'
 import { VideoPreviewDialog } from '../dialogs/video-preview-dialog'
 import { ModelBadge } from '../model-badge'
 import { useUsageLogsContext } from '../usage-logs-provider'
-import { createDurationColumn, createChannelColumn } from './column-helpers'
+import { createChannelColumn } from './column-helpers'
 
 function parseTaskData(data: unknown): unknown[] {
   if (Array.isArray(data)) return data
@@ -225,6 +227,69 @@ function TaskBillingCell({ log }: { log: TaskLog }) {
   )
 }
 
+export function TaskDurationCell({
+  log,
+  isAdmin,
+}: {
+  log: TaskLog
+  isAdmin: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const duration = formatDuration(log.submit_time, log.finish_time, 'seconds')
+
+  if (!duration) {
+    return <span className='text-muted-foreground/60 text-xs'>-</span>
+  }
+
+  const threshold = log.platform === TASK_PLATFORMS.STARAI ? 10 * 60 : 300
+  const variant = duration.durationSec > threshold ? 'danger' : 'success'
+  const className = cn(
+    'rounded-md font-mono',
+    variant === 'danger'
+      ? 'border border-rose-200/50 bg-rose-50/35 !text-red-600 dark:border-rose-900/40 dark:bg-rose-950/15 dark:!text-red-400'
+      : 'border border-emerald-200/40 bg-emerald-50/35 !text-emerald-600 dark:border-emerald-900/40 dark:bg-emerald-950/15 dark:!text-emerald-400'
+  )
+  const label = `${duration.durationSec.toFixed(1)}s`
+  const timing = log.admin_info?.timing
+
+  if (!isAdmin || !timing) {
+    return (
+      <StatusBadge
+        label={label}
+        variant={variant}
+        size='sm'
+        copyable={false}
+        className={className}
+      />
+    )
+  }
+
+  return (
+    <>
+      <Button
+        type='button'
+        variant='ghost'
+        size='sm'
+        className='h-auto p-0'
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpen(true)
+        }}
+      >
+        <StatusBadge
+          label={label}
+          icon={Clock3}
+          variant={variant}
+          size='sm'
+          copyable={false}
+          className={className}
+        />
+      </Button>
+      <TaskTimingDialog timing={timing} open={open} onOpenChange={setOpen} />
+    </>
+  )
+}
+
 export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
   const { t } = useTranslation()
   const columns: ColumnDef<TaskLog>[] = [
@@ -381,15 +446,14 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       },
       meta: { mobileTitle: true },
     },
-    createDurationColumn<TaskLog>({
-      submitTimeKey: 'submit_time',
-      finishTimeKey: 'finish_time',
-      unit: 'seconds',
-      headerLabel: t('Duration'),
-      warningThresholdSec: 300,
-      getWarningThresholdSec: (log) =>
-        log.platform === TASK_PLATFORMS.STARAI ? 10 * 60 : 300,
-    }),
+    {
+      id: 'duration',
+      header: t('Duration'),
+      cell: ({ row }) => (
+        <TaskDurationCell log={row.original} isAdmin={isAdmin} />
+      ),
+      meta: { label: t('Duration') },
+    },
     {
       accessorKey: 'status',
       header: t('Status'),

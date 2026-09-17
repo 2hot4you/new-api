@@ -783,6 +783,13 @@ func executeTaskSubmissionWith(
 		EstimatedInputUnitPrice:   relayInfo.EstimatedVideoInputUnitPrice,
 		EstimatedOutputUnitPrices: relayInfo.EstimatedVideoOutputUnitPrices,
 	}
+	if relayInfo.VideoInputMediaCountsAvailable {
+		task.PrivateData.InputMedia = &model.TaskInputMediaSummary{
+			ImageCount: relayInfo.VideoInputImageCount,
+			VideoCount: relayInfo.VideoInputVideoCount,
+			AudioCount: relayInfo.VideoInputAudioCount,
+		}
+	}
 	task.Quota = result.Quota
 	finalUsageLogOnly := false
 	if result.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeMoliiGrokAIGC)) {
@@ -790,6 +797,9 @@ func executeTaskSubmissionWith(
 		finalUsageLogOnly = service.ConfigureGrokVideoFinalUsage(task.PrivateData.BillingContext, snapshot, c.Request.URL.Path)
 	}
 	task.Data = result.TaskData
+	if result.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) {
+		service.CaptureStarAITaskTiming(task, task.Data, task.Status, task.SubmitTime, relayInfo.StartTime.Unix())
+	}
 	if len(result.PluginState) > 0 {
 		task.PrivateData.PluginState = result.PluginState
 	}

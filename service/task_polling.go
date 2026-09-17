@@ -775,6 +775,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		task.PrivateData.PollFailures = 0
 	}
 	now := time.Now().Unix()
+	if isStarAI {
+		CaptureStarAITaskTiming(task, responseBody, parsedStatus, now)
+	}
 	grokResultURL := ""
 	if taskResult.Status == model.TaskStatusSuccess && ch.Type == constant.ChannelTypeMoliiGrokAIGC {
 		grokResultURL = strings.TrimSpace(taskResult.Url)

@@ -157,6 +157,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if err := validatePayload(payload); err != nil {
 		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
 	}
+	info.VideoInputImageCount, info.VideoInputVideoCount, info.VideoInputAudioCount = inputMediaCounts(payload)
+	info.VideoInputMediaCountsAvailable = true
 	return nil
 }
 
@@ -724,6 +726,23 @@ func validatePayload(payload *requestPayload) error {
 		}
 	}
 	return nil
+}
+
+func inputMediaCounts(payload *requestPayload) (images int, videos int, audio int) {
+	if payload == nil {
+		return 0, 0, 0
+	}
+	for _, item := range payload.Content {
+		switch strings.ToLower(strings.TrimSpace(item.Type)) {
+		case "image_url":
+			images++
+		case "video_url":
+			videos++
+		case "audio_url":
+			audio++
+		}
+	}
+	return images, videos, audio
 }
 
 func firstUsage(resp responseEnvelope) *usage {
