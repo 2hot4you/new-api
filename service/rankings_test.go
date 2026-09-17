@@ -242,8 +242,8 @@ func TestRankingConfiguredGroupSuccessKeepsMetadataInConfiguredOrder(t *testing.
 		{Group: "vip", Icon: "DeepSeek.Color", Description: "Priority access"},
 		{Group: "default", Icon: "OpenAI.Color", Description: "Standard access"},
 		{Group: "alpha", Description: "Alpha access"},
-		{Group: "zeta"},
 	}, groups)
+	assert.NotContains(t, groups, RankingGroupSuccess{Group: "zeta"})
 }
 
 func TestApplyRankingGroupSuccessMergesUnorderedMetricsIntoConfiguredMetadata(t *testing.T) {

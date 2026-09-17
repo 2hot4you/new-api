@@ -157,8 +157,8 @@ export function Pricing() {
   }, [directorySearch, navigate])
 
   const availableGroups = useMemo(
-    () => getPricingFilterGroups(usableGroup || {}),
-    [usableGroup]
+    () => getPricingFilterGroups(usableGroup || {}, models || []),
+    [models, usableGroup]
   )
   const categories = useMemo(() => getModelCategories(models || []), [models])
 

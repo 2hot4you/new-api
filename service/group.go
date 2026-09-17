@@ -11,7 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func GetUserUsableGroups(userGroup string) map[string]string {
+// GetUserSelectableGroups returns the service groups explicitly exposed to a
+// user. The user's identity group is intentionally not added implicitly: an
+// identity-only group may exist solely to select special pricing rules.
+func GetUserSelectableGroups(userGroup string) map[string]string {
 	groupsCopy := setting.GetUserUsableGroupsCopy()
 	if userGroup != "" {
 		specialSettings, b := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup)
@@ -32,6 +35,16 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 				}
 			}
 		}
+	}
+	return groupsCopy
+}
+
+// GetUserUsableGroups preserves the legacy behavior that lets a user's own
+// identity group act as a routing group. Public selectors must use
+// GetUserSelectableGroups so identity-only groups are not exposed as services.
+func GetUserUsableGroups(userGroup string) map[string]string {
+	groupsCopy := GetUserSelectableGroups(userGroup)
+	if userGroup != "" {
 		// 如果userGroup不在UserUsableGroups中，返回UserUsableGroups + userGroup
 		if _, ok := groupsCopy[userGroup]; !ok {
 			groupsCopy[userGroup] = "用户分组"

@@ -57,10 +57,21 @@ export function getAvailableGroups(
 
 /** Get user-facing groups for the pricing directory filters. */
 export function getPricingFilterGroups(
-  usableGroup: Record<string, { desc: string; ratio: number }>
+  usableGroup: Record<string, { desc: string; ratio: number }>,
+  models: Array<Pick<PricingModel, 'enable_groups'>> = []
 ): string[] {
+  const visibleGroups = new Set(
+    models.flatMap((model) =>
+      Array.isArray(model.enable_groups) ? model.enable_groups : []
+    )
+  )
+  const allGroupsVisible = visibleGroups.has('all')
+
   return Object.keys(usableGroup).filter(
-    (group) => group !== 'default' && !EXCLUDED_GROUPS.includes(group)
+    (group) =>
+      group !== 'default' &&
+      !EXCLUDED_GROUPS.includes(group) &&
+      (allGroupsVisible || visibleGroups.has(group))
   )
 }
 

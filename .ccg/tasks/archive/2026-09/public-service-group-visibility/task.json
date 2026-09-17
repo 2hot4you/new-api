@@ -1,0 +1,12 @@
+{
+  "id": "public-service-group-visibility",
+  "title": "隔离用户身份分组与公开服务分组展示",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地分支",
+  "createdAt": "2026-09-17T00:00:00Z",
+  "branch": "fix/public-service-group-visibility"
+}

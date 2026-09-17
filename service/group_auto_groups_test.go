@@ -38,6 +38,39 @@ func newRequestAutoGroupsContext() *gin.Context {
 	return ctx
 }
 
+func TestGetUserSelectableGroupsExcludesIdentityFallbackAndAppliesSpecialRules(t *testing.T) {
+	originalUsableGroups := setting.UserUsableGroups2JSONString()
+	originalSpecialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.ReadAll()
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
+		specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
+		specialGroups.Clear()
+		specialGroups.AddAll(originalSpecialGroups)
+	})
+
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{
+		"ByteDance":"ByteDance routes",
+		"retired":"Retired routes"
+	}`))
+	specialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup
+	specialGroups.Clear()
+	specialGroups.Set("zhoujian", map[string]string{
+		"+:private-route": "Private route",
+		"-:retired":       "",
+	})
+
+	selectable := GetUserSelectableGroups("zhoujian")
+
+	assert.Equal(t, map[string]string{
+		"ByteDance":     "ByteDance routes",
+		"private-route": "Private route",
+	}, selectable)
+	assert.NotContains(t, selectable, "zhoujian")
+
+	legacyRoutable := GetUserUsableGroups("zhoujian")
+	assert.Equal(t, "用户分组", legacyRoutable["zhoujian"])
+}
+
 func TestGetRequestAutoGroupsInheritedListIsNotLimited(t *testing.T) {
 	configureRequestAutoGroupsTest(t)
 	ctx := newRequestAutoGroupsContext()

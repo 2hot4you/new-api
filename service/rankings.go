@@ -302,11 +302,15 @@ func rankingConfiguredGroupSuccess(
 	groupNames := rankingConfiguredGroups(activeRatios, metadata)
 	groups := make([]RankingGroupSuccess, 0, len(groupNames))
 	for _, group := range groupNames {
+		description, selectable := descriptions[group]
+		if !selectable {
+			continue
+		}
 		entry := metadataByGroup[group]
 		groups = append(groups, RankingGroupSuccess{
 			Group:       group,
 			Icon:        entry.Icon,
-			Description: descriptions[group],
+			Description: description,
 		})
 	}
 	return groups

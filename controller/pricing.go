@@ -1,8 +1,6 @@
 package controller
 
 import (
-	"maps"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -56,34 +54,58 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 	return filtered
 }
 
+func filterPublicPricingGroups(pricing []model.Pricing, selectableGroups map[string]string) map[string]string {
+	visibleGroups := make(map[string]struct{})
+	allGroupsVisible := false
+	for _, item := range pricing {
+		if common.StringsContains(item.EnableGroup, "all") {
+			allGroupsVisible = true
+		}
+		for _, group := range item.EnableGroup {
+			visibleGroups[group] = struct{}{}
+		}
+	}
+
+	groups := make(map[string]string, len(selectableGroups))
+	for group, description := range selectableGroups {
+		if _, visible := visibleGroups[group]; visible || allGroupsVisible {
+			groups[group] = description
+		}
+	}
+	return groups
+}
+
+func buildPublicPricingGroupRatios(userGroup string, usableGroups map[string]string) map[string]float64 {
+	configuredRatios := ratio_setting.GetGroupRatioCopy()
+	groupRatios := make(map[string]float64, len(usableGroups))
+	for group := range usableGroups {
+		ratio, configured := configuredRatios[group]
+		if !configured {
+			continue
+		}
+		if specialRatio, ok := ratio_setting.GetGroupGroupRatio(userGroup, group); ok {
+			ratio = specialRatio
+		}
+		groupRatios[group] = ratio
+	}
+	return groupRatios
+}
+
 func GetPricing(c *gin.Context) {
 	pricing := model.GetPricing()
 	userId, exists := c.Get("id")
-	usableGroup := map[string]string{}
-	groupRatio := map[string]float64{}
-	maps.Copy(groupRatio, ratio_setting.GetGroupRatioCopy())
 	var group string
 	if exists {
 		user, err := model.GetUserCache(userId.(int))
 		if err == nil {
 			group = user.Group
-			for g := range groupRatio {
-				ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
-				if ok {
-					groupRatio[g] = ratio
-				}
-			}
 		}
 	}
 
-	usableGroup = service.GetUserUsableGroups(group)
-	pricing = filterPricingByUsableGroups(pricing, usableGroup)
-	// check groupRatio contains usableGroup
-	for group := range ratio_setting.GetGroupRatioCopy() {
-		if _, ok := usableGroup[group]; !ok {
-			delete(groupRatio, group)
-		}
-	}
+	selectableGroups := service.GetUserSelectableGroups(group)
+	pricing = filterPricingByUsableGroups(pricing, selectableGroups)
+	usableGroup := filterPublicPricingGroups(pricing, selectableGroups)
+	groupRatio := buildPublicPricingGroupRatios(group, usableGroup)
 
 	c.JSON(200, gin.H{
 		"success":            true,
