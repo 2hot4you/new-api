@@ -88,3 +88,50 @@ TRUSTED_PROXIES=<实际反向代理的 IP 或 CIDR>
 
 如果独立前端与 API 不同 Origin，再设置精确的
 `DASHBOARD_CORS_ALLOWED_ORIGINS`。以上 Origin 配置不支持通配符。
+
+## 独立 Claudeye 生产环境（CI/CD，首期仅手动）
+
+此节适用于 `production-claudeye`（上海 `claudeye.com`）及
+`production-model-claudeye`（洛杉矶 `model.claudeye.com`）。使用独立基础设施
+`/opt/claudeye/infra/compose.json`，不要使用本文开头的一体化 Compose 启动方式。
+两个站点分别运行在独立服务器；路径相同不代表共享数据。
+
+`prepare-runtime.py --site ENV` 只在对应主机以 root 运行，保留已有
+`infra/app.env` 四项凭据，创建全新 `/opt/claudeye/production/.env.runtime`。
+已有目录拒绝覆盖。文件归 `claudeye-deploy`、权限0600；不要输出文件内容。
+部署账号通过 Docker 组操作 Docker，其权限等同宿主机管理员，应仅用于可信 CI。
+
+应用使用 `docker-compose.local-db.yml`，由 CI 上传为应用目录的
+`docker-compose.yml`。应用 project 与数据库 project 分离，仅管理 new-api 服务；
+外接各站独立的 infra backend 网络，同时保留独立出口网络以访问上游 API。
+应用端口仅发布到 `127.0.0.1:3000`，站点反代此地址。应用部署不会重建数据库、
+删除基础设施卷或使用 `--remove-orphans`。新站应用以1000:1000运行，data/logs/certs
+需允许该用户访问。Docker daemon 代理与应用出站隔离，不向应用注入代理变量。
+
+GitHub Environment 除已有 SSH secrets、DEPLOY_DIR、DEPLOY_HEALTH_URL、
+DEPLOY_SITE_DOMAIN 外，每个新站必须独立填写以下公开构建变量：
+
+| 变量 | 内容 |
+| --- | --- |
+| VITE_SITE_PROFILE | claudeye |
+| VITE_SITE_TITLE | 对应站点标题 |
+| VITE_SITE_DESCRIPTION | 对应站点简介 |
+| VITE_SITE_LOGO | 仓库 public 资源路径或 HTTPS 资源地址 |
+| VITE_SITE_FAVICON | favicon 路径或 HTTPS 地址 |
+| VITE_SITE_APPLE_TOUCH_ICON | Apple Touch 图标路径或 HTTPS 地址 |
+| VITE_SITE_BANNER_BRAND | 对应品牌显示名称 |
+| VITE_SITE_DEFAULT_FONT | sans 或 serif |
+
+缺少品牌参数时部署会失败，避免借用 Molii/iXiaozu 品牌。构建测试中的占位资源
+仅用于测试，不作为上线配置。服务器运行配置、数据库数据与密钥均不进入 Actions。
+
+发布顺序：功能分支先经测试合 develop，仅部署开发站，由用户验收。之后经明确
+确认合 main；注意 main push 仍会发布现有 molii 和 aigc，不可绕过该确认。
+两个新环境保持仅手动，分别选择明确目标；初期 all-production 只包含现有两站，
+直到新站验收并另行批准扩展矩阵。生产工作流仅允许 main 上该次触发的固定 SHA，
+不接受候选分支 source_ref。验证、构建和部署使用同一解析后的 SHA。
+
+首次应用启动会初始化应用数据库，应先确认已有备份恢复演练及最新备份。应用
+部署仍是单容器替换，会有短暂中断。镜像回滚不会回滚数据库迁移；发布版本必须
+保持数据库向后兼容。新站首次失败没有旧应用可回滚，需修复后重新明确部署。
+不可为调试而手工清库或删除数据库卷。

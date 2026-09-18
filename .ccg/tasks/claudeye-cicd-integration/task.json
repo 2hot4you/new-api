@@ -1,0 +1,12 @@
+{
+  "id": "claudeye-cicd-integration",
+  "title": "接入两个独立Claudeye生产环境手动CI/CD",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "deployment",
+  "currentPhase": "review",
+  "nextAction": "Await newsite brand names/assets, resolve missing named external review tooling, then feature push/develop verification. Never merge main or trigger existing production without explicit confirmation.",
+  "createdAt": "2026-09-18T17:58:18.120195+00:00",
+  "branch": "feat/claudeye-cicd"
+}
