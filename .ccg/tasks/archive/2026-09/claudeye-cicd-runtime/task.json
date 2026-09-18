@@ -1,0 +1,12 @@
+{
+  "id": "claudeye-cicd-runtime",
+  "title": "准备两台独立生产环境应用运行配置",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "deployment",
+  "currentPhase": "completed",
+  "nextAction": "Runtime prepared and user confirmed permissions on both hosts; ongoing workflow work tracked by claudeye-cicd-integration.",
+  "createdAt": "2026-09-18T17:49:05.547524+00:00",
+  "branch": "feat/claudeye-cicd"
+}
