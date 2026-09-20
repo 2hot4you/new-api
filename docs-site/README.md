@@ -116,13 +116,14 @@ SSH 与 Telegram Secrets 沿用该 Environment；不添加数据库或业务密�
 
 在 **Build and deploy documentation** 中 Run workflow，Branch 选择 `main`，
 一次选择一个上表 target。没有 source_ref 参数，构建对应工作流触发 SHA。
-海外站已通过首次文档发布验收；main 自动矩阵与文档 `all-production` 包含
-molii、ixiaozu、production-model-claudeye。上海 production-claudeye 仍需单独手动触发。
+两个 Claudeye 站点均已完成首次文档发布；main 自动矩阵与文档 `all-production` 包含
+molii、ixiaozu、production-claudeye（上海）、production-model-claudeye（洛杉矶）。
+仍可通过单独 target 手动发布任意一个站点。
 自动 push 只在 `docs-site/**` 或 `.github/workflows/docs-deploy.yml` 变化时触发，
 develop 仍只发布开发文档。应用工作流的自动矩阵与 all-production 范围不受影响。
 
 首次先在 develop 完成验证，再按授权合并 main。注意文档变更合并 main
-会自动发布上述三个生产文档；上海文档继续通过单独 target 手动发布。
+会自动发布上述四个生产文档。
 
 验收各自 `/docs` 入口、导航、图片、API 地址、控制台链接和本地搜索。
 公开页面校验失败时发布脚本恢复上一文档快照，首次无旧文档时恢复空目录；查看 Actions 与 Telegram 结果。

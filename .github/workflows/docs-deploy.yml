@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'Documentation target (all-production includes molii + ixiaozu + model-claudeye)'
+        description: 'Documentation target (all-production includes molii + ixiaozu + both Claudeye sites)'
         required: true
         default: development
         type: choice
@@ -41,7 +41,7 @@ jobs:
         run: |
           case "$GITHUB_REF" in
             refs/heads/main)
-              targets='[{"id":"production-molii","environment":"production-molii"},{"id":"production-ixiaozu","environment":"production-ixiaozu"},{"id":"production-model-claudeye","environment":"production-model-claudeye"}]'
+              targets='[{"id":"production-molii","environment":"production-molii"},{"id":"production-ixiaozu","environment":"production-ixiaozu"},{"id":"production-claudeye","environment":"production-claudeye"},{"id":"production-model-claudeye","environment":"production-model-claudeye"}]'
               ;;
             refs/heads/develop)
               targets='[{"id":"development","environment":"development"}]'
