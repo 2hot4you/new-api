@@ -1,4 +1,4 @@
-export type SiteBrandId = 'molii' | 'ixiaozu'
+export type SiteBrandId = 'molii' | 'ixiaozu' | 'claudeye'
 export type SiteBrandFont = 'sans' | 'serif'
 
 export type SiteBrand = {
@@ -41,8 +41,8 @@ export function resolveSiteBrand(
   const profile = environment.VITE_SITE_PROFILE?.trim() || 'molii'
 
   if (profile === 'molii') return { ...MOLII_BRAND }
-  if (profile !== 'ixiaozu') {
-    throw new Error('VITE_SITE_PROFILE must be molii or ixiaozu')
+  if (profile !== 'ixiaozu' && profile !== 'claudeye') {
+    throw new Error('VITE_SITE_PROFILE must be molii, ixiaozu or claudeye')
   }
 
   const title = required(environment, 'VITE_SITE_TITLE', profile)

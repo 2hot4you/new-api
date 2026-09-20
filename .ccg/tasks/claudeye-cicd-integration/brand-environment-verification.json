@@ -1,0 +1,30 @@
+{
+  "production-claudeye": {
+    "brand": {
+      "VITE_SITE_PROFILE": "claudeye",
+      "VITE_SITE_TITLE": "claudeye",
+      "VITE_SITE_DESCRIPTION": "claudeye AI API gateway.",
+      "VITE_SITE_LOGO": "/claudeye-placeholder.svg",
+      "VITE_SITE_FAVICON": "/claudeye-placeholder-32.png",
+      "VITE_SITE_APPLE_TOUCH_ICON": "/claudeye-placeholder-180.png",
+      "VITE_SITE_BANNER_BRAND": "claudeye",
+      "VITE_SITE_DEFAULT_FONT": "sans"
+    },
+    "verified": true,
+    "other_variables_preserved": true
+  },
+  "production-model-claudeye": {
+    "brand": {
+      "VITE_SITE_PROFILE": "claudeye",
+      "VITE_SITE_TITLE": "claudeye",
+      "VITE_SITE_DESCRIPTION": "claudeye AI API gateway.",
+      "VITE_SITE_LOGO": "/claudeye-placeholder.svg",
+      "VITE_SITE_FAVICON": "/claudeye-placeholder-32.png",
+      "VITE_SITE_APPLE_TOUCH_ICON": "/claudeye-placeholder-180.png",
+      "VITE_SITE_BANNER_BRAND": "claudeye",
+      "VITE_SITE_DEFAULT_FONT": "sans"
+    },
+    "verified": true,
+    "other_variables_preserved": true
+  }
+}

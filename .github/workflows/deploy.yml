@@ -12,6 +12,18 @@ on:
       - 'docs/superpowers/**'
   workflow_dispatch:
     inputs:
+      target:
+        description: 'Deployment target (all-production currently means molii + ixiaozu only)'
+        required: true
+        default: development
+        type: choice
+        options:
+          - development
+          - production-molii
+          - production-ixiaozu
+          - production-claudeye
+          - production-model-claudeye
+          - all-production
       source_ref:
         description: Optional branch, tag, or commit for development acceptance
         required: false
@@ -41,34 +53,26 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.target.outputs.targets }}
+      source_sha: ${{ steps.target.outputs.source_sha }}
     steps:
-      - name: Map branch to target matrix
+      - name: Check out workflow source for trusted target resolution
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve allowed targets and immutable source
         id: target
         env:
-          BRANCH_NAME: ${{ github.ref_name }}
+          DEPLOY_TARGET: ${{ inputs.target }}
           SOURCE_REF: ${{ inputs.source_ref }}
           BACKUP_POSTGRES: ${{ inputs.backup_postgres }}
           VERIFY_REPEATED_STARTUP: ${{ inputs.verify_repeated_startup }}
-        run: |
-          if [[ "$BRANCH_NAME" != 'develop' ]] && { [[ -n "$SOURCE_REF" ]] || [[ "$BACKUP_POSTGRES" == 'true' ]] || [[ "$VERIFY_REPEATED_STARTUP" == 'true' ]]; }; then
-            echo '::error::Candidate source refs are restricted to development deployments; development-only backup and repeated-startup controls cannot target production.'
-            exit 1
-          fi
-
-          case "$BRANCH_NAME" in
-            main)
-              echo 'targets=[{"id":"production-molii","environment":"production-molii","image_tag":"production-molii","brand_profile":"molii"},{"id":"production-ixiaozu","environment":"production-ixiaozu","image_tag":"production-ixiaozu","brand_profile":"ixiaozu"}]' >> "$GITHUB_OUTPUT"
-              ;;
-            develop)
-              echo 'targets=[{"id":"development","environment":"development","image_tag":"development","brand_profile":"molii"}]' >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "::error::Unsupported deployment branch: $BRANCH_NAME"
-              exit 1
-              ;;
-          esac
+        run: python3 deploy/resolve-targets.py
 
   verify:
+    needs: prepare
     name: Verify backend and frontend
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -108,7 +112,13 @@ jobs:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ inputs.source_ref || github.sha }}
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Verify checked-out commit
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -126,6 +136,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: web
         run: bun install --frozen-lockfile
+
+      - name: Test site brand profiles
+        run: bun test web/build/site-brand.test.ts
 
       - name: Check frontend types
         working-directory: web
@@ -170,10 +183,15 @@ jobs:
         run: go test -race ./common ./middleware ./service ./controller ./relay ./router -count=1
 
       - name: Test deployment contracts
-        run: bash deploy/tests/deploy_test.sh
+        run: |
+          python3 -m unittest discover -s deploy/tests -p 'test_*.py'
+          bash deploy/tests/deploy_test.sh
 
   release:
     name: Release ${{ matrix.target.id }}
+    concurrency:
+      group: release-${{ matrix.target.id }}
+      cancel-in-progress: false
     needs:
       - prepare
       - verify
@@ -192,6 +210,7 @@ jobs:
     env:
       REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
       DEPLOY_ENVIRONMENT: ${{ matrix.target.id }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
       DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
       HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL }}
       SITE_DOMAIN: ${{ vars.DEPLOY_SITE_DOMAIN }}
@@ -206,7 +225,8 @@ jobs:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ inputs.source_ref || github.sha }}
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
 
       - name: Validate selected environment
         env:
@@ -226,6 +246,12 @@ jobs:
               exit 1
             fi
           done
+          # These values become remote command arguments; reject shell metacharacters.
+          [[ "$DEPLOY_DIR" =~ ^/[a-zA-Z0-9_/-]+$ ]] || { echo '::error::Unsafe deployment directory'; exit 1; }
+          [[ "$HEALTH_URL" =~ ^https?://[a-zA-Z0-9./:_-]+$ ]] || { echo '::error::Unsafe health URL'; exit 1; }
+          [[ "$SSH_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo '::error::Invalid SSH host'; exit 1; }
+          [[ "$SSH_USER" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]] || { echo '::error::Invalid SSH user'; exit 1; }
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$SSH_PORT > 0 && 10#$SSH_PORT <= 65535 )) || { echo '::error::Invalid SSH port'; exit 1; }
           if [[ "$VITE_SITE_PROFILE" != "$EXPECTED_PROFILE" ]]; then
             echo "::error::VITE_SITE_PROFILE must be $EXPECTED_PROFILE for $DEPLOY_ENVIRONMENT"
             exit 1
@@ -237,6 +263,7 @@ jobs:
           IMAGE_TAG: ${{ matrix.target.image_tag }}
         run: |
           GIT_SHA=$(git rev-parse HEAD)
+          [[ "$GIT_SHA" == "$SOURCE_SHA" ]] || exit 1
           printf 'sha=%s\n' "$GIT_SHA" >> "$GITHUB_OUTPUT"
           printf 'value=%s\n' "$(bash deploy/app-version.sh "$IMAGE_TAG" "$GIT_SHA")" >> "$GITHUB_OUTPUT"
 
@@ -281,6 +308,7 @@ jobs:
 
       - name: Configure SSH
         run: |
+          umask 077
           install -m 700 -d "$HOME/.ssh"
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
           chmod 600 "$HOME/.ssh/id_ed25519"
@@ -291,7 +319,7 @@ jobs:
         run: |
           bash deploy/retry.sh 'SSH connectivity' \
             ssh -p "$SSH_PORT" \
-              -o ConnectTimeout=15 \
+              -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15 \
               -o ServerAliveInterval=15 \
               -o ServerAliveCountMax=3 \
               "$SSH_USER@$SSH_HOST" true
@@ -299,13 +327,13 @@ jobs:
       - name: Authenticate server to GHCR
         run: |
           bash deploy/retry.sh 'server GHCR login' \
-            bash -c 'printf "%s" "$GHCR_TOKEN" | ssh -p "$SSH_PORT" -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin'
+            bash -c 'printf "%s" "$GHCR_TOKEN" | ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin'
 
       - name: Upload development backup helper
         if: inputs.backup_postgres && matrix.target.id == 'development'
         run: |
           bash deploy/retry.sh 'development backup helper upload' \
-            scp -P "$SSH_PORT" -o ConnectTimeout=15 deploy/backup-postgres.sh \
+            scp -P "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15 deploy/backup-postgres.sh \
               "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/backup-postgres.sh"
 
       - name: Back up development PostgreSQL
@@ -313,29 +341,45 @@ jobs:
         env:
           BACKUP_NAME: new-api-before-${{ steps.app_version.outputs.sha }}.dump
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+          ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
             "chmod 700 '$DEPLOY_DIR/backup-postgres.sh' && '$DEPLOY_DIR/backup-postgres.sh' '$DEPLOY_DIR' '$BACKUP_NAME'"
 
       - name: Upload deployment assets
+        env:
+          COMPOSE_FILE: ${{ matrix.target.compose_file }}
         run: |
           bash deploy/retry.sh 'deployment asset upload' \
-            scp -P "$SSH_PORT" -o ConnectTimeout=15 deploy/docker-compose.cicd.yml \
+            scp -P "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15 "$COMPOSE_FILE" \
               "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/docker-compose.yml"
           bash deploy/retry.sh 'deployment asset upload' \
-            scp -P "$SSH_PORT" -o ConnectTimeout=15 deploy/deploy.sh deploy/retry.sh \
+            scp -P "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15 deploy/deploy.sh deploy/retry.sh \
               "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/"
 
       - name: Deploy immutable image
+        id: deploy
         env:
           IMAGE_REFERENCE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "chmod 700 '$DEPLOY_DIR/deploy.sh' '$DEPLOY_DIR/retry.sh' && '$DEPLOY_DIR/deploy.sh' '$DEPLOY_ENVIRONMENT' '$IMAGE_REFERENCE' '$HEALTH_URL'"
+          umask 077
+          [[ "$IMAGE_REFERENCE" =~ ^ghcr.io/[a-zA-Z0-9_./-]+@sha256:[a-f0-9]{64}$ ]] || exit 1
+          set +e
+          ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
+            "chmod 700 '$DEPLOY_DIR/deploy.sh' '$DEPLOY_DIR/retry.sh' && '$DEPLOY_DIR/deploy.sh' '$DEPLOY_ENVIRONMENT' '$IMAGE_REFERENCE' '$HEALTH_URL'" \
+            > "$RUNNER_TEMP/deploy-output" 2>&1
+          deploy_status=$?
+          set -e
+          rollback=$(sed -nE 's/^DEPLOY_ROLLBACK_RESULT=(not_attempted|succeeded|failed)$/\1/p' "$RUNNER_TEMP/deploy-output" | tail -n 1)
+          printf 'rollback=%s\n' "${rollback:-unavailable}" >> "$GITHUB_OUTPUT"
+          rm -f "$RUNNER_TEMP/deploy-output"
+          if (( deploy_status != 0 )); then
+            echo '::error::Remote deployment failed; inspect private server diagnostics.'
+          fi
+          exit "$deploy_status"
 
       - name: Verify repeated development startup
         if: inputs.verify_repeated_startup && matrix.target.id == 'development'
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+          ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
             sh -s -- "$DEPLOY_DIR" "$HEALTH_URL" <<'REMOTE'
           set -eu
           deploy_dir=$1
@@ -350,7 +394,7 @@ jobs:
               break
             fi
             if [ "$state" = exited ] || [ "$state" = dead ]; then
-              docker logs --tail 100 "$container_name" >&2 || true
+              echo 'Repeated startup failed; inspect server diagnostics privately.' >&2
               exit 1
             fi
             sleep 5
@@ -367,6 +411,7 @@ jobs:
         env:
           TARGET_ID: ${{ matrix.target.id }}
           TARGET_RESULT: ${{ job.status }}
+          ROLLBACK_RESULT: ${{ steps.deploy.outputs.rollback }}
         run: |
           python3 - <<'PY'
           import json
@@ -378,6 +423,9 @@ jobs:
                       "id": os.environ["TARGET_ID"],
                       "domain": os.environ.get("SITE_DOMAIN", ""),
                       "result": os.environ["TARGET_RESULT"],
+                      "source_sha": os.environ["SOURCE_SHA"],
+                      "health_url": os.environ.get("HEALTH_URL", ""),
+                      "rollback": os.environ.get("ROLLBACK_RESULT") or "unavailable",
                   },
                   result_file,
               )
@@ -400,6 +448,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DEPLOY_RESULT: ${{ job.status }}
           TARGET_ENVIRONMENT: ${{ matrix.target.id }}
+          ROLLBACK_RESULT: ${{ steps.deploy.outputs.rollback }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo 'Telegram secrets are not configured; skipping notification.'
@@ -415,11 +464,13 @@ jobs:
           message="$icon 应用部署$status
           站点: ${TARGET_ENVIRONMENT} (${SITE_DOMAIN})
           分支: $GITHUB_REF_NAME
-          提交: ${GITHUB_SHA:0:12}
+          提交: $SOURCE_SHA
+          健康检查: $HEALTH_URL
+          回滚: ${ROLLBACK_RESULT:-unavailable}
           操作者: $GITHUB_ACTOR
           详情: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
-          curl --silent --show-error --fail \
+          curl --silent --fail --output /dev/null --max-time 20 \
             --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" \
             --data-urlencode "text=$message"
@@ -444,7 +495,8 @@ jobs:
 
       - name: Write release summary
         env:
-          BRANCH_NAME: ${{ github.ref_name }}
+          EXPECTED_TARGETS: ${{ needs.prepare.outputs.targets }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           VERIFY_RESULT: ${{ needs.verify.result }}
         run: |
           python3 - <<'PY'
@@ -452,14 +504,17 @@ jobs:
           import json
           import os
 
-          expected = 2 if os.environ["BRANCH_NAME"] == "main" else 1
+          expected_ids = {item["id"] for item in json.loads(os.environ.get("EXPECTED_TARGETS") or "[]")}
+          expected = len(expected_ids)
           records = []
           for path in glob.glob("deployment-results/*.json"):
               with open(path, encoding="utf-8") as result_file:
-                  records.append(json.load(result_file))
+                  record = json.load(result_file)
+                  if record.get("id") in expected_ids:
+                      records.append(record)
 
           results = [record.get("result", "failure") for record in records]
-          if len(records) == expected and all(result == "success" for result in results):
+          if expected and {record["id"] for record in records} == expected_ids and len(records) == expected and all(result == "success" for result in results):
               overall = "success"
           elif any(result == "success" for result in results):
               overall = "partial_success"
@@ -471,6 +526,7 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write("## Application deployment summary\n\n")
               summary.write(f"- Overall: `{overall}`\n")
+              summary.write(f"- Source: `{os.environ['SOURCE_SHA']}`\n")
               summary.write(f"- Verification: `{os.environ['VERIFY_RESULT']}`\n")
               summary.write(f"- Result records: `{len(records)}/{expected}`\n")
               for record in sorted(records, key=lambda item: item.get("id", "")):
