@@ -1,0 +1,10 @@
+{
+  "id": "fix-docs-location-header",
+  "title": "Portable case-insensitive documentation redirect validation",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "currentPhase": "completed",
+  "nextAction": "Promote tested fix through develop to main",
+  "branch": "fix/docs-location-header"
+}

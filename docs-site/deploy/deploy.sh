@@ -217,7 +217,7 @@ check_redirect() {
   status=$(curl --silent --show-error --max-time 15 \
     --output /dev/null --dump-header "$headers_file" --write-out '%{http_code}' \
     "$site_origin$path")
-  location=$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit }' "$headers_file")
+  location=$(awk 'tolower($0) ~ /^location:/ { sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit }' "$headers_file")
   if [[ "$status" != '308' ]] ||
     [[ "$location" != "$expected_path" && "$location" != "$expected_absolute" ]]; then
     fail "$path did not redirect to /docs/quick-start"
