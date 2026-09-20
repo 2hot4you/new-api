@@ -144,12 +144,12 @@ test('documentation target selection isolates manual sites and rejects invalid r
   const workflow = Bun.YAML.parse(await Bun.file(docsWorkflowPath).text()) as any;
   const step = workflow.jobs.prepare.steps.find((item: any) => item.id === 'target');
   const cases = [
-    ['push', 'refs/heads/main', '', ['production-molii', 'production-ixiaozu']],
+    ['push', 'refs/heads/main', '', ['production-molii', 'production-ixiaozu', 'production-model-claudeye']],
     ['push', 'refs/heads/develop', '', ['development']],
     ...['production-molii', 'production-ixiaozu', 'production-claudeye', 'production-model-claudeye'].map(
       (target) => ['workflow_dispatch', 'refs/heads/main', target, [target]],
     ),
-    ['workflow_dispatch', 'refs/heads/main', 'all-production', ['production-molii', 'production-ixiaozu']],
+    ['workflow_dispatch', 'refs/heads/main', 'all-production', ['production-molii', 'production-ixiaozu', 'production-model-claudeye']],
     ['workflow_dispatch', 'refs/heads/develop', 'development', ['development']],
     ['workflow_dispatch', 'refs/heads/develop', 'production-claudeye', null],
     ['workflow_dispatch', 'refs/heads/main', 'development', null],
