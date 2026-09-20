@@ -8,7 +8,7 @@ export interface PublicAlgoliaConfig {
 }
 
 export interface PublicBrandConfig {
-  id: 'molii' | 'ixiaozu';
+  id: 'molii' | 'ixiaozu' | 'claudeye';
   siteTitle: string;
   tagline: string;
   navbarTitle: string;
@@ -133,8 +133,8 @@ function brandAssetPath(value: string, name: string): string {
 
 function resolveBrand(environment: PublicEnvironment): PublicBrandConfig {
   const id = required(environment, 'DOCS_BRAND_ID');
-  if (id !== 'molii' && id !== 'ixiaozu') {
-    throw new Error('DOCS_BRAND_ID must be either molii or ixiaozu.');
+  if (id !== 'molii' && id !== 'ixiaozu' && id !== 'claudeye') {
+    throw new Error('DOCS_BRAND_ID must be molii, ixiaozu, or claudeye.');
   }
 
   const configuredFields = [

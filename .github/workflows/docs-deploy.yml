@@ -9,6 +9,19 @@ on:
       - 'docs-site/**'
       - '.github/workflows/docs-deploy.yml'
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Documentation target (all-production includes molii + ixiaozu only)'
+        required: true
+        default: development
+        type: choice
+        options:
+          - development
+          - production-molii
+          - production-ixiaozu
+          - production-claudeye
+          - production-model-claudeye
+          - all-production
 
 permissions:
   contents: read
@@ -23,20 +36,35 @@ jobs:
       - name: Map branch to target matrix
         id: target
         env:
-          BRANCH_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEPLOY_TARGET: ${{ inputs.target }}
         run: |
-          case "$BRANCH_NAME" in
-            main)
-              echo 'targets=[{"id":"production-molii","environment":"production-molii"},{"id":"production-ixiaozu","environment":"production-ixiaozu"}]' >> "$GITHUB_OUTPUT"
+          case "$GITHUB_REF" in
+            refs/heads/main)
+              targets='[{"id":"production-molii","environment":"production-molii"},{"id":"production-ixiaozu","environment":"production-ixiaozu"}]'
               ;;
-            develop)
-              echo 'targets=[{"id":"development","environment":"development"}]' >> "$GITHUB_OUTPUT"
+            refs/heads/develop)
+              targets='[{"id":"development","environment":"development"}]'
               ;;
             *)
-              echo "::error::Unsupported documentation branch: $BRANCH_NAME"
+              echo "::error::Unsupported documentation ref: $GITHUB_REF"
               exit 1
               ;;
           esac
+          case "$EVENT_NAME" in
+            push) ;;
+            workflow_dispatch)
+              case "$GITHUB_REF:$DEPLOY_TARGET" in
+                refs/heads/main:all-production) ;;
+                refs/heads/main:production-molii|refs/heads/main:production-ixiaozu|refs/heads/main:production-claudeye|refs/heads/main:production-model-claudeye|refs/heads/develop:development)
+                  printf -v targets '[{"id":"%s","environment":"%s"}]' "$DEPLOY_TARGET" "$DEPLOY_TARGET"
+                  ;;
+                *) echo '::error::Documentation target is not allowed for this branch'; exit 1 ;;
+              esac
+              ;;
+            *) echo '::error::Unsupported documentation event'; exit 1 ;;
+          esac
+          printf 'targets=%s\n' "$targets" >> "$GITHUB_OUTPUT"
 
   verify:
     name: Verify documentation
@@ -67,7 +95,7 @@ jobs:
           while IFS= read -r test_file; do
             test_files+=("$test_file")
           done < <(find scripts -maxdepth 1 -name '*.test.ts' ! -name '*.browser.test.ts' -print | sort)
-          bun test "${test_files[@]}"
+          bun test "${test_files[@]}" src/config.test.ts
 
       - name: Run browser documentation tests
         working-directory: docs-site
@@ -182,6 +210,15 @@ jobs:
               expected_deploy_dir='/opt/ixiaozu/production'
               expected_docs_env='production'
               expected_site_url='https://aigc.ixiaozu.cn'
+              ;;
+            production-claudeye|production-model-claudeye)
+              expected_brand='claudeye'
+              expected_deploy_dir='/opt/claudeye/production'
+              expected_docs_env='production'
+              expected_site_url='https://claudeye.com'
+              if [[ "$TARGET_ID" == 'production-model-claudeye' ]]; then
+                expected_site_url='https://model.claudeye.com'
+              fi
               ;;
             *)
               echo "::error::Unsupported documentation target: $TARGET_ID"
@@ -351,7 +388,7 @@ jobs:
 
       - name: Write release summary
         env:
-          BRANCH_NAME: ${{ github.ref_name }}
+          EXPECTED_TARGETS: ${{ needs.prepare.outputs.targets }}
           VERIFY_RESULT: ${{ needs.verify.result }}
         run: |
           python3 - <<'PY'
@@ -359,14 +396,14 @@ jobs:
           import json
           import os
 
-          expected = 2 if os.environ["BRANCH_NAME"] == "main" else 1
+          expected = len(json.loads(os.environ.get("EXPECTED_TARGETS") or "[]"))
           records = []
           for path in glob.glob("documentation-results/*.json"):
               with open(path, encoding="utf-8") as result_file:
                   records.append(json.load(result_file))
 
           results = [record.get("result", "failure") for record in records]
-          if len(records) == expected and all(result == "success" for result in results):
+          if expected > 0 and os.environ["VERIFY_RESULT"] == "success" and len(records) == expected and all(result == "success" for result in results):
               overall = "success"
           elif any(result == "success" for result in results):
               overall = "partial_success"

@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 const repositoryRoot = resolve(import.meta.dirname, '../..');
 const docsWorkflowPath = resolve(repositoryRoot, '.github/workflows/docs-deploy.yml');
@@ -136,4 +138,48 @@ test('application deployment ignores documentation-only pushes', async () => {
   expect(appWorkflow).toContain("- '.github/workflows/docs-deploy.yml'");
   expect(appWorkflow).toContain("- '.ccg/tasks/**'");
   expect(appWorkflow).toContain("- 'docs/superpowers/**'");
+});
+
+test('documentation target selection isolates manual sites and rejects invalid refs', async () => {
+  const workflow = Bun.YAML.parse(await Bun.file(docsWorkflowPath).text()) as any;
+  const step = workflow.jobs.prepare.steps.find((item: any) => item.id === 'target');
+  const cases = [
+    ['push', 'refs/heads/main', '', ['production-molii', 'production-ixiaozu']],
+    ['push', 'refs/heads/develop', '', ['development']],
+    ...['production-molii', 'production-ixiaozu', 'production-claudeye', 'production-model-claudeye'].map(
+      (target) => ['workflow_dispatch', 'refs/heads/main', target, [target]],
+    ),
+    ['workflow_dispatch', 'refs/heads/main', 'all-production', ['production-molii', 'production-ixiaozu']],
+    ['workflow_dispatch', 'refs/heads/develop', 'development', ['development']],
+    ['workflow_dispatch', 'refs/heads/develop', 'production-claudeye', null],
+    ['workflow_dispatch', 'refs/heads/main', 'development', null],
+    ['workflow_dispatch', 'refs/tags/main', 'production-claudeye', null],
+    ['workflow_dispatch', 'refs/heads/feature', 'production-model-claudeye', null],
+    ['workflow_dispatch', 'refs/heads/main', 'unknown', null],
+    ['workflow_dispatch', 'refs/heads/main', '', null],
+    ['pull_request', 'refs/heads/main', 'production-claudeye', null],
+  ] as const;
+  for (const [event, ref, target, expected] of cases) {
+    const directory = await mkdtemp(join(tmpdir(), 'docs-target-'));
+    try {
+      const output = join(directory, 'output');
+      const process = Bun.spawn(['bash', '-e', '-c', step.run], {
+        env: { ...Bun.env, EVENT_NAME: event, GITHUB_REF: ref, BRANCH_NAME: ref.split('/').at(-1), DEPLOY_TARGET: target, GITHUB_OUTPUT: output },
+        stdout: 'pipe', stderr: 'pipe',
+      });
+      const code = await process.exited;
+      if (expected === null) {
+        expect(code).not.toBe(0);
+        expect(await Bun.file(output).exists()).toBe(false);
+      } else {
+        expect(code).toBe(0);
+        const line = (await readFile(output, 'utf8')).trim();
+        const entries = JSON.parse(line.slice('targets='.length));
+        expect(entries.map((entry: any) => entry.id)).toEqual(expected);
+        expect(entries.every((entry: any) => entry.environment === entry.id)).toBe(true);
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
 });

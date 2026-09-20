@@ -12,6 +12,7 @@ site_marker=${6:-}
 public_root=${DOCS_DEPLOY_ROOT:-/opt/1panel/www/sites}
 molii_private_root=${MOLII_PRIVATE_ROOT:-/opt/molii}
 ixiaozu_private_root=${IXIAOZU_PRIVATE_ROOT:-/opt/ixiaozu}
+claudeye_private_root=${CLAUDEYE_PRIVATE_ROOT:-/opt/claudeye}
 flock_bin=${FLOCK_BIN:-flock}
 staging_dir=''
 snapshot_dir=''
@@ -95,6 +96,16 @@ case "$environment" in
     public_dir="$public_root/aigc.ixiaozu.cn/index/docs"
     environment_root="$ixiaozu_private_root/production"
     expected_origin='https://aigc.ixiaozu.cn'
+    ;;
+  production-claudeye)
+    public_dir="$public_root/claudeye.com/index/docs"
+    environment_root="$claudeye_private_root/production"
+    expected_origin='https://claudeye.com'
+    ;;
+  production-model-claudeye)
+    public_dir="$public_root/model.claudeye.com/index/docs"
+    environment_root="$claudeye_private_root/production"
+    expected_origin='https://model.claudeye.com'
     ;;
   *)
     fail "unsupported environment: $environment"
