@@ -60,6 +60,13 @@ create_mocks() {
 set -Eeuo pipefail
 printf '%s\n' "$*" >>"$MOCK_LOG"
 
+if [[ "${1:-}" == network ]]; then
+  printf '%s\n' "${MOCK_NETWORK_INTERNAL:-true}"
+  exit 0
+fi
+if [[ "$*" == "compose --env-file .deploy.env config --quiet" ]]; then
+  exit "${MOCK_CONFIG_STATUS:-0}"
+fi
 if [[ "${1:-}" == "inspect" && "$*" == *".Config.Image"* ]]; then
   printf '%s\n' "${MOCK_PREVIOUS_IMAGE:-}"
   exit 0
@@ -150,6 +157,7 @@ new_fixture() {
   mkdir -p \
     "$fixture/molii/production" \
     "$fixture/molii/development" \
+    "$fixture/claudeye/production" \
     "$fixture/ixiaozu/production"
   : >"$fixture/molii/production/docker-compose.yml"
   : >"$fixture/molii/development/docker-compose.yml"
@@ -157,6 +165,8 @@ new_fixture() {
   write_runtime_env "$fixture/molii/production/.env.runtime"
   write_runtime_env "$fixture/molii/development/.env.runtime"
   write_runtime_env "$fixture/ixiaozu/production/.env.runtime"
+  : >"$fixture/claudeye/production/docker-compose.yml"
+  write_runtime_env "$fixture/claudeye/production/.env.runtime"
   create_mocks "$fixture"
   printf '%s\n' "$fixture"
 }
@@ -166,6 +176,7 @@ run_deploy() {
   shift
   PATH="$fixture/bin:$PATH" \
     MOLII_DEPLOY_ROOT="$fixture/molii" \
+    CLAUDEYE_DEPLOY_ROOT="$fixture/claudeye" \
     IXIAOZU_DEPLOY_ROOT="$fixture/ixiaozu" \
     HEALTH_ATTEMPTS=1 \
     HEALTH_INTERVAL_SECONDS=0 \
@@ -201,7 +212,7 @@ test_maps_all_deployment_targets() {
     run_deploy \
       "$fixture" \
       "$target" \
-      ghcr.io/2hot4you/new-api@sha256:abc \
+      ghcr.io/2hot4you/new-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
       "$health_url"
     saved_project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$fixture/$directory/.deploy.env")
     assert_equals "$saved_project" "$project" "$target uses its isolated Compose project"
@@ -209,6 +220,11 @@ test_maps_all_deployment_targets() {
       "$(<"$fixture/$directory/.deploy.env")" \
       "DEPLOY_ENV=$deploy_environment" \
       "$target writes the expected runtime environment"
+    if [[ "$target" == *claudeye ]]; then
+      assert_contains "$(<"$fixture/$directory/.deploy.env")" "INFRA_BACKEND_NETWORK=$project-infra-backend" "$target joins only its infrastructure backend"
+      assert_contains "$(<"$fixture/mock.log")" "$project-infra-backend" "$target checks its backend network before deployment"
+    fi
+    assert_not_contains "$(<"$fixture/mock.log")" '--remove-orphans' "$target preserves independent infrastructure"
     if [[ -d "$fixture/$directory/certs" ]]; then
       pass "$target prepares the certificate mount directory"
     else
@@ -224,6 +240,8 @@ test_maps_all_deployment_targets() {
 development|molii/development|https://dev.molii.co/api/status|development|molii-development
 production-molii|molii/production|https://molii.co/api/status|production-molii|molii-production
 production-ixiaozu|ixiaozu/production|https://aigc.ixiaozu.cn/api/status|production-ixiaozu|ixiaozu-production
+production-claudeye|claudeye/production|https://claudeye.com/api/status|production-claudeye|claudeye-production
+production-model-claudeye|claudeye/production|https://model.claudeye.com/api/status|production-model-claudeye|model-claudeye-production
 TARGETS
 }
 
@@ -296,7 +314,7 @@ test_successful_deploy_keeps_requested_image() {
   assert_equals "$saved_image" "$image" 'successful deploy records the requested image'
   log=$(<"$fixture/mock.log")
   assert_contains "$log" 'compose --env-file .deploy.env pull' 'successful deploy pulls the image'
-  assert_contains "$log" 'compose --env-file .deploy.env up -d --remove-orphans' 'successful deploy starts Compose'
+  assert_contains "$log" 'compose --env-file .deploy.env up -d' 'successful deploy starts Compose'
   assert_contains "$log" 'https://molii.co/api/status' 'successful deploy checks the public endpoint'
   rm -rf "$fixture"
 }
@@ -316,7 +334,7 @@ test_image_pull_retries_transient_network_failures() {
   pull_count=$(<"$fixture/pull-count")
   assert_equals "$pull_count" '3' 'image pull retries two transient failures before succeeding'
   log=$(<"$fixture/mock.log")
-  assert_contains "$log" 'compose --env-file .deploy.env up -d --remove-orphans' 'container update runs once after a successful pull retry'
+  assert_contains "$log" 'compose --env-file .deploy.env up -d' 'container update runs once after a successful pull retry'
   rm -rf "$fixture"
 }
 
@@ -336,7 +354,7 @@ test_public_health_retries_without_restarting_the_container() {
 
   public_count=$(<"$fixture/public-count")
   assert_equals "$public_count" '3' 'public health check retries two transient failures before succeeding'
-  up_count=$(grep -c 'compose --env-file .deploy.env up -d --remove-orphans' "$fixture/mock.log")
+  up_count=$(grep -c 'compose --env-file .deploy.env up -d' "$fixture/mock.log")
   assert_equals "$up_count" '1' 'public health retry does not repeat the container update'
   rm -rf "$fixture"
 }
@@ -360,8 +378,71 @@ test_failed_deploy_rolls_back_previous_image() {
   assert_contains "$output" 'rollback succeeded' 'failed release reports successful rollback'
   saved_image=$(sed -n 's/^IMAGE=//p' "$fixture/molii/production/.deploy.env")
   assert_equals "$saved_image" 'ghcr.io/2hot4you/new-api@sha256:old' 'rollback restores the previous image'
-  up_count=$(grep -c 'compose --env-file .deploy.env up -d --remove-orphans' "$fixture/mock.log")
+  up_count=$(grep -c 'compose --env-file .deploy.env up -d' "$fixture/mock.log")
   assert_equals "$up_count" '2' 'rollback starts Compose a second time'
+  rm -rf "$fixture"
+}
+
+test_new_sites_and_failure_safety() {
+  local fixture output status mode
+  for mode in config pull network digest rollback-public; do
+    fixture=$(new_fixture)
+    printf 'IMAGE=previous-metadata\n' >"$fixture/claudeye/production/.deploy.env"
+    set +e
+    case "$mode" in
+      config)
+        output=$(MOCK_CONFIG_STATUS=1 run_deploy "$fixture" production-claudeye "ghcr.io/example/new-api@sha256:$(printf '%064d' 1)" https://claudeye.com/api/status 2>&1)
+        ;;
+      pull)
+        output=$(MOCK_PULL_FAILURES=5 DEPLOY_PULL_ATTEMPTS=1 run_deploy "$fixture" production-claudeye "ghcr.io/example/new-api@sha256:$(printf '%064d' 1)" https://claudeye.com/api/status 2>&1)
+        ;;
+      network)
+        output=$(MOCK_NETWORK_INTERNAL=false run_deploy "$fixture" production-claudeye "ghcr.io/example/new-api@sha256:$(printf '%064d' 1)" https://claudeye.com/api/status 2>&1)
+        ;;
+      digest)
+        output=$(run_deploy "$fixture" production-claudeye ghcr.io/example/new-api:latest https://claudeye.com/api/status 2>&1)
+        ;;
+      rollback-public)
+        output=$(MOCK_PREVIOUS_IMAGE="ghcr.io/example/new-api@sha256:$(printf '%064d' 2)" MOCK_PUBLIC_HEALTH=failed PUBLIC_HEALTH_ATTEMPTS=1 run_deploy "$fixture" production-claudeye "ghcr.io/example/new-api@sha256:$(printf '%064d' 1)" https://claudeye.com/api/status 2>&1)
+        ;;
+    esac
+    status=$?
+    set -e
+    assert_equals "$status" 1 "$mode failure exits nonzero"
+    if [[ "$mode" == rollback-public ]]; then
+      assert_contains "$output" 'DEPLOY_ROLLBACK_RESULT=failed' 'rollback public health failure is reported'
+      assert_equals "$(<"$fixture/public-count")" 2 'rollback verifies public endpoint again'
+    else
+      assert_contains "$output" 'DEPLOY_ROLLBACK_RESULT=not_attempted' "$mode leaves rollback unattempted"
+      assert_not_contains "$(cat "$fixture/mock.log" 2>/dev/null || true)" 'up -d' "$mode does not recreate existing container"
+      assert_equals "$(<"$fixture/claudeye/production/.deploy.env")" 'IMAGE=previous-metadata' "$mode preserves existing deployment metadata"
+    fi
+    assert_not_contains "$(cat "$fixture/mock.log" 2>/dev/null || true)" 'logs --tail' "$mode does not disclose application logs"
+    assert_not_contains "$(cat "$fixture/mock.log" 2>/dev/null || true)" '--remove-orphans' "$mode never removes infrastructure orphans"
+    rm -rf "$fixture"
+  done
+}
+
+test_local_database_compose() {
+  local fixture rendered summary
+  fixture=$(mktemp -d)
+  cp "$PROJECT_ROOT/deploy/docker-compose.local-db.yml" "$fixture/docker-compose.yml"
+  write_runtime_env "$fixture/.env.runtime"
+  rendered=$(cd "$fixture" && IMAGE=example/new-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HOST_PORT=3000 CONTAINER_NAME=claudeye-production COMPOSE_PROJECT_NAME=claudeye-production INFRA_BACKEND_NETWORK=claudeye-production-infra-backend APP_MEMORY_LIMIT=1024m docker compose config --format json)
+  summary=$(python3 -c '
+import json,sys
+c=json.load(sys.stdin); a=c["services"]["new-api"]
+assert list(c["services"]) == ["new-api"]
+assert not c.get("volumes")
+assert a["user"] == "1000:1000"
+assert int(a["mem_limit"]) == 1073741824
+assert set(a["networks"]) == {"default", "backend"}
+assert c["networks"]["backend"]["external"]
+assert c["networks"]["backend"]["name"] == "claudeye-production-infra-backend"
+assert not c["networks"]["default"].get("internal", False)
+print("isolated application with internal backend and egress")
+' <<<"$rendered")
+  assert_contains "$summary" 'isolated application' 'local database Compose preserves infrastructure ownership and relay egress'
   rm -rf "$fixture"
 }
 
@@ -442,6 +523,8 @@ test_ixiaozu_runtime_template_uses_verified_tls() {
   assert_contains "$content" 'REDIS_TLS_CA_FILE=/app/certs/tencentdb-redis-ca.pem' 'iXiaozu Redis loads its CA inside the container'
 }
 
+# GitHub expressions are matched literally, without shell interpolation.
+# shellcheck disable=SC2016
 test_workflow_delivery_contract() {
   local workflow content ci_workflow ci_content dockerfile dockerfile_content
   workflow="$PROJECT_ROOT/.github/workflows/deploy.yml"
@@ -467,8 +550,8 @@ test_workflow_delivery_contract() {
   assert_contains "$content" 'TELEGRAM_BOT_TOKEN' 'workflow supports Telegram bot delivery'
   assert_contains "$content" 'bash deploy/app-version.sh' 'workflow derives a schema-safe application version'
   assert_contains "$content" 'source_ref:' 'workflow accepts an explicit candidate source ref'
-  assert_contains "$content" 'ref: ${{ inputs.source_ref || github.sha }}' 'candidate source ref controls verification and image checkout'
-  assert_contains "$content" 'Candidate source refs are restricted to development deployments' 'candidate source refs cannot target production'
+  assert_contains "$content" 'ref: ${{ needs.prepare.outputs.source_sha }}' 'verification and image checkout share the resolved immutable commit'
+  assert_contains "$content" 'python3 deploy/resolve-targets.py' 'workflow validates targets and source before entering protected environments'
   assert_contains "$content" 'backup_postgres:' 'workflow exposes an explicit PostgreSQL backup gate'
   assert_contains "$content" 'verify_repeated_startup:' 'workflow exposes an explicit repeated-startup gate'
   assert_contains "$content" 'TEST_POSTGRES_DSN: postgresql://' 'deployment verification uses an explicit PostgreSQL test database'
@@ -488,11 +571,9 @@ test_workflow_delivery_contract() {
   assert_not_contains "$content" 'REDIS_CONN_STRING' 'workflow does not receive the Redis secret'
   assert_contains "$content" 'targets: ${{ steps.target.outputs.targets }}' 'prepare exports a deployment target matrix'
   assert_contains "$content" 'target: ${{ fromJSON(needs.prepare.outputs.targets) }}' 'release consumes the deployment target matrix'
+  assert_contains "$content" 'group: release-${{ matrix.target.id }}' 'workflow serializes overlapping releases for the same target'
   assert_contains "$content" 'fail-fast: false' 'one production failure does not cancel its peer'
   assert_contains "$content" 'name: ${{ matrix.target.environment }}' 'each release selects its own GitHub Environment'
-  assert_contains "$content" '"id":"development"' 'develop maps to the development target'
-  assert_contains "$content" '"id":"production-molii"' 'main maps to Molii production'
-  assert_contains "$content" '"id":"production-ixiaozu"' 'main maps to iXiaozu production'
   assert_contains "$content" 'DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}' 'deployment directory comes from the selected GitHub Environment'
   assert_contains "$content" 'HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL }}' 'health URL comes from the selected GitHub Environment'
   assert_contains "$content" 'SITE_DOMAIN: ${{ vars.DEPLOY_SITE_DOMAIN }}' 'site domain comes from the selected GitHub Environment'
@@ -551,6 +632,8 @@ test_successful_deploy_keeps_requested_image
 test_image_pull_retries_transient_network_failures
 test_public_health_retries_without_restarting_the_container
 test_failed_deploy_rolls_back_previous_image
+test_new_sites_and_failure_safety
+test_local_database_compose
 test_compose_isolates_both_environments
 test_ixiaozu_runtime_template_uses_verified_tls
 test_workflow_delivery_contract

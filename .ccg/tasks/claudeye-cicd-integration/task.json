@@ -1,0 +1,12 @@
+{
+  "id": "claudeye-cicd-integration",
+  "title": "接入两个独立Claudeye生产环境手动CI/CD",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "deployment",
+  "currentPhase": "review",
+  "nextAction": "Push minimal Vitest test-runner import correction for failed PR CI; check full local frontend suite and new remote CI. PR remains draft, no merges/deployments.",
+  "createdAt": "2026-09-18T17:58:18.120195+00:00",
+  "branch": "feat/claudeye-cicd"
+}

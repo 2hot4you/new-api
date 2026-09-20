@@ -1,0 +1,1 @@
+准备 CI/CD 的服务器应用运行目录，不开展更多监控或蓝绿。保留基础设施已经生成的四项独立凭据（包括 SESSION_SECRET/CRYPTO_SECRET），不轮换。仅支持两个新站及对应 hostname；读取 root0600 infra/app.env 后写入全新 production/.env.runtime（部署用户0600）。不覆盖文件，不改数据库，不启动容器，不授权 sudo，不修改现有项目。Docker组授权由用户root单独执行，明确等同宿主高权限。主流程仍需：独立应用网络Compose、手动目标workflow、品牌配置、HTTPS、测试及develop验收。main合并及现有生产部署需另行确认。

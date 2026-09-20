@@ -52,11 +52,27 @@ test('accepts a complete non-Molii profile', () => {
 test('rejects unknown profiles and fonts', () => {
   expect(() =>
     resolveSiteBrand({ VITE_SITE_PROFILE: 'unknown' })
-  ).toThrow('VITE_SITE_PROFILE must be molii or ixiaozu')
+  ).toThrow('VITE_SITE_PROFILE must be molii, ixiaozu or claudeye')
   expect(() =>
     resolveSiteBrand({
       ...IXIAOZU_FIXTURE,
       VITE_SITE_DEFAULT_FONT: 'comic-sans',
     })
   ).toThrow('VITE_SITE_DEFAULT_FONT must be sans or serif')
+})
+
+test('claudeye requires explicit independent branding', () => {
+  expect(() => resolveSiteBrand({ VITE_SITE_PROFILE: 'claudeye' }))
+    .toThrow('VITE_SITE_TITLE must be set for claudeye')
+  const result = resolveSiteBrand({
+    ...IXIAOZU_FIXTURE,
+    VITE_SITE_PROFILE: 'claudeye',
+    VITE_SITE_TITLE: 'Claudeye',
+    VITE_SITE_BANNER_BRAND: 'Claudeye',
+    VITE_SITE_LOGO: '/claudeye-logo.svg',
+  })
+  expect(result.id).toBe('claudeye')
+  expect(result.title).toBe('Claudeye')
+  expect(result.logo).toBe('/claudeye-logo.svg')
+  expect(result.bannerBrand).toBe('Claudeye')
 })
