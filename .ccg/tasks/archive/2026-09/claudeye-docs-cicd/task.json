@@ -1,0 +1,11 @@
+{
+  "id": "claudeye-docs-cicd",
+  "title": "接入两个 Claudeye 同域 /docs CI/CD",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "currentPhase": "completed",
+  "nextAction": "Open develop PR; remote CI, merges and server setup pending",
+  "createdAt": "2026-09-20T11:37:37.622693+00:00",
+  "branch": "feat/claudeye-docs-cicd"
+}
