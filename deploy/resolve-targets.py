@@ -13,8 +13,11 @@ PROFILES = {
     'production-claudeye': 'claudeye',
     'production-model-claudeye': 'claudeye',
 }
-# Expansion deliberately excludes the new sites until production acceptance.
-ALL_PRODUCTION = ['production-molii', 'production-ixiaozu']
+# Accepted production sites share the main push and all-production matrix.
+ALL_PRODUCTION = [
+    'production-molii', 'production-ixiaozu',
+    'production-claudeye', 'production-model-claudeye',
+]
 
 
 def resolve(env):
