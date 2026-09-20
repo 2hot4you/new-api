@@ -89,7 +89,7 @@ TRUSTED_PROXIES=<实际反向代理的 IP 或 CIDR>
 如果独立前端与 API 不同 Origin，再设置精确的
 `DASHBOARD_CORS_ALLOWED_ORIGINS`。以上 Origin 配置不支持通配符。
 
-## 独立 Claudeye 生产环境（CI/CD，首期仅手动）
+## 独立 Claudeye 生产环境（CI/CD）
 
 此节适用于 `production-claudeye`（上海 `claudeye.com`）及
 `production-model-claudeye`（洛杉矶 `model.claudeye.com`）。使用独立基础设施
@@ -126,9 +126,12 @@ DEPLOY_SITE_DOMAIN 外，每个新站必须独立填写以下公开构建变量�
 仅用于测试，不作为上线配置。服务器运行配置、数据库数据与密钥均不进入 Actions。
 
 发布顺序：功能分支先经测试合 develop，仅部署开发站，由用户验收。之后经明确
-确认合 main；注意 main push 仍会发布现有 molii 和 aigc，不可绕过该确认。
-两个新环境保持仅手动，分别选择明确目标；初期 all-production 只包含现有两站，
-直到新站验收并另行批准扩展矩阵。生产工作流仅允许 main 上该次触发的固定 SHA，
+确认合 main。main 应用自动部署及应用 `all-production` 均包含四个生产环境：
+production-molii、production-ixiaozu、production-claudeye（上海）、
+production-model-claudeye（洛杉矶）。仍可手动选择单个环境发布。
+纯文档变更继续由独立文档工作流处理，不重启应用；其他应用变更按原有路径规则触发。
+develop 始终只自动部署 development，不发布任何生产站点。
+生产工作流仅允许 main 上该次触发的固定 SHA，
 不接受候选分支 source_ref。验证、构建和部署使用同一解析后的 SHA。
 
 首次应用启动会初始化应用数据库，应先确认已有备份恢复演练及最新备份。应用

@@ -25,7 +25,7 @@ class TargetsTest(unittest.TestCase):
             with self.subTest(target=target):
                 result = module.resolve(environment(branch, target))
                 self.assertEqual(result['source_sha'], SHA)
-                ids = ['production-molii', 'production-ixiaozu'] if target == 'all-production' else [target]
+                ids = ['production-molii', 'production-ixiaozu', 'production-claudeye', 'production-model-claudeye'] if target == 'all-production' else [target]
                 self.assertEqual([entry['id'] for entry in result['targets']], ids)
                 for entry in result['targets']:
                     self.assertEqual(entry['brand_profile'], 'claudeye' if 'claudeye' in entry['id'] else ('ixiaozu' if 'ixiaozu' in entry['id'] else 'molii'))
@@ -33,8 +33,8 @@ class TargetsTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     module.resolve(environment('main' if branch == 'develop' else 'develop', target))
 
-    def test_push_is_limited_to_existing_sites(self):
-        for branch, expected in [('main', ['production-molii', 'production-ixiaozu']), ('develop', ['development'])]:
+    def test_push_targets_all_production_sites_and_isolates_development(self):
+        for branch, expected in [('main', ['production-molii', 'production-ixiaozu', 'production-claudeye', 'production-model-claudeye']), ('develop', ['development'])]:
             env = environment(branch, '')
             env['GITHUB_EVENT_NAME'] = 'push'
             self.assertEqual([item['id'] for item in module.resolve(env)['targets']], expected)

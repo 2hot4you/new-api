@@ -1,0 +1,10 @@
+{
+  "id": "auto-claudeye-apps",
+  "title": "Automatically deploy both Claudeye applications from main",
+  "complexity": "S",
+  "risk": "medium",
+  "status": "completed",
+  "currentPhase": "completed",
+  "branch": "feat/auto-claudeye-apps",
+  "nextAction": "Create develop PR; merge and production activation pending"
+}
