@@ -15,7 +15,7 @@ SHA = 'a' * 40
 
 def environment(branch='main', target='production-molii', **values):
     return dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF='refs/heads/' + branch,
-                GITHUB_SHA=SHA, DEPLOY_TARGET=target, **values)
+                GITHUB_SHA=SHA, DEPLOY_TARGET=target, GITHUB_OUTPUT='', **values)
 
 
 class TargetsTest(unittest.TestCase):
@@ -83,6 +83,15 @@ class TargetsTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout)['source_sha'], first)
                 self.assertNotEqual(first, second)
+            output = Path(directory) / 'output'
+            env = os.environ | environment('develop', 'development', SOURCE_REF='candidate')
+            env['GITHUB_OUTPUT'] = str(output)
+            result = subprocess.run(['python3', str(SCRIPT)], cwd=directory, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '')
+            values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+            self.assertEqual(values['source_sha'], first)
+            self.assertEqual([entry['id'] for entry in json.loads(values['targets'])], ['development'])
             for ref in ['--help', '-q', 'missing', 'HEAD\nother', 'HEAD:missing']:
                 result = subprocess.run(['python3', str(SCRIPT)], cwd=directory, env=os.environ | environment('develop', 'development', SOURCE_REF=ref), capture_output=True, text=True)
                 self.assertNotEqual(result.returncode, 0, ref)

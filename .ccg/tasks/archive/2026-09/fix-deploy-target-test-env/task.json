@@ -1,0 +1,11 @@
+{
+  "id": "fix-deploy-target-test-env",
+  "title": "Isolate deploy target tests from Actions output environment",
+  "complexity": "S",
+  "risk": "low",
+  "status": "completed",
+  "currentPhase": "completed",
+  "nextAction": "Create fix PR for develop; merge awaits explicit authorization",
+  "createdAt": "2026-09-20T05:42:10.167492+00:00",
+  "branch": "fix/deploy-target-test-env"
+}
