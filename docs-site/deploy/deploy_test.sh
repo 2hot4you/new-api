@@ -52,6 +52,9 @@ new_fixture() {
     "$fixture/private/molii/production/data" \
     "$fixture/private/molii/development/data" \
     "$fixture/private/ixiaozu/production/data" \
+    "$fixture/public/claudeye.com/index/docs" \
+    "$fixture/public/model.claudeye.com/index/docs" \
+    "$fixture/private/claudeye/production/data" \
     "$fixture/bin"
 
   cat >"$fixture/bin/flock" <<'MOCK'
@@ -153,6 +156,7 @@ make_artifact() {
     development) private_target="$fixture/private/molii/development" ;;
     production-molii) private_target="$fixture/private/molii/production" ;;
     production-ixiaozu) private_target="$fixture/private/ixiaozu/production" ;;
+    production-claudeye|production-model-claudeye) private_target="$fixture/private/claudeye/production" ;;
     *) private_target="$fixture/private/unknown" ;;
   esac
 
@@ -174,6 +178,7 @@ run_deploy() {
     DOCS_DEPLOY_ROOT="$fixture/public" \
     MOLII_PRIVATE_ROOT="$fixture/private/molii" \
     IXIAOZU_PRIVATE_ROOT="$fixture/private/ixiaozu" \
+    CLAUDEYE_PRIVATE_ROOT="$fixture/private/claudeye" \
     FLOCK_BIN="$fixture/bin/flock" \
     "$DEPLOY_SCRIPT" "$@"
 }
@@ -439,6 +444,41 @@ test_health_body_does_not_follow_predictable_symlink() {
   assert_equals "$leftovers" '' 'health check removes its temporary response file'
 }
 
+test_claudeye_publish_and_rollback() {
+  local target domain fixture public_dir status content
+  for target in production-claudeye production-model-claudeye; do
+    domain=claudeye.com
+    [[ "$target" != production-model-claudeye ]] || domain=model.claudeye.com
+    fixture=$(new_fixture)
+    public_dir="$fixture/public/$domain/index/docs"
+    make_artifact "$fixture" "$target" good 'claudeye 开发者文档'
+    set +e
+    MOCK_SITE_MARKER='claudeye 开发者文档' run_deploy "$fixture" "$target" good "$ARTIFACT_PATH" "$ARTIFACT_SHA" "https://$domain" 'claudeye 开发者文档' >/dev/null 2>&1
+    status=$?
+    set -e
+    assert_equals "$status" 0 "$target publishes successfully"
+    content=$(cat "$public_dir/assets/main.js" 2>/dev/null || true)
+    assert_equals "$content" new-good "$target publishes into the selected root"
+    make_artifact "$fixture" "$target" bad 'claudeye 开发者文档'
+    set +e
+    MOCK_HEALTH=failed run_deploy "$fixture" "$target" bad "$ARTIFACT_PATH" "$ARTIFACT_SHA" "https://$domain" 'claudeye 开发者文档' >/dev/null 2>&1
+    status=$?
+    set -e
+    assert_equals "$status" 1 "$target fails on unhealthy public page"
+    content=$(cat "$public_dir/assets/main.js" 2>/dev/null || true)
+    assert_equals "$content" new-good "$target restores previous release"
+    make_artifact "$fixture" "$target" wrong-origin 'claudeye 开发者文档'
+    set +e
+    run_deploy "$fixture" "$target" wrong-origin "$ARTIFACT_PATH" "$ARTIFACT_SHA" https://molii.co 'claudeye 开发者文档' >/dev/null 2>&1
+    status=$?
+    set -e
+    assert_equals "$status" 1 "$target rejects cross-site origin"
+    content=$(find "$fixture/public/molii.co" "$fixture/public/aigc.ixiaozu.cn" -type f -print)
+    assert_equals "$content" '' "$target leaves existing production sites untouched"
+  done
+}
+
+test_claudeye_publish_and_rollback
 test_requires_deploy_script
 test_rejects_unknown_environment
 test_validation_failure_does_not_delete_unowned_files

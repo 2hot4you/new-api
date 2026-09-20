@@ -260,3 +260,22 @@ test('injects the selected documentation font before paint', () => {
 
   expect(tags[0]?.innerHTML).toContain("dataset.docsFont = 'sans'");
 });
+
+for (const origin of ['https://claudeye.com', 'https://model.claudeye.com']) {
+  test(`claudeye docs use their own API and console origin: ${origin}`, () => {
+    const config = resolvePublicConfig({
+      ...ixiaozuEnvironment,
+      DOCS_BRAND_ID: 'claudeye',
+      DOCS_SITE_TITLE: 'claudeye 开发者文档',
+      DOCS_NAVBAR_TITLE: 'claudeye',
+      DOCS_SITE_URL: origin,
+      DOCS_API_BASE_URL: origin,
+    });
+    expect(config.brand.id).toBe('claudeye');
+    expect(config.baseUrl).toBe('/docs/');
+    expect(config.apiBaseUrl).toBe(origin);
+    const site = createSiteConfig(config);
+    expect(site.url).toBe(origin);
+    expect(site.themeConfig?.navbar).toMatchObject({ logo: { href: origin } });
+  });
+}

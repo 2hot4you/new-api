@@ -56,3 +56,72 @@ bun run build
 ```
 
 把 `build/` 的内容发布到主站静态根目录下的 `docs/`。OpenResty 应将 `/docs` 和 `/docs/` 重定向到 `/docs/quick-start`，并直接提供 `/docs/assets/` 与其他生成文件。生产环境把两个 `dev.molii.co` 值替换为 `molii.co`，并使用 `DOCS_ENV=production`。
+
+
+### Claudeye 国内站与海外站
+
+两站共用文档源码和 `claudeye` 品牌，文档与 API 均使用各自域名。
+文档发布不启动或重启应用、PostgreSQL、Redis，也不覆盖整个 1Panel 站点配置。
+
+| GitHub Environment / 手动 target | DOCS_SITE_URL 与 DOCS_API_BASE_URL | 主机上的公开目录 |
+| --- | --- | --- |
+| production-claudeye | https://claudeye.com | /opt/1panel/www/sites/claudeye.com/index/docs |
+| production-model-claudeye | https://model.claudeye.com | /opt/1panel/www/sites/model.claudeye.com/index/docs |
+
+每个 Environment 配置以下 Variables（均为公开配置）：
+
+| Variable | 值 |
+| --- | --- |
+| DEPLOY_DIR | /opt/claudeye/production（沿用应用配置） |
+| DOCS_ENV | production |
+| DOCS_SITE_URL / DOCS_API_BASE_URL | 上表对应域名，不带 /docs |
+| DOCS_BRAND_ID | claudeye |
+| DOCS_SITE_TITLE | claudeye 开发者文档 |
+| DOCS_NAVBAR_TITLE | claudeye |
+| DOCS_TAGLINE | claudeye AI API 开发指南 |
+| DOCS_DEFAULT_FONT | sans |
+| DOCS_LOGO_PATH | img/brand/logo.svg |
+| DOCS_FAVICON_PATH | img/brand/favicon.png |
+| DOCS_SOCIAL_IMAGE_PATH | img/brand/social.png |
+| DOCS_LOGO_SOURCE_URL | 对应本站域名 + /claudeye-placeholder.svg |
+| DOCS_FAVICON_SOURCE_URL | 对应本站域名 + /claudeye-placeholder-32.png |
+| DOCS_SOCIAL_IMAGE_SOURCE_URL | 对应本站域名 + /claudeye-placeholder-180.png |
+
+占位图片沿用已发布应用的公开资源。先确认这三个 URL 返回正确图片（非 SPA HTML），
+再触发文档部署。文档下载器要求 HTTPS、图片 Content-Type，拒绝跳转。
+SSH 与 Telegram Secrets 沿用该 Environment；不添加数据库或业务密钥。
+
+#### 服务器首次准备（每台分别执行）
+
+本次只读检查确认两台 OpenResty 均将 `/opt/1panel/www` 挂载为 `/www`，
+两站 `index` 目录已存在、root:root 755，`index/docs` 尚不存在。
+因此容器内静态 root 分别为 `/www/sites/claudeye.com/index` 与
+`/www/sites/model.claudeye.com/index`；实施时应再次核对挂载。
+公开 `index/docs` 目录应由 `claudeye-deploy` 可写，OpenResty worker 可读且所有父目录可遍历。
+仅调整 docs 目录，不能把整个 `/opt/claudeye/production` 开放给 Web 服务器，不能暴露
+`.env.runtime`、data、日志、备份或凭据。发布快照仍存放在私有的
+`/opt/claudeye/production/data/docs-deploy`。
+
+在已有站点 `server` 块中增加 `examples/nginx.conf.example` 的四个 `/docs` location，
+每个静态 location 的 `root` 指向 **OpenResty 容器内**该站的 `index` 目录。
+保留现有 `/` 反代、TLS、证书、其他站点及洛杉矶的 23000 服务。
+先备份实际修改文件，确认无重复 location，再执行 `openresty -t`，成功后 reload。
+校验失败恢复该文件，不 reload；公网异常恢复旧配置并重新检查、reload。
+
+`/docs`、`/docs/` 应返回 308 到 `/docs/quick-start`；发布后的
+`/docs/quick-start/` 返回包含 claudeye 标题的 HTML，静态资源正常，未知文件返回 404。
+上线前空目录尚无正文，不能把这种状态当成文档验收成功。
+
+#### 发布及验收
+
+在 **Build and deploy documentation** 中 Run workflow，Branch 选择 `main`，
+一次选择一个上表 target。没有 source_ref 参数，构建对应工作流触发 SHA。
+`all-production` 暂时仍只包含 molii 和 ixiaozu；新站验收前不加入 main 自动矩阵。
+自动 push 仍只在文档目录或文档工作流变化时触发，develop 发布开发文档，main 发布现有两个生产文档。
+
+首次先在 develop 完成验证，再按授权合并 main。注意文档变更合并 main
+会自动发布现有两个生产文档；部署 Claudeye 请分别手动触发，不能用 main 自动矩阵替代单站验收。
+
+验收各自 `/docs` 入口、导航、图片、API 地址、控制台链接和本地搜索。
+公开页面校验失败时发布脚本恢复上一文档快照，首次无旧文档时恢复空目录；查看 Actions 与 Telegram 结果。
+不要用应用部署按钮代替文档发布。
