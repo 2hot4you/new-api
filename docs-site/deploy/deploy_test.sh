@@ -96,7 +96,7 @@ case "$url" in
   */docs|*/docs/)
     if [[ -n "$headers" ]]; then
       redirect_base=${url%/}
-      printf 'HTTP/2 308\r\nLocation: %s/quick-start\r\n\r\n' "$redirect_base" >"$headers"
+      printf 'HTTP/2 308\r\nlocation: %s/quick-start\r\n\r\n' "$redirect_base" >"$headers"
     fi
     printf '308'
     ;;
