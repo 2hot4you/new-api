@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/brand_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
@@ -248,6 +249,9 @@ func validateOptionValue(key string, value string) error {
 }
 
 func normalizeOptionValue(key string, value string) (string, error) {
+	if normalized, handled, err := brand_setting.NormalizeOption(key, value); handled {
+		return normalized, err
+	}
 	if key == "group_ratio_setting.group_metadata" {
 		return ratio_setting.NormalizeGroupMetadataJSONString(value)
 	}
