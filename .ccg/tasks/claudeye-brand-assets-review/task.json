@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "fullstack",
   "currentPhase": "planning",
-  "nextAction": "等待用户审阅运行时品牌配色设计文档",
+  "nextAction": "等待用户审阅实施计划并选择执行方式",
   "createdAt": "2026-09-21T00:00:00+08:00",
   "branch": "feat/claudeye-runtime-brand-colors"
 }
