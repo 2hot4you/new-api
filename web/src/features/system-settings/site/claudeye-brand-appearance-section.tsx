@@ -279,6 +279,8 @@ export function ClaudeyeBrandAppearanceSection({
   const pendingSavedFieldsRef = useRef<Partial<ClaudeyeBrandValues> | null>(
     null
   )
+  const pendingMismatchBudgetRef = useRef(0)
+  const rejectedDefaultsRef = useRef<ClaudeyeBrandFormValues | null>(null)
   const colorSchema = z.string().regex(BRAND_HEX_PATTERN, {
     error: () => t('Color must use #RRGGBB format'),
   })
@@ -302,6 +304,8 @@ export function ClaudeyeBrandAppearanceSection({
       mode: 'onChange',
       onSubmit: async (_values, changedFields) => {
         pendingSavedFieldsRef.current = null
+        pendingMismatchBudgetRef.current = 0
+        rejectedDefaultsRef.current = null
         const savedFields: Partial<ClaudeyeBrandValues> = {}
 
         for (const [key, value] of Object.entries(changedFields)) {
@@ -318,6 +322,8 @@ export function ClaudeyeBrandAppearanceSection({
         }
 
         pendingSavedFieldsRef.current = savedFields
+        pendingMismatchBudgetRef.current = 1
+        rejectedDefaultsRef.current = defaults
       },
     })
 
@@ -329,10 +335,24 @@ export function ClaudeyeBrandAppearanceSection({
       pendingSavedFields &&
       !containsSavedFields(incomingDefaults, pendingSavedFields)
     ) {
-      return
+      const rejectedDefaults = rejectedDefaultsRef.current
+      if (
+        rejectedDefaults &&
+        equalFormValues(incomingDefaults, rejectedDefaults)
+      ) {
+        return
+      }
+
+      if (pendingMismatchBudgetRef.current > 0) {
+        pendingMismatchBudgetRef.current -= 1
+        rejectedDefaultsRef.current = incomingDefaults
+        return
+      }
     }
 
     pendingSavedFieldsRef.current = null
+    pendingMismatchBudgetRef.current = 0
+    rejectedDefaultsRef.current = null
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDefaults((current) =>
       equalFormValues(current, incomingDefaults) ? current : incomingDefaults

@@ -402,3 +402,97 @@ Task-local `oxlint` over all Task 4-owned TypeScript/TSX files passed with exit 
 - Successful completion accepts refreshed defaults only after all keys saved by that submission match, preventing stale partial query results from replacing the just-saved baseline.
 - Sequential retry intentionally resends an earlier successful idempotent option because all attempted values remain dirty after a later failure.
 - No remaining Task 4-specific blocker was found. Repository-wide lint remains the only known failing command and is outside the owned scope.
+
+## Review fix round 3
+
+### Outcome
+
+Replaced the unbounded saved-key confirmation requirement with bounded, distinct-snapshot reconciliation. The section continues to reject the first genuinely new clean post-save snapshot when it does not contain every saved value, protecting against the known stale/partial refetch. Repeated renders of that same snapshot remain rejected without consuming additional budget. The next different clean snapshot is accepted as authoritative, even when another administrator superseded a key from the completed save, so future refreshes cannot starve indefinitely.
+
+Dirty and submitting forms remain fully frozen against external defaults. Failed sequential saves still retain failed and unsent edits, stop before the next option, and remain retryable. The per-option API and the round-1 preview/picker/swatch/contrast synchronization are unchanged.
+
+### RED evidence
+
+Added a query-connected regression using the real `useSystemOptions`, `refetch`, `useUpdateOption`, invalidation, and form hooks. The API boundary simulates this sequence:
+
+1. Save light mark as `#ABCDEF`.
+2. Another administrator supersedes it with `#FFFFFF` before the confirmation GET.
+3. The real query exposes `#FFFFFF` while the clean editor retains its protected local value.
+4. A later real refetch changes untouched dark text to `#CCCCCC`.
+5. The clean editor must accept the current authoritative `#FFFFFF` / `#CCCCCC` snapshot.
+
+Command:
+
+```bash
+cd web
+bun test src/features/system-settings/site/__tests__/claudeye-brand-appearance-section.test.tsx \
+  --test-name-pattern "accepts a later clean refresh when a saved key was superseded before confirmation"
+```
+
+Before the bounded correction:
+
+```text
+Expected editor light mark: #FFFFFF
+Received editor light mark: #abcdef
+Query light mark:           #FFFFFF
+Query dark text:            #CCCCCC
+0 pass
+1 fail
+30 expect() calls
+```
+
+An initial render-count budget was also rejected during implementation because repeated React renders could consume it without newer query data. The final mechanism budgets distinct normalized snapshots instead.
+
+### GREEN evidence
+
+The targeted regression after the distinct-snapshot fix:
+
+```text
+1 pass
+0 fail
+15 expect() calls
+```
+
+Final focused command:
+
+```bash
+cd web
+bun test src/features/system-settings/site/__tests__/claudeye-brand-colors.test.ts \
+  src/features/system-settings/site/__tests__/claudeye-brand-appearance-section.test.tsx
+```
+
+```text
+17 pass
+0 fail
+107 expect() calls
+Ran 17 tests across 2 files.
+```
+
+This includes stale/partial refetch protection, failed-edit retention, no third write after failure, retry, superseded-key reconciliation, ordinary clean refresh, and preview/picker/swatch/contrast synchronization.
+
+### Review-fix verification
+
+```bash
+cd web
+bun run test -- src/features/system-settings
+```
+
+```text
+Test Files  12 passed (12)
+Tests       50 passed (50)
+```
+
+`bun run typecheck` passed with `tsgo -b` exit 0. `bun run i18n:check` passed its locale-completeness test.
+
+Task-local `oxlint` over all Task 4-owned TypeScript/TSX files passed with exit 0. Focused `oxfmt --check` over the changed implementation and interaction test passed. `git diff --check` passed.
+
+Per the round-3 dispatch, the full frontend suite and repository-wide lint were intentionally not rerun for this micro-fix; final Task 6 will run the full suite once.
+
+### Review-fix self-review
+
+- The rejection budget is tied to distinct normalized defaults, not render count.
+- The previously accepted pre-save snapshot is remembered and does not consume the post-save rejection budget.
+- A first mismatching new snapshot is protected; repeats remain protected; the next different clean snapshot is accepted and clears all reconciliation state.
+- Exact saved-key confirmation still clears reconciliation immediately.
+- Starting another submission clears prior reconciliation state; failed submissions remain protected by dirty/submitting state and do not establish a successful-save gate.
+- Only the Claudeye section, its interaction tests, and this report changed.

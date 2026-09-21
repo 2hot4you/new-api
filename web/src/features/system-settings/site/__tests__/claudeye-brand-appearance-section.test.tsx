@@ -134,20 +134,28 @@ function SectionHarness() {
 function QueryConnectedSection() {
   const [actionsContainer, setActionsContainer] =
     useState<HTMLDivElement | null>(null)
-  const { data, isLoading } = useSystemOptions()
+  const { data, isLoading, refetch } = useSystemOptions()
 
   if (isLoading) return null
+  const settings = getOptionValue(data?.data, customColors)
 
   return (
     <>
+      <button type='button' onClick={() => void refetch()}>
+        Refetch system options
+      </button>
+      <output aria-label='Queried light mark'>
+        {settings['brand_setting.claudeye_light_mark_color']}
+      </output>
+      <output aria-label='Queried dark text'>
+        {settings['brand_setting.claudeye_dark_text_color']}
+      </output>
       <div ref={setActionsContainer} />
       <SettingsPageProvider
         actionsContainer={actionsContainer}
         suppressSectionHeader={false}
       >
-        <ClaudeyeBrandAppearanceSection
-          defaultValues={getOptionValue(data?.data, customColors)}
-        />
+        <ClaudeyeBrandAppearanceSection defaultValues={settings} />
       </SettingsPageProvider>
     </>
   )
@@ -526,6 +534,71 @@ describe('ClaudeyeBrandAppearanceSection', () => {
       'brand_setting.claudeye_light_text_color': '#123456',
       'brand_setting.claudeye_dark_mark_color': '#654321',
       'brand_setting.claudeye_dark_text_color': '#CCCCCC',
+    })
+  })
+
+  test('accepts a later clean refresh when a saved key was superseded before confirmation', async () => {
+    const serverColors = { ...customColors }
+    getOptions = vi
+      .spyOn(systemApi, 'getSystemOptions')
+      .mockImplementation(async () => ({
+        success: true,
+        message: '',
+        data: Object.entries(serverColors).map(([key, value]) => ({
+          key,
+          value,
+        })),
+      }))
+    updateOption.mockImplementation(
+      async (request: Parameters<typeof systemApi.updateSystemOption>[0]) => {
+        serverColors[request.key as keyof typeof serverColors] = String(
+          request.value
+        )
+        serverColors['brand_setting.claudeye_light_mark_color'] = '#FFFFFF'
+        return { success: true, message: '' }
+      }
+    )
+
+    const view = await renderSection(QueryConnectedHarness)
+    const lightMark = (await view.findByLabelText(
+      'Light surface mark color'
+    )) as HTMLInputElement
+    const darkText = view.getByLabelText(
+      'Dark surface wordmark color'
+    ) as HTMLInputElement
+    const save = view.getByRole('button', {
+      name: 'Save Changes',
+    }) as HTMLButtonElement
+
+    fireEvent.change(lightMark, { target: { value: '#abcdef' } })
+    await waitFor(() => expect(save.disabled).toBe(false))
+    fireEvent.click(save)
+
+    await waitFor(() => expect(updateOption).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(view.getByLabelText('Queried light mark').textContent).toBe(
+        '#FFFFFF'
+      )
+    )
+    await waitFor(() => expect(save.disabled).toBe(true))
+    expect(lightMark.value).toBe('#abcdef')
+
+    serverColors['brand_setting.claudeye_dark_text_color'] = '#CCCCCC'
+    fireEvent.click(
+      view.getByRole('button', { name: 'Refetch system options' })
+    )
+
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(3))
+    await waitFor(() =>
+      expect(view.getByLabelText('Queried dark text').textContent).toBe(
+        '#CCCCCC'
+      )
+    )
+    await waitFor(() => {
+      expect(lightMark.value).toBe('#FFFFFF')
+      expect(darkText.value).toBe('#CCCCCC')
+      expect(save.disabled).toBe(true)
     })
   })
 
