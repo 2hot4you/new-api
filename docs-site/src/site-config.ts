@@ -1,9 +1,39 @@
 import type { Config } from '@docusaurus/types';
 
+import { resolveDocsBrandAssets } from './claudeye-branding';
 import type { PublicConfig } from './config';
 
 export function createSiteConfig(publicConfig: PublicConfig): Config {
   const brand = publicConfig.brand;
+  const brandAssets = resolveDocsBrandAssets(
+    brand,
+    publicConfig.apiBaseUrl,
+    publicConfig.baseUrl,
+  );
+  const runtimeBrandScript = brandAssets.dynamic
+    ? `(() => {
+  const dynamicNavbarLogo = ${JSON.stringify(brandAssets.navbarLogo)};
+  const fallbackLogo = ${JSON.stringify(brandAssets.fallbackLogo)};
+  const dynamicFavicon = ${JSON.stringify(brandAssets.favicon)};
+
+  document.addEventListener('error', (event) => {
+    const image = event.target;
+    if (image instanceof HTMLImageElement && image.src === dynamicNavbarLogo) {
+      image.src = fallbackLogo;
+    }
+  }, true);
+
+  fetch(dynamicFavicon, { cache: 'no-cache' })
+    .then((response) => {
+      if (!response.ok) throw new Error('brand asset unavailable');
+      document.querySelectorAll('link[rel~="icon"]').forEach((link) => {
+        link.href = dynamicFavicon;
+        link.type = 'image/svg+xml';
+      });
+    })
+    .catch(() => {});
+})();`
+    : undefined;
 
   return {
     title: brand.siteTitle,
@@ -38,6 +68,14 @@ export function createSiteConfig(publicConfig: PublicConfig): Config {
                   tagName: 'script',
                   innerHTML: `document.documentElement.dataset.docsFont = '${brand.defaultFont}';`,
                 },
+                ...(runtimeBrandScript
+                  ? [
+                      {
+                        tagName: 'script',
+                        innerHTML: runtimeBrandScript,
+                      },
+                    ]
+                  : []),
               ],
             };
           },
@@ -75,10 +113,10 @@ export function createSiteConfig(publicConfig: PublicConfig): Config {
         respectPrefersColorScheme: false,
       },
       navbar: {
-        title: brand.id === 'molii' ? undefined : brand.navbarTitle,
+        title: brand.id === 'molii' || brandAssets.dynamic ? undefined : brand.navbarTitle,
         logo: {
           alt: brand.navbarTitle,
-          src: brand.logoPath,
+          src: brandAssets.dynamic ? brandAssets.navbarLogo : brand.logoPath,
           href: publicConfig.siteUrl,
           target: '_self',
         },
@@ -95,6 +133,7 @@ export function createSiteConfig(publicConfig: PublicConfig): Config {
     customFields: {
       apiBaseUrl: publicConfig.apiBaseUrl,
       docsBrand: brand,
+      docsBrandAssets: brandAssets,
       noIndex: publicConfig.noIndex,
     },
   };

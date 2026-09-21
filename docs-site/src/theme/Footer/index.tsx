@@ -2,7 +2,9 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import type { ReactNode } from 'react';
 
+import type { DocsBrandAssets } from '../../claudeye-branding';
 import type { PublicBrandConfig } from '../../config';
+import { BrandImage } from '../BrandImage';
 import { ProviderIcon, type ProviderName } from './provider-icons';
 import styles from './styles.module.css';
 
@@ -131,7 +133,7 @@ function BrandLink({ children, href, name }: { children: ReactNode; href: string
 export default function Footer() {
   const { siteConfig } = useDocusaurusContext();
   const docsBrand = siteConfig.customFields?.docsBrand as PublicBrandConfig;
-  const logoUrl = useBaseUrl(`/${docsBrand.logoPath}`);
+  const docsBrandAssets = siteConfig.customFields?.docsBrandAssets as DocsBrandAssets;
   const quickStartUrl = useBaseUrl('/quick-start');
   const apiReferenceUrl = useBaseUrl('/api-reference');
   const authenticationUrl = useBaseUrl('/api-basics/authentication');
@@ -175,7 +177,14 @@ export default function Footer() {
         <div className={styles.grid}>
           <div className={styles.brand}>
             <BrandLink href={platformUrl('/')} name={docsBrand.navbarTitle}>
-              <img src={logoUrl} alt={docsBrand.navbarTitle} className={styles.wordmark} />
+              <BrandImage
+                dynamicSrc={docsBrandAssets.footerLogo}
+                fallbackSrc={docsBrandAssets.fallbackLogo}
+                alt={docsBrand.navbarTitle}
+                className={`${styles.wordmark}${
+                  docsBrandAssets.dynamic ? ` ${styles.dynamicWordmark}` : ''
+                }`}
+              />
             </BrandLink>
             <p className={styles.description}>
               通过统一 API Key 连接语言、图片与视频模型，并提供透明计费和完整生成记录。

@@ -43,8 +43,10 @@ describe('Docusaurus default-theme contract', () => {
     expect(config).toContain('disableSwitch: true');
     expect(config).toContain('respectPrefersColorScheme: false');
     expect(config).not.toContain("title: 'Molii'");
-    expect(config).toContain('src: brand.logoPath');
-    expect(config).toContain("title: brand.id === 'molii' ? undefined : brand.navbarTitle");
+    expect(config).toContain('src: brandAssets.dynamic ? brandAssets.navbarLogo : brand.logoPath');
+    expect(config).toContain(
+      "title: brand.id === 'molii' || brandAssets.dynamic ? undefined : brand.navbarTitle",
+    );
     for (const label of ['开始使用', '平台与账户', '开发指南', '模型与能力', 'API 参考', '帮助与更新']) {
       expect(config).toContain(`label: '${label}'`);
     }
@@ -110,6 +112,20 @@ describe('Docusaurus default-theme contract', () => {
     expect(footer).toContain("platformUrl('/pricing')");
     expect(footer).toContain("useBaseUrl('/quick-start')");
     expect(footer).toContain("useBaseUrl('/api-reference')");
+  });
+
+  test('uses the claudeye dark runtime wordmark through a one-shot image fallback', async () => {
+    const [footer, brandImage] = await Promise.all([
+      source('src/theme/Footer/index.tsx'),
+      source('src/theme/BrandImage/index.tsx'),
+    ]);
+
+    expect(footer).toContain("import { BrandImage } from '../BrandImage'");
+    expect(footer).toContain('<BrandImage');
+    expect(footer).toContain('dynamicSrc={docsBrandAssets.footerLogo}');
+    expect(footer).toContain('fallbackSrc={docsBrandAssets.fallbackLogo}');
+    expect(brandImage).toContain('src === fallbackSrc ? undefined');
+    expect(brandImage).toContain('setSrc(fallbackSrc)');
   });
 
   test('registers API reference pages in the ordinary Docs sidebar', async () => {

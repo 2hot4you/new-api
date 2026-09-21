@@ -49,6 +49,10 @@
   object-fit: contain;
 }
 
+.dynamicWordmark {
+  max-width: 180px;
+}
+
 .description {
   max-width: 448px;
   margin: 20px 0 0;
