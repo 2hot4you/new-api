@@ -1,6 +1,9 @@
 package controller_test
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -149,4 +152,121 @@ func TestClaudeyeBrandingRoutesArePubliclyRegistered(t *testing.T) {
 		require.Equal(t, http.StatusOK, recorder.Code, path)
 		require.Equal(t, "image/svg+xml; charset=utf-8", recorder.Header().Get("Content-Type"), path)
 	}
+}
+
+func newClaudeyeBrandingServer(t *testing.T) (*httptest.Server, *http.Client) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	apiRouter.SetApiRouter(engine)
+	server := httptest.NewServer(engine)
+	t.Cleanup(server.Close)
+	return server, &http.Client{Transport: &http.Transport{DisableCompression: true}}
+}
+
+func requestBrandResource(
+	t *testing.T,
+	client *http.Client,
+	url string,
+	acceptEncoding string,
+	etag string,
+) (*http.Response, []byte) {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodGet, url, nil)
+	require.NoError(t, err)
+	request.Header.Set("Accept-Encoding", acceptEncoding)
+	if etag != "" {
+		request.Header.Set("If-None-Match", etag)
+	}
+	response, err := client.Do(request)
+	require.NoError(t, err)
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	return response, body
+}
+
+func requireBrandAssetResponseContract(t *testing.T, response *http.Response, body []byte) string {
+	t.Helper()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	digest := sha256.Sum256(body)
+	etag := fmt.Sprintf(`"%x"`, digest)
+	require.Equal(t, etag, response.Header.Get("ETag"), "ETag must be the SHA-256 of the actual response body")
+	require.Empty(t, response.Header.Get("Content-Encoding"), "branding SVG must not be transformed after its strong ETag is calculated")
+	require.Equal(t, "image/svg+xml; charset=utf-8", response.Header.Get("Content-Type"))
+	require.Equal(t, "nosniff", response.Header.Get("X-Content-Type-Options"))
+	require.Equal(t, "no-cache, must-revalidate", response.Header.Get("Cache-Control"))
+	return etag
+}
+
+func TestClaudeyeBrandingRouteETagMatchesActualBodyAcrossAcceptEncoding(t *testing.T) {
+	withClaudeyePaletteOptions(t, brand_setting.DefaultClaudeyePalette)
+	server, client := newClaudeyeBrandingServer(t)
+
+	for _, path := range []string{
+		"/api/branding/claudeye/wordmark.svg",
+		"/api/branding/claudeye/favicon.svg",
+	} {
+		for _, acceptEncoding := range []string{"identity", "gzip"} {
+			t.Run(path+"/"+acceptEncoding, func(t *testing.T) {
+				response, body := requestBrandResource(t, client, server.URL+path, acceptEncoding, "")
+				requireBrandAssetResponseContract(t, response, body)
+			})
+		}
+	}
+}
+
+func TestClaudeyeBrandingRoutesReturnEmpty304OverHTTP(t *testing.T) {
+	withClaudeyePaletteOptions(t, brand_setting.DefaultClaudeyePalette)
+	server, client := newClaudeyeBrandingServer(t)
+
+	for _, path := range []string{
+		"/api/branding/claudeye/wordmark.svg",
+		"/api/branding/claudeye/favicon.svg",
+	} {
+		t.Run(path, func(t *testing.T) {
+			first, body := requestBrandResource(t, client, server.URL+path, "gzip", "")
+			etag := requireBrandAssetResponseContract(t, first, body)
+
+			conditional, conditionalBody := requestBrandResource(t, client, server.URL+path, "gzip", etag)
+			require.Equal(t, http.StatusNotModified, conditional.StatusCode)
+			require.Empty(t, conditionalBody)
+			require.Equal(t, etag, conditional.Header.Get("ETag"))
+			require.Empty(t, conditional.Header.Get("Content-Encoding"))
+			require.Equal(t, "nosniff", conditional.Header.Get("X-Content-Type-Options"))
+			require.Equal(t, "no-cache, must-revalidate", conditional.Header.Get("Cache-Control"))
+		})
+	}
+}
+
+func TestClaudeyeBrandingRoutesReturn200WhenContentChanges(t *testing.T) {
+	withClaudeyePaletteOptions(t, brand_setting.DefaultClaudeyePalette)
+	server, client := newClaudeyeBrandingServer(t)
+
+	wordmark, wordmarkBody := requestBrandResource(t, client, server.URL+"/api/branding/claudeye/wordmark.svg", "gzip", "")
+	wordmarkETag := requireBrandAssetResponseContract(t, wordmark, wordmarkBody)
+	preview, previewBody := requestBrandResource(
+		t,
+		client,
+		server.URL+"/api/branding/claudeye/wordmark.svg?mark=%23010203&text=%23040506",
+		"gzip",
+		wordmarkETag,
+	)
+	previewETag := requireBrandAssetResponseContract(t, preview, previewBody)
+	require.NotEqual(t, wordmarkETag, previewETag)
+
+	favicon, faviconBody := requestBrandResource(t, client, server.URL+"/api/branding/claudeye/favicon.svg", "gzip", "")
+	faviconETag := requireBrandAssetResponseContract(t, favicon, faviconBody)
+	common.OptionMapRWMutex.Lock()
+	common.OptionMap[brand_setting.ClaudeyeLightMarkColorKey] = "#010203"
+	common.OptionMapRWMutex.Unlock()
+	changedFavicon, changedFaviconBody := requestBrandResource(
+		t,
+		client,
+		server.URL+"/api/branding/claudeye/favicon.svg",
+		"gzip",
+		faviconETag,
+	)
+	changedFaviconETag := requireBrandAssetResponseContract(t, changedFavicon, changedFaviconBody)
+	require.NotEqual(t, faviconETag, changedFaviconETag)
 }
