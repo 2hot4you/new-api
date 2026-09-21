@@ -663,6 +663,54 @@ describe('ClaudeyeBrandAppearanceSection', () => {
     expect(save.disabled).toBe(true)
   })
 
+  test('reconciles when the authoritative snapshot restores the pre-save palette', async () => {
+    const serverColors = { ...customColors }
+    getOptions = vi
+      .spyOn(systemApi, 'getSystemOptions')
+      .mockImplementation(async () => ({
+        success: true,
+        message: '',
+        data: Object.entries(serverColors).map(([key, value]) => ({
+          key,
+          value,
+        })),
+      }))
+    updateOption.mockImplementation(
+      async (request: Parameters<typeof systemApi.updateSystemOption>[0]) => {
+        serverColors[request.key as keyof typeof serverColors] = String(
+          request.value
+        )
+        serverColors['brand_setting.claudeye_light_mark_color'] = '#111111'
+        return { success: true, message: '' }
+      }
+    )
+
+    const view = await renderSection(QueryConnectedHarness)
+    const lightMark = (await view.findByLabelText(
+      'Light surface mark color'
+    )) as HTMLInputElement
+    const save = view.getByRole('button', {
+      name: 'Save Changes',
+    }) as HTMLButtonElement
+
+    fireEvent.change(lightMark, { target: { value: '#abcdef' } })
+    await waitFor(() => expect(save.disabled).toBe(false))
+    fireEvent.click(save)
+
+    await waitFor(() => expect(updateOption).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(2))
+    expect(view.getByLabelText('Queried light mark').textContent).toBe(
+      '#111111'
+    )
+    await waitFor(() => expect(save.disabled).toBe(true))
+    expect(lightMark.value).toBe('#abcdef')
+
+    await waitFor(() => expect(lightMark.value).toBe('#111111'), {
+      timeout: 2000,
+    })
+    expect(save.disabled).toBe(true)
+  })
+
   test('synchronizes the last valid palette when option values refresh', async () => {
     const view = await renderSection()
     const markInput = view.getByLabelText('Light surface mark color')

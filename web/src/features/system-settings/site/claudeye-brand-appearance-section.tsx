@@ -370,7 +370,9 @@ export function ClaudeyeBrandAppearanceSection({
       reconciliationTimerRef.current = setTimeout(() => {
         reconciliationTimerRef.current = null
         pendingSavedFieldsRef.current = null
-        setDefaults(incomingDefaults)
+        setDefaults({
+          brand_setting: { ...incomingDefaults.brand_setting },
+        })
       }, POST_SAVE_RECONCILIATION_DELAY_MS)
       return clearReconciliationTimer
     }

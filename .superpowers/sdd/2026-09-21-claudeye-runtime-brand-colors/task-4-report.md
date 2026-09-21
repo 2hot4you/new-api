@@ -582,3 +582,79 @@ Per the round-4 dispatch, the full frontend suite was intentionally not rerun; f
 - Timer expiry clears successful-save reconciliation state before accepting the current clean authoritative defaults.
 - Failed submissions never establish a timer and remain protected by dirty/submitting state for retry.
 - Only the Claudeye section, its interaction tests, and this report changed.
+
+## Review fix round 5
+
+### Outcome
+
+Fixed the bounded-acceptance identity edge when the authoritative palette returns to the exact pre-save values. Timer expiry now supplies a fresh outer defaults object and a fresh nested `brand_setting` object even when every color equals the previously accepted snapshot. This forces `useSettingsForm` to compare those authoritative values against its post-submit baseline and reset the clean editor correctly.
+
+All timer, dirty/submitting, sequential-save, failure-retention, retry, clean-refresh, and preview synchronization guards remain unchanged.
+
+### RED evidence
+
+Added a query-connected regression for this exact sequence:
+
+1. Mount with light mark `#111111`.
+2. Save light mark as `#ABCDEF`.
+3. Another administrator restores `#111111` before the confirmation GET.
+4. The real query completes and exposes `#111111`.
+5. After the reconciliation bound, the editor must also show `#111111`.
+
+Command:
+
+```bash
+cd web
+bun test src/features/system-settings/site/__tests__/claudeye-brand-appearance-section.test.tsx \
+  --test-name-pattern "reconciles when the authoritative snapshot restores the pre-save palette"
+```
+
+Before the identity fix:
+
+```text
+Expected editor light mark: #111111
+Received editor light mark: #abcdef
+Query light mark:           #111111
+0 pass
+1 fail
+46 expect() calls
+```
+
+### GREEN evidence
+
+The targeted regression after copying the nested accepted defaults:
+
+```text
+1 pass
+0 fail
+20 expect() calls
+```
+
+Final focused command:
+
+```bash
+cd web
+bun test src/features/system-settings/site/__tests__/claudeye-brand-colors.test.ts \
+  src/features/system-settings/site/__tests__/claudeye-brand-appearance-section.test.tsx
+```
+
+```text
+19 pass
+0 fail
+162 expect() calls
+Ran 19 tests across 2 files.
+```
+
+### Review-fix verification
+
+`bun run typecheck` passed with `tsgo -b` exit 0. Scoped `oxlint` on the changed component and interaction test passed with exit 0. `git diff --check` passed.
+
+Per the round-5 dispatch, no settings regression, full frontend suite, repository-wide lint, or other broad command was run.
+
+### Review-fix self-review
+
+- The fix changes only the identity emitted at bounded acceptance; accepted color values are unchanged.
+- Both outer and nested defaults identities are fresh, ensuring the shared hook's defaults effect runs.
+- The shared hook's serialized comparison then correctly detects the difference from its submitted baseline and resets the form.
+- Timer cancellation, exact confirmation, dirty/submitting protection, failed-edit retention, and sequential retry behavior are untouched.
+- Only the Claudeye component, its interaction test, and this report changed.
