@@ -26,10 +26,11 @@ export function createSiteConfig(publicConfig: PublicConfig): Config {
   fetch(dynamicFavicon, { cache: 'no-cache' })
     .then((response) => {
       if (!response.ok) throw new Error('brand asset unavailable');
-      document.querySelectorAll('link[rel~="icon"]').forEach((link) => {
-        link.href = dynamicFavicon;
-        link.type = 'image/svg+xml';
-      });
+      const dynamicIcon = document.createElement('link');
+      dynamicIcon.rel = 'icon';
+      dynamicIcon.type = 'image/svg+xml';
+      dynamicIcon.href = dynamicFavicon;
+      document.head.appendChild(dynamicIcon);
     })
     .catch(() => {});
 })();`

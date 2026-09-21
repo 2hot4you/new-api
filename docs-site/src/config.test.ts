@@ -294,6 +294,9 @@ test('applies claudeye runtime branding while retaining the static favicon in HT
   expect(scripts).toContain('https://claudeye.com/api/branding/claudeye/favicon.svg');
   expect(scripts).toContain("fetch(dynamicFavicon, { cache: 'no-cache' })");
   expect(scripts).toContain('if (!response.ok)');
+  expect(scripts).toContain("document.createElement('link')");
+  expect(scripts).toContain('document.head.appendChild(dynamicIcon)');
+  expect(scripts).not.toContain(`document.querySelectorAll('link[rel~="icon"]')`);
   expect(scripts).toContain('image.src === dynamicNavbarLogo');
   expect(scripts).toContain('/docs/img/claudeye-wordmark-neutral.png');
   expect(scripts).not.toContain("querySelectorAll('img')");
