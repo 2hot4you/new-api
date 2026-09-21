@@ -26,7 +26,7 @@
 ## Review Focus
 
 - A manually corrupted database color must fall back to the documented default and must never be reflected verbatim into SVG.
-- Concurrent option reads and updates must remain race-safe under `go test -race` and produce a complete old or new palette, not malformed output.
+- Concurrent option reads and updates must remain race-safe under `go test -race`; every observed field must be a complete validated color. The existing per-option save API may briefly expose a mixed old/new palette while four changed fields are saved sequentially.
 - A custom runtime `Logo` must continue to replace the dynamic claudeye wordmark and may continue to provide the custom Favicon.
 - A failed dynamic asset request in Docusaurus must leave the static neutral Navbar logo and Favicon intact instead of showing a broken image.
 - Invalid or partially typed HEX input must keep the last valid preview visible, show field validation, and block saving until all four fields are valid.
@@ -532,7 +532,7 @@ git commit -m "feat: add claudeye brand color editor"
 - Modify: `docs-site/scripts/default-theme-contract.test.ts`
 
 **Interfaces:**
-- Consumes: `PublicBrandConfig.id`, `brand.logoPath` as the static fallback, and same-origin `/api/branding/claudeye/*` endpoints.
+- Consumes: `PublicBrandConfig.id`, `publicConfig.apiBaseUrl`, `brand.logoPath` as the static fallback, and the active environment's `/api/branding/claudeye/*` endpoints.
 - Produces: `resolveDocsBrandAssets(brand)`, `BrandImage`, a full dynamic Navbar wordmark without duplicate title, dynamic Footer wordmark, and a dynamically upgraded Favicon.
 
 - [ ] **Step 1: Copy and verify the documentation fallback**
@@ -548,17 +548,17 @@ Expected SHA-256: `f77944e3ea47969bf3774ca849648d478922d5e9414ac154f0818e92670b5
 - [ ] **Step 2: Write failing documentation asset resolver tests**
 
 ```ts
-expect(resolveDocsBrandAssets(CLAUDEYE_BRAND)).toEqual({
-  navbarLogo: '/api/branding/claudeye/wordmark.svg?surface=light',
-  footerLogo: '/api/branding/claudeye/wordmark.svg?surface=dark',
-  favicon: '/api/branding/claudeye/favicon.svg',
+expect(resolveDocsBrandAssets(CLAUDEYE_BRAND, 'https://claudeye.com', '/docs/')).toEqual({
+  navbarLogo: 'https://claudeye.com/api/branding/claudeye/wordmark.svg?surface=light',
+  footerLogo: 'https://claudeye.com/api/branding/claudeye/wordmark.svg?surface=dark',
+  favicon: 'https://claudeye.com/api/branding/claudeye/favicon.svg',
   fallbackLogo: '/docs/img/claudeye-wordmark-neutral.png',
   dynamic: true,
 })
-expect(resolveDocsBrandAssets(MOLII_BRAND).dynamic).toBe(false)
+expect(resolveDocsBrandAssets(MOLII_BRAND, 'https://molii.co', '/docs/').dynamic).toBe(false)
 ```
 
-Compute fallback paths with Docusaurus `baseUrl`; do not hard-code `/docs/` in the implementation.
+Compute fallback paths with Docusaurus `baseUrl`; do not hard-code `/docs/` in the implementation. Build dynamic URLs with `new URL('/api/branding/claudeye/...', apiBaseUrl)` so Docusaurus never prefixes them with its documentation base path.
 
 - [ ] **Step 3: Implement the resolver and reusable image fallback**
 
@@ -599,7 +599,7 @@ Assert that claudeye config:
 Extend the existing Docusaurus plugin's `injectHtmlTags()` for claudeye with a small inline script. It must:
 
 ```js
-const dynamicFavicon = '/api/branding/claudeye/favicon.svg'
+const dynamicFavicon = 'https://claudeye.com/api/branding/claudeye/favicon.svg'
 fetch(dynamicFavicon, { cache: 'no-cache' })
   .then((response) => {
     if (!response.ok) throw new Error('brand asset unavailable')
@@ -611,7 +611,7 @@ fetch(dynamicFavicon, { cache: 'no-cache' })
   .catch(() => {})
 ```
 
-Use the dynamic light wordmark for Navbar and attach a capturing `error` handler that replaces only that exact URL with the base-path-aware neutral fallback. Do not inspect or modify unrelated images. Footer uses the React `BrandImage` wrapper with the dark endpoint.
+Generate the literal shown above from `publicConfig.apiBaseUrl`; never hard-code the example hostname. Use the dynamic light wordmark for Navbar and attach a capturing `error` handler that replaces only that exact URL with the base-path-aware neutral fallback. Do not inspect or modify unrelated images. Footer uses the React `BrandImage` wrapper with the dark endpoint.
 
 - [ ] **Step 6: Run documentation tests and production build**
 
