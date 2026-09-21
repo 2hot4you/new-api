@@ -30,6 +30,7 @@ import { useSystemConfig } from '@/hooks/use-system-config'
 import { DEFAULT_LOGO } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
+import { ClaudeyeWordmark } from './claudeye-wordmark'
 import { MoliiWordmark } from './molii-wordmark'
 
 type SystemBrandProps = {
@@ -56,8 +57,18 @@ export function SystemBrandInlineContent({
   logoAlt,
   brandId,
 }: SystemBrandInlineContentProps) {
-  if (brandId === 'molii' && logo === DEFAULT_LOGO) {
-    return (
+  const useMoliiWordmark = brandId === 'molii' && logo === DEFAULT_LOGO
+  const useClaudeyeWordmark = brandId === 'claudeye' && logo === DEFAULT_LOGO
+
+  if (useMoliiWordmark || useClaudeyeWordmark) {
+    return useClaudeyeWordmark ? (
+      <ClaudeyeWordmark
+        data-console-wordmark
+        surface='light'
+        alt={name}
+        className='h-6 max-w-[7rem]'
+      />
+    ) : (
       <MoliiWordmark
         data-console-wordmark
         alt={name}

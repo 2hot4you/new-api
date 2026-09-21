@@ -1,0 +1,12 @@
+{
+  "id": "fix-claudeye-dashboard-brand",
+  "title": "在 Dashboard 顶部展示 Claudeye 动态品牌 Logo",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已完成",
+  "createdAt": "2026-09-21T19:30:00+08:00",
+  "branch": "fix/claudeye-dashboard-brand"
+}
