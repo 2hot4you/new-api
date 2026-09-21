@@ -7012,6 +7012,16 @@
     "{{discount}} tenths of list price": "{{discount}} tenths of list price",
     "Enter finite positive rates and a discount greater than 0 and at most 10.": "Enter finite positive rates and a discount greater than 0 and at most 10.",
     " / 10 of list price": " / 10 of list price",
-    "Failed to export HTML quotation": "Failed to export HTML quotation"
+    "Failed to export HTML quotation": "Failed to export HTML quotation",
+    "Brand appearance": "Brand appearance",
+    "Light surface mark color": "Light surface mark color",
+    "Light surface wordmark color": "Light surface wordmark color",
+    "Dark surface mark color": "Dark surface mark color",
+    "Dark surface wordmark color": "Dark surface wordmark color",
+    "Restore default colors": "Restore default colors",
+    "Color must use #RRGGBB format": "Color must use #RRGGBB format",
+    "Low contrast": "Low contrast",
+    "Light header preview": "Light header preview",
+    "Dark footer preview": "Dark footer preview"
   }
 }

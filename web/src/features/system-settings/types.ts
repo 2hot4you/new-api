@@ -121,6 +121,10 @@ export type SiteSettings = {
   'legal.privacy_policy': string
   HeaderNavModules: string
   SidebarModulesAdmin: string
+  'brand_setting.claudeye_light_mark_color': string
+  'brand_setting.claudeye_light_text_color': string
+  'brand_setting.claudeye_dark_mark_color': string
+  'brand_setting.claudeye_dark_text_color': string
 }
 
 export type AuthSettings = {

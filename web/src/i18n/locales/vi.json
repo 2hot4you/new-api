@@ -7012,6 +7012,16 @@
     "{{discount}} tenths of list price": "{{discount}} tenths of list price",
     "Enter finite positive rates and a discount greater than 0 and at most 10.": "Enter finite positive rates and a discount greater than 0 and at most 10.",
     " / 10 of list price": " / 10 of list price",
-    "Failed to export HTML quotation": "Failed to export HTML quotation"
+    "Failed to export HTML quotation": "Failed to export HTML quotation",
+    "Brand appearance": "Giao diện thương hiệu",
+    "Light surface mark color": "Màu biểu tượng trên nền sáng",
+    "Light surface wordmark color": "Màu chữ thương hiệu trên nền sáng",
+    "Dark surface mark color": "Màu biểu tượng trên nền tối",
+    "Dark surface wordmark color": "Màu chữ thương hiệu trên nền tối",
+    "Restore default colors": "Khôi phục màu mặc định",
+    "Color must use #RRGGBB format": "Màu phải dùng định dạng #RRGGBB",
+    "Low contrast": "Độ tương phản thấp",
+    "Light header preview": "Xem trước đầu trang sáng",
+    "Dark footer preview": "Xem trước chân trang tối"
   }
 }

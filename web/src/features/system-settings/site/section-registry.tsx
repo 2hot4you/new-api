@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { SITE_BRAND } from '@/config/site-brand'
+
+import type { SiteBrandId } from '../../../../build/site-brand'
 import { SystemInfoSection } from '../general/system-info-section'
 import {
   parseHeaderNavModules,
@@ -28,6 +31,42 @@ import { NoticeSection } from '../maintenance/notice-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import {
+  ClaudeyeBrandAppearanceSection,
+  type ClaudeyeBrandValues,
+} from './claudeye-brand-appearance-section'
+
+function pickBrandValues(settings: SiteSettings): ClaudeyeBrandValues {
+  return {
+    'brand_setting.claudeye_light_mark_color':
+      settings['brand_setting.claudeye_light_mark_color'],
+    'brand_setting.claudeye_light_text_color':
+      settings['brand_setting.claudeye_light_text_color'],
+    'brand_setting.claudeye_dark_mark_color':
+      settings['brand_setting.claudeye_dark_mark_color'],
+    'brand_setting.claudeye_dark_text_color':
+      settings['brand_setting.claudeye_dark_text_color'],
+  }
+}
+
+// eslint-disable-next-line react/only-export-components -- shared registry contract
+export function getBrandAppearanceSections(brandId: SiteBrandId) {
+  return brandId === 'claudeye'
+    ? ([
+        {
+          id: 'brand-appearance',
+          titleKey: 'Brand appearance',
+          build: (settings: SiteSettings) => (
+            <ClaudeyeBrandAppearanceSection
+              defaultValues={pickBrandValues(settings)}
+            />
+          ),
+        },
+      ] as const)
+    : []
+}
+
+const CLAUDEYE_SECTIONS = getBrandAppearanceSections(SITE_BRAND.id)
 
 const SITE_SECTIONS = [
   {
@@ -51,6 +90,7 @@ const SITE_SECTIONS = [
       />
     ),
   },
+  ...CLAUDEYE_SECTIONS,
   {
     id: 'notice',
     titleKey: 'System Notice',

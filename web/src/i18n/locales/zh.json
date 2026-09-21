@@ -7012,6 +7012,16 @@
     "{{discount}} tenths of list price": "{{discount}} 折",
     "Enter finite positive rates and a discount greater than 0 and at most 10.": "请输入有限的正汇率，以及大于 0 且不超过 10 的折扣。",
     " / 10 of list price": " 折",
-    "Failed to export HTML quotation": "HTML 报价单导出失败"
+    "Failed to export HTML quotation": "HTML 报价单导出失败",
+    "Brand appearance": "品牌外观",
+    "Light surface mark color": "浅色区域图形颜色",
+    "Light surface wordmark color": "浅色区域字体颜色",
+    "Dark surface mark color": "深色区域图形颜色",
+    "Dark surface wordmark color": "深色区域字体颜色",
+    "Restore default colors": "恢复默认配色",
+    "Color must use #RRGGBB format": "颜色必须使用 #RRGGBB 格式",
+    "Low contrast": "对比度较低",
+    "Light header preview": "浅色 Header 预览",
+    "Dark footer preview": "深色 Footer 预览"
   }
 }
