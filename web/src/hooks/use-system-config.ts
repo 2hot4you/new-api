@@ -18,7 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useCallback } from 'react'
 
-import { DEFAULT_LOGO, resolveSystemName } from '@/lib/constants'
+import {
+  DEFAULT_FAVICON,
+  DEFAULT_LOGO,
+  resolveSystemName,
+} from '@/lib/constants'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import {
   useSystemConfigStore,
@@ -174,15 +178,22 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   useEffect(() => {
     const { logo } = config
 
-    // Skip if logo is already loaded
-    if (!logo || logo === loadedLogoUrl) return
+    if (!logo) return
+
+    const faviconUrl = logo === DEFAULT_LOGO ? DEFAULT_FAVICON : logo
+
+    // Keep initial static metadata, then upgrade the active runtime favicon.
+    if (logo === loadedLogoUrl) {
+      applyFaviconToDom(faviconUrl)
+      return
+    }
 
     // Preload new logo
     return preloadImage(
       logo,
       () => {
         setLoadedLogoUrl(logo)
-        applyFaviconToDom(logo)
+        applyFaviconToDom(faviconUrl)
       },
       () => {
         if (logo !== DEFAULT_LOGO) {

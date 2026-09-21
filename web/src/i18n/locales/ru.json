@@ -7012,6 +7012,16 @@
     "{{discount}} tenths of list price": "{{discount}} tenths of list price",
     "Enter finite positive rates and a discount greater than 0 and at most 10.": "Enter finite positive rates and a discount greater than 0 and at most 10.",
     " / 10 of list price": " / 10 of list price",
-    "Failed to export HTML quotation": "Failed to export HTML quotation"
+    "Failed to export HTML quotation": "Failed to export HTML quotation",
+    "Brand appearance": "Оформление бренда",
+    "Light surface mark color": "Цвет знака на светлом фоне",
+    "Light surface wordmark color": "Цвет логотипа на светлом фоне",
+    "Dark surface mark color": "Цвет знака на тёмном фоне",
+    "Dark surface wordmark color": "Цвет логотипа на тёмном фоне",
+    "Restore default colors": "Восстановить цвета по умолчанию",
+    "Color must use #RRGGBB format": "Цвет должен быть в формате #RRGGBB",
+    "Low contrast": "Низкая контрастность",
+    "Light header preview": "Предпросмотр светлой шапки",
+    "Dark footer preview": "Предпросмотр тёмного подвала"
   }
 }

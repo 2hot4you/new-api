@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, test } from 'vitest'
 
+import { DEFAULT_LOGO } from '@/lib/constants'
+
 import { HeaderBrand } from '../header-brand'
 
 function renderBrand(
@@ -55,5 +57,33 @@ describe('public header brand', () => {
 
     assert.match(markup, /data-header-wordmark-skeleton="true"/)
     assert.doesNotMatch(markup, /data-header-site-name/)
+  })
+
+  test('uses the light Claudeye wordmark without repeating the site name by default', () => {
+    const markup = renderBrand({
+      brandId: 'claudeye',
+      systemLogo: DEFAULT_LOGO,
+      siteName: 'claudeye',
+    })
+
+    assert.match(markup, /data-claudeye-wordmark="true"/)
+    assert.match(
+      markup,
+      /src="\/api\/branding\/claudeye\/wordmark\.svg\?surface=light"/
+    )
+    assert.doesNotMatch(markup, /data-header-site-name/)
+  })
+
+  test('keeps an explicit Claudeye custom logo with the site name', () => {
+    const markup = renderBrand({
+      brandId: 'claudeye',
+      systemLogo: 'https://cdn.example/custom.png',
+      siteName: 'claudeye',
+    })
+
+    assert.match(markup, /src="https:\/\/cdn\.example\/custom\.png"/)
+    assert.match(markup, /data-header-site-name="true"/)
+    assert.match(markup, />claudeye<\/span>/)
+    assert.doesNotMatch(markup, /data-claudeye-wordmark/)
   })
 })

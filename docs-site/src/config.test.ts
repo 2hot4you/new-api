@@ -29,6 +29,16 @@ const ixiaozuEnvironment = {
   DOCS_DEFAULT_FONT: 'sans',
 };
 
+const claudeyeEnvironment = {
+  ...ixiaozuEnvironment,
+  DOCS_SITE_URL: 'https://claudeye.com',
+  DOCS_API_BASE_URL: 'https://claudeye.com',
+  DOCS_BRAND_ID: 'claudeye',
+  DOCS_SITE_TITLE: 'claudeye 开发者文档',
+  DOCS_TAGLINE: 'claudeye AI API 开发指南',
+  DOCS_NAVBAR_TITLE: 'claudeye',
+};
+
 test('rejects a site URL with a path', () => {
   expect(() =>
     resolvePublicConfig({
@@ -259,6 +269,55 @@ test('injects the selected documentation font before paint', () => {
   const tags = plugin.injectHtmlTags().headTags;
 
   expect(tags[0]?.innerHTML).toContain("dataset.docsFont = 'sans'");
+});
+
+test('applies claudeye runtime branding while retaining the static favicon in HTML', () => {
+  const publicConfig = resolvePublicConfig(claudeyeEnvironment);
+  const config = createSiteConfig(publicConfig);
+  const navbar = config.themeConfig?.navbar as {
+    title?: string;
+    logo?: { src?: string };
+  };
+  const plugin = (config.plugins as Array<() => {
+    injectHtmlTags: () => { headTags: Array<{ innerHTML?: string }> };
+  }>)[0]();
+  const scripts = plugin
+    .injectHtmlTags()
+    .headTags.map((tag) => tag.innerHTML ?? '')
+    .join('\n');
+
+  expect(config.favicon).toBe('img/brand/favicon.png');
+  expect(navbar.title).toBeUndefined();
+  expect(navbar.logo?.src).toBe(
+    'https://claudeye.com/api/branding/claudeye/wordmark.svg?surface=light',
+  );
+  expect(scripts).toContain('https://claudeye.com/api/branding/claudeye/favicon.svg');
+  expect(scripts).toContain("fetch(dynamicFavicon, { cache: 'no-cache' })");
+  expect(scripts).toContain('if (!response.ok)');
+  expect(scripts).toContain("document.createElement('link')");
+  expect(scripts).toContain('document.head.appendChild(dynamicIcon)');
+  expect(scripts).not.toContain(`document.querySelectorAll('link[rel~="icon"]')`);
+  expect(scripts).toContain('image.src === dynamicNavbarLogo');
+  expect(scripts).toContain('/docs/img/claudeye-wordmark-neutral.png');
+  expect(scripts).not.toContain("querySelectorAll('img')");
+});
+
+test('does not inject runtime-brand scripts for Molii or iXiaozu', () => {
+  for (const publicConfig of [
+    resolvePublicConfig(validEnvironment),
+    resolvePublicConfig(ixiaozuEnvironment),
+  ]) {
+    const config = createSiteConfig(publicConfig);
+    const plugin = (config.plugins as Array<() => {
+      injectHtmlTags: () => { headTags: Array<{ innerHTML?: string }> };
+    }>)[0]();
+    const scripts = plugin
+      .injectHtmlTags()
+      .headTags.map((tag) => tag.innerHTML ?? '')
+      .join('\n');
+
+    expect(scripts).not.toContain('/api/branding/claudeye/');
+  }
 });
 
 for (const origin of ['https://claudeye.com', 'https://model.claudeye.com']) {

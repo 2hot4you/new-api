@@ -19,17 +19,21 @@ For commercial licensing, please contact support@quantumnous.com
 import { ArrowUpRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { ClaudeyeWordmark } from '@/components/layout/components/claudeye-wordmark'
 import { Footer } from '@/components/layout/components/footer'
 import { MoliiWordmark } from '@/components/layout/components/molii-wordmark'
+import { SITE_BRAND } from '@/config/site-brand'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { DEFAULT_LOGO } from '@/lib/constants'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
+import type { SiteBrandId } from '../../../../../build/site-brand'
 import { buildHomeDocsUrl, getHomeFooterVariant } from '../../lib/home-footer'
 import type { HomeVendor } from '../../lib/home-model-catalog'
 
-interface HomeFooterContentProps {
+export interface HomeFooterContentProps {
+  brandId: SiteBrandId
   displayName: string
   displayLogo: string
   docsLink?: string
@@ -37,6 +41,8 @@ interface HomeFooterContentProps {
   privacyPolicyEnabled: boolean
   vendors: HomeVendor[]
 }
+
+type LegacyHomeFooterContentProps = Omit<HomeFooterContentProps, 'brandId'>
 
 interface HomeFooterLink {
   href: string
@@ -135,10 +141,16 @@ function FooterVendorColumn(props: { vendors: HomeVendor[] }) {
   )
 }
 
-export function HomeFooterContent(props: HomeFooterContentProps) {
+export function HomeFooterContent(
+  props: HomeFooterContentProps | LegacyHomeFooterContentProps
+) {
   const { t } = useTranslation()
   const currentYear = new Date().getFullYear()
-  const useMoliiWordmark = props.displayLogo === DEFAULT_LOGO
+  const brandId = 'brandId' in props ? props.brandId : SITE_BRAND.id
+  const useClaudeyeWordmark =
+    brandId === 'claudeye' && props.displayLogo === DEFAULT_LOGO
+  const useMoliiWordmark =
+    !useClaudeyeWordmark && props.displayLogo === DEFAULT_LOGO
   const quickStartLink = buildHomeDocsUrl(
     props.docsLink,
     '/getting-started/quickstart'
@@ -267,6 +279,39 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
       : []),
   ]
 
+  let brandContent: React.ReactNode
+  if (useClaudeyeWordmark) {
+    brandContent = (
+      <ClaudeyeWordmark
+        data-home-footer-wordmark
+        surface='dark'
+        alt={props.displayName}
+        className='h-12 max-w-[13.625rem]'
+      />
+    )
+  } else if (useMoliiWordmark) {
+    brandContent = (
+      <MoliiWordmark
+        data-home-footer-wordmark
+        alt={props.displayName}
+        className='h-12 max-w-[7.5rem]'
+      />
+    )
+  } else {
+    brandContent = (
+      <>
+        <img
+          src={props.displayLogo}
+          alt={props.displayName}
+          className='size-9 rounded-xl bg-white/8 object-contain p-1'
+        />
+        <span className='text-lg font-semibold tracking-tight'>
+          {props.displayName}
+        </span>
+      </>
+    )
+  }
+
   return (
     <footer
       data-home-footer
@@ -280,24 +325,7 @@ export function HomeFooterContent(props: HomeFooterContentProps) {
         <div className='grid min-w-0 gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_repeat(4,1fr)] lg:gap-14'>
           <div className='min-w-0 sm:col-span-2 lg:col-span-1'>
             <a href='/' className='inline-flex items-center gap-3'>
-              {useMoliiWordmark ? (
-                <MoliiWordmark
-                  data-home-footer-wordmark
-                  alt={props.displayName}
-                  className='h-12 max-w-[7.5rem]'
-                />
-              ) : (
-                <>
-                  <img
-                    src={props.displayLogo}
-                    alt={props.displayName}
-                    className='size-9 rounded-xl bg-white/8 object-contain p-1'
-                  />
-                  <span className='text-lg font-semibold tracking-tight'>
-                    {props.displayName}
-                  </span>
-                </>
-              )}
+              {brandContent}
             </a>
             <p className='mt-5 max-w-md text-sm leading-7 text-white/52'>
               {t('footer.home.brandDescription')}
@@ -366,6 +394,7 @@ export function HomeFooter(props: { vendors: HomeVendor[] }) {
 
   return (
     <HomeFooterContent
+      brandId={SITE_BRAND.id}
       displayName={systemName || 'Molii'}
       displayLogo={logo || '/logo.png'}
       docsLink={docsLink}

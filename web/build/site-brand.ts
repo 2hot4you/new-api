@@ -7,6 +7,7 @@ export type SiteBrand = {
   description: string
   logo: string
   favicon: string
+  faviconFallback?: string
   appleTouchIcon: string
   bannerBrand: string
   defaultFont: SiteBrandFont
@@ -20,6 +21,7 @@ const MOLII_BRAND: SiteBrand = {
   description: 'Unified AI API gateway and admin dashboard.',
   logo: '/logo.png',
   favicon: '/molii-favicon-32.png?v=4',
+  faviconFallback: '/molii-favicon-32.png?v=4',
   appleTouchIcon: '/apple-touch-icon.png?v=4',
   bannerBrand: 'Molii',
   defaultFont: 'serif',
@@ -54,13 +56,22 @@ export function resolveSiteBrand(
   if (defaultFont !== 'sans' && defaultFont !== 'serif') {
     throw new Error('VITE_SITE_DEFAULT_FONT must be sans or serif')
   }
+  const configuredFavicon = required(
+    environment,
+    'VITE_SITE_FAVICON',
+    profile
+  )
 
   return {
     id: profile,
     title,
     description: required(environment, 'VITE_SITE_DESCRIPTION', profile),
     logo: required(environment, 'VITE_SITE_LOGO', profile),
-    favicon: required(environment, 'VITE_SITE_FAVICON', profile),
+    favicon:
+      profile === 'claudeye'
+        ? '/api/branding/claudeye/favicon.svg'
+        : configuredFavicon,
+    faviconFallback: configuredFavicon,
     appleTouchIcon: required(
       environment,
       'VITE_SITE_APPLE_TOUCH_ICON',

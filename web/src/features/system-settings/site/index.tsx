@@ -37,6 +37,10 @@ const defaultSiteSettings: SiteSettings = {
   'legal.privacy_policy': '',
   HeaderNavModules: '',
   SidebarModulesAdmin: '',
+  'brand_setting.claudeye_light_mark_color': '#242424',
+  'brand_setting.claudeye_light_text_color': '#6A6A6A',
+  'brand_setting.claudeye_dark_mark_color': '#FFFFFF',
+  'brand_setting.claudeye_dark_text_color': '#B8B8B8',
 }
 
 export function SiteSettings() {

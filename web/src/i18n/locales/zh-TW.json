@@ -7012,6 +7012,16 @@
     "{{discount}} tenths of list price": "{{discount}} tenths of list price",
     "Enter finite positive rates and a discount greater than 0 and at most 10.": "Enter finite positive rates and a discount greater than 0 and at most 10.",
     " / 10 of list price": " / 10 of list price",
-    "Failed to export HTML quotation": "Failed to export HTML quotation"
+    "Failed to export HTML quotation": "Failed to export HTML quotation",
+    "Brand appearance": "品牌外觀",
+    "Light surface mark color": "淺色區域圖形顏色",
+    "Light surface wordmark color": "淺色區域文字顏色",
+    "Dark surface mark color": "深色區域圖形顏色",
+    "Dark surface wordmark color": "深色區域文字顏色",
+    "Restore default colors": "還原預設配色",
+    "Color must use #RRGGBB format": "顏色必須使用 #RRGGBB 格式",
+    "Low contrast": "對比度偏低",
+    "Light header preview": "淺色頁首預覽",
+    "Dark footer preview": "深色頁尾預覽"
   }
 }

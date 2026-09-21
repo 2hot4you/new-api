@@ -7012,6 +7012,16 @@
     "{{discount}} tenths of list price": "{{discount}} tenths of list price",
     "Enter finite positive rates and a discount greater than 0 and at most 10.": "Enter finite positive rates and a discount greater than 0 and at most 10.",
     " / 10 of list price": " / 10 of list price",
-    "Failed to export HTML quotation": "Failed to export HTML quotation"
+    "Failed to export HTML quotation": "Failed to export HTML quotation",
+    "Brand appearance": "ブランド表示",
+    "Light surface mark color": "明るい背景のマーク色",
+    "Light surface wordmark color": "明るい背景のワードマーク色",
+    "Dark surface mark color": "暗い背景のマーク色",
+    "Dark surface wordmark color": "暗い背景のワードマーク色",
+    "Restore default colors": "既定の配色に戻す",
+    "Color must use #RRGGBB format": "色は #RRGGBB 形式で指定してください",
+    "Low contrast": "コントラストが低い",
+    "Light header preview": "明るいヘッダーのプレビュー",
+    "Dark footer preview": "暗いフッターのプレビュー"
   }
 }
