@@ -496,3 +496,89 @@ Per the round-3 dispatch, the full frontend suite and repository-wide lint were 
 - Exact saved-key confirmation still clears reconciliation immediately.
 - Starting another submission clears prior reconciliation state; failed submissions remain protected by dirty/submitting state and do not establish a successful-save gate.
 - Only the Claudeye section, its interaction tests, and this report changed.
+
+## Review fix round 4
+
+### Outcome
+
+Replaced distinct-value budgeting with a genuinely time-bounded reconciliation lifecycle. When a clean post-save snapshot does not contain all just-saved values, the section keeps the submitted form values for 500 ms. If that same authoritative snapshot remains current when the bound expires, it is accepted even when its palette values never change. A new palette cancels and replaces the timer, dirty or submitting state cancels it, exact saved-key confirmation reconciles immediately, and unmount cleanup prevents a late state update.
+
+Incoming defaults are memoized from the four normalized color values rather than the containing object identity, so identical refetch results and incidental renders do not restart the timer indefinitely.
+
+### RED evidence
+
+Added a query-connected regression that saves light mark `#ABCDEF`, has another administrator supersede it with `#FFFFFF` before confirmation, then completes another real refetch returning the same `#FFFFFF` palette. No unrelated color changes are used to release reconciliation.
+
+Command:
+
+```bash
+cd web
+bun test src/features/system-settings/site/__tests__/claudeye-brand-appearance-section.test.tsx \
+  --test-name-pattern "reconciles a stable superseding snapshot within a bounded delay"
+```
+
+Before the timer correction:
+
+```text
+Expected editor light mark: #FFFFFF
+Received editor light mark: #abcdef
+Query light mark:           #FFFFFF
+0 pass
+1 fail
+30 expect() calls
+```
+
+The real query completed three GETs, but the value-equality gate continued rejecting the identical authoritative snapshot.
+
+### GREEN evidence
+
+The targeted regression after the bounded timer correction:
+
+```text
+1 pass
+0 fail
+22 expect() calls
+```
+
+Final focused command:
+
+```bash
+cd web
+bun test src/features/system-settings/site/__tests__/claudeye-brand-colors.test.ts \
+  src/features/system-settings/site/__tests__/claudeye-brand-appearance-section.test.tsx
+```
+
+```text
+18 pass
+0 fail
+139 expect() calls
+Ran 18 tests across 2 files.
+```
+
+The focused suite continues to cover immediate stale/partial protection, first- and later-field failures, sequential stop, retained retry values, superseded saved keys, changed and identical later snapshots, ordinary clean refresh, and preview/picker/swatch/contrast synchronization.
+
+### Review-fix verification
+
+```bash
+cd web
+bun run test -- src/features/system-settings
+```
+
+```text
+Test Files  12 passed (12)
+Tests       51 passed (51)
+```
+
+`bun run typecheck` passed with `tsgo -b` exit 0. Task-local `oxlint` over all Task 4-owned TypeScript/TSX files passed with exit 0. Focused `oxfmt --check` over the changed implementation and interaction test passed. `git diff --check` passed.
+
+Per the round-4 dispatch, the full frontend suite was intentionally not rerun; final Task 6 will run it once.
+
+### Review-fix self-review
+
+- The timer is established only for a clean mismatching post-save snapshot and is bounded at 500 ms.
+- Identical normalized snapshots retain the same memoized identity and cannot perpetually restart the timer.
+- A different incoming palette, dirty state, submitting state, another submission, or unmount cancels the outstanding timer.
+- Exact saved-key confirmation still reconciles immediately without waiting for the timer.
+- Timer expiry clears successful-save reconciliation state before accepting the current clean authoritative defaults.
+- Failed submissions never establish a timer and remain protected by dirty/submitting state for retry.
+- Only the Claudeye section, its interaction tests, and this report changed.

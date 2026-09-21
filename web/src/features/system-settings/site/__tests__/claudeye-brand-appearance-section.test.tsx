@@ -595,11 +595,72 @@ describe('ClaudeyeBrandAppearanceSection', () => {
         '#CCCCCC'
       )
     )
-    await waitFor(() => {
-      expect(lightMark.value).toBe('#FFFFFF')
-      expect(darkText.value).toBe('#CCCCCC')
-      expect(save.disabled).toBe(true)
+    await waitFor(
+      () => {
+        expect(lightMark.value).toBe('#FFFFFF')
+        expect(darkText.value).toBe('#CCCCCC')
+        expect(save.disabled).toBe(true)
+      },
+      { timeout: 2000 }
+    )
+  })
+
+  test('reconciles a stable superseding snapshot within a bounded delay', async () => {
+    const serverColors = { ...customColors }
+    getOptions = vi
+      .spyOn(systemApi, 'getSystemOptions')
+      .mockImplementation(async () => ({
+        success: true,
+        message: '',
+        data: Object.entries(serverColors).map(([key, value]) => ({
+          key,
+          value,
+        })),
+      }))
+    updateOption.mockImplementation(
+      async (request: Parameters<typeof systemApi.updateSystemOption>[0]) => {
+        serverColors[request.key as keyof typeof serverColors] = String(
+          request.value
+        )
+        serverColors['brand_setting.claudeye_light_mark_color'] = '#FFFFFF'
+        return { success: true, message: '' }
+      }
+    )
+
+    const view = await renderSection(QueryConnectedHarness)
+    const lightMark = (await view.findByLabelText(
+      'Light surface mark color'
+    )) as HTMLInputElement
+    const save = view.getByRole('button', {
+      name: 'Save Changes',
+    }) as HTMLButtonElement
+
+    fireEvent.change(lightMark, { target: { value: '#abcdef' } })
+    await waitFor(() => expect(save.disabled).toBe(false))
+    fireEvent.click(save)
+
+    await waitFor(() => expect(updateOption).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(view.getByLabelText('Queried light mark').textContent).toBe(
+        '#FFFFFF'
+      )
+    )
+    await waitFor(() => expect(save.disabled).toBe(true))
+    expect(lightMark.value).toBe('#abcdef')
+
+    fireEvent.click(
+      view.getByRole('button', { name: 'Refetch system options' })
+    )
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(3))
+    expect(view.getByLabelText('Queried light mark').textContent).toBe(
+      '#FFFFFF'
+    )
+
+    await waitFor(() => expect(lightMark.value).toBe('#FFFFFF'), {
+      timeout: 2000,
     })
+    expect(save.disabled).toBe(true)
   })
 
   test('synchronizes the last valid palette when option values refresh', async () => {

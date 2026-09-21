@@ -99,6 +99,7 @@ const DARK_FIELDS: readonly BrandFieldDescriptor[] = [
 ]
 
 const ALL_FIELDS = [...LIGHT_FIELDS, ...DARK_FIELDS] as const
+const POST_SAVE_RECONCILIATION_DELAY_MS = 500
 
 function nestedDefaults(values: ClaudeyeBrandValues): ClaudeyeBrandFormValues {
   const read = (key: ClaudeyeBrandColorKey) =>
@@ -271,16 +272,39 @@ export function ClaudeyeBrandAppearanceSection({
 }: ClaudeyeBrandAppearanceSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const lightMarkDefault =
+    normalizeBrandHex(
+      defaultValues['brand_setting.claudeye_light_mark_color']
+    ) ?? CLAUDEYE_BRAND_DEFAULTS['brand_setting.claudeye_light_mark_color']
+  const lightTextDefault =
+    normalizeBrandHex(
+      defaultValues['brand_setting.claudeye_light_text_color']
+    ) ?? CLAUDEYE_BRAND_DEFAULTS['brand_setting.claudeye_light_text_color']
+  const darkMarkDefault =
+    normalizeBrandHex(
+      defaultValues['brand_setting.claudeye_dark_mark_color']
+    ) ?? CLAUDEYE_BRAND_DEFAULTS['brand_setting.claudeye_dark_mark_color']
+  const darkTextDefault =
+    normalizeBrandHex(
+      defaultValues['brand_setting.claudeye_dark_text_color']
+    ) ?? CLAUDEYE_BRAND_DEFAULTS['brand_setting.claudeye_dark_text_color']
   const incomingDefaults = useMemo(
-    () => nestedDefaults(defaultValues),
-    [defaultValues]
+    () =>
+      nestedDefaults({
+        'brand_setting.claudeye_light_mark_color': lightMarkDefault,
+        'brand_setting.claudeye_light_text_color': lightTextDefault,
+        'brand_setting.claudeye_dark_mark_color': darkMarkDefault,
+        'brand_setting.claudeye_dark_text_color': darkTextDefault,
+      }),
+    [darkMarkDefault, darkTextDefault, lightMarkDefault, lightTextDefault]
   )
   const [defaults, setDefaults] = useState(incomingDefaults)
   const pendingSavedFieldsRef = useRef<Partial<ClaudeyeBrandValues> | null>(
     null
   )
-  const pendingMismatchBudgetRef = useRef(0)
-  const rejectedDefaultsRef = useRef<ClaudeyeBrandFormValues | null>(null)
+  const reconciliationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
   const colorSchema = z.string().regex(BRAND_HEX_PATTERN, {
     error: () => t('Color must use #RRGGBB format'),
   })
@@ -304,8 +328,10 @@ export function ClaudeyeBrandAppearanceSection({
       mode: 'onChange',
       onSubmit: async (_values, changedFields) => {
         pendingSavedFieldsRef.current = null
-        pendingMismatchBudgetRef.current = 0
-        rejectedDefaultsRef.current = null
+        if (reconciliationTimerRef.current !== null) {
+          clearTimeout(reconciliationTimerRef.current)
+          reconciliationTimerRef.current = null
+        }
         const savedFields: Partial<ClaudeyeBrandValues> = {}
 
         for (const [key, value] of Object.entries(changedFields)) {
@@ -322,41 +348,39 @@ export function ClaudeyeBrandAppearanceSection({
         }
 
         pendingSavedFieldsRef.current = savedFields
-        pendingMismatchBudgetRef.current = 1
-        rejectedDefaultsRef.current = defaults
       },
     })
 
   useEffect(() => {
-    if (isDirty || isSubmitting) return
+    const clearReconciliationTimer = () => {
+      if (reconciliationTimerRef.current !== null) {
+        clearTimeout(reconciliationTimerRef.current)
+        reconciliationTimerRef.current = null
+      }
+    }
+
+    clearReconciliationTimer()
+    if (isDirty || isSubmitting) return clearReconciliationTimer
 
     const pendingSavedFields = pendingSavedFieldsRef.current
     if (
       pendingSavedFields &&
       !containsSavedFields(incomingDefaults, pendingSavedFields)
     ) {
-      const rejectedDefaults = rejectedDefaultsRef.current
-      if (
-        rejectedDefaults &&
-        equalFormValues(incomingDefaults, rejectedDefaults)
-      ) {
-        return
-      }
-
-      if (pendingMismatchBudgetRef.current > 0) {
-        pendingMismatchBudgetRef.current -= 1
-        rejectedDefaultsRef.current = incomingDefaults
-        return
-      }
+      reconciliationTimerRef.current = setTimeout(() => {
+        reconciliationTimerRef.current = null
+        pendingSavedFieldsRef.current = null
+        setDefaults(incomingDefaults)
+      }, POST_SAVE_RECONCILIATION_DELAY_MS)
+      return clearReconciliationTimer
     }
 
     pendingSavedFieldsRef.current = null
-    pendingMismatchBudgetRef.current = 0
-    rejectedDefaultsRef.current = null
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDefaults((current) =>
       equalFormValues(current, incomingDefaults) ? current : incomingDefaults
     )
+    return clearReconciliationTimer
   }, [incomingDefaults, isDirty, isSubmitting])
 
   const watchedColors = useWatch({
