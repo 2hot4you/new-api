@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
-import { describe, test } from 'vitest'
 
 import { createInstance } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
+import { describe, test } from 'vitest'
+
+import { DEFAULT_LOGO } from '@/lib/constants'
 
 import { buildHomeDocsUrl, getHomeFooterVariant } from '../../lib/home-footer'
 import type { HomeVendor } from '../../lib/home-model-catalog'
@@ -33,6 +35,7 @@ function renderFooter(
   return renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
       <HomeFooterContent
+        brandId='molii'
         displayName='Molii'
         displayLogo='/logo.png'
         docsLink='https://docs.molii.example/'
@@ -65,6 +68,33 @@ describe('Molii homepage footer', () => {
     assert.match(markup, /src="\/custom-brand\.png"/)
     assert.match(markup, />Custom Brand<\/span>/)
     assert.doesNotMatch(markup, /data-molii-wordmark/)
+  })
+
+  test('uses the dark Claudeye wordmark in the default footer', () => {
+    const markup = renderFooter({
+      brandId: 'claudeye',
+      displayName: 'claudeye',
+      displayLogo: DEFAULT_LOGO,
+    })
+
+    assert.match(markup, /data-claudeye-wordmark="true"/)
+    assert.match(
+      markup,
+      /src="\/api\/branding\/claudeye\/wordmark\.svg\?surface=dark"/
+    )
+    assert.doesNotMatch(markup, />claudeye<\/span>/)
+  })
+
+  test('keeps an explicit Claudeye custom logo with the display name', () => {
+    const markup = renderFooter({
+      brandId: 'claudeye',
+      displayName: 'claudeye',
+      displayLogo: 'https://cdn.example/custom.png',
+    })
+
+    assert.match(markup, /src="https:\/\/cdn\.example\/custom\.png"/)
+    assert.match(markup, />claudeye<\/span>/)
+    assert.doesNotMatch(markup, /data-claudeye-wordmark/)
   })
 
   test('builds documentation child links without accepting unsafe URLs', () => {

@@ -60,7 +60,10 @@ export function resolveSiteBrand(
     title,
     description: required(environment, 'VITE_SITE_DESCRIPTION', profile),
     logo: required(environment, 'VITE_SITE_LOGO', profile),
-    favicon: required(environment, 'VITE_SITE_FAVICON', profile),
+    favicon:
+      profile === 'claudeye'
+        ? '/api/branding/claudeye/favicon.svg'
+        : required(environment, 'VITE_SITE_FAVICON', profile),
     appleTouchIcon: required(
       environment,
       'VITE_SITE_APPLE_TOUCH_ICON',

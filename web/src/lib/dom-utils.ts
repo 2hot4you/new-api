@@ -16,16 +16,30 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { SiteBrand } from '../../build/site-brand'
 import { SITE_BRAND } from '@/config/site-brand'
 
+import type { SiteBrand } from '../../build/site-brand'
 import { DEFAULT_FAVICON } from './constants'
 
 export function resolveFaviconUrl(url: string, brand: SiteBrand = SITE_BRAND) {
   try {
-    const parsed = new URL(url, 'https://molii.local')
-    const brandLogo = new URL(brand.logo, 'https://molii.local')
-    if (parsed.pathname === brandLogo.pathname) return brand.favicon
+    const base =
+      typeof window === 'undefined'
+        ? 'http://127.0.0.1:3000/'
+        : window.location.href
+    const parsed = new URL(url, base)
+    const brandLogo = new URL(brand.logo, base)
+    const localDevelopmentDefault =
+      brand.logo.startsWith('/') &&
+      parsed.pathname === brandLogo.pathname &&
+      (parsed.origin === 'http://127.0.0.1:3000' ||
+        parsed.origin === 'http://localhost:3000')
+    const sameOriginDefault =
+      parsed.origin === brandLogo.origin &&
+      parsed.pathname === brandLogo.pathname
+    if (sameOriginDefault || localDevelopmentDefault) {
+      return brand.favicon
+    }
   } catch {
     // Keep malformed custom values unchanged for the caller to reject.
   }

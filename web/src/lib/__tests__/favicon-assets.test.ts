@@ -2,8 +2,12 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { describe, test } from 'vitest'
 import { fileURLToPath } from 'node:url'
+
+import { describe, test } from 'vitest'
+
+import type { SiteBrand } from '../../../build/site-brand'
+import { resolveFaviconUrl } from '../dom-utils'
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -21,6 +25,44 @@ function sha256(path: string) {
 }
 
 describe('site favicon assets', () => {
+  test('ships the approved neutral Claudeye wordmark fallback', () => {
+    const wordmark = resolve(webRoot, 'public/claudeye-wordmark-neutral.png')
+    const buffer = readFileSync(wordmark)
+
+    assert.equal(
+      sha256(wordmark),
+      'f77944e3ea47969bf3774ca849648d478922d5e9414ac154f0818e92670b5d7d'
+    )
+    assert.deepEqual(readPngSize(wordmark), { width: 1995, height: 440 })
+    assert.equal(buffer.readUInt8(25), 6)
+  })
+
+  test('keeps a dedicated Claudeye favicon unless the Logo is explicitly custom', () => {
+    const brand: SiteBrand = {
+      id: 'claudeye',
+      title: 'Claudeye',
+      description: 'Claudeye model gateway.',
+      logo: '/logo.png',
+      favicon: '/api/branding/claudeye/favicon.svg',
+      appleTouchIcon: '/claudeye-apple-touch-icon.png',
+      bannerBrand: 'Claudeye',
+      defaultFont: 'sans',
+    }
+
+    assert.equal(
+      resolveFaviconUrl('/logo.png', brand),
+      '/api/branding/claudeye/favicon.svg'
+    )
+    assert.equal(
+      resolveFaviconUrl('https://cdn.example/logo.png', brand),
+      'https://cdn.example/logo.png'
+    )
+    assert.equal(
+      resolveFaviconUrl('https://cdn.example/custom.png', brand),
+      'https://cdn.example/custom.png'
+    )
+  })
+
   test('templates browser and Apple icons from the active site profile', () => {
     const html = readFileSync(resolve(webRoot, 'index.html'), 'utf8')
 

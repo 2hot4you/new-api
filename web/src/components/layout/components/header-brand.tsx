@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DEFAULT_LOGO } from '@/lib/constants'
 
 import type { SiteBrandId } from '../../../../build/site-brand'
+import { ClaudeyeWordmark } from './claudeye-wordmark'
 import { HeaderLogo } from './header-logo'
 import { MoliiWordmark } from './molii-wordmark'
 
@@ -42,8 +43,10 @@ export function HeaderBrand({
 }: HeaderBrandProps) {
   const useMoliiWordmark =
     brandId === 'molii' && !customLogo && systemLogo === DEFAULT_LOGO
+  const useClaudeyeWordmark =
+    brandId === 'claudeye' && !customLogo && systemLogo === DEFAULT_LOGO
 
-  if (useMoliiWordmark) {
+  if (useMoliiWordmark || useClaudeyeWordmark) {
     if (loading) {
       return (
         <Skeleton
@@ -53,7 +56,14 @@ export function HeaderBrand({
       )
     }
 
-    return (
+    return useClaudeyeWordmark ? (
+      <ClaudeyeWordmark
+        data-header-wordmark='true'
+        surface='light'
+        alt={siteName}
+        className='h-7 max-w-[7.9375rem] transition-transform duration-300 group-hover:scale-105'
+      />
+    ) : (
       <MoliiWordmark
         data-header-wordmark='true'
         alt={siteName}

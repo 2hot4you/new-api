@@ -13,6 +13,17 @@ const IXIAOZU_FIXTURE = {
   VITE_SITE_DEFAULT_FONT: 'sans',
 }
 
+const CLAUDEYE_FIXTURE = {
+  ...IXIAOZU_FIXTURE,
+  VITE_SITE_PROFILE: 'claudeye',
+  VITE_SITE_TITLE: 'Claudeye',
+  VITE_SITE_DESCRIPTION: 'Claudeye model gateway.',
+  VITE_SITE_LOGO: '/claudeye-logo.svg',
+  VITE_SITE_FAVICON: '/claudeye-static-favicon.png',
+  VITE_SITE_APPLE_TOUCH_ICON: '/claudeye-apple-touch-icon.png',
+  VITE_SITE_BANNER_BRAND: 'Claudeye',
+}
+
 test('preserves Molii profile defaults', () => {
   expect(resolveSiteBrand({ VITE_SITE_PROFILE: 'molii' })).toEqual({
     id: 'molii',
@@ -75,4 +86,18 @@ test('claudeye requires explicit independent branding', () => {
   expect(result.title).toBe('Claudeye')
   expect(result.logo).toBe('/claudeye-logo.svg')
   expect(result.bannerBrand).toBe('Claudeye')
+})
+
+test('uses the dynamic favicon only for a complete claudeye profile', () => {
+  const claudeye = resolveSiteBrand(CLAUDEYE_FIXTURE)
+
+  expect(claudeye.logo).toBe('/claudeye-logo.svg')
+  expect(claudeye.favicon).toBe('/api/branding/claudeye/favicon.svg')
+  expect(claudeye.appleTouchIcon).toBe('/claudeye-apple-touch-icon.png')
+  expect(resolveSiteBrand(IXIAOZU_FIXTURE).favicon).toBe(
+    '/ixiaozu-favicon.png'
+  )
+  expect(resolveSiteBrand({ VITE_SITE_PROFILE: 'molii' }).favicon).toBe(
+    '/molii-favicon-32.png?v=4'
+  )
 })
