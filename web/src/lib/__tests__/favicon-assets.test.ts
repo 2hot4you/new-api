@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -52,6 +58,57 @@ function withFaviconDom(run: (domWindow: Window) => void) {
   }
 }
 
+async function withImageLoadingDom(
+  url: string,
+  run: (domWindow: Window) => Promise<void>
+) {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const domWindow = new Window({
+    url,
+    settings: { enableImageFileLoading: true },
+  })
+  const previousConsoleError = domWindow.console.error
+  domWindow.console.error = () => undefined
+  try {
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: domWindow,
+    })
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: domWindow.document,
+    })
+    await run(domWindow)
+  } finally {
+    domWindow.console.error = previousConsoleError
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: previousWindow,
+    })
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: previousDocument,
+    })
+    domWindow.close()
+  }
+}
+
+async function listen(
+  handler: (request: IncomingMessage, response: ServerResponse) => void
+): Promise<{ close: () => Promise<void>; origin: string }> {
+  const server = createServer(handler)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address() as AddressInfo
+  return {
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    origin: `http://127.0.0.1:${address.port}`,
+  }
+}
+
+const VALID_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#ff2d55"/></svg>'
+
 const CLAUDEYE_BRAND: SiteBrand = {
   id: 'claudeye',
   title: 'Claudeye',
@@ -92,20 +149,12 @@ describe('site favicon assets', () => {
     )
   })
 
-  test('upgrades the initial static favicon and restores it when the dynamic SVG fails', () => {
+  test('retains the initial static favicon while dynamic verification is pending', () => {
     withFaviconDom((domWindow) => {
       domWindow.document.head.innerHTML =
         '<link rel="icon" type="image/png" sizes="32x32" href="/claudeye-static-favicon.png">'
 
       applyFaviconToDom(CLAUDEYE_BRAND.favicon, CLAUDEYE_BRAND)
-
-      const dynamic = domWindow.document.querySelector('link[rel~="icon"]')
-      assert.ok(dynamic)
-      assert.equal(dynamic.getAttribute('href'), CLAUDEYE_BRAND.favicon)
-      assert.equal(dynamic.getAttribute('type'), 'image/svg+xml')
-      assert.equal(dynamic.getAttribute('sizes'), 'any')
-
-      dynamic.dispatchEvent(new domWindow.Event('error'))
 
       const fallback = domWindow.document.querySelector('link[rel~="icon"]')
       assert.ok(fallback)
@@ -122,6 +171,117 @@ describe('site favicon assets', () => {
         fallback
       )
     })
+  })
+
+  test('keeps the static PNG when the dynamic favicon probe receives a real HTTP failure', async () => {
+    let dynamicRequests = 0
+    const server = await listen((request, response) => {
+      if (request.url === CLAUDEYE_BRAND.favicon) dynamicRequests += 1
+      response.writeHead(503, { 'content-type': 'image/svg+xml' })
+      response.end('unavailable')
+    })
+
+    try {
+      await withImageLoadingDom(`${server.origin}/`, async (domWindow) => {
+        domWindow.document.head.innerHTML =
+          '<link rel="icon" type="image/png" sizes="32x32" href="/claudeye-static-favicon.png">'
+
+        applyFaviconToDom(CLAUDEYE_BRAND.favicon, CLAUDEYE_BRAND)
+
+        const initial = domWindow.document.querySelectorAll('link[rel~="icon"]')
+        assert.equal(initial.length, 1)
+        assert.equal(
+          initial[0].getAttribute('href'),
+          CLAUDEYE_BRAND.faviconFallback
+        )
+
+        await domWindow.happyDOM.waitUntilComplete()
+
+        const afterFailure =
+          domWindow.document.querySelectorAll('link[rel~="icon"]')
+        assert.equal(dynamicRequests, 1)
+        assert.equal(afterFailure.length, 1)
+        assert.equal(
+          afterFailure[0].getAttribute('href'),
+          CLAUDEYE_BRAND.faviconFallback
+        )
+
+        applyFaviconToDom(CLAUDEYE_BRAND.favicon, CLAUDEYE_BRAND)
+        await domWindow.happyDOM.waitUntilComplete()
+        assert.equal(dynamicRequests, 1)
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('adds a verified dynamic SVG while retaining the static PNG candidate', async () => {
+    let dynamicRequests = 0
+    const server = await listen((request, response) => {
+      if (request.url === CLAUDEYE_BRAND.favicon) dynamicRequests += 1
+      response.writeHead(200, { 'content-type': 'image/svg+xml' })
+      response.end(VALID_SVG)
+    })
+
+    try {
+      await withImageLoadingDom(`${server.origin}/`, async (domWindow) => {
+        domWindow.document.head.innerHTML =
+          '<link rel="icon" type="image/png" sizes="32x32" href="/claudeye-static-favicon.png">'
+
+        applyFaviconToDom(CLAUDEYE_BRAND.favicon, CLAUDEYE_BRAND)
+        await domWindow.happyDOM.waitUntilComplete()
+
+        const icons = domWindow.document.querySelectorAll('link[rel~="icon"]')
+        assert.equal(dynamicRequests, 1)
+        assert.equal(icons.length, 2)
+        assert.equal(
+          icons[0].getAttribute('href'),
+          CLAUDEYE_BRAND.faviconFallback
+        )
+        assert.equal(icons[0].getAttribute('type'), 'image/png')
+        assert.equal(icons[0].getAttribute('sizes'), '32x32')
+        assert.equal(icons[1].getAttribute('href'), CLAUDEYE_BRAND.favicon)
+        assert.equal(icons[1].getAttribute('type'), 'image/svg+xml')
+        assert.equal(icons[1].getAttribute('sizes'), 'any')
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('ignores a stale dynamic probe after a custom Logo becomes active', async () => {
+    let pendingResponse: ServerResponse | undefined
+    let requestStarted!: () => void
+    const requestReceived = new Promise<void>((resolve) => {
+      requestStarted = resolve
+    })
+    const server = await listen((_request, response) => {
+      pendingResponse = response
+      requestStarted()
+    })
+
+    try {
+      await withImageLoadingDom(`${server.origin}/`, async (domWindow) => {
+        domWindow.document.head.innerHTML =
+          '<link rel="icon" type="image/png" sizes="32x32" href="/claudeye-static-favicon.png">'
+
+        applyFaviconToDom(CLAUDEYE_BRAND.favicon, CLAUDEYE_BRAND)
+        await requestReceived
+
+        const customLogo = 'https://cdn.example/custom.png'
+        applyFaviconToDom(customLogo, CLAUDEYE_BRAND)
+        pendingResponse?.writeHead(200, { 'content-type': 'image/svg+xml' })
+        pendingResponse?.end(VALID_SVG)
+        await domWindow.happyDOM.waitUntilComplete()
+
+        const icons = domWindow.document.querySelectorAll('link[rel~="icon"]')
+        assert.equal(icons.length, 1)
+        assert.equal(icons[0].getAttribute('href'), customLogo)
+      })
+    } finally {
+      pendingResponse?.destroy()
+      await server.close()
+    }
   })
 
   test('keeps a custom Logo favicon outside the dynamic fallback lifecycle', () => {

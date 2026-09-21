@@ -57,7 +57,10 @@ function setFaviconMetadata(
     return
   }
 
-  const pathname = new URL(url, window.location.href).pathname.toLowerCase()
+  const pathname = new URL(
+    url,
+    link.ownerDocument.baseURI
+  ).pathname.toLowerCase()
   if (kind === 'fallback' && pathname.endsWith('.png')) {
     link.type = 'image/png'
     link.setAttribute('sizes', '32x32')
@@ -68,47 +71,140 @@ function setFaviconMetadata(
   link.removeAttribute('sizes')
 }
 
+type FaviconDocumentState = {
+  failedUrls: Set<string>
+  pending?: { url: string; version: number }
+  version: number
+}
+
+const faviconDocumentStates = new WeakMap<Document, FaviconDocumentState>()
+
+function getFaviconDocumentState(document: Document): FaviconDocumentState {
+  let state = faviconDocumentStates.get(document)
+  if (!state) {
+    state = { failedUrls: new Set(), version: 0 }
+    faviconDocumentStates.set(document, state)
+  }
+  return state
+}
+
+function createFaviconLink(
+  document: Document,
+  url: string,
+  kind: 'custom' | 'dynamic' | 'fallback'
+) {
+  const link = document.createElement('link')
+  link.rel = 'icon'
+  link.href = url
+  setFaviconMetadata(link, url, kind)
+  return link
+}
+
+function installOnlyFavicon(
+  document: Document,
+  url: string,
+  kind: 'custom' | 'fallback'
+) {
+  const existing =
+    document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')
+  const next = new URL(url, document.baseURI).href
+  const reusable = [...existing].find((link) => link.href === next)
+
+  existing.forEach((link) => {
+    if (link !== reusable) link.remove()
+  })
+
+  const link = reusable || createFaviconLink(document, url, kind)
+  setFaviconMetadata(link, url, kind)
+  if (!link.isConnected) document.head.appendChild(link)
+  return link
+}
+
+function probeFaviconImage(
+  document: Document,
+  url: string,
+  onLoad: () => void,
+  onError: () => void
+) {
+  const image = document.createElement('img')
+  image.addEventListener('load', onLoad, { once: true })
+  image.addEventListener('error', onError, { once: true })
+  image.src = url
+}
+
 export function applyFaviconToDom(url: string, brand: SiteBrand = SITE_BRAND) {
   if (typeof document === 'undefined' || !url) return
   try {
+    const activeDocument = document
+    const state = getFaviconDocumentState(activeDocument)
     const faviconUrl = resolveFaviconUrl(url, brand)
     const next = new URL(faviconUrl, window.location.href).href
-    const existing =
-      document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')
-    if (existing.length === 1 && existing[0].href === next) return
-    if (
-      existing.length === 1 &&
-      existing[0].dataset.faviconFailedUrl === next
-    ) {
-      return
-    }
-
     const fallbackUrl = brand.faviconFallback || brand.favicon
     const dynamicSvg =
       faviconUrl === brand.favicon && fallbackUrl !== brand.favicon
-    const defaultFavicon = faviconUrl === brand.favicon
-    let faviconKind: 'custom' | 'dynamic' | 'fallback' = 'custom'
-    if (dynamicSvg) faviconKind = 'dynamic'
-    else if (defaultFavicon) faviconKind = 'fallback'
-    const link = document.createElement('link')
-    link.rel = 'icon'
-    link.href = faviconUrl
-    setFaviconMetadata(link, faviconUrl, faviconKind)
 
     if (dynamicSvg) {
-      link.addEventListener(
-        'error',
+      const existing =
+        activeDocument.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')
+      const fallback = new URL(fallbackUrl, activeDocument.baseURI).href
+      const hasFallback = [...existing].some((link) => link.href === fallback)
+      const hasDynamic = [...existing].some((link) => link.href === next)
+
+      if (hasFallback && hasDynamic) {
+        state.version += 1
+        state.pending = undefined
+        return
+      }
+
+      installOnlyFavicon(activeDocument, fallbackUrl, 'fallback')
+
+      if (state.failedUrls.has(next) || state.pending?.url === next) return
+
+      const version = ++state.version
+      state.pending = { url: next, version }
+      probeFaviconImage(
+        activeDocument,
+        next,
         () => {
-          link.dataset.faviconFailedUrl = next
-          link.href = fallbackUrl
-          setFaviconMetadata(link, fallbackUrl, 'fallback')
+          if (
+            state.version !== version ||
+            state.pending?.url !== next ||
+            state.pending.version !== version
+          ) {
+            return
+          }
+          state.pending = undefined
+          installOnlyFavicon(activeDocument, fallbackUrl, 'fallback')
+          activeDocument.head.appendChild(
+            createFaviconLink(activeDocument, faviconUrl, 'dynamic')
+          )
         },
-        { once: true }
+        () => {
+          if (
+            state.version !== version ||
+            state.pending?.url !== next ||
+            state.pending.version !== version
+          ) {
+            return
+          }
+          state.pending = undefined
+          state.failedUrls.add(next)
+        }
       )
+      return
     }
 
-    existing.forEach((l) => l.remove())
-    document.head.appendChild(link)
+    state.version += 1
+    state.pending = undefined
+    const existing =
+      activeDocument.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')
+    if (existing.length === 1 && existing[0].href === next) return
+
+    installOnlyFavicon(
+      activeDocument,
+      faviconUrl,
+      faviconUrl === brand.favicon ? 'fallback' : 'custom'
+    )
   } catch {
     // Ignore malformed URLs
   }
