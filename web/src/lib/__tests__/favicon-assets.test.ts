@@ -4,10 +4,11 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { Window } from 'happy-dom'
 import { describe, test } from 'vitest'
 
 import type { SiteBrand } from '../../../build/site-brand'
-import { resolveFaviconUrl } from '../dom-utils'
+import { applyFaviconToDom, resolveFaviconUrl } from '../dom-utils'
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -24,6 +25,45 @@ function sha256(path: string) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
+function withFaviconDom(run: (domWindow: Window) => void) {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const domWindow = new Window({ url: 'https://claudeye.test/' })
+  try {
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: domWindow,
+    })
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: domWindow.document,
+    })
+    run(domWindow)
+  } finally {
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: previousWindow,
+    })
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: previousDocument,
+    })
+    domWindow.close()
+  }
+}
+
+const CLAUDEYE_BRAND: SiteBrand = {
+  id: 'claudeye',
+  title: 'Claudeye',
+  description: 'Claudeye model gateway.',
+  logo: '/logo.png',
+  favicon: '/api/branding/claudeye/favicon.svg',
+  faviconFallback: '/claudeye-static-favicon.png',
+  appleTouchIcon: '/claudeye-apple-touch-icon.png',
+  bannerBrand: 'Claudeye',
+  defaultFont: 'sans',
+}
+
 describe('site favicon assets', () => {
   test('ships the approved neutral Claudeye wordmark fallback', () => {
     const wordmark = resolve(webRoot, 'public/claudeye-wordmark-neutral.png')
@@ -38,35 +78,79 @@ describe('site favicon assets', () => {
   })
 
   test('keeps a dedicated Claudeye favicon unless the Logo is explicitly custom', () => {
-    const brand: SiteBrand = {
-      id: 'claudeye',
-      title: 'Claudeye',
-      description: 'Claudeye model gateway.',
-      logo: '/logo.png',
-      favicon: '/api/branding/claudeye/favicon.svg',
-      appleTouchIcon: '/claudeye-apple-touch-icon.png',
-      bannerBrand: 'Claudeye',
-      defaultFont: 'sans',
-    }
-
     assert.equal(
-      resolveFaviconUrl('/logo.png', brand),
+      resolveFaviconUrl('/logo.png', CLAUDEYE_BRAND),
       '/api/branding/claudeye/favicon.svg'
     )
     assert.equal(
-      resolveFaviconUrl('https://cdn.example/logo.png', brand),
+      resolveFaviconUrl('https://cdn.example/logo.png', CLAUDEYE_BRAND),
       'https://cdn.example/logo.png'
     )
     assert.equal(
-      resolveFaviconUrl('https://cdn.example/custom.png', brand),
+      resolveFaviconUrl('https://cdn.example/custom.png', CLAUDEYE_BRAND),
       'https://cdn.example/custom.png'
     )
+  })
+
+  test('upgrades the initial static favicon and restores it when the dynamic SVG fails', () => {
+    withFaviconDom((domWindow) => {
+      domWindow.document.head.innerHTML =
+        '<link rel="icon" type="image/png" sizes="32x32" href="/claudeye-static-favicon.png">'
+
+      applyFaviconToDom(CLAUDEYE_BRAND.favicon, CLAUDEYE_BRAND)
+
+      const dynamic = domWindow.document.querySelector('link[rel~="icon"]')
+      assert.ok(dynamic)
+      assert.equal(dynamic.getAttribute('href'), CLAUDEYE_BRAND.favicon)
+      assert.equal(dynamic.getAttribute('type'), 'image/svg+xml')
+      assert.equal(dynamic.getAttribute('sizes'), 'any')
+
+      dynamic.dispatchEvent(new domWindow.Event('error'))
+
+      const fallback = domWindow.document.querySelector('link[rel~="icon"]')
+      assert.ok(fallback)
+      assert.equal(
+        fallback.getAttribute('href'),
+        CLAUDEYE_BRAND.faviconFallback
+      )
+      assert.equal(fallback.getAttribute('type'), 'image/png')
+      assert.equal(fallback.getAttribute('sizes'), '32x32')
+
+      applyFaviconToDom(CLAUDEYE_BRAND.favicon, CLAUDEYE_BRAND)
+      assert.equal(
+        domWindow.document.querySelector('link[rel~="icon"]'),
+        fallback
+      )
+    })
+  })
+
+  test('keeps a custom Logo favicon outside the dynamic fallback lifecycle', () => {
+    withFaviconDom((domWindow) => {
+      domWindow.document.head.innerHTML =
+        '<link rel="icon" type="image/png" sizes="32x32" href="/claudeye-static-favicon.png">'
+      const customLogo = 'https://cdn.example/logo.png'
+
+      applyFaviconToDom(customLogo, CLAUDEYE_BRAND)
+
+      const custom = domWindow.document.querySelector('link[rel~="icon"]')
+      assert.ok(custom)
+      assert.equal(custom.getAttribute('href'), customLogo)
+      assert.equal(custom.getAttribute('type'), null)
+      assert.equal(custom.getAttribute('sizes'), null)
+
+      custom.dispatchEvent(new domWindow.Event('error'))
+      assert.equal(custom.getAttribute('href'), customLogo)
+    })
   })
 
   test('templates browser and Apple icons from the active site profile', () => {
     const html = readFileSync(resolve(webRoot, 'index.html'), 'utf8')
 
-    assert.match(html, /href="<%= siteBrand\.favicon %>"/)
+    assert.match(
+      html,
+      /type="image\/png"[\s\S]+sizes="32x32"[\s\S]+href="<%= siteBrand\.faviconFallback %>"/
+    )
+    assert.doesNotMatch(html, /href="<%= siteBrand\.favicon %>"/)
     assert.match(html, /href="<%= siteBrand\.appleTouchIcon %>"/)
     assert.doesNotMatch(html, /molii-favicon\.svg/)
     assert.doesNotMatch(html, /rel="icon"[^>]+href="\/logo\.png"/)

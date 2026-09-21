@@ -46,17 +46,67 @@ export function resolveFaviconUrl(url: string, brand: SiteBrand = SITE_BRAND) {
   return url
 }
 
-export function applyFaviconToDom(url: string) {
+function setFaviconMetadata(
+  link: HTMLLinkElement,
+  url: string,
+  kind: 'custom' | 'dynamic' | 'fallback'
+) {
+  if (kind === 'dynamic') {
+    link.type = 'image/svg+xml'
+    link.setAttribute('sizes', 'any')
+    return
+  }
+
+  const pathname = new URL(url, window.location.href).pathname.toLowerCase()
+  if (kind === 'fallback' && pathname.endsWith('.png')) {
+    link.type = 'image/png'
+    link.setAttribute('sizes', '32x32')
+    return
+  }
+
+  link.removeAttribute('type')
+  link.removeAttribute('sizes')
+}
+
+export function applyFaviconToDom(url: string, brand: SiteBrand = SITE_BRAND) {
   if (typeof document === 'undefined' || !url) return
   try {
-    const faviconUrl = resolveFaviconUrl(url)
+    const faviconUrl = resolveFaviconUrl(url, brand)
     const next = new URL(faviconUrl, window.location.href).href
     const existing =
       document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')
     if (existing.length === 1 && existing[0].href === next) return
+    if (
+      existing.length === 1 &&
+      existing[0].dataset.faviconFailedUrl === next
+    ) {
+      return
+    }
+
+    const fallbackUrl = brand.faviconFallback || brand.favicon
+    const dynamicSvg =
+      faviconUrl === brand.favicon && fallbackUrl !== brand.favicon
+    const defaultFavicon = faviconUrl === brand.favicon
+    let faviconKind: 'custom' | 'dynamic' | 'fallback' = 'custom'
+    if (dynamicSvg) faviconKind = 'dynamic'
+    else if (defaultFavicon) faviconKind = 'fallback'
     const link = document.createElement('link')
     link.rel = 'icon'
     link.href = faviconUrl
+    setFaviconMetadata(link, faviconUrl, faviconKind)
+
+    if (dynamicSvg) {
+      link.addEventListener(
+        'error',
+        () => {
+          link.dataset.faviconFailedUrl = next
+          link.href = fallbackUrl
+          setFaviconMetadata(link, fallbackUrl, 'fallback')
+        },
+        { once: true }
+      )
+    }
+
     existing.forEach((l) => l.remove())
     document.head.appendChild(link)
   } catch {

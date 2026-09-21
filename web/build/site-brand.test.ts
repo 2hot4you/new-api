@@ -31,6 +31,7 @@ test('preserves Molii profile defaults', () => {
     description: 'Unified AI API gateway and admin dashboard.',
     logo: '/logo.png',
     favicon: '/molii-favicon-32.png?v=4',
+    faviconFallback: '/molii-favicon-32.png?v=4',
     appleTouchIcon: '/apple-touch-icon.png?v=4',
     bannerBrand: 'Molii',
     defaultFont: 'serif',
@@ -54,6 +55,7 @@ test('accepts a complete non-Molii profile', () => {
     description: 'Unified AI creation platform.',
     logo: '/ixiaozu-logo.png',
     favicon: '/ixiaozu-favicon.png',
+    faviconFallback: '/ixiaozu-favicon.png',
     appleTouchIcon: '/ixiaozu-apple-touch-icon.png',
     bannerBrand: 'iXiaozu',
     defaultFont: 'sans',
@@ -93,6 +95,7 @@ test('uses the dynamic favicon only for a complete claudeye profile', () => {
 
   expect(claudeye.logo).toBe('/claudeye-logo.svg')
   expect(claudeye.favicon).toBe('/api/branding/claudeye/favicon.svg')
+  expect(claudeye.faviconFallback).toBe('/claudeye-static-favicon.png')
   expect(claudeye.appleTouchIcon).toBe('/claudeye-apple-touch-icon.png')
   expect(resolveSiteBrand(IXIAOZU_FIXTURE).favicon).toBe(
     '/ixiaozu-favicon.png'

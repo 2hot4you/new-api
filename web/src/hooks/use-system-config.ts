@@ -178,15 +178,22 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   useEffect(() => {
     const { logo } = config
 
-    // Skip if logo is already loaded
-    if (!logo || logo === loadedLogoUrl) return
+    if (!logo) return
+
+    const faviconUrl = logo === DEFAULT_LOGO ? DEFAULT_FAVICON : logo
+
+    // Keep initial static metadata, then upgrade the active runtime favicon.
+    if (logo === loadedLogoUrl) {
+      applyFaviconToDom(faviconUrl)
+      return
+    }
 
     // Preload new logo
     return preloadImage(
       logo,
       () => {
         setLoadedLogoUrl(logo)
-        applyFaviconToDom(logo === DEFAULT_LOGO ? DEFAULT_FAVICON : logo)
+        applyFaviconToDom(faviconUrl)
       },
       () => {
         if (logo !== DEFAULT_LOGO) {
