@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   useWatch,
   type ControllerRenderProps,
@@ -116,6 +116,38 @@ function nestedDefaults(values: ClaudeyeBrandValues): ClaudeyeBrandFormValues {
       claudeye_dark_text_color: read('brand_setting.claudeye_dark_text_color'),
     },
   }
+}
+
+function equalFormValues(
+  first: ClaudeyeBrandFormValues,
+  second: ClaudeyeBrandFormValues
+) {
+  const firstColors = first.brand_setting
+  const secondColors = second.brand_setting
+
+  return (
+    firstColors.claudeye_light_mark_color ===
+      secondColors.claudeye_light_mark_color &&
+    firstColors.claudeye_light_text_color ===
+      secondColors.claudeye_light_text_color &&
+    firstColors.claudeye_dark_mark_color ===
+      secondColors.claudeye_dark_mark_color &&
+    firstColors.claudeye_dark_text_color ===
+      secondColors.claudeye_dark_text_color
+  )
+}
+
+function containsSavedFields(
+  values: ClaudeyeBrandFormValues,
+  savedFields: Partial<ClaudeyeBrandValues>
+) {
+  return Object.entries(savedFields).every(([key, value]) => {
+    const fieldName = key.replace(
+      'brand_setting.',
+      ''
+    ) as keyof ClaudeyeBrandFormValues['brand_setting']
+    return values.brand_setting[fieldName] === value
+  })
 }
 
 function ColorField(props: {
@@ -239,7 +271,14 @@ export function ClaudeyeBrandAppearanceSection({
 }: ClaudeyeBrandAppearanceSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const defaults = nestedDefaults(defaultValues)
+  const incomingDefaults = useMemo(
+    () => nestedDefaults(defaultValues),
+    [defaultValues]
+  )
+  const [defaults, setDefaults] = useState(incomingDefaults)
+  const pendingSavedFieldsRef = useRef<Partial<ClaudeyeBrandValues> | null>(
+    null
+  )
   const colorSchema = z.string().regex(BRAND_HEX_PATTERN, {
     error: () => t('Color must use #RRGGBB format'),
   })
@@ -262,6 +301,9 @@ export function ClaudeyeBrandAppearanceSection({
       defaultValues: defaults,
       mode: 'onChange',
       onSubmit: async (_values, changedFields) => {
+        pendingSavedFieldsRef.current = null
+        const savedFields: Partial<ClaudeyeBrandValues> = {}
+
         for (const [key, value] of Object.entries(changedFields)) {
           const normalized = normalizeBrandHex(String(value))
           if (!normalized) continue
@@ -272,9 +314,30 @@ export function ClaudeyeBrandAppearanceSection({
           if (!response.success) {
             throw new Error(response.message || 'Failed to update setting')
           }
+          savedFields[key as ClaudeyeBrandColorKey] = normalized
         }
+
+        pendingSavedFieldsRef.current = savedFields
       },
     })
+
+  useEffect(() => {
+    if (isDirty || isSubmitting) return
+
+    const pendingSavedFields = pendingSavedFieldsRef.current
+    if (
+      pendingSavedFields &&
+      !containsSavedFields(incomingDefaults, pendingSavedFields)
+    ) {
+      return
+    }
+
+    pendingSavedFieldsRef.current = null
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDefaults((current) =>
+      equalFormValues(current, incomingDefaults) ? current : incomingDefaults
+    )
+  }, [incomingDefaults, isDirty, isSubmitting])
 
   const watchedColors = useWatch({
     control: form.control,

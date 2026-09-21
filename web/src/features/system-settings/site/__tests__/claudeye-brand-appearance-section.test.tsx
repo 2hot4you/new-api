@@ -71,6 +71,8 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const systemApi = await import('../../api')
 const { SettingsPageProvider } =
   await import('../../components/settings-page-context')
+const { getOptionValue, useSystemOptions } =
+  await import('../../hooks/use-system-options')
 const { ClaudeyeBrandAppearanceSection } =
   await import('../claudeye-brand-appearance-section')
 const { getBrandAppearanceSections } = await import('../section-registry')
@@ -88,6 +90,7 @@ const reactTestGlobals = globalThis as typeof globalThis & {
 reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 let updateOption: ReturnType<typeof vi.spyOn>
+let getOptions: ReturnType<typeof vi.spyOn> | undefined
 
 const customColors = {
   'brand_setting.claudeye_light_mark_color': '#111111',
@@ -128,8 +131,48 @@ function SectionHarness() {
   )
 }
 
-async function renderSection() {
-  const rootRoute = createRootRoute({ component: SectionHarness })
+function QueryConnectedSection() {
+  const [actionsContainer, setActionsContainer] =
+    useState<HTMLDivElement | null>(null)
+  const { data, isLoading } = useSystemOptions()
+
+  if (isLoading) return null
+
+  return (
+    <>
+      <div ref={setActionsContainer} />
+      <SettingsPageProvider
+        actionsContainer={actionsContainer}
+        suppressSectionHeader={false}
+      >
+        <ClaudeyeBrandAppearanceSection
+          defaultValues={getOptionValue(data?.data, customColors)}
+        />
+      </SettingsPageProvider>
+    </>
+  )
+}
+
+function QueryConnectedHarness() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          mutations: { retry: false },
+          queries: { retry: false },
+        },
+      })
+  )
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <QueryConnectedSection />
+    </QueryClientProvider>
+  )
+}
+
+async function renderSection(rootComponent = SectionHarness) {
+  const rootRoute = createRootRoute({ component: rootComponent })
   const router = createRouter({
     routeTree: rootRoute,
     history: createMemoryHistory({ initialEntries: ['/'] }),
@@ -159,6 +202,8 @@ describe('ClaudeyeBrandAppearanceSection', () => {
   afterEach(() => {
     cleanup()
     updateOption.mockRestore()
+    getOptions?.mockRestore()
+    getOptions = undefined
   })
 
   test('renders four native color pickers, HEX inputs, and visible swatches', async () => {
@@ -391,6 +436,97 @@ describe('ClaudeyeBrandAppearanceSection', () => {
     expect((lightText as HTMLInputElement).value).toBe('#123456')
     expect((darkMark as HTMLInputElement).value).toBe('#654321')
     await waitFor(() => expect(save.disabled).toBe(false))
+  })
+
+  test('retains failed and unsent edits when an earlier save refetches system options', async () => {
+    const serverColors = { ...customColors }
+    getOptions = vi
+      .spyOn(systemApi, 'getSystemOptions')
+      .mockImplementation(async () => ({
+        success: true,
+        message: '',
+        data: Object.entries(serverColors).map(([key, value]) => ({
+          key,
+          value,
+        })),
+      }))
+
+    let updateCount = 0
+    let resolveSecondUpdate:
+      | ((response: { success: boolean; message: string }) => void)
+      | undefined
+    updateOption.mockImplementation(
+      async (request: Parameters<typeof systemApi.updateSystemOption>[0]) => {
+        updateCount += 1
+        if (updateCount === 2) {
+          return new Promise((resolve) => {
+            resolveSecondUpdate = resolve
+          })
+        }
+
+        serverColors[request.key as keyof typeof serverColors] = String(
+          request.value
+        )
+        return { success: true, message: '' }
+      }
+    )
+
+    const view = await renderSection(QueryConnectedHarness)
+    const lightMark = (await view.findByLabelText(
+      'Light surface mark color'
+    )) as HTMLInputElement
+    const lightText = view.getByLabelText(
+      'Light surface wordmark color'
+    ) as HTMLInputElement
+    const darkMark = view.getByLabelText(
+      'Dark surface mark color'
+    ) as HTMLInputElement
+    const darkText = view.getByLabelText(
+      'Dark surface wordmark color'
+    ) as HTMLInputElement
+    const save = view.getByRole('button', {
+      name: 'Save Changes',
+    }) as HTMLButtonElement
+
+    fireEvent.change(lightMark, { target: { value: '#abcdef' } })
+    fireEvent.change(lightText, { target: { value: '#123456' } })
+    fireEvent.change(darkMark, { target: { value: '#654321' } })
+    await waitFor(() => expect(save.disabled).toBe(false))
+    fireEvent.click(save)
+
+    await waitFor(() => expect(updateOption).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      resolveSecondUpdate?.({
+        success: false,
+        message: 'Database write failed',
+      })
+    })
+
+    await waitFor(() => expect(save.disabled).toBe(false))
+    expect(lightMark.value).toBe('#abcdef')
+    expect(lightText.value).toBe('#123456')
+    expect(darkMark.value).toBe('#654321')
+    expect(updateOption).toHaveBeenCalledTimes(2)
+
+    serverColors['brand_setting.claudeye_dark_text_color'] = '#CCCCCC'
+    fireEvent.click(save)
+
+    await waitFor(() => expect(updateOption).toHaveBeenCalledTimes(5))
+    await waitFor(() => {
+      expect(save.disabled).toBe(true)
+      expect(lightMark.value).toBe('#ABCDEF')
+      expect(lightText.value).toBe('#123456')
+      expect(darkMark.value).toBe('#654321')
+      expect(darkText.value).toBe('#CCCCCC')
+    })
+    expect(serverColors).toEqual({
+      ...customColors,
+      'brand_setting.claudeye_light_mark_color': '#ABCDEF',
+      'brand_setting.claudeye_light_text_color': '#123456',
+      'brand_setting.claudeye_dark_mark_color': '#654321',
+      'brand_setting.claudeye_dark_text_color': '#CCCCCC',
+    })
   })
 
   test('synchronizes the last valid palette when option values refresh', async () => {
