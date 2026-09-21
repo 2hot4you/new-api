@@ -1,0 +1,12 @@
+{
+  "id": "claudeye-brand-assets-review",
+  "title": "实现 claudeye 双环境可配置品牌配色",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "planning",
+  "nextAction": "等待用户审阅运行时品牌配色设计文档",
+  "createdAt": "2026-09-21T00:00:00+08:00",
+  "branch": "feat/claudeye-runtime-brand-colors"
+}
