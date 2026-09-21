@@ -184,3 +184,105 @@ The commit contains only the brief-owned implementation/test/locale files and th
 
 - Repository-wide lint remains blocked by pre-existing findings outside Task 4 ownership. Task-local lint is clean.
 - No browser-level visual QA was required for this delegated task; interaction and rendering contracts are covered in automated DOM tests.
+
+## Review fix round 1
+
+### Outcome
+
+Addressed both Important review findings without changing the approved per-option API. An HTTP 200 option response with `success: false` now stops the sequential save immediately and prevents `useSettingsForm` from resetting its saved baseline, so all attempted values remain dirty and available for retry. The existing `useUpdateOption` unsuccessful-response handler remains responsible for the visible error toast. Each surface now derives its displayed palette from the actual watched form values whenever both values are valid and stores that complete palette for preview, picker, swatch, and contrast fallback during later partial input.
+
+### RED evidence
+
+Added three regression tests before changing the implementation, then ran:
+
+```bash
+cd web
+bun test src/features/system-settings/site/__tests__/claudeye-brand-colors.test.ts \
+  src/features/system-settings/site/__tests__/claudeye-brand-appearance-section.test.tsx
+```
+
+Expected failures reproduced both findings:
+
+```text
+12 pass
+3 fail
+78 expect() calls
+```
+
+- First-field business failure: expected the attempted `#abcdef` to remain, but the form reset it to `#111111`.
+- Later business failure: expected the sequential loop to stop after 2 calls, but it made 3 calls.
+- Options refresh: expected `surface=light&mark=%23FFFFFF&text=%23222222`, but the preview remained on `%23111111`.
+
+The failure tests also cover retrying the first failed value, preserving all three edits when the second option fails after the first succeeds, and stopping before the third option.
+
+### GREEN evidence
+
+The same focused command after the minimal implementation fix:
+
+```text
+15 pass
+0 fail
+74 expect() calls
+Ran 15 tests across 2 files.
+```
+
+The refresh regression verifies the refreshed valid input (`#FFFFFF`), preview URL, native picker, visible swatch, and low-contrast warning. It then enters partial `#FFF` and verifies that all four surfaces retain the refreshed complete palette rather than the mount-time palette.
+
+### Review-fix verification
+
+```bash
+cd web
+bun run test -- src/features/system-settings
+```
+
+```text
+Test Files  12 passed (12)
+Tests       48 passed (48)
+```
+
+```bash
+cd web
+bun run test
+```
+
+```text
+Test Files  219 passed (219)
+Tests       1535 passed (1535)
+```
+
+```bash
+cd web
+bun run i18n:check
+bun run typecheck
+```
+
+Both passed: locale completeness reported 1 passing test; `tsgo -b` exited 0. An intermediate typecheck correctly caught two test-only `.src` accesses typed as `HTMLElement`; the assertions were narrowed to `HTMLImageElement`, and the final typecheck passed.
+
+```bash
+cd web
+bunx oxlint -c .oxlintrc.json \
+  src/features/system-settings/site/claudeye-brand-colors.ts \
+  src/features/system-settings/site/claudeye-brand-appearance-section.tsx \
+  src/features/system-settings/site/__tests__/claudeye-brand-colors.test.ts \
+  src/features/system-settings/site/__tests__/claudeye-brand-appearance-section.test.tsx \
+  src/features/system-settings/types.ts \
+  src/features/system-settings/site/index.tsx \
+  src/features/system-settings/site/section-registry.tsx
+```
+
+Result: PASS, exit 0 with no output. Focused `oxfmt --check` on the two changed source/test files also passed, and `git diff --check` passed.
+
+```bash
+cd web
+bun run lint
+```
+
+Result: FAIL on the existing repository-wide lint backlog outside Task 4 ownership. Representative unchanged findings remain in `src/lib/utils.ts`, `src/features/redemption-codes/components/redemptions-provider.tsx`, and `src/components/confirm-dialog.tsx`; task-local lint is clean.
+
+### Review-fix self-review and concerns
+
+- Confirmed an unsuccessful response is checked before the next mutation and before the shared form hook can commit/reset its baseline.
+- Confirmed both response-level failures and transport failures continue through the existing mutation hook error UI; the local submit boundary only consumes the rejected control-flow promise to avoid an unhandled event-handler rejection.
+- Confirmed valid watched values immediately drive preview and contrast, while the synchronized last-valid surface palette supplies invalid-input fallback to preview, picker, and swatch.
+- Confirmed the diff from `b111b6c9272390f923168648d841fcd20240e924` changes only the owned section implementation, its interaction test, and this report.
+- With accepted sequential semantics, retrying after a later failure replays an earlier successful option because the complete form remains dirty. Option updates are idempotent, and preserving the full unsaved form is required; no atomic endpoint was added.

@@ -96,6 +96,11 @@ const customColors = {
   'brand_setting.claudeye_dark_text_color': '#DDDDDD',
 }
 
+const refreshedColors = {
+  ...customColors,
+  'brand_setting.claudeye_light_mark_color': '#FFFFFF',
+}
+
 function SectionHarness() {
   const [actionsContainer, setActionsContainer] =
     useState<HTMLDivElement | null>(null)
@@ -105,15 +110,19 @@ function SectionHarness() {
         defaultOptions: { mutations: { retry: false } },
       })
   )
+  const [defaultValues, setDefaultValues] = useState(customColors)
 
   return (
     <QueryClientProvider client={queryClient}>
+      <button type='button' onClick={() => setDefaultValues(refreshedColors)}>
+        Refresh option values
+      </button>
       <div ref={setActionsContainer} />
       <SettingsPageProvider
         actionsContainer={actionsContainer}
         suppressSectionHeader={false}
       >
-        <ClaudeyeBrandAppearanceSection defaultValues={customColors} />
+        <ClaudeyeBrandAppearanceSection defaultValues={defaultValues} />
       </SettingsPageProvider>
     </QueryClientProvider>
   )
@@ -313,6 +322,118 @@ describe('ClaudeyeBrandAppearanceSection', () => {
         value: '#A1B2C3',
       })
     })
+  })
+
+  test('retains attempted values for retry when the first option response is unsuccessful', async () => {
+    updateOption.mockResolvedValueOnce({
+      success: false,
+      message: 'Database write failed',
+    })
+    const view = await renderSection()
+    const markInput = view.getByLabelText('Light surface mark color')
+
+    fireEvent.change(markInput, { target: { value: '#abcdef' } })
+    const save = view.getByRole('button', {
+      name: 'Save Changes',
+    }) as HTMLButtonElement
+    await waitFor(() => expect(save.disabled).toBe(false))
+    fireEvent.click(save)
+
+    await waitFor(() => expect(updateOption).toHaveBeenCalledTimes(1))
+    expect((markInput as HTMLInputElement).value).toBe('#abcdef')
+    await waitFor(() => expect(save.disabled).toBe(false))
+
+    fireEvent.click(save)
+    await waitFor(() => expect(updateOption).toHaveBeenCalledTimes(2))
+    expect(updateOption).toHaveBeenLastCalledWith({
+      key: 'brand_setting.claudeye_light_mark_color',
+      value: '#ABCDEF',
+    })
+  })
+
+  test('stops sequential saves after an unsuccessful later option and retains every edit', async () => {
+    updateOption
+      .mockResolvedValueOnce({ success: true, message: '' })
+      .mockResolvedValueOnce({
+        success: false,
+        message: 'Database write failed',
+      })
+    const view = await renderSection()
+    const lightMark = view.getByLabelText('Light surface mark color')
+    const lightText = view.getByLabelText('Light surface wordmark color')
+    const darkMark = view.getByLabelText('Dark surface mark color')
+
+    fireEvent.change(lightMark, { target: { value: '#abcdef' } })
+    fireEvent.change(lightText, { target: { value: '#123456' } })
+    fireEvent.change(darkMark, { target: { value: '#654321' } })
+    const save = view.getByRole('button', {
+      name: 'Save Changes',
+    }) as HTMLButtonElement
+    await waitFor(() => expect(save.disabled).toBe(false))
+    fireEvent.click(save)
+
+    await waitFor(() => expect(updateOption).toHaveBeenCalledTimes(2))
+    expect(updateOption.mock.calls).toEqual([
+      [
+        {
+          key: 'brand_setting.claudeye_light_mark_color',
+          value: '#ABCDEF',
+        },
+      ],
+      [
+        {
+          key: 'brand_setting.claudeye_light_text_color',
+          value: '#123456',
+        },
+      ],
+    ])
+    expect((lightMark as HTMLInputElement).value).toBe('#abcdef')
+    expect((lightText as HTMLInputElement).value).toBe('#123456')
+    expect((darkMark as HTMLInputElement).value).toBe('#654321')
+    await waitFor(() => expect(save.disabled).toBe(false))
+  })
+
+  test('synchronizes the last valid palette when option values refresh', async () => {
+    const view = await renderSection()
+    const markInput = view.getByLabelText('Light surface mark color')
+    const picker = view.getByLabelText('Light surface mark color picker')
+
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole('button', { name: 'Refresh option values' })
+      )
+    })
+
+    await waitFor(() =>
+      expect((markInput as HTMLInputElement).value).toBe('#FFFFFF')
+    )
+    expect(
+      (
+        view.getByRole('img', {
+          name: 'Light header preview',
+        }) as HTMLImageElement
+      ).src
+    ).toContain('surface=light&mark=%23FFFFFF&text=%23222222')
+    expect((picker as HTMLInputElement).value).toBe('#ffffff')
+    expect(view.getByText('Low contrast').isConnected).toBe(true)
+
+    await act(async () => {
+      fireEvent.change(markInput, { target: { value: '#FFF' } })
+    })
+
+    expect(
+      (
+        view.getByRole('img', {
+          name: 'Light header preview',
+        }) as HTMLImageElement
+      ).src
+    ).toContain('surface=light&mark=%23FFFFFF&text=%23222222')
+    expect((picker as HTMLInputElement).value).toBe('#ffffff')
+    const swatch = markInput
+      .closest('[data-slot="form-item"]')
+      ?.querySelector<HTMLElement>('[data-brand-color-swatch]')
+    expect(swatch?.style.backgroundColor).toBe('#FFFFFF')
+    expect(view.getByText('Low contrast').isConnected).toBe(true)
   })
 
   test('registers brand appearance only for claudeye builds', () => {

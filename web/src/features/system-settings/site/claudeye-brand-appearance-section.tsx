@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   useWatch,
   type ControllerRenderProps,
@@ -120,20 +120,15 @@ function nestedDefaults(values: ClaudeyeBrandValues): ClaudeyeBrandFormValues {
 
 function ColorField(props: {
   field: ControllerRenderProps<ClaudeyeBrandFormValues, ClaudeyeBrandFieldName>
+  fallbackColor: string
   label: string
-  onValueChange: (name: ClaudeyeBrandFieldName, value: string) => void
 }) {
   const { t } = useTranslation()
-  const initialColor = normalizeBrandHex(props.field.value) ?? '#000000'
-  const [lastValidColor, setLastValidColor] = useState(initialColor)
   const normalized = normalizeBrandHex(props.field.value)
-  const pickerValue = normalized ?? lastValidColor
+  const pickerValue = normalized ?? props.fallbackColor
 
   const updateHex = (value: string) => {
     props.field.onChange(value)
-    props.onValueChange(props.field.name, value)
-    const nextColor = normalizeBrandHex(value)
-    if (nextColor) setLastValidColor(nextColor)
   }
 
   return (
@@ -167,6 +162,27 @@ function ColorField(props: {
       <FormMessage />
     </FormItem>
   )
+}
+
+function useLastValidPreview(
+  markValue: string,
+  textValue: string,
+  initialColors: ClaudeyePreviewColors
+) {
+  const mark = normalizeBrandHex(markValue)
+  const text = normalizeBrandHex(textValue)
+  const [lastValid, setLastValid] = useState(initialColors)
+
+  useEffect(() => {
+    if (!mark || !text) return
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLastValid((current) =>
+      current.mark === mark && current.text === text ? current : { mark, text }
+    )
+  }, [mark, text])
+
+  return mark && text ? { mark, text } : lastValid
 }
 
 function BrandPreview(props: {
@@ -249,49 +265,49 @@ export function ClaudeyeBrandAppearanceSection({
         for (const [key, value] of Object.entries(changedFields)) {
           const normalized = normalizeBrandHex(String(value))
           if (!normalized) continue
-          await updateOption.mutateAsync({ key, value: normalized })
+          const response = await updateOption.mutateAsync({
+            key,
+            value: normalized,
+          })
+          if (!response.success) {
+            throw new Error(response.message || 'Failed to update setting')
+          }
         }
       },
     })
 
-  const [lastLightPreview, setLastLightPreview] =
-    useState<ClaudeyePreviewColors>({
+  const watchedColors = useWatch({
+    control: form.control,
+    name: 'brand_setting',
+  })
+  const lastLightPreview = useLastValidPreview(
+    watchedColors.claudeye_light_mark_color,
+    watchedColors.claudeye_light_text_color,
+    {
       mark: defaults.brand_setting.claudeye_light_mark_color,
       text: defaults.brand_setting.claudeye_light_text_color,
-    })
-  const [lastDarkPreview, setLastDarkPreview] = useState<ClaudeyePreviewColors>(
+    }
+  )
+  const lastDarkPreview = useLastValidPreview(
+    watchedColors.claudeye_dark_mark_color,
+    watchedColors.claudeye_dark_text_color,
     {
       mark: defaults.brand_setting.claudeye_dark_mark_color,
       text: defaults.brand_setting.claudeye_dark_text_color,
     }
   )
-  const watchedColors = useWatch({
-    control: form.control,
-    name: 'brand_setting',
-  })
   const allColorsValid = Object.values(watchedColors).every(
     (value) => normalizeBrandHex(value) !== null
   )
-
-  const updatePreview = (name: ClaudeyeBrandFieldName, value: string) => {
-    const current = form.getValues().brand_setting
-    const settingName = name.replace(
-      'brand_setting.',
-      ''
-    ) as keyof ClaudeyeBrandFormValues['brand_setting']
-    const next = { ...current, [settingName]: value }
-
-    if (name.includes('_light_')) {
-      const mark = normalizeBrandHex(next.claudeye_light_mark_color)
-      const text = normalizeBrandHex(next.claudeye_light_text_color)
-      if (mark && text) setLastLightPreview({ mark, text })
-      return
-    }
-
-    const mark = normalizeBrandHex(next.claudeye_dark_mark_color)
-    const text = normalizeBrandHex(next.claudeye_dark_text_color)
-    if (mark && text) setLastDarkPreview({ mark, text })
+  const fallbackColors: Record<ClaudeyeBrandFieldName, string> = {
+    'brand_setting.claudeye_light_mark_color': lastLightPreview.mark,
+    'brand_setting.claudeye_light_text_color': lastLightPreview.text,
+    'brand_setting.claudeye_dark_mark_color': lastDarkPreview.mark,
+    'brand_setting.claudeye_dark_text_color': lastDarkPreview.text,
   }
+
+  const submitForm = (...args: Parameters<typeof handleSubmit>) =>
+    handleSubmit(...args).catch(() => undefined)
 
   const restoreDefaults = () => {
     for (const field of ALL_FIELDS) {
@@ -301,14 +317,6 @@ export function ClaudeyeBrandAppearanceSection({
         shouldValidate: true,
       })
     }
-    setLastLightPreview({
-      mark: CLAUDEYE_BRAND_DEFAULTS['brand_setting.claudeye_light_mark_color'],
-      text: CLAUDEYE_BRAND_DEFAULTS['brand_setting.claudeye_light_text_color'],
-    })
-    setLastDarkPreview({
-      mark: CLAUDEYE_BRAND_DEFAULTS['brand_setting.claudeye_dark_mark_color'],
-      text: CLAUDEYE_BRAND_DEFAULTS['brand_setting.claudeye_dark_text_color'],
-    })
   }
 
   return (
@@ -316,9 +324,9 @@ export function ClaudeyeBrandAppearanceSection({
       <FormNavigationGuard when={isDirty} />
       <SettingsSection title={t('Brand appearance')}>
         <Form {...form}>
-          <SettingsForm onSubmit={handleSubmit}>
+          <SettingsForm onSubmit={submitForm}>
             <SettingsPageFormActions
-              onSave={handleSubmit}
+              onSave={submitForm}
               onReset={restoreDefaults}
               resetLabel='Restore default colors'
               isSaving={isSubmitting || updateOption.isPending}
@@ -334,8 +342,8 @@ export function ClaudeyeBrandAppearanceSection({
                   render={({ field }) => (
                     <ColorField
                       field={field}
+                      fallbackColor={fallbackColors[descriptor.name]}
                       label={descriptor.label}
-                      onValueChange={updatePreview}
                     />
                   )}
                 />
