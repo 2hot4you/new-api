@@ -77,3 +77,53 @@ $ git diff --check
 ```
 
 No known outstanding Task 4 security-review findings remain in the assigned scope.
+
+## Round 2 direct StarAI compatibility fix
+
+The Round 1 expiry hardening was too broad. It now applies only when `channel_type` is ByteDance Seedance. Legacy bindings with no channel type and explicit direct StarAI bindings retain their former behavior: save resets the configured local expiry, lookup/update do not reject based on the JSON expiry field, create does not require an immediate expiry refresh, and refresh/generation ignore upstream `expires_at`. Reseller ownership, diagnostic, expiry, and 168-hour cap controls remain intact.
+
+### RED evidence
+
+`go test ./controller ./service -run 'TemporaryAssetDirect' -count=1` exited 1 with:
+
+```text
+--- FAIL: TestTemporaryAssetDirectCreateDoesNotRequireExpiryRefresh
+    Should be true
+--- FAIL: TestTemporaryAssetDirectRefreshIgnoresUpstreamExpiresAt
+    Received unexpected error: temporary asset has expired upstream
+--- FAIL: TestTemporaryAssetDirectSaveLookupAndUpdateKeepLegacyExpiryBehavior
+    --- FAIL: .../channel-type-0
+        Received unexpected error: temporary asset has expired upstream
+    --- FAIL: .../channel-type-61
+        Received unexpected error: temporary asset has expired upstream
+--- FAIL: TestTemporaryAssetDirectGenerationIgnoresUpstreamExpiresAt
+    --- FAIL: .../channel-type-0
+        Received unexpected error: temporary asset has expired upstream
+    --- FAIL: .../channel-type-61
+        Received unexpected error: temporary asset has expired upstream
+```
+
+### GREEN evidence / final validation
+
+```text
+$ go test ./controller ./service -run 'TemporaryAssetDirect|TemporaryAssetReseller' -count=1
+ok  github.com/QuantumNous/new-api/controller  1.394s
+ok  github.com/QuantumNous/new-api/service  2.179s
+
+$ go test ./controller ./service -run 'Asset|COSUpload' -count=1
+ok  github.com/QuantumNous/new-api/controller  1.415s
+ok  github.com/QuantumNous/new-api/service  2.141s
+
+$ go test ./relay/channel/task/bytedanceseedance -count=1
+ok  github.com/QuantumNous/new-api/relay/channel/task/bytedanceseedance  0.839s
+
+$ go test ./controller ./service -count=1
+ok  github.com/QuantumNous/new-api/controller  29.679s
+ok  github.com/QuantumNous/new-api/service  2.993s
+
+$ go vet ./controller ./service ./relay/channel/task/bytedanceseedance
+(exit 0; no output)
+
+$ git diff --check
+(exit 0; no output)
+```

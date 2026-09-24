@@ -208,9 +208,12 @@ func normalizeStarAIAssetStatus(status string) string {
 }
 
 func safeStarAIAsset(binding *service.StarAIAssetBinding) starAIAssetResponse {
-	status := service.NormalizeTemporaryAssetStatus(binding.ChannelType, binding.Status)
-	if status == "" {
-		status = "PROCESSING"
+	status := binding.Status
+	if binding.ChannelType == constant.ChannelTypeByteDanceSeedance {
+		status = service.NormalizeTemporaryAssetStatus(binding.ChannelType, binding.Status)
+		if status == "" {
+			status = "PROCESSING"
+		}
 	}
 	sourceKind := binding.SourceKind
 	previewURL := binding.SourceURL
@@ -295,7 +298,9 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 	binding.AssetType = input.AssetType
 	binding.Name = input.Name
 	binding.Status = initialStatus
-	binding.ExpiresAt = upstream.ExpiresAt
+	if channel.Type == constant.ChannelTypeByteDanceSeedance {
+		binding.ExpiresAt = upstream.ExpiresAt
+	}
 	if upstream.Error != nil && initialStatus == "FAILED" {
 		binding.ErrorCode, binding.ErrorMessage = service.SafeTemporaryAssetFailure(channel.Type, upstream.Error.Code, upstream.Error.Message)
 	}
@@ -307,7 +312,7 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "temporary asset mapping unavailable"})
 		return nil, false
 	}
-	if upstream.ExpiresAt == 0 {
+	if channel.Type == constant.ChannelTypeByteDanceSeedance && upstream.ExpiresAt == 0 {
 		if _, err := refreshStarAIAsset(c, binding); err != nil {
 			_ = service.DeleteStarAIAssetBinding(binding.ID, binding.UserID)
 			c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "temporary asset verification failed"})
@@ -446,7 +451,7 @@ func refreshStarAIAsset(c *gin.Context, binding *service.StarAIAssetBinding) (*s
 	if upstream.AssetType != "" {
 		binding.AssetType = upstream.AssetType
 	}
-	if upstream.ExpiresAt > 0 {
+	if binding.ChannelType == constant.ChannelTypeByteDanceSeedance && upstream.ExpiresAt > 0 {
 		binding.ExpiresAt = upstream.ExpiresAt
 	}
 	errorCode, errorMessage := "", ""

@@ -185,3 +185,54 @@ func TestTemporaryAssetResellerMissingUpstreamExpiryUses168HourCap(t *testing.T)
 	require.Equal(t, int32(2), calls.Load())
 	require.LessOrEqual(t, binding.ExpiresAt, time.Now().Add(168*time.Hour).Unix())
 }
+
+func TestTemporaryAssetDirectCreateDoesNotRequireExpiryRefresh(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	useControllerStarAIAssetRedis(t)
+	var getCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			getCalls.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"asset-direct","status":"ACTIVE"}`))
+	}))
+	t.Cleanup(server.Close)
+	baseURL := server.URL
+	require.NoError(t, db.Create(&model.Channel{Type: constant.ChannelTypeStarAI, Status: common.ChannelStatusEnabled, Name: "direct", Key: "direct-key", BaseURL: &baseURL}).Error)
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/assets", nil)
+	ctx.Set("id", 42)
+	binding, ok := createStarAIAssetUpstream(ctx, createStarAIAssetRequest{AssetType: "image", Name: "reference"}, &service.StarAIAssetBinding{})
+	require.True(t, ok)
+	require.Equal(t, "asset-direct", binding.ID)
+	require.Zero(t, getCalls.Load())
+}
+
+func TestTemporaryAssetDirectRefreshIgnoresUpstreamExpiresAt(t *testing.T) {
+	for _, channelType := range []int{0, constant.ChannelTypeStarAI} {
+		t.Run(fmt.Sprintf("channel-type-%d", channelType), func(t *testing.T) {
+			db := setupSingleStarAIChannelTestDB(t)
+			useControllerStarAIAssetRedis(t)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprintf(w, `{"status":"ACTIVE","expires_at":%d}`, time.Now().Add(-time.Hour).Unix())
+			}))
+			t.Cleanup(server.Close)
+			baseURL := server.URL
+			channel := &model.Channel{Type: constant.ChannelTypeStarAI, Status: common.ChannelStatusEnabled, Name: "direct", Key: "direct-key", BaseURL: &baseURL}
+			require.NoError(t, db.Create(channel).Error)
+			binding := &service.StarAIAssetBinding{UpstreamID: "asset-direct", UserID: 42, ChannelID: channel.Id, ChannelType: channelType, Status: "PROCESSING"}
+			require.NoError(t, service.SaveStarAIAssetBinding(binding))
+			originalExpiry := binding.ExpiresAt
+			_, err := refreshStarAIAsset(nil, binding)
+			require.NoError(t, err)
+			require.Equal(t, "ACTIVE", binding.Status)
+			require.Equal(t, originalExpiry, binding.ExpiresAt)
+			stored, err := service.GetStarAIAssetBinding(binding.ID, 42)
+			require.NoError(t, err)
+			require.Equal(t, originalExpiry, stored.ExpiresAt)
+		})
+	}
+}

@@ -358,6 +358,49 @@ func TestTemporaryAssetResellerUnknownStatusDoesNotExposeDiagnostic(t *testing.T
 	require.Equal(t, "ACTIVE", stored.Status)
 }
 
+func TestTemporaryAssetDirectSaveLookupAndUpdateKeepLegacyExpiryBehavior(t *testing.T) {
+	for _, channelType := range []int{0, constant.ChannelTypeStarAI} {
+		t.Run(fmt.Sprintf("channel-type-%d", channelType), func(t *testing.T) {
+			useStarAIAssetRedis(t)
+			constant.StarAIAssetTTLHours = 1000
+			binding := &StarAIAssetBinding{UpstreamID: "asset-direct", UserID: 42, ChannelType: channelType, AssetType: "image", Status: "ACTIVE", ExpiresAt: time.Now().Add(-time.Hour).Unix()}
+			require.NoError(t, SaveStarAIAssetBinding(binding))
+			require.Greater(t, binding.ExpiresAt, time.Now().Add(168*time.Hour).Unix())
+			binding.ExpiresAt = time.Now().Add(-time.Hour).Unix()
+			body, err := common.Marshal(binding)
+			require.NoError(t, err)
+			require.NoError(t, common.RDB.Set(context.Background(), starAIAssetBindingKey(binding), body, time.Hour).Err())
+			stored, err := GetStarAIAssetBinding(binding.ID, 42)
+			require.NoError(t, err)
+			require.Equal(t, binding.ExpiresAt, stored.ExpiresAt)
+			require.NoError(t, UpdateStarAIAssetVerification(stored, "ACTIVE", "", ""))
+			_, err = GetStarAIAssetBinding(binding.ID, 42)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestTemporaryAssetDirectGenerationIgnoresUpstreamExpiresAt(t *testing.T) {
+	for _, channelType := range []int{0, constant.ChannelTypeStarAI} {
+		t.Run(fmt.Sprintf("channel-type-%d", channelType), func(t *testing.T) {
+			useStarAIAssetRedis(t)
+			binding := &StarAIAssetBinding{UpstreamID: "asset-direct", UserID: 42, ChannelType: channelType, AssetType: "image", Status: "ACTIVE"}
+			require.NoError(t, SaveStarAIAssetBinding(binding))
+			originalExpiry := binding.ExpiresAt
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprintf(w, `{"status":"ACTIVE","expires_at":%d}`, time.Now().Add(-time.Hour).Unix())
+			}))
+			t.Cleanup(server.Close)
+			resolved, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{BaseURL: server.URL, APIKey: "direct-key", ChannelType: channelType})
+			require.NoError(t, err)
+			require.Equal(t, "asset://asset-direct", resolved)
+			stored, err := GetStarAIAssetBinding(binding.ID, 42)
+			require.NoError(t, err)
+			require.Equal(t, originalExpiry, stored.ExpiresAt)
+		})
+	}
+}
+
 func TestResolveStarAIAssetURIMarksUpstreamNotFoundExpired(t *testing.T) {
 	useStarAIAssetRedis(t)
 	binding := &StarAIAssetBinding{UpstreamID: "asset-gone", UserID: 42, AssetType: "image", Status: "ACTIVE"}
