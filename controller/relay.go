@@ -794,6 +794,9 @@ func executeTaskSubmissionWith(
 	// Reseller Seedance reservations are accounted once by durable terminal
 	// reconciliation, independently of Molii's own billing ledger.
 	finalUsageLogOnly := result.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeByteDanceSeedance))
+	if finalUsageLogOnly {
+		task.PrivateData.BillingContext.GroupRatioCaptured = true
+	}
 	if result.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeMoliiGrokAIGC)) {
 		snapshot := relayInfo.GrokVideoBilling.Clone()
 		finalUsageLogOnly = service.ConfigureGrokVideoFinalUsage(task.PrivateData.BillingContext, snapshot, c.Request.URL.Path)

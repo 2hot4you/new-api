@@ -104,15 +104,47 @@ func TestByteDanceSeedanceBillingSubmissionDoesNotCountFinalUsage(t *testing.T) 
 	assert.Nil(t, outcome.Task.PrivateData.Timing)
 }
 
+func TestByteDanceSeedanceBillingSubmissionCapturesExplicitFreeGroup(t *testing.T) {
+	db := setupSeedancePollingBillingDB(t)
+	events := []string{}
+	info := taskSubmissionRelayInfo(&taskSubmissionTestBilling{events: &events})
+	info.PriceData.ModelRatio = 2
+	info.PriceData.GroupRatioInfo.GroupRatio = 0
+	outcome, taskErr := executeTaskSubmissionWith(taskSubmissionTestContext(), info, func(*gin.Context, *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+		return &relay.TaskSubmitResult{Platform: constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeByteDanceSeedance)), UpstreamTaskID: "task_molii_public", TaskData: []byte(`{"status":"queued"}`)}, nil
+	})
+	require.Nil(t, taskErr)
+	var stored model.Task
+	require.NoError(t, db.First(&stored, outcome.Task.ID).Error)
+	encoded, err := stored.PrivateData.Value()
+	require.NoError(t, err)
+	assert.Contains(t, encoded, `"group_ratio_captured":true`)
+	stored.Status = model.TaskStatusSuccess
+	job := service.BuildTerminalTaskBillingJob(context.Background(), relay.GetTaskAdaptor(stored.Platform), &stored, &relaycommon.TaskInfo{TotalTokens: 100})
+	require.NotNil(t, job.TargetQuota)
+	assert.Zero(t, *job.TargetQuota)
+}
+
 func TestByteDanceSeedancePollingBillingRestartRecovery(t *testing.T) {
+	previousMaxFailures := constant.TaskPollMaxFailures
+	constant.TaskPollMaxFailures = 1
+	t.Cleanup(func() { constant.TaskPollMaxFailures = previousMaxFailures })
 	for _, tc := range []struct {
 		name, body            string
 		wantQuota, wantWallet int
 		review                bool
+		snapshot              string
 	}{
-		{"success", `{"status":"SUCCESS","data":{"usage":{"total_tokens":40,"completion_tokens":30},"upstream_id":"cgt-private","cost":9999,"url":"https://private.invalid?secret=canary"}}`, 40, 960, false},
-		{"failure", `{"status":"FAILURE","fail_reason":"cgt-private secret-canary"}`, 0, 1000, false},
-		{"missing_usage", `{"status":"SUCCESS","cost":0,"data":{"upstream_id":"cgt-private"}}`, 100, 900, true},
+		{"success", `{"status":"SUCCESS","data":{"usage":{"total_tokens":40,"completion_tokens":30},"upstream_id":"cgt-private","cost":9999,"url":"https://private.invalid?secret=canary"}}`, 40, 960, false, ""},
+		{"failure", `{"status":"FAILURE","fail_reason":"cgt-private secret-canary"}`, 0, 1000, false, ""},
+		{"missing_usage", `{"status":"SUCCESS","cost":0,"data":{"upstream_id":"cgt-private"}}`, 100, 900, true, ""},
+		{"fractional_usage", `{"status":"SUCCESS","usage":{"total_tokens":1.5}}`, 100, 900, true, ""},
+		{"string_usage", `{"status":"SUCCESS","usage":{"total_tokens":"100"}}`, 100, 900, true, ""},
+		{"overflow_usage", `{"status":"SUCCESS","usage":{"total_tokens":9223372036854775808}}`, 100, 900, true, ""},
+		{"negative_usage", `{"status":"SUCCESS","usage":{"total_tokens":-10}}`, 100, 900, true, ""},
+		{"quota_overflow", `{"status":"SUCCESS","usage":{"total_tokens":2147483648}}`, 100, 900, true, ""},
+		{"absent_group_ratio", `{"status":"SUCCESS","usage":{"total_tokens":100}}`, 100, 900, true, `{"model_ratio":2}`},
+		{"explicit_free_group", `{"status":"SUCCESS","usage":{"total_tokens":100}}`, 0, 1000, false, `{"model_ratio":2,"group_ratio_captured":true}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupSeedancePollingBillingDB(t)
@@ -134,6 +166,10 @@ func TestByteDanceSeedancePollingBillingRestartRecovery(t *testing.T) {
 				PrivateData: model.TaskPrivateData{UpstreamTaskID: "task_molii_public", BillingSource: service.BillingSourceWallet, TokenId: 1,
 					BillingContext: &model.TaskBillingContext{ModelRatio: 2, GroupRatio: 0.5, OriginModelName: "seedance-2-0"}},
 			}
+			if tc.snapshot != "" {
+				task.PrivateData.BillingContext = &model.TaskBillingContext{}
+				require.NoError(t, common.Unmarshal([]byte(tc.snapshot), task.PrivateData.BillingContext))
+			}
 			require.NoError(t, db.Create(task).Error)
 			_, err := service.RunTaskPollingOnceWithError(context.Background(), nil)
 			require.NoError(t, err)
@@ -141,6 +177,7 @@ func TestByteDanceSeedancePollingBillingRestartRecovery(t *testing.T) {
 			require.NoError(t, db.Where("task_id = ?", task.ID).First(&job).Error)
 			if tc.review {
 				assert.Nil(t, job.TargetQuota)
+				assert.Equal(t, model.TaskBillingOperationSettle, job.Operation)
 			}
 			// An expired worker claim models a process dying after durable enqueue.
 			claimed, err := model.ClaimTaskBillingJobs("crashed-worker", time.Now().Unix(), time.Now().Unix()+60, 1)
@@ -156,6 +193,11 @@ func TestByteDanceSeedancePollingBillingRestartRecovery(t *testing.T) {
 			var stored model.Task
 			require.NoError(t, db.First(&stored, task.ID).Error)
 			assert.Equal(t, tc.wantQuota, stored.Quota)
+			if tc.name == "failure" {
+				assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), stored.Status)
+			} else {
+				assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), stored.Status)
+			}
 			assert.Equal(t, "task_molii_public", stored.PrivateData.UpstreamTaskID)
 			assert.Nil(t, stored.PrivateData.Timing)
 			assert.Nil(t, stored.PrivateData.StoredResult)

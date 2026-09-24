@@ -2,6 +2,7 @@ package bytedanceseedance
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -295,7 +296,24 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, task *model.Task, proxy str
 }
 
 func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, body []byte) (*relaycommon.TaskInfo, error) {
-	var envelope seedanceprotocol.ResponseEnvelope
+	// Decode usage separately so invalid token facts cannot turn an otherwise
+	// valid SUCCESS into a hook error and eventually an automatic refund.
+	// Keep this projection local: direct StarAI's decoding contract is unchanged.
+	var envelope struct {
+		Code   any             `json:"code"`
+		Status string          `json:"status"`
+		Usage  json.RawMessage `json:"usage"`
+		Data   struct {
+			Status string          `json:"status"`
+			Usage  json.RawMessage `json:"usage"`
+			Data   struct {
+				Status     string          `json:"status"`
+				Usage      json.RawMessage `json:"usage"`
+				Duration   float64         `json:"duration"`
+				Resolution string          `json:"resolution"`
+			} `json:"data"`
+		} `json:"data"`
+	}
 	if err := seedanceprotocol.DecodeResponse(body, &envelope); err != nil {
 		return nil, errors.New("invalid Molii video task response")
 	}
@@ -311,10 +329,10 @@ func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, body []by
 		return nil, errors.New("Molii video task response has unknown status")
 	}
 	usage := envelope.Data.Data.Usage
-	if usage == nil {
+	if len(usage) == 0 {
 		usage = envelope.Data.Usage
 	}
-	if usage == nil {
+	if len(usage) == 0 {
 		usage = envelope.Usage
 	}
 	result := &relaycommon.TaskInfo{
@@ -325,13 +343,39 @@ func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, body []by
 		ActualDurationSeconds: envelope.Data.Data.Duration,
 		ActualResolution:      safeResolution(envelope.Data.Data.Resolution),
 	}
-	if usage != nil {
-		result.CompletionTokens, result.TotalTokens = usage.CompletionTokens, usage.TotalTokens
-	}
+	result.CompletionTokens, result.TotalTokens = trustworthyPollingTokens(usage)
 	if result.Status == model.TaskStatusFailure {
 		result.Reason = "Molii video task failed"
 	}
 	return result, nil
+}
+
+// Both zero means usage is unavailable/indeterminate, never a free settlement.
+// Reject the entire usage fact set if either present token field is malformed;
+// a valid sibling must not mask an invalid total or completion count.
+func trustworthyPollingTokens(raw json.RawMessage) (completion, total int) {
+	var usage struct {
+		Completion json.RawMessage `json:"completion_tokens"`
+		Total      json.RawMessage `json:"total_tokens"`
+	}
+	if json.Unmarshal(raw, &usage) != nil {
+		return 0, 0
+	}
+	for _, field := range []struct {
+		raw    json.RawMessage
+		target *int
+	}{
+		{usage.Completion, &completion}, {usage.Total, &total},
+	} {
+		if len(field.raw) == 0 {
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(field.raw), []byte("null")) ||
+			json.Unmarshal(field.raw, field.target) != nil || *field.target < 0 {
+			return 0, 0
+		}
+	}
+	return completion, total
 }
 
 func (a *TaskAdaptor) IsPrivateTaskPolling() bool { return true }

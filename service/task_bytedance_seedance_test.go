@@ -7,6 +7,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -34,6 +35,9 @@ func TestByteDanceSeedanceBillingUsesOnlyReliableUsageAndLocalSnapshot(t *testin
 		want   *int
 	}{
 		{name: "missing usage requires review"},
+		{name: "finite quota overflow requires review", result: relaycommon.TaskInfo{TotalTokens: common.MaxQuota}, change: func(task *model.Task) { task.PrivateData.BillingContext.ModelRatio = 100 }},
+		{name: "infinite calculation requires review", result: relaycommon.TaskInfo{TotalTokens: 100}, change: func(task *model.Task) { task.PrivateData.BillingContext.ModelRatio = math.MaxFloat64 }},
+		{name: "infinite snapshot requires review", result: relaycommon.TaskInfo{TotalTokens: 100}, change: func(task *model.Task) { task.PrivateData.BillingContext.GroupRatio = math.Inf(1) }},
 		{name: "total tokens", result: relaycommon.TaskInfo{TotalTokens: 100, CompletionTokens: 80}, want: intPointerSeedance(25)},
 		{name: "completion fallback", result: relaycommon.TaskInfo{CompletionTokens: 80}, want: intPointerSeedance(20)},
 		{name: "negative usage requires review", result: relaycommon.TaskInfo{TotalTokens: -1, CompletionTokens: 80}},
@@ -42,7 +46,9 @@ func TestByteDanceSeedanceBillingUsesOnlyReliableUsageAndLocalSnapshot(t *testin
 		{name: "invalid local price requires review", result: relaycommon.TaskInfo{TotalTokens: 100}, change: func(task *model.Task) { task.PrivateData.BillingContext.ModelRatio = math.NaN() }},
 		{name: "invalid multiplier requires review", result: relaycommon.TaskInfo{TotalTokens: 100}, change: func(task *model.Task) { task.PrivateData.BillingContext.OtherRatios["local_discount"] = -1 }},
 		{name: "no current group lookup", result: relaycommon.TaskInfo{TotalTokens: 100}, change: func(task *model.Task) { task.Group = "" }, want: intPointerSeedance(25)},
-		{name: "explicit free group", result: relaycommon.TaskInfo{TotalTokens: 100}, change: func(task *model.Task) { task.PrivateData.BillingContext.GroupRatio = 0 }, want: intPointerSeedance(0)},
+		{name: "explicit free group", result: relaycommon.TaskInfo{TotalTokens: 100}, change: func(task *model.Task) {
+			require.NoError(t, common.Unmarshal([]byte(`{"group_ratio":0,"group_ratio_captured":true}`), task.PrivateData.BillingContext))
+		}, want: intPointerSeedance(0)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			task := resellerSeedanceTask()
@@ -63,6 +69,32 @@ func TestByteDanceSeedanceBillingUsesOnlyReliableUsageAndLocalSnapshot(t *testin
 }
 
 func intPointerSeedance(value int) *int { return &value }
+
+func TestByteDanceSeedanceBillingGroupRatioProvenanceSurvivesJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name, snapshot string
+		want           *int
+	}{
+		{"absent group ratio", `{"model_ratio":2}`, nil},
+		{"legacy zero is ambiguous", `{"model_ratio":2,"group_ratio":0}`, nil},
+		{"explicit captured zero", `{"model_ratio":2,"group_ratio_captured":true}`, intPointerSeedance(0)},
+		{"legacy positive", `{"model_ratio":2,"group_ratio":0.5}`, intPointerSeedance(100)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := resellerSeedanceTask()
+			task.Status = model.TaskStatusSuccess
+			var private model.TaskPrivateData
+			require.NoError(t, private.Scan(`{"billing_context":`+tc.snapshot+`}`))
+			encoded, err := private.Value()
+			require.NoError(t, err)
+			task.PrivateData = model.TaskPrivateData{}
+			require.NoError(t, task.PrivateData.Scan(encoded))
+			job := BuildTerminalTaskBillingJob(context.Background(), &mockAdaptor{}, task, &relaycommon.TaskInfo{TotalTokens: 100})
+			require.NotNil(t, job)
+			assert.Equal(t, tc.want, job.TargetQuota)
+		})
+	}
+}
 
 func TestByteDanceSeedancePollingRetryableErrorsRetainState(t *testing.T) {
 	previous := constant.TaskPollMaxFailures

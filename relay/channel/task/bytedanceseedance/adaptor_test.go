@@ -235,6 +235,37 @@ func TestPollDropsNestedStarAIPrivateDiagnostics(t *testing.T) {
 	assert.True(t, privacy.IsTaskPollingStatusAccepted(http.StatusOK))
 }
 
+func TestByteDanceSeedancePollingSuccessWithMalformedUsageRequiresReview(t *testing.T) {
+	for _, usage := range []string{
+		`{"total_tokens":1.5}`, `{"total_tokens":"100"}`, `{"total_tokens":9223372036854775808}`,
+		`{"total_tokens":1e1000}`, `{"total_tokens":"NaN"}`, `{"total_tokens":"Inf"}`,
+		`{"total_tokens":-1}`, `{"total_tokens":null,"completion_tokens":100}`,
+		`{"total_tokens":100,"completion_tokens":1.5}`, `{"completion_tokens":"10"}`,
+		`null`, `[]`, `"malformed"`, `{}`,
+	} {
+		for _, body := range []string{
+			`{"status":"SUCCESS","usage":` + usage + `}`,
+			`{"data":{"status":"SUCCESS","usage":` + usage + `}}`,
+			`{"data":{"data":{"status":"SUCCESS","usage":` + usage + `}}}`,
+		} {
+			t.Run(body, func(t *testing.T) {
+				adaptor := &TaskAdaptor{}
+				result, err := adaptor.ParseTaskResult(nil, nil, []byte(body))
+				require.NoError(t, err, "usage errors must not become poll hook failures")
+				require.Equal(t, model.TaskStatusSuccess, result.Status)
+				assert.Zero(t, result.TotalTokens)
+				assert.Zero(t, result.CompletionTokens)
+				task := &model.Task{Platform: constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeByteDanceSeedance)), Status: model.TaskStatusSuccess, Quota: 100,
+					PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{ModelRatio: 2, GroupRatio: 1}}}
+				job := service.BuildTerminalTaskBillingJob(context.Background(), adaptor, task, result)
+				require.NotNil(t, job)
+				assert.Equal(t, model.TaskBillingOperationSettle, job.Operation)
+				assert.Nil(t, job.TargetQuota)
+			})
+		}
+	}
+}
+
 func TestOpenAIVideoPollPreservesUsageWithoutPrivateFields(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 	result, err := adaptor.ParseTaskResult(nil, nil, []byte(`{"id":"task_molii_public","status":"completed","usage":{"completion_tokens":120,"total_tokens":150},"result_url":"https://molii.example/video.mp4","upstream_id":"cgt-private"}`))

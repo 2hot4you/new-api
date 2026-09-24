@@ -519,6 +519,7 @@ func seedanceResellerTargetQuota(task *model.Task, result *relaycommon.TaskInfo)
 	if bc == nil || bc.PerCallBilling || bc.TieredSnapshot != nil ||
 		bc.ModelRatio <= 0 || math.IsNaN(bc.ModelRatio) || math.IsInf(bc.ModelRatio, 0) ||
 		bc.GroupRatio < 0 || math.IsNaN(bc.GroupRatio) || math.IsInf(bc.GroupRatio, 0) ||
+		(bc.GroupRatio == 0 && !bc.GroupRatioCaptured) ||
 		result.TotalTokens < 0 || result.CompletionTokens < 0 {
 		return nil
 	}
@@ -540,7 +541,10 @@ func seedanceResellerTargetQuota(task *model.Task, result *relaycommon.TaskInfo)
 	if math.IsNaN(quotaValue) || math.IsInf(quotaValue, 0) {
 		return nil
 	}
-	quota, _ := common.QuotaFromFloatChecked(quotaValue)
+	quota, clamp := common.QuotaFromFloatChecked(quotaValue)
+	if clamp != nil {
+		return nil
+	}
 	bc.ActualTokens = tokens
 	return &quota
 }
