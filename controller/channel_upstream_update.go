@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -468,6 +469,16 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	if err != nil {
 		return nil, sanitizeFetchModelsError(err, key)
 	}
+	if channel.Type == constant.ChannelTypeByteDanceSeedance {
+		// Discovery must always authenticate with this channel's configured key.
+		// Keep unrelated custom headers, but not an Authorization override.
+		for name := range headers {
+			if strings.EqualFold(name, "Authorization") {
+				delete(headers, name)
+			}
+		}
+		headers.Set("Authorization", "Bearer "+key)
+	}
 
 	var body []byte
 	if channel.Type == constant.ChannelTypeMoliiGrokAIGC {
@@ -516,10 +527,37 @@ func validateByteDanceSeedanceBaseURL(raw string) (string, error) {
 	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
 		return "", errors.New("ByteDance Seedance requires an absolute HTTP(S) Base URL")
 	}
-	if self, selfErr := url.Parse(strings.TrimSpace(system_setting.ServerAddress)); selfErr == nil && self.Hostname() != "" && sameTaskMediaOrigin(parsed, self) {
+	if self, selfErr := url.Parse(strings.TrimSpace(system_setting.ServerAddress)); selfErr == nil && self.Hostname() != "" && isDirectSeedanceSelfURL(parsed, self) {
 		return "", errors.New("ByteDance Seedance Base URL cannot point to this instance")
 	}
 	return baseURL, nil
+}
+
+func isDirectSeedanceSelfURL(upstream, self *url.URL) bool {
+	upstreamHost := strings.TrimSuffix(strings.ToLower(upstream.Hostname()), ".")
+	selfHost := strings.TrimSuffix(strings.ToLower(self.Hostname()), ".")
+	if upstreamHost == selfHost {
+		return true
+	}
+	isLoopback := func(host string) bool {
+		if host == "localhost" {
+			return true
+		}
+		ip := net.ParseIP(host)
+		return ip != nil && ip.IsLoopback()
+	}
+	return isLoopback(upstreamHost) && isLoopback(selfHost) &&
+		seedanceURLPort(upstream) == seedanceURLPort(self)
+}
+
+func seedanceURLPort(parsed *url.URL) string {
+	if port := parsed.Port(); port != "" {
+		return port
+	}
+	if parsed.Scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {
@@ -818,6 +856,7 @@ scanLoop:
 			}
 
 			checkedChannels++
+			previousModels := normalizeModelNames(channel.GetModels())
 			modelsChanged, autoAdded, err := checkAndPersistChannelUpstreamModelUpdates(channel, &settings, force, allowAutoApply)
 			if err != nil {
 				failedChannels++
@@ -826,7 +865,8 @@ scanLoop:
 				continue
 			}
 			currentAddModels := normalizeModelNames(settings.UpstreamModelUpdateLastDetectedModels)
-			currentRemoveModels := normalizeModelNames(settings.UpstreamModelUpdateLastRemovedModels)
+			currentRemoveModels := mergeModelNames(settings.UpstreamModelUpdateLastRemovedModels,
+				subtractModelNames(previousModels, channel.GetModels()))
 			currentAddCount := len(currentAddModels) + autoAdded
 			currentRemoveCount := len(currentRemoveModels)
 			detectedAddModels += currentAddCount

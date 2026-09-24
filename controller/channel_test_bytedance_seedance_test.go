@@ -34,6 +34,23 @@ func TestByteDanceSeedanceFetchModelsFiltersAuthorizationResponse(t *testing.T) 
 	require.Equal(t, []string{"doubao-seedance-2-5-260628"}, got)
 }
 
+func TestByteDanceSeedanceConnectionTestCannotOverrideConfiguredBearer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer instance-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"doubao-seedance-2-5-260628"}]}`))
+	}))
+	defer server.Close()
+	channel := seedanceResellerChannel(server.URL, "instance-key")
+	override := `{"Authorization":"Bearer replacement-key"}`
+	channel.HeaderOverride = &override
+
+	result := testChannel(context.Background(), channel, 0, "", "", false)
+	require.NoError(t, result.localErr)
+}
+
 func TestByteDanceSeedanceFetchModelsRejectsInvalidAndSelfBaseURL(t *testing.T) {
 	oldAddress := system_setting.ServerAddress
 	system_setting.ServerAddress = "https://reseller.example:443/"
@@ -46,6 +63,25 @@ func TestByteDanceSeedanceFetchModelsRejectsInvalidAndSelfBaseURL(t *testing.T) 
 	}
 	_, err := fetchChannelUpstreamModelIDs(seedanceResellerChannel("https://reseller.example", "instance-key"))
 	require.ErrorContains(t, err, "cannot point to this instance")
+}
+
+func TestByteDanceSeedanceFetchModelsRejectsAlternateSelfAddresses(t *testing.T) {
+	oldAddress := system_setting.ServerAddress
+	t.Cleanup(func() { system_setting.ServerAddress = oldAddress })
+	tests := []struct {
+		name, serverAddress, upstreamAddress string
+	}{
+		{"alternate scheme", "https://reseller.example", "http://reseller.example"},
+		{"IPv4 loopback alias", "http://localhost:3000", "http://127.0.0.1:3000"},
+		{"IPv6 loopback alias", "http://localhost:3000", "http://[::1]:3000"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			system_setting.ServerAddress = test.serverAddress
+			_, err := fetchChannelUpstreamModelIDs(seedanceResellerChannel(test.upstreamAddress, "instance-key"))
+			require.ErrorContains(t, err, "cannot point to this instance")
+		})
+	}
 }
 
 func TestByteDanceSeedanceChannelTestUsesOnlyAuthorizedModelList(t *testing.T) {
@@ -97,6 +133,30 @@ func TestByteDanceSeedanceRefreshRevokesModelsAndKeepsLocalDisableAndOptions(t *
 	require.Equal(t, "doubao-seedance-2-5-260628", reloaded.Models)
 	require.Equal(t, `{"pricing":"local-only","currency":"CNY"}`, reloaded.Other)
 	require.Equal(t, settingBefore, *reloaded.Setting)
+	require.Empty(t, reloaded.GetOtherSettings().UpstreamModelUpdateLastRemovedModels)
+}
+
+func TestByteDanceSeedanceScheduledRevocationReportsRemovedModel(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"doubao-seedance-2-5-260628"}]}`))
+	}))
+	defer server.Close()
+	channel := seedanceResellerChannel(server.URL, "instance-key")
+	channel.Models = "doubao-seedance-2-0-260128,doubao-seedance-2-5-260628"
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true,
+	})
+	require.NoError(t, db.Create(channel).Error)
+
+	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), true, true, nil)
+	require.Equal(t, 1, summary.CheckedChannels)
+	require.Equal(t, 1, summary.ChangedChannels)
+	require.Equal(t, 1, summary.DetectedRemoveModels)
+	require.Zero(t, summary.FailedChannels)
+	reloaded, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.Equal(t, "doubao-seedance-2-5-260628", reloaded.Models)
 	require.Empty(t, reloaded.GetOtherSettings().UpstreamModelUpdateLastRemovedModels)
 }
 

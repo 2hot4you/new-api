@@ -22,3 +22,32 @@
 The native `UpstreamModelUpdateIgnoredModels` list is the explicit local-disable mechanism. The refresh test confirms an ignored authorized model is not re-enabled. Successful automatic sync removes models revoked upstream. Malformed, empty, and unsupported-only lists are errors and retain persisted models. The persistence test confirms `Other` (local pricing/currency fixture) and `Setting` (transport options fixture) remain unchanged. No price, ratio, currency, or option sync was added.
 
 The requested project-native SQLite channel/model harness was used for persistence tests. Save-time form validation lives outside Task 3 file ownership; this task validates Base URL whenever connection testing or model discovery runs.
+
+## Fix Round 1 — review findings
+
+1. `TestByteDanceSeedanceConnectionTestCannotOverrideConfiguredBearer` exercises the real connection test against an HTTP server that returns 401 unless it receives `Bearer instance-key`. A custom `Authorization` override now cannot replace the configured key. Other channel types still use the unchanged shared header behavior.
+2. `TestByteDanceSeedanceFetchModelsRejectsAlternateSelfAddresses` covers the same DNS host over another scheme and `localhost` versus IPv4/IPv6 loopback aliases on the same port. These are rejected before an HTTP request.
+3. `TestByteDanceSeedanceScheduledRevocationReportsRemovedModel` checks that a revocation-only scheduled scan reports one changed channel and one detected removal, persists the narrower model list, and leaves no stale pending removal.
+
+RED command:
+
+```text
+go test ./controller -run 'ByteDanceSeedance(ConnectionTestCannotOverrideConfiguredBearer|FetchModelsRejectsAlternateSelfAddresses|ScheduledRevocationReportsRemovedModel)' -count=1
+--- FAIL: TestByteDanceSeedanceConnectionTestCannotOverrideConfiguredBearer: status code: 401
+--- FAIL: TestByteDanceSeedanceFetchModelsRejectsAlternateSelfAddresses: alternate scheme and IPv4/IPv6 loopback aliases were not rejected
+--- FAIL: TestByteDanceSeedanceScheduledRevocationReportsRemovedModel: expected changed_channels=1, actual=0
+FAIL
+```
+
+GREEN commands/output:
+
+```text
+go test ./controller -run 'ByteDanceSeedance(ConnectionTestCannotOverrideConfiguredBearer|FetchModelsRejectsAlternateSelfAddresses|ScheduledRevocationReportsRemovedModel)' -count=1
+ok  github.com/QuantumNous/new-api/controller  1.361s
+go test ./controller -run 'Channel.*(Model|Fetch|Update|Test)|ByteDanceSeedance' -count=1
+ok  github.com/QuantumNous/new-api/controller  1.275s
+go test ./controller -count=1
+ok  github.com/QuantumNous/new-api/controller  39.190s
+git diff --check
+(no output; exit 0)
+```
