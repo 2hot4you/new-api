@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -555,14 +556,18 @@ func isDirectSeedanceSelfURL(upstream, self *url.URL) bool {
 		seedanceURLPort(upstream) == seedanceURLPort(self)
 }
 
-func seedanceURLPort(parsed *url.URL) string {
+func seedanceURLPort(parsed *url.URL) int {
 	if port := parsed.Port(); port != "" {
-		return port
+		portNumber, err := strconv.Atoi(port)
+		if err != nil {
+			return -1
+		}
+		return portNumber
 	}
 	if parsed.Scheme == "https" {
-		return "443"
+		return 443
 	}
-	return "80"
+	return 80
 }
 
 func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {

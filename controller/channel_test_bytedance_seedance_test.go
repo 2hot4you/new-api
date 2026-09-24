@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -97,6 +98,21 @@ func TestByteDanceSeedanceFetchModelsPermitsSameHostDifferentPort(t *testing.T) 
 	models, err := fetchChannelUpstreamModelIDs(seedanceResellerChannel(server.URL, "instance-key"))
 	require.NoError(t, err)
 	require.Equal(t, []string{"doubao-seedance-2-5-260628"}, models)
+}
+
+func TestByteDanceSeedanceFetchModelsRejectsZeroPaddedSelfPort(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"doubao-seedance-2-5-260628"}]}`))
+	}))
+	defer server.Close()
+	oldAddress := system_setting.ServerAddress
+	system_setting.ServerAddress = server.URL
+	t.Cleanup(func() { system_setting.ServerAddress = oldAddress })
+	portSeparator := strings.LastIndex(server.URL, ":")
+	paddedURL := server.URL[:portSeparator+1] + "0" + server.URL[portSeparator+1:]
+
+	_, err := fetchChannelUpstreamModelIDs(seedanceResellerChannel(paddedURL, "instance-key"))
+	require.ErrorContains(t, err, "cannot point to this instance")
 }
 
 func TestByteDanceSeedanceChannelTestUsesOnlyAuthorizedModelList(t *testing.T) {

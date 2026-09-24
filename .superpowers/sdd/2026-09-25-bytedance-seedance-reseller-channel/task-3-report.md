@@ -77,3 +77,27 @@ ok  github.com/QuantumNous/new-api/controller  32.787s
 git diff --check
 (no output; exit 0)
 ```
+
+## Fix Round 3 — numeric port normalization
+
+`TestByteDanceSeedanceFetchModelsRejectsZeroPaddedSelfPort` runs a real model-list server, configures that URL as the instance address, then asks discovery to fetch the same endpoint with a zero-padded port. The self-address check now parses explicit ports numerically, so `443` and `0443` compare equal. The separate-service test from Round 2 remains green.
+
+RED command/output:
+
+```text
+go test ./controller -run 'ByteDanceSeedanceFetchModelsRejectsZeroPaddedSelfPort' -count=1
+--- FAIL: TestByteDanceSeedanceFetchModelsRejectsZeroPaddedSelfPort
+    An error is expected but got nil.
+FAIL
+```
+
+GREEN commands/output:
+
+```text
+go test ./controller -run 'ByteDanceSeedance' -count=1
+ok  github.com/QuantumNous/new-api/controller  1.441s
+go test ./controller -count=1
+ok  github.com/QuantumNous/new-api/controller  50.950s
+git diff --check
+(no output; exit 0)
+```
