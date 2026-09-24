@@ -20,6 +20,60 @@
 - `go test ./controller ./service -count=1` — PASS.
 - `git diff --check` — PASS.
 
-## Integration concern
+## Round 1 security-review fixes
 
-The existing direct StarAI generation adaptor calls `service.ResolveStarAIAssetURI` and now rejects a reseller binding before contacting upstream. The ByteDance Seedance generation adaptor currently does not call that verifier at all. Wiring that adaptor to call the service with `ChannelTypeByteDanceSeedance` is outside Task 4's assigned file scope and must be handled by its owner before claiming end-to-end reseller generation ownership enforcement.
+- The ByteDance Seedance request builder now verifies every image/video/audio `asset://` reference using `RelayInfo.UserId` and the selected reseller channel before submit. It preserves the exact URI on the generation wire. Missing/deleted, cross-user, expired, and non-success bindings stop before generation.
+- Reseller HTTP-200 FAILED envelopes now persist and return only stable `temporary_asset_failed` / `temporary asset processing failed` values. Unknown status text is not persisted or exposed. Direct StarAI sanitization is unchanged.
+- Past or boundary upstream expiry is rejected and an existing local binding is removed. An upstream expiry learned during generation verification is enforced too.
+- Reseller binding TTL is capped at 168 hours even if configured higher. When required create refresh returns no upstream expiry, the 168-hour local cap remains; failed refresh removes the new local binding.
+
+### RED evidence
+
+`go test ./controller ./service ./relay/channel/task/bytedanceseedance -run 'TemporaryAssetReseller' -count=1` exited 1 with:
+
+```text
+--- FAIL: TestTemporaryAssetResellerHTTP200FailureDoesNotPersistPrivateDiagnostics
+    "private_code" should not contain "private"
+--- FAIL: TestTemporaryAssetResellerRefreshRemovesPastExpiry
+    Expected error with "temporary asset has expired upstream" in chain but got nil.
+--- FAIL: TestTemporaryAssetResellerRejectsExpiredTimestampsAndCapsUnknownExpiry
+    Expected error with "temporary asset has expired upstream" in chain but got nil.
+--- FAIL: TestTemporaryAssetResellerFailedEnvelopeHidesPrivateReason
+    "temporary asset upstream verification failed: private account diagnostic" should not contain "private"
+--- FAIL: TestTemporaryAssetResellerGenerationChecksOwnerAndPreservesRawURI
+    An error is expected but got nil.
+--- FAIL: TestTemporaryAssetResellerGenerationRejectsDeletedExpiredAndNonSuccessBindings
+    An error is expected but got nil.
+```
+
+`go test ./service -run TestTemporaryAssetResellerVerificationRejectsUpstreamExpiredTimestamp -count=1` exited 1 with `Expected error with "temporary asset has expired upstream" in chain but got nil.`
+
+`go test ./service -run TestTemporaryAssetResellerUnknownStatusDoesNotExposeDiagnostic -count=1` exited 1 with `expected: "ACTIVE"`, `actual: "PRIVATE ACCOUNT DIAGNOSTIC"`.
+
+### GREEN evidence / final validation
+
+```text
+$ go test ./controller ./service ./relay/channel/task/bytedanceseedance -run 'TemporaryAssetReseller' -count=1
+ok  github.com/QuantumNous/new-api/controller  3.021s
+ok  github.com/QuantumNous/new-api/service  1.964s
+ok  github.com/QuantumNous/new-api/relay/channel/task/bytedanceseedance  1.173s
+
+$ go test ./controller ./service -run 'Asset|COSUpload' -count=1
+ok  github.com/QuantumNous/new-api/controller  2.275s
+ok  github.com/QuantumNous/new-api/service  1.182s
+
+$ go test ./relay/channel/task/bytedanceseedance -count=1
+ok  github.com/QuantumNous/new-api/relay/channel/task/bytedanceseedance  0.864s
+
+$ go test ./controller ./service -count=1
+ok  github.com/QuantumNous/new-api/controller  33.718s
+ok  github.com/QuantumNous/new-api/service  3.001s
+
+$ go vet ./controller ./service ./relay/channel/task/bytedanceseedance
+(exit 0; no output)
+
+$ git diff --check
+(exit 0; no output)
+```
+
+No known outstanding Task 4 security-review findings remain in the assigned scope.

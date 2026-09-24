@@ -1,11 +1,15 @@
 package bytedanceseedance
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -13,10 +17,155 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/task/seedanceprotocol"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func useResellerAssetRedis(t *testing.T) {
+	t.Helper()
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	oldEnabled, oldRDB := common.RedisEnabled, common.RDB
+	common.RedisEnabled, common.RDB = true, client
+	t.Cleanup(func() { _ = client.Close(); common.RedisEnabled, common.RDB = oldEnabled, oldRDB })
+}
+
+func TestTemporaryAssetResellerGenerationChecksOwnerAndPreservesRawURI(t *testing.T) {
+	useResellerAssetRedis(t)
+	binding := &service.StarAIAssetBinding{UpstreamID: "asset-owned", UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance, AssetType: "image", Status: "ACTIVE"}
+	require.NoError(t, service.SaveStarAIAssetBinding(binding))
+	var assetCalls, generationCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/assets/asset-owned":
+			assetCalls.Add(1)
+			_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
+		case "/v1/video/generations":
+			generationCalls.Add(1)
+			body, _ := io.ReadAll(r.Body)
+			assert.Contains(t, string(body), `"url":"asset://asset-owned"`)
+			_, _ = w.Write([]byte(`{"id":"task_molii_public"}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+	request := relaycommon.TaskSubmitReq{Model: "doubao-seedance-2-5-260628", Prompt: "scene", Images: []string{"asset://asset-owned"}}
+	adaptor := &TaskAdaptor{}
+	ctx, info := testContext(t, request)
+	ctx.Set("task_request", request)
+	info.UserId, info.ChannelBaseUrl, info.ApiKey = 84, server.URL, "account-key"
+	adaptor.Init(info)
+	_, err := adaptor.BuildRequestBody(ctx, info)
+	require.Error(t, err)
+	require.Zero(t, assetCalls.Load())
+	require.Zero(t, generationCalls.Load())
+
+	ctx, info = testContext(t, request)
+	ctx.Set("task_request", request)
+	info.UserId, info.ChannelBaseUrl, info.ApiKey = 42, server.URL, "account-key"
+	adaptor.Init(info)
+	body, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	resp, err := adaptor.DoRequest(ctx, info, body)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, int32(1), assetCalls.Load())
+	require.Equal(t, int32(1), generationCalls.Load())
+}
+
+func TestTemporaryAssetResellerGenerationRejectsDeletedExpiredAndNonSuccessBindings(t *testing.T) {
+	useResellerAssetRedis(t)
+	var upstreamCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
+	}))
+	t.Cleanup(server.Close)
+	for _, tc := range []struct {
+		name, status string
+		deleted      bool
+		expired      bool
+	}{
+		{name: "deleted", status: "ACTIVE", deleted: true},
+		{name: "expired", status: "ACTIVE", expired: true},
+		{name: "processing", status: "PROCESSING"},
+		{name: "failed", status: "FAILED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			binding := &service.StarAIAssetBinding{UpstreamID: "asset-" + tc.name, UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance, AssetType: "image", Status: tc.status}
+			require.NoError(t, service.SaveStarAIAssetBinding(binding))
+			if tc.deleted {
+				require.NoError(t, service.DeleteStarAIAssetBinding(binding.ID, 42))
+			}
+			if tc.expired {
+				binding.ExpiresAt = time.Now().Add(-time.Second).Unix()
+				body, err := common.Marshal(binding)
+				require.NoError(t, err)
+				require.NoError(t, common.RDB.Set(context.Background(), fmt.Sprintf("starai:asset:user:42:%s", binding.ID), body, time.Hour).Err())
+			}
+			request := relaycommon.TaskSubmitReq{Model: "doubao-seedance-2-5-260628", Prompt: "scene", Images: []string{"asset://" + binding.ID}}
+			ctx, info := testContext(t, request)
+			ctx.Set("task_request", request)
+			info.UserId, info.ChannelBaseUrl, info.ApiKey = 42, server.URL, "account-key"
+			adaptor := &TaskAdaptor{}
+			adaptor.Init(info)
+			_, err := adaptor.BuildRequestBody(ctx, info)
+			require.Error(t, err)
+		})
+	}
+	require.Zero(t, upstreamCalls.Load())
+}
+
+func TestTemporaryAssetResellerVerifiesImageVideoAndAudioReferences(t *testing.T) {
+	useResellerAssetRedis(t)
+	var assetCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assetCalls.Add(1)
+		_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
+	}))
+	t.Cleanup(server.Close)
+	for _, tc := range []struct{ kind, role string }{
+		{kind: "image", role: "reference_image"},
+		{kind: "video", role: "reference_video"},
+		{kind: "audio", role: "reference_audio"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			binding := &service.StarAIAssetBinding{UpstreamID: "asset-" + tc.kind, UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance, AssetType: tc.kind, Status: "ACTIVE"}
+			require.NoError(t, service.SaveStarAIAssetBinding(binding))
+			request := relaycommon.TaskSubmitReq{Model: "doubao-seedance-2-5-260628", Prompt: "scene"}
+			newContext := func(userID int) (*gin.Context, *relaycommon.RelayInfo) {
+				ctx, info := testContext(t, request)
+				ctx.Set("task_request", request)
+				body := fmt.Sprintf(`{"model":"doubao-seedance-2-5-260628","content":[{"type":"%s_url","%s_url":{"url":"asset://asset-%s"},"role":"%s"}]}`, tc.kind, tc.kind, tc.kind, tc.role)
+				if tc.kind == "audio" {
+					body = `{"model":"doubao-seedance-2-5-260628","content":[{"type":"image_url","image_url":{"url":"https://example.com/reference.png"},"role":"reference_image"},{"type":"audio_url","audio_url":{"url":"asset://asset-audio"},"role":"reference_audio"}]}`
+				}
+				ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", strings.NewReader(body))
+				ctx.Request.Header.Set("Content-Type", "application/json")
+				info.UserId, info.ChannelBaseUrl, info.ApiKey = userID, server.URL, "account-key"
+				return ctx, info
+			}
+			adaptor := &TaskAdaptor{}
+			ctx, info := newContext(84)
+			adaptor.Init(info)
+			_, err := adaptor.BuildRequestBody(ctx, info)
+			require.Error(t, err)
+			require.Zero(t, assetCalls.Load())
+			ctx, info = newContext(42)
+			adaptor.Init(info)
+			body, err := adaptor.BuildRequestBody(ctx, info)
+			require.NoError(t, err)
+			payload, err := io.ReadAll(body)
+			require.NoError(t, err)
+			assert.Contains(t, string(payload), "asset://asset-"+tc.kind)
+			require.Equal(t, int32(1), assetCalls.Swap(0))
+		})
+	}
+}
 
 func testContext(t *testing.T, request relaycommon.TaskSubmitReq) (*gin.Context, *relaycommon.RelayInfo) {
 	t.Helper()

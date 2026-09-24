@@ -208,6 +208,10 @@ func normalizeStarAIAssetStatus(status string) string {
 }
 
 func safeStarAIAsset(binding *service.StarAIAssetBinding) starAIAssetResponse {
+	status := service.NormalizeTemporaryAssetStatus(binding.ChannelType, binding.Status)
+	if status == "" {
+		status = "PROCESSING"
+	}
 	sourceKind := binding.SourceKind
 	previewURL := binding.SourceURL
 	if binding.COSKey != "" {
@@ -216,9 +220,10 @@ func safeStarAIAsset(binding *service.StarAIAssetBinding) starAIAssetResponse {
 	} else if sourceKind == "" && binding.SourceURL != "" {
 		sourceKind = "url"
 	}
-	response := starAIAssetResponse{ID: binding.ID, AssetType: binding.AssetType, Name: binding.Name, SourceURL: binding.SourceURL, PreviewURL: previewURL, SourceKind: sourceKind, FileName: binding.FileName, ContentType: binding.ContentType, FileSize: binding.FileSize, Status: binding.Status, CreatedAt: binding.CreatedAt, ExpiresAt: binding.ExpiresAt, VerifiedAt: binding.VerifiedAt}
+	response := starAIAssetResponse{ID: binding.ID, AssetType: binding.AssetType, Name: binding.Name, SourceURL: binding.SourceURL, PreviewURL: previewURL, SourceKind: sourceKind, FileName: binding.FileName, ContentType: binding.ContentType, FileSize: binding.FileSize, Status: status, CreatedAt: binding.CreatedAt, ExpiresAt: binding.ExpiresAt, VerifiedAt: binding.VerifiedAt}
 	if binding.ErrorCode != "" || binding.ErrorMessage != "" {
-		response.Error = &starAIAssetErrorResponse{Code: binding.ErrorCode, Message: binding.ErrorMessage}
+		code, message := service.SafeTemporaryAssetFailure(binding.ChannelType, binding.ErrorCode, binding.ErrorMessage)
+		response.Error = &starAIAssetErrorResponse{Code: code, Message: message}
 	}
 	return response
 }
@@ -277,7 +282,7 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 		return nil, false
 	}
 	upstream := envelope.payload()
-	initialStatus := normalizeStarAIAssetStatus(upstream.Status)
+	initialStatus := service.NormalizeTemporaryAssetStatus(channel.Type, upstream.Status)
 	if initialStatus == "" {
 		initialStatus = "PROCESSING"
 	}
@@ -292,15 +297,19 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 	binding.Status = initialStatus
 	binding.ExpiresAt = upstream.ExpiresAt
 	if upstream.Error != nil && initialStatus == "FAILED" {
-		binding.ErrorCode = sanitizeStarAIAssetErrorCode(upstream.Error.Code)
-		binding.ErrorMessage = sanitizeStarAIAssetErrorText(upstream.Error.Message)
+		binding.ErrorCode, binding.ErrorMessage = service.SafeTemporaryAssetFailure(channel.Type, upstream.Error.Code, upstream.Error.Message)
 	}
 	if err := service.SaveStarAIAssetBinding(binding); err != nil {
+		if errors.Is(err, service.ErrStarAIAssetExpired) {
+			c.JSON(http.StatusGone, gin.H{"success": false, "message": "temporary asset has expired"})
+			return nil, false
+		}
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "temporary asset mapping unavailable"})
 		return nil, false
 	}
 	if upstream.ExpiresAt == 0 {
 		if _, err := refreshStarAIAsset(c, binding); err != nil {
+			_ = service.DeleteStarAIAssetBinding(binding.ID, binding.UserID)
 			c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "temporary asset verification failed"})
 			return nil, false
 		}
@@ -428,7 +437,11 @@ func refreshStarAIAsset(c *gin.Context, binding *service.StarAIAssetBinding) (*s
 	}
 	upstream := envelope.payload()
 	if upstream.Status != "" {
-		binding.Status = normalizeStarAIAssetStatus(upstream.Status)
+		status := service.NormalizeTemporaryAssetStatus(binding.ChannelType, upstream.Status)
+		if status == "" {
+			return nil, errors.New("invalid temporary asset status")
+		}
+		binding.Status = status
 	}
 	if upstream.AssetType != "" {
 		binding.AssetType = upstream.AssetType

@@ -199,11 +199,43 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err := seedanceprotocol.ValidatePayload(payload); err != nil {
 		return nil, err
 	}
+	if err := a.verifyTemporaryAssets(c, info, payload); err != nil {
+		return nil, err
+	}
 	body, err := common.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
 	return bytes.NewReader(body), nil
+}
+
+func (a *TaskAdaptor) verifyTemporaryAssets(c *gin.Context, info *relaycommon.RelayInfo, payload *seedanceprotocol.Payload) error {
+	verified := make(map[string]struct{})
+	for _, item := range payload.Content {
+		for _, media := range []*seedanceprotocol.MediaURL{item.ImageURL, item.VideoURL, item.AudioURL} {
+			if media == nil || !strings.HasPrefix(media.URL, "asset://") {
+				continue
+			}
+			if info == nil || info.UserId <= 0 {
+				return service.ErrStarAIAssetNotFound
+			}
+			if _, ok := verified[media.URL]; ok {
+				continue
+			}
+			resolved, err := service.ResolveStarAIAssetURI(c.Request.Context(), media.URL, info.UserId, service.StarAIAssetVerificationConfig{
+				BaseURL: info.ChannelBaseUrl, APIKey: info.ApiKey, Proxy: info.ChannelSetting.Proxy,
+				ChannelType: constant.ChannelTypeByteDanceSeedance,
+			})
+			if err != nil {
+				return err
+			}
+			if resolved != media.URL {
+				return service.ErrStarAIAssetVerify
+			}
+			verified[media.URL] = struct{}{}
+		}
+	}
+	return nil
 }
 
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, body io.Reader) (*http.Response, error) {

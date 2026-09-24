@@ -30,6 +30,28 @@ var (
 	ErrStarAIAssetAmbiguous   = errors.New("temporary asset ID is shared by multiple users")
 )
 
+const temporaryAssetMaxTTL = 168 * time.Hour
+
+func SafeTemporaryAssetFailure(channelType int, code, message string) (string, string) {
+	if channelType == constant.ChannelTypeByteDanceSeedance {
+		return "temporary_asset_failed", "temporary asset processing failed"
+	}
+	return SanitizeStarAIAssetErrorCode(code), SanitizeStarAIAssetErrorMessage(message)
+}
+
+func NormalizeTemporaryAssetStatus(channelType int, status string) string {
+	normalized := NormalizeStarAIAssetStatus(status)
+	if channelType != constant.ChannelTypeByteDanceSeedance {
+		return normalized
+	}
+	switch normalized {
+	case "ACTIVE", "SUCCESS", "PROCESSING", "PENDING", "QUEUED", "FAILED", "EXPIRED":
+		return normalized
+	default:
+		return ""
+	}
+}
+
 type StarAIAssetBinding struct {
 	ID                    string `json:"id"`
 	UpstreamID            string `json:"upstream_id"`
@@ -73,9 +95,10 @@ type StarAIAssetVerificationConfig struct {
 }
 
 type starAIAssetVerificationResponse struct {
-	Status string                           `json:"status"`
-	Error  *starAIAssetVerificationError    `json:"error,omitempty"`
-	Data   *starAIAssetVerificationResponse `json:"data,omitempty"`
+	Status    string                           `json:"status"`
+	ExpiresAt int64                            `json:"expires_at"`
+	Error     *starAIAssetVerificationError    `json:"error,omitempty"`
+	Data      *starAIAssetVerificationResponse `json:"data,omitempty"`
 }
 
 type starAIAssetVerificationError struct {
@@ -171,15 +194,32 @@ func SaveStarAIAssetBinding(binding *StarAIAssetBinding) error {
 	binding.UpstreamID = strings.TrimSpace(binding.UpstreamID)
 	binding.ID = binding.UpstreamID
 	now := time.Now()
+	if binding.ExpiresAt != 0 && binding.ExpiresAt <= now.Unix() {
+		return ErrStarAIAssetExpired
+	}
 	ttl := time.Duration(constant.StarAIAssetTTLHours) * time.Hour
 	if ttl <= 0 {
 		ttl = time.Duration(constant.DefaultStarAIAssetTTLHours) * time.Hour
 	}
+	if binding.ChannelType == constant.ChannelTypeByteDanceSeedance && ttl > temporaryAssetMaxTTL {
+		ttl = temporaryAssetMaxTTL
+	}
 	binding.CreatedAt = now.Unix()
-	if binding.ExpiresAt > now.Unix() && binding.ExpiresAt < now.Add(ttl).Unix() {
+	if binding.ExpiresAt > 0 && binding.ExpiresAt < now.Add(ttl).Unix() {
 		ttl = time.Until(time.Unix(binding.ExpiresAt, 0))
 	} else {
 		binding.ExpiresAt = now.Add(ttl).Unix()
+	}
+	if binding.ChannelType == constant.ChannelTypeByteDanceSeedance {
+		binding.Status = NormalizeTemporaryAssetStatus(binding.ChannelType, binding.Status)
+		if binding.Status == "" {
+			binding.Status = "PROCESSING"
+		}
+	}
+	if binding.Status == "FAILED" {
+		binding.ErrorCode, binding.ErrorMessage = SafeTemporaryAssetFailure(binding.ChannelType, binding.ErrorCode, binding.ErrorMessage)
+	} else if binding.ChannelType == constant.ChannelTypeByteDanceSeedance {
+		binding.ErrorCode, binding.ErrorMessage = "", ""
 	}
 	binding.VerifiedAt = now.Unix()
 	body, err := common.Marshal(binding)
@@ -211,6 +251,10 @@ func GetStarAIAssetBinding(id string, userID int) (*StarAIAssetBinding, error) {
 		if binding.UserID != userID {
 			return nil, ErrStarAIAssetForbidden
 		}
+		if binding.ExpiresAt > 0 && binding.ExpiresAt <= time.Now().Unix() {
+			deleteExpiredStarAIAssetBinding(&binding)
+			return nil, ErrStarAIAssetExpired
+		}
 		return &binding, nil
 	}
 	if err != nil && !errors.Is(err, redis.Nil) {
@@ -233,7 +277,19 @@ func GetStarAIAssetBinding(id string, userID int) (*StarAIAssetBinding, error) {
 	if binding.UserID != userID {
 		return nil, ErrStarAIAssetForbidden
 	}
+	if binding.ExpiresAt > 0 && binding.ExpiresAt <= time.Now().Unix() {
+		deleteExpiredStarAIAssetBinding(&binding)
+		return nil, ErrStarAIAssetExpired
+	}
 	return &binding, nil
+}
+
+func deleteExpiredStarAIAssetBinding(binding *StarAIAssetBinding) {
+	ctx := context.Background()
+	pipe := common.RDB.TxPipeline()
+	pipe.Del(ctx, starAIAssetBindingKey(binding))
+	pipe.ZRem(ctx, starAIAssetIndexKey(binding.UserID), binding.ID)
+	_, _ = pipe.Exec(ctx)
 }
 
 func GetStarAIAssetBindingForAdmin(id string) (*StarAIAssetBinding, error) {
@@ -247,6 +303,10 @@ func GetStarAIAssetBindingForAdmin(id string) (*StarAIAssetBinding, error) {
 			var binding StarAIAssetBinding
 			if err := common.Unmarshal(body, &binding); err != nil {
 				return nil, err
+			}
+			if binding.ExpiresAt > 0 && binding.ExpiresAt <= time.Now().Unix() {
+				deleteExpiredStarAIAssetBinding(&binding)
+				return nil, ErrStarAIAssetExpired
 			}
 			return &binding, nil
 		}
@@ -266,6 +326,10 @@ func GetStarAIAssetBindingForAdmin(id string) (*StarAIAssetBinding, error) {
 		}
 		var binding StarAIAssetBinding
 		if common.Unmarshal(body, &binding) != nil || binding.ID != id {
+			continue
+		}
+		if binding.ExpiresAt > 0 && binding.ExpiresAt <= time.Now().Unix() {
+			deleteExpiredStarAIAssetBinding(&binding)
 			continue
 		}
 		if found != nil {
@@ -425,10 +489,16 @@ func UpdateStarAIAssetVerification(binding *StarAIAssetBinding, status, errorCod
 	if binding == nil || !common.RedisEnabled || common.RDB == nil {
 		return ErrStarAIAssetUnavailable
 	}
-	binding.Status = NormalizeStarAIAssetStatus(status)
+	binding.Status = NormalizeTemporaryAssetStatus(binding.ChannelType, status)
+	if binding.Status == "" {
+		return ErrStarAIAssetVerify
+	}
+	if binding.ExpiresAt > 0 && binding.ExpiresAt <= time.Now().Unix() {
+		deleteExpiredStarAIAssetBinding(binding)
+		return ErrStarAIAssetExpired
+	}
 	if binding.Status == "FAILED" {
-		binding.ErrorCode = SanitizeStarAIAssetErrorCode(errorCode)
-		binding.ErrorMessage = SanitizeStarAIAssetErrorMessage(errorMessage)
+		binding.ErrorCode, binding.ErrorMessage = SafeTemporaryAssetFailure(binding.ChannelType, errorCode, errorMessage)
 	} else {
 		binding.ErrorCode = ""
 		binding.ErrorMessage = ""
@@ -444,6 +514,9 @@ func UpdateStarAIAssetVerification(binding *StarAIAssetBinding, status, errorCod
 		if remaining > 0 && remaining < ttl {
 			ttl = remaining
 		}
+	}
+	if binding.ChannelType == constant.ChannelTypeByteDanceSeedance && ttl > temporaryAssetMaxTTL {
+		ttl = temporaryAssetMaxTTL
 	}
 	body, _ := common.Marshal(binding)
 	ctx := context.Background()
@@ -493,6 +566,17 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 	if providerType != requestType {
 		return "", ErrStarAIAssetVerify
 	}
+	if providerType == constant.ChannelTypeByteDanceSeedance {
+		switch NormalizeStarAIAssetStatus(binding.Status) {
+		case "ACTIVE", "SUCCESS":
+		case "EXPIRED":
+			return "", ErrStarAIAssetExpired
+		case "FAILED":
+			return "", ErrStarAIAssetVerify
+		default:
+			return "", ErrStarAIAssetNotReady
+		}
+	}
 	// The local binding lookup above is the authorization boundary. A key
 	// rotated on the same upstream account may still verify the raw asset ID;
 	// another account's not-found response is a safe verification failure.
@@ -536,11 +620,18 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 	if err := common.Unmarshal(body, &envelope); err != nil {
 		return "", fmt.Errorf("%w: invalid response", ErrStarAIAssetVerify)
 	}
-	status := NormalizeStarAIAssetStatus(envelope.payload().Status)
+	status := NormalizeTemporaryAssetStatus(providerType, envelope.payload().Status)
 	if status == "" {
 		return "", fmt.Errorf("%w: response status missing", ErrStarAIAssetVerify)
 	}
 	payload := envelope.payload()
+	if payload.ExpiresAt > 0 {
+		binding.ExpiresAt = payload.ExpiresAt
+		if binding.ExpiresAt <= time.Now().Unix() {
+			deleteExpiredStarAIAssetBinding(binding)
+			return "", ErrStarAIAssetExpired
+		}
+	}
 	errorCode, errorMessage := "", ""
 	if payload.Error != nil {
 		errorCode = payload.Error.Code
@@ -555,6 +646,9 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 	case "EXPIRED":
 		return "", ErrStarAIAssetExpired
 	case "FAILED":
+		if providerType == constant.ChannelTypeByteDanceSeedance {
+			return "", ErrStarAIAssetVerify
+		}
 		if binding.ErrorMessage != "" {
 			return "", fmt.Errorf("%w: %s", ErrStarAIAssetVerify, binding.ErrorMessage)
 		}

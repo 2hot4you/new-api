@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -291,6 +292,70 @@ func TestTemporaryAssetRejectsGenerationOnDifferentProviderBeforeUpstream(t *tes
 	_, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{BaseURL: server.URL, APIKey: "direct-key"})
 	require.ErrorIs(t, err, ErrStarAIAssetVerify)
 	require.Zero(t, calls.Load())
+}
+
+func TestTemporaryAssetResellerRejectsExpiredTimestampsAndCapsUnknownExpiry(t *testing.T) {
+	useStarAIAssetRedis(t)
+	constant.StarAIAssetTTLHours = 1000
+	for _, expiresAt := range []int64{time.Now().Add(-time.Hour).Unix(), time.Now().Unix()} {
+		binding := &StarAIAssetBinding{UpstreamID: "asset-expired", UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance, ExpiresAt: expiresAt}
+		require.ErrorIs(t, SaveStarAIAssetBinding(binding), ErrStarAIAssetExpired)
+		_, err := GetStarAIAssetBinding(binding.UpstreamID, 42)
+		require.ErrorIs(t, err, ErrStarAIAssetNotFound)
+	}
+	binding := &StarAIAssetBinding{UpstreamID: "asset-unknown-expiry", UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+	require.LessOrEqual(t, binding.ExpiresAt, time.Now().Add(168*time.Hour).Unix())
+	ttl, err := common.RDB.TTL(context.Background(), starAIAssetBindingKey(binding)).Result()
+	require.NoError(t, err)
+	require.LessOrEqual(t, ttl, 168*time.Hour)
+}
+
+func TestTemporaryAssetResellerFailedEnvelopeHidesPrivateReason(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{UpstreamID: "asset-failed", UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance, AssetType: "image", Status: "ACTIVE"}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"FAILED","error":{"code":"private_code","message":"private account diagnostic"}}`))
+	}))
+	t.Cleanup(server.Close)
+	_, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{BaseURL: server.URL, APIKey: "account-key", ChannelType: constant.ChannelTypeByteDanceSeedance})
+	require.ErrorIs(t, err, ErrStarAIAssetVerify)
+	require.NotContains(t, err.Error(), "private")
+	stored, err := GetStarAIAssetBinding(binding.ID, 42)
+	require.NoError(t, err)
+	require.NotContains(t, stored.ErrorCode, "private")
+	require.NotContains(t, stored.ErrorMessage, "private")
+}
+
+func TestTemporaryAssetResellerVerificationRejectsUpstreamExpiredTimestamp(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{UpstreamID: "asset-upstream-expired", UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance, AssetType: "image", Status: "ACTIVE"}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"status":"ACTIVE","expires_at":%d}`, time.Now().Add(-time.Second).Unix())
+	}))
+	t.Cleanup(server.Close)
+	_, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{BaseURL: server.URL, APIKey: "account-key", ChannelType: constant.ChannelTypeByteDanceSeedance})
+	require.ErrorIs(t, err, ErrStarAIAssetExpired)
+	_, err = GetStarAIAssetBinding(binding.ID, 42)
+	require.ErrorIs(t, err, ErrStarAIAssetNotFound)
+}
+
+func TestTemporaryAssetResellerUnknownStatusDoesNotExposeDiagnostic(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{UpstreamID: "asset-unknown-status", UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance, AssetType: "image", Status: "ACTIVE"}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"private account diagnostic"}`))
+	}))
+	t.Cleanup(server.Close)
+	_, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{BaseURL: server.URL, APIKey: "account-key", ChannelType: constant.ChannelTypeByteDanceSeedance})
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "private")
+	stored, err := GetStarAIAssetBinding(binding.ID, 42)
+	require.NoError(t, err)
+	require.Equal(t, "ACTIVE", stored.Status)
 }
 
 func TestResolveStarAIAssetURIMarksUpstreamNotFoundExpired(t *testing.T) {
