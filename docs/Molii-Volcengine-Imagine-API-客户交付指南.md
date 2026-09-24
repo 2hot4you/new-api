@@ -8,6 +8,10 @@
 
 本文档面向服务端开发者，说明如何通过 Molii 调用 Seedance 标准版、Fast、Mini 与 2.5。示例只使用 Molii 公共任务 ID 和公共素材 ID；客户端不需要了解底层供应商或渠道实现。
 
+部署配置说明：`Molii Volcengine Imagine API` 是 Molii 持有供应商凭据的直连渠道；独立代理商实例应选择 `ByteDance Seedance`，填写 Molii Base URL 和为该实例单独签发的 Key，通过授权模型同步获取可用模型，并自行配置本地价格。两种渠道不能互换凭据或接入地址，已有直连渠道无需迁移。详见 [ByteDance Seedance 代理渠道配置指南](ByteDance-Seedance-代理渠道配置指南.md)。
+
+代理客户仍按本文公共 API 调用，但使用代理商提供的 Base URL、本地用户 Key 及该实例返回的公共任务 ID；不要索取或使用渠道上游 Key。公网 URL 素材无需代理 COS，本地上传需要代理商自身 COS；代理视频通过鉴权内容接口读取，不再次存储。此说明只区分部署配置，不改变下文 API 契约。
+
 ---
 
 ## 1. 接入准备

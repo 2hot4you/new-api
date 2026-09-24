@@ -3,7 +3,7 @@ title: 临时素材 API
 description: 创建、查询和删除 Seedance 临时素材。
 audience: user
 apiVersion: v1
-lastReviewed: 2026-08-10
+lastReviewed: 2026-09-25
 sourceCommit: d396320dd9c0
 sidebar_position: 6
 ---
@@ -14,7 +14,7 @@ sidebar_position: 6
 
 :::info 适用范围
 
-临时素材 API 当前用于 Molii Volcengine Imagine API 的 Seedance 请求。Grok Imagine 不接受 Seedance `asset://` URI；它使用媒体 URL 或[文件 API](/api-reference/files)返回的 `file_id`。
+临时素材 API 用于 Seedance 请求，包括 Molii Volcengine Imagine API 直连服务和 ByteDance Seedance 独立代理实例。Grok Imagine 不接受 Seedance `asset://` URI；它使用媒体 URL 或[文件 API](/api-reference/files)返回的 `file_id`。
 
 :::
 
@@ -35,6 +35,8 @@ sidebar_position: 6
 | `name` | string | 是 | 无 | 1–80 个 Unicode 字符 | 用户可识别名称 |
 
 源 URL 不能依赖 Molii API Key、Cookie 或调用方自定义请求头。带签名的 URL 必须在验证和上传期间保持有效，并返回正确的媒体 `Content-Type`。
+
+公网 URL 不要求独立代理实例配置对象存储；控制台本地文件上传则需要代理商自己的 COS。没有配置 COS 时仍可提交公网 URL，服务不会代传本地文件。素材 ID 逐层保持不变，但各实例分别检查用户归属；同一用户的有效 Key 可复用素材，不可跨账户共享。独立实例的过期时间不超过上游 `expires_at`。
 
 ### 请求示例
 
@@ -170,6 +172,8 @@ HTTP `200`：
 ## `DELETE /v1/assets/{id}`
 
 删除当前用户的临时素材绑定和可清理内容。删除后该 `asset://` URI 不能继续用于新任务。
+
+独立代理实例只删除本地绑定及关联的本地 COS 对象（如有），不级联删除 Molii 素材；上游按自身生命周期过期。外部公网源文件不会被删除。
 
 ### 鉴权
 

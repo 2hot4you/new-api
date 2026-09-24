@@ -1,9 +1,9 @@
 ---
 title: Seedance API
-description: Molii Volcengine Imagine 中四个 Seedance 模型的参数、多模态输入、异步任务与临时素材说明。
+description: Seedance 模型的参数、多模态输入、异步任务与临时素材说明，适用于直连和独立代理实例。
 audience: user
 apiVersion: v1
-lastReviewed: 2026-09-01
+lastReviewed: 2026-09-25
 sourceCommit: 4b5799a5a
 sidebar_position: 5
 ---
@@ -13,6 +13,14 @@ sidebar_position: 5
 Seedance 支持纯文本、首尾帧、参考图片、参考视频和参考音频组合生成。新接入统一使用 `POST /v1/videos` 创建任务，再通过同一组路径查询和下载结果。
 
 兼容路径 `POST /v1/video/generations` 和 `GET /v1/video/generations/{task_id}` 继续可用，但属于旧版兼容入口；新客户端不应依赖其响应结构。
+
+## 直连接入与独立代理实例
+
+`Molii Volcengine Imagine API` 与 `ByteDance Seedance` 分别用于直连服务和独立代理实例。客户请求结构相同，但必须使用服务方提供的 Base URL、本地用户 Key 和当前实例返回的公共任务 ID；不要索取或使用代理实例连接 Molii 的专属 Key。模型以当前 Key 的 `/v1/models` 授权结果为准，独立实例的价格由服务方本地配置，不随模型同步导入。
+
+独立实例将 Molii 公共任务 ID 保留为私有映射，客户响应不暴露更深层的任务 ID 或凭据。使用本实例 `/v1/videos/{task_id}/content` 鉴权读取视频，支持 GET/HEAD、Range 和 If-Range；不依赖上游结果 URL。播放暂时失败不会重新生成或重复结算。
+
+成功任务若缺少可靠用量，账单可进入 `review_required`：预扣保留等待核查，不表示零消费或已最终结算。请向服务方提供本地公共任务 ID 和请求 ID，不要再次创建相同视频。
 
 ## 模型与边界
 
@@ -256,7 +264,7 @@ curl --fail-with-body --silent --show-error \
 }
 ```
 
-`upstream_id` 是上游在查询响应中提供的可选诊断 ID，可在联系技术支持排查任务时一并提供。它不是 Molii 任务 ID；轮询、下载和其他后续请求必须继续使用创建响应中的 `id`（兼容字段为 `task_id`）。上游未提供该字段时，响应中不会出现它。
+轮询、下载和排障使用创建响应中的公共 `id`（兼容字段为 `task_id`）及请求 ID。`upstream_id` 不属于客户应依赖的公开契约；独立代理实例不会在客户响应中返回私有上游诊断 ID。
 
 成功响应：
 
@@ -264,7 +272,6 @@ curl --fail-with-body --silent --show-error \
 {
   "id": "task_public_789",
   "task_id": "task_public_789",
-  "upstream_id": "cgt-20260910134819-q4gsz",
   "object": "video",
   "model": "doubao-seedance-2-5-260628",
   "status": "completed",
@@ -438,7 +445,7 @@ curl --fail-with-body --silent --show-error \
 }
 ```
 
-保存创建响应中的公共任务 ID。后续查询可能额外返回 `upstream_id` 作为技术支持排障信息，但客户端不得用它替代公共任务 ID 发起请求。
+保存创建响应中的公共任务 ID。后续查询、下载和技术支持排障均使用这个 ID，不依赖上游诊断字段。
 
 ### 错误与重试
 
@@ -481,7 +488,6 @@ curl --fail-with-body --silent --show-error \
   "message": "",
   "data": {
     "task_id": "task_public_789",
-    "upstream_id": "cgt-20260910134819-q4gsz",
     "status": "IN_PROGRESS",
     "progress": "42%",
     "fail_reason": "",
@@ -490,7 +496,7 @@ curl --fail-with-body --silent --show-error \
 }
 ```
 
-`upstream_id` 为可选诊断字段，语义与推荐查询接口一致；轮询和下载仍使用 `task_id`。
+轮询和下载始终使用创建响应中的公共 `task_id`，不要自行构造更深层的任务 ID。
 
 兼容状态为 `SUBMITTED`、`QUEUED`、`IN_PROGRESS`、`SUCCESS` 或 `FAILURE`。只有 `SUCCESS` 与 `FAILURE` 是终态。
 
