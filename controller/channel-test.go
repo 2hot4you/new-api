@@ -187,6 +187,25 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	if channel != nil && channel.Type == constant.ChannelTypeMoliiGrokAIGC {
 		return testMoliiGrokChannel(ctx, channel)
 	}
+	if channel != nil && channel.Type == constant.ChannelTypeByteDanceSeedance {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/models", nil)
+		c.Set("id", testUserID)
+		c.Set("channel_id", channel.Id)
+		c.Set("channel_name", channel.Name)
+		c.Set("channel_type", channel.Type)
+		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
+		models, err := fetchChannelUpstreamModelIDs(channel)
+		if err == nil && len(models) == 0 {
+			err = errors.New("ByteDance Seedance upstream returned no supported authorized models")
+		}
+		if err != nil {
+			apiErr := types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusServiceUnavailable)
+			return testResult{context: c, localErr: apiErr, newAPIError: apiErr}
+		}
+		return testResult{context: c, successMessage: fmt.Sprintf("模型连接测试通过：%d 个受支持模型，未发送生成请求", len(models))}
+	}
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
 		constant.ChannelTypeMidjourney,

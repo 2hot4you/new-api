@@ -20,11 +20,13 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
+	"github.com/QuantumNous/new-api/relay/channel/task/seedanceprotocol"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -388,6 +390,13 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		}
 		baseURL = validatedBaseURL
 	}
+	if channel.Type == constant.ChannelTypeByteDanceSeedance {
+		validatedBaseURL, err := validateByteDanceSeedanceBaseURL(baseURL)
+		if err != nil {
+			return nil, err
+		}
+		baseURL = validatedBaseURL
+	}
 
 	if channel.Type == constant.ChannelTypeOllama {
 		key := strings.TrimSpace(strings.Split(channel.Key, "\n")[0])
@@ -476,6 +485,17 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		}
 		return models, nil
 	}
+	if channel.Type == constant.ChannelTypeByteDanceSeedance {
+		models, err := parseOpenAIModelIDs(body)
+		if err != nil {
+			return nil, sanitizeFetchModelsError(err, key)
+		}
+		supported := seedanceprotocol.FilterSupportedModels(models)
+		if len(supported) == 0 {
+			return nil, errors.New("ByteDance Seedance upstream returned no supported authorized models")
+		}
+		return supported, nil
+	}
 
 	var result OpenAIModelsResponse
 	if err := common.Unmarshal(body, &result); err != nil {
@@ -488,6 +508,18 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return item.ID
 	})
 	return normalizeModelNames(ids), nil
+}
+
+func validateByteDanceSeedanceBaseURL(raw string) (string, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(raw), "/")
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+		return "", errors.New("ByteDance Seedance requires an absolute HTTP(S) Base URL")
+	}
+	if self, selfErr := url.Parse(strings.TrimSpace(system_setting.ServerAddress)); selfErr == nil && self.Hostname() != "" && sameTaskMediaOrigin(parsed, self) {
+		return "", errors.New("ByteDance Seedance Base URL cannot point to this instance")
+	}
+	return baseURL, nil
 }
 
 func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {
@@ -560,15 +592,22 @@ func checkAndPersistChannelUpstreamModelUpdates(
 		return false, 0, fetchErr
 	}
 
-	if allowAutoApply && settings.UpstreamModelUpdateAutoSyncEnabled && len(pendingAddModels) > 0 {
+	if allowAutoApply && settings.UpstreamModelUpdateAutoSyncEnabled && (len(pendingAddModels) > 0 ||
+		(channel.Type == constant.ChannelTypeByteDanceSeedance && len(pendingRemoveModels) > 0)) {
 		originModels := normalizeModelNames(channel.GetModels())
 		mergedModels := mergeModelNames(originModels, pendingAddModels)
-		if len(mergedModels) > len(originModels) {
+		autoAdded = len(mergedModels) - len(originModels)
+		if channel.Type == constant.ChannelTypeByteDanceSeedance {
+			mergedModels = subtractModelNames(mergedModels, pendingRemoveModels)
+		}
+		if !slices.Equal(originModels, mergedModels) {
 			channel.Models = strings.Join(mergedModels, ",")
-			autoAdded = len(mergedModels) - len(originModels)
 			modelsChanged = true
 		}
 		settings.UpstreamModelUpdateLastDetectedModels = []string{}
+		if channel.Type == constant.ChannelTypeByteDanceSeedance {
+			pendingRemoveModels = nil
+		}
 	} else {
 		settings.UpstreamModelUpdateLastDetectedModels = pendingAddModels
 	}

@@ -1,0 +1,142 @@
+package controller
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/stretchr/testify/require"
+)
+
+func seedanceResellerChannel(baseURL, key string) *model.Channel {
+	return &model.Channel{
+		Type: constant.ChannelTypeByteDanceSeedance, BaseURL: &baseURL,
+		Key: key, Name: "reseller", Group: "default",
+	}
+}
+
+func TestByteDanceSeedanceFetchModelsFiltersAuthorizationResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/v1/models", r.URL.Path)
+		require.Equal(t, "Bearer instance-key", r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte(`{"data":[{"id":"doubao-seedance-2-5-260628"},{"id":"gpt-5.6-sol"},{"id":"doubao-seedance-unknown"}]}`))
+	}))
+	defer server.Close()
+
+	got, err := fetchChannelUpstreamModelIDs(seedanceResellerChannel(server.URL+"/", "instance-key"))
+	require.NoError(t, err)
+	require.Equal(t, []string{"doubao-seedance-2-5-260628"}, got)
+}
+
+func TestByteDanceSeedanceFetchModelsRejectsInvalidAndSelfBaseURL(t *testing.T) {
+	oldAddress := system_setting.ServerAddress
+	system_setting.ServerAddress = "https://reseller.example:443/"
+	t.Cleanup(func() { system_setting.ServerAddress = oldAddress })
+	for _, baseURL := range []string{"", "reseller.example", "ftp://reseller.example"} {
+		t.Run(baseURL, func(t *testing.T) {
+			_, err := fetchChannelUpstreamModelIDs(seedanceResellerChannel(baseURL, "instance-key"))
+			require.ErrorContains(t, err, "absolute HTTP(S) Base URL")
+		})
+	}
+	_, err := fetchChannelUpstreamModelIDs(seedanceResellerChannel("https://reseller.example", "instance-key"))
+	require.ErrorContains(t, err, "cannot point to this instance")
+}
+
+func TestByteDanceSeedanceChannelTestUsesOnlyAuthorizedModelList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/v1/models", r.URL.Path)
+		_, _ = w.Write([]byte(`{"data":[{"id":"doubao-seedance-2-0-260128"}]}`))
+	}))
+	defer server.Close()
+
+	result := testChannel(context.Background(), seedanceResellerChannel(server.URL, "instance-key"), 0, "", "", false)
+	require.NoError(t, result.localErr)
+	require.Contains(t, result.successMessage, "模型")
+}
+
+func TestByteDanceSeedanceChannelTestFailureIsVisibleToHealthCheck(t *testing.T) {
+	channel := seedanceResellerChannel("", "instance-key")
+	result := testChannel(context.Background(), channel, 0, "", "", false)
+	require.Error(t, result.localErr)
+	require.NotNil(t, result.newAPIError)
+	require.NotNil(t, result.context)
+}
+
+func TestByteDanceSeedanceRefreshRevokesModelsAndKeepsLocalDisableAndOptions(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"doubao-seedance-2-5-260628"},{"id":"doubao-seedance-2-0-fast-260128"}]}`))
+	}))
+	defer server.Close()
+
+	channel := seedanceResellerChannel(server.URL, "instance-key")
+	channel.Models = "doubao-seedance-2-0-260128,doubao-seedance-2-5-260628"
+	channel.Other = `{"pricing":"local-only","currency":"CNY"}`
+	channel.SetSetting(dto.ChannelSettings{HTTPProtocol: dto.HTTPProtocolHTTP1})
+	settingBefore := *channel.Setting
+	settings := dto.ChannelOtherSettings{
+		UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true,
+		UpstreamModelUpdateIgnoredModels: []string{"doubao-seedance-2-0-fast-260128"},
+	}
+	channel.SetOtherSettings(settings)
+	require.NoError(t, db.Create(channel).Error)
+
+	changed, added, err := checkAndPersistChannelUpstreamModelUpdates(channel, &settings, true, true)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Zero(t, added)
+	reloaded, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.Equal(t, "doubao-seedance-2-5-260628", reloaded.Models)
+	require.Equal(t, `{"pricing":"local-only","currency":"CNY"}`, reloaded.Other)
+	require.Equal(t, settingBefore, *reloaded.Setting)
+	require.Empty(t, reloaded.GetOtherSettings().UpstreamModelUpdateLastRemovedModels)
+}
+
+func TestByteDanceSeedanceFailedRefreshKeepsExistingModels(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+	channel := seedanceResellerChannel(server.URL, "instance-key")
+	channel.Models = "doubao-seedance-2-0-260128"
+	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true}
+	channel.SetOtherSettings(settings)
+	require.NoError(t, db.Create(channel).Error)
+
+	changed, added, err := checkAndPersistChannelUpstreamModelUpdates(channel, &settings, true, true)
+	require.Error(t, err)
+	require.False(t, changed)
+	require.Zero(t, added)
+	reloaded, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.Equal(t, "doubao-seedance-2-0-260128", reloaded.Models)
+	require.Empty(t, reloaded.GetOtherSettings().UpstreamModelUpdateLastRemovedModels)
+}
+
+func TestByteDanceSeedanceUnsupportedOnlyRefreshKeepsExistingModels(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.6-sol"},{"id":"doubao-seedance-unknown"}]}`))
+	}))
+	defer server.Close()
+	channel := seedanceResellerChannel(server.URL, "instance-key")
+	channel.Models = "doubao-seedance-2-0-260128"
+	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true}
+	channel.SetOtherSettings(settings)
+	require.NoError(t, db.Create(channel).Error)
+
+	_, _, err := checkAndPersistChannelUpstreamModelUpdates(channel, &settings, true, true)
+	require.ErrorContains(t, err, "supported")
+	reloaded, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.Equal(t, "doubao-seedance-2-0-260128", reloaded.Models)
+}
