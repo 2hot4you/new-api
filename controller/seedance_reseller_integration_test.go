@@ -16,6 +16,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	publicdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -181,6 +182,39 @@ func TestSeedanceResellerFullChain(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(gin.H{"id": moliiTask, "status": "queued", "upstream_id": starAITask, "api_key": moliiKey})
 			return
 		}
+		if r.URL.Path == "/v1/video/generations/"+moliiTask && r.Method == http.MethodGet {
+			// Exercise the actual legacy public projection between reseller hops,
+			// not just a fixture that hands the downstream trustworthy usage.
+			body, readErr := io.ReadAll(response.Body)
+			if !assert.NoError(t, readErr) {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			platform := constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeByteDanceSeedance))
+			adaptor := relay.GetTaskAdaptor(platform)
+			facts, parseErr := adaptor.ParseTaskResult(nil, response, body)
+			if !assert.NoError(t, parseErr) {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			safe := adaptor.(interface {
+				SafePollingData(*relaycommon.TaskInfo) []byte
+			}).SafePollingData(facts)
+			var historical map[string]any
+			assert.NoError(t, json.Unmarshal(safe, &historical))
+			historical["upstream_id"], historical["api_key"] = starAITask, starAIKey
+			historical["url"] = "https://private.invalid/result?token=" + starAIKey
+			contaminated, marshalErr := json.Marshal(historical)
+			assert.NoError(t, marshalErr)
+			publicTask := relay.TaskModel2Dto(&model.Task{
+				TaskID: moliiTask, Platform: platform, Status: model.TaskStatus(facts.Status),
+				Data: contaminated, FailReason: "fixture-private-provider-diagnostic",
+				PrivateData: model.TaskPrivateData{Key: starAIKey, UpstreamTaskID: starAITask, ResultURL: "https://private.invalid/result"},
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(publicdto.TaskResponse[any]{Code: publicdto.TaskSuccessCode, Data: publicTask})
+			return
+		}
 		for name, values := range response.Header {
 			w.Header()[name] = values
 		}
@@ -246,7 +280,7 @@ func TestSeedanceResellerFullChain(t *testing.T) {
 		}
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, req)
-		for _, private := range []string{moliiKey, starAIKey, starAITask, moliiTask, token.Key, otherToken.Key, "private.invalid"} {
+		for _, private := range []string{moliiKey, starAIKey, starAITask, moliiTask, token.Key, otherToken.Key, "private.invalid", "fixture-private-provider-diagnostic"} {
 			assert.NotContains(t, recorder.Body.String(), private, "%s %s body", method, path)
 			assert.NotContains(t, fmt.Sprint(recorder.Header()), private, "%s %s headers", method, path)
 		}
@@ -331,6 +365,13 @@ func TestSeedanceResellerFullChain(t *testing.T) {
 		require.Equal(t, http.StatusOK, result.Code, result.Body.String())
 		assert.Contains(t, result.Body.String(), localTask)
 		assert.Contains(t, result.Body.String(), `"total_tokens":40`)
+		if strings.HasPrefix(path, "/v1/video/generations/") {
+			facts, parseErr := relay.GetTaskAdaptor(stored.Platform).ParseTaskResult(nil, nil, result.Body.Bytes())
+			require.NoError(t, parseErr)
+			assert.Equal(t, model.TaskStatusSuccess, facts.Status)
+			assert.Equal(t, 40, facts.TotalTokens)
+			assert.Equal(t, 30, facts.CompletionTokens)
+		}
 	}
 	contentPath := "/v1/videos/" + localTask + "/content"
 	unauthenticated := request(http.MethodGet, contentPath, "", "", nil)

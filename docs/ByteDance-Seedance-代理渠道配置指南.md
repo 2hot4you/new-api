@@ -72,6 +72,8 @@ API Key：由 Molii 为该部署实例单独签发
 
 新客户端可使用 `/v1/videos`，兼容的 `/v1/video/generations` 继续可用。代理渠道内部向 Molii 使用后者。只保存当前接入实例返回的公共 ID，用它查询和下载，不自行构造 ID。
 
+代理任务的兼容查询 `GET /v1/video/generations/{本地 task_id}` 在 `data.status` 返回本地状态；存在可靠用量时，在 `data.data.usage` 返回规范化的 `total_tokens` 和 `completion_tokens`，便于下一层代理独立结算。这里不是原始上游 JSON；缺失或非法用量不会被补造为免费用量，历史嵌套诊断中的用量也不会作为可信快照。失败原因只返回安全的通用说明。
+
 客户下载请求示例（所有 Key 都是环境变量中的占位配置）：
 
 ```bash

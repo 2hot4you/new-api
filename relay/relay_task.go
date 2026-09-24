@@ -2,6 +2,7 @@ package relay
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -681,9 +683,34 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 	}
 }
 
+// seedancePublicPollingData revalidates only the flat token facts written by
+// SafePollingData. Reuse the adaptor's strict usage decoder so malformed sibling
+// counts cannot become a trustworthy settlement fact at the next reseller hop.
+// The temporary envelope is never returned: historical nested provider data,
+// IDs, URLs and diagnostics are excluded from the final allowlisted projection.
+func seedancePublicPollingData(task *model.Task) json.RawMessage {
+	projection := struct {
+		Status string                        `json:"status"`
+		Usage  *relaykitdto.OpenAIVideoUsage `json:"usage,omitempty"`
+	}{Status: string(task.Status)}
+	envelope, err := common.Marshal(struct {
+		Status string          `json:"status"`
+		Usage  json.RawMessage `json:"usage"`
+	}{string(task.Status), task.Data})
+	if err == nil {
+		result, parseErr := GetTaskAdaptor(task.Platform).ParseTaskResult(nil, nil, envelope)
+		if parseErr == nil && result != nil && (result.TotalTokens > 0 || result.CompletionTokens > 0) {
+			projection.Usage = &relaykitdto.OpenAIVideoUsage{TotalTokens: result.TotalTokens, CompletionTokens: result.CompletionTokens}
+		}
+	}
+	safe, _ := common.Marshal(projection)
+	return safe
+}
+
 func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	resultURL := task.GetResultURL()
 	taskData := task.Data
+	failReason := task.FailReason
 	upstreamID := ""
 	isStarAI := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
 	isMoliiGrok := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
@@ -705,8 +732,12 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeByteDanceSeedance)) {
 		// Never project a nested provider response, including historical rows.
 		// Root diagnostics obtain only the stored Molii public ID separately.
-		taskData = nil
+		taskData = seedancePublicPollingData(task)
 		resultURL = ""
+		failReason = ""
+		if task.Status == model.TaskStatusFailure {
+			failReason = "Molii video task failed"
+		}
 	}
 	return &dto.TaskDto{
 		ID:         task.ID,
@@ -721,7 +752,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Quota:      task.Quota,
 		Action:     constant.NormalizeTaskAction(task.Action),
 		Status:     string(task.Status),
-		FailReason: task.FailReason,
+		FailReason: failReason,
 		ResultURL:  resultURL,
 		SubmitTime: task.SubmitTime,
 		StartTime:  task.StartTime,
