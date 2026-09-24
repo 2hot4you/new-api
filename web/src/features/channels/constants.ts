@@ -25,6 +25,7 @@ export const CHANNEL_TYPE_NEW_API = 60
 export const CHANNEL_TYPE_STARAI = 61
 export const CHANNEL_TYPE_MOLII_GROK_AIGC = 62
 export const CHANNEL_TYPE_TASK_PLUGIN = 63
+export const CHANNEL_TYPE_BYTEDANCE_SEEDANCE = 64
 
 export const STARAI_MODELS = [
   'doubao-seedance-2-0-260128',
@@ -102,12 +103,13 @@ export const CHANNEL_TYPES = {
   61: 'Molii Volcengine Imagine API',
   62: 'Molii Grok Imagine API',
   63: 'Task Plugin',
+  64: 'ByteDance Seedance',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 33, 24, 43, 3, 41, 48, 60, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15,
   46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 59, 22, 21, 44, 2,
-  5, 36, 50, 51, 52, 53, 54, 61, 62, 63, 55, 56,
+  5, 36, 50, 51, 52, 53, 54, 61, 64, 62, 63, 55, 56,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
@@ -420,8 +422,29 @@ export const FIELD_DESCRIPTIONS = {
 // ============================================================================
 
 export const MODEL_FETCHABLE_TYPES = new Set([
-  1, 4, 14, 17, 20, 23, 24, 25, 26, 27, 31, 34, 35, 40, 42, 43, 47, 48, 57, 58,
-  59, 60,
+  1,
+  4,
+  14,
+  17,
+  20,
+  23,
+  24,
+  25,
+  26,
+  27,
+  31,
+  34,
+  35,
+  40,
+  42,
+  43,
+  47,
+  48,
+  57,
+  58,
+  59,
+  60,
+  CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
 ])
 
 export const FIELD_PASSTHROUGH_TYPES = new Set([
@@ -462,6 +485,7 @@ export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   61: 'Enter API key for this channel',
   62: 'Enter API key for this channel',
   63: 'Enter API key for this channel',
+  [CHANNEL_TYPE_BYTEDANCE_SEEDANCE]: 'Enter API key for this channel',
 }
 
 export const CHANNEL_TYPE_WARNINGS: Record<number, string> = {

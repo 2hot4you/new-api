@@ -139,6 +139,7 @@ import {
   CLAUDE_FIELD_PASSTHROUGH_TYPES,
   CHANNEL_STATUS_LABELS,
   CHANNEL_TYPE_MOLII_GROK_AIGC,
+  CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_TASK_PLUGIN,
   channelTypeOptionsForTaskPluginBind,
@@ -150,8 +151,8 @@ import {
   MODEL_FETCHABLE_TYPES,
   OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../../constants'
-import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import { useChannelKeyDisclosure } from '../../hooks/use-channel-key-disclosure'
+import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
   CHANNEL_TYPE_ADVANCED_CUSTOM,
@@ -699,12 +700,8 @@ export function ChannelMutateDrawer({
 
   const { copyToClipboard } = useCopyToClipboard()
 
-  const {
-    channelKey,
-    isChannelKeyLoading,
-    handleRevealKey,
-    verification,
-  } = useChannelKeyDisclosure(open, channelId)
+  const { channelKey, isChannelKeyLoading, handleRevealKey, verification } =
+    useChannelKeyDisclosure(open, channelId)
 
   // Check if this is a multi-key channel
   const isMultiKeyChannel =
@@ -2821,7 +2818,10 @@ export function ChannelMutateDrawer({
                                 render={({ field }) => (
                                   <FormItem>
                                     <FormLabel>
-                                      {currentType === CHANNEL_TYPE_TASK_PLUGIN
+                                      {[
+                                        CHANNEL_TYPE_TASK_PLUGIN,
+                                        CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
+                                      ].includes(currentType)
                                         ? t('Base URL *')
                                         : t('Base URL')}
                                     </FormLabel>
@@ -2834,9 +2834,14 @@ export function ChannelMutateDrawer({
                                       />
                                     </FormControl>
                                     <FormDescription>
-                                      {t(
-                                        'Custom API base URL. For official channels, New API has built-in addresses. Only fill this for third-party proxy sites or special endpoints. Do not add /v1 or trailing slash.'
-                                      )}
+                                      {currentType ===
+                                      CHANNEL_TYPE_BYTEDANCE_SEEDANCE
+                                        ? t(
+                                            'Enter the upstream API Base URL. Do not add /v1 or trailing slash.'
+                                          )
+                                        : t(
+                                            'Custom API base URL. For official channels, New API has built-in addresses. Only fill this for third-party proxy sites or special endpoints. Do not add /v1 or trailing slash.'
+                                          )}
                                     </FormDescription>
                                     <FormMessage />
                                   </FormItem>
@@ -3089,7 +3094,7 @@ export function ChannelMutateDrawer({
                                                     .phase === 'verifying'
                                                 }
                                               >
-                                              {isChannelKeyLoading ||
+                                                {isChannelKeyLoading ||
                                                 verification.dialogProps.state
                                                   .phase === 'loading' ||
                                                 verification.dialogProps.state

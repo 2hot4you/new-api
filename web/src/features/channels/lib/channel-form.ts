@@ -21,6 +21,7 @@ import { z } from 'zod'
 import {
   CLAUDE_FIELD_PASSTHROUGH_TYPES,
   CHANNEL_TYPE_MOLII_GROK_AIGC,
+  CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
   CHANNEL_TYPE_NEW_API,
   CHANNEL_TYPE_TASK_PLUGIN,
   CHANNEL_STATUS,
@@ -293,7 +294,9 @@ export const channelFormSchema = z
   })
   .superRefine((data, ctx) => {
     if (
-      data.type === CHANNEL_TYPE_MOLII_GROK_AIGC &&
+      [CHANNEL_TYPE_MOLII_GROK_AIGC, CHANNEL_TYPE_BYTEDANCE_SEEDANCE].includes(
+        data.type
+      ) &&
       data.is_editing !== true &&
       !data.key?.trim()
     ) {
@@ -341,9 +344,15 @@ export const channelFormSchema = z
       }
     }
     if (
-      [3, 8, 36, 45, CHANNEL_TYPE_NEW_API, CHANNEL_TYPE_TASK_PLUGIN].includes(
-        data.type
-      ) &&
+      [
+        3,
+        8,
+        36,
+        45,
+        CHANNEL_TYPE_NEW_API,
+        CHANNEL_TYPE_TASK_PLUGIN,
+        CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
+      ].includes(data.type) &&
       !data.base_url?.trim()
     ) {
       addRequiredIssue(

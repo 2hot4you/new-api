@@ -7,9 +7,11 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test, vi } from 'vitest'
+
+import { api } from '@/lib/api'
 
 const domWindow = new Window()
 for (const key of [
@@ -87,5 +89,114 @@ describe('temporary asset source options', () => {
 
     await act(async () => root.unmount())
     container.remove()
+  })
+
+  test('uses provider-neutral wording while submitting a local asset', async () => {
+    const originalXHR = globalThis.XMLHttpRequest
+    const originalObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+    let completeUpload: (() => void) | undefined
+    const completion = new Promise<void>((resolve) => {
+      completeUpload = resolve
+    })
+    const post = vi.spyOn(api, 'post')
+    post
+      .mockResolvedValueOnce({
+        data: {
+          data: {
+            upload_id: 'upload-1',
+            upload_url: 'https://upload.example',
+            headers: {},
+          },
+        },
+      })
+      .mockImplementationOnce(async () => {
+        await completion
+        return { data: { success: true } }
+      })
+
+    class SuccessfulUploadRequest extends domWindow.EventTarget {
+      status = 200
+      upload = new domWindow.EventTarget()
+      open() {}
+      setRequestHeader() {}
+      send() {
+        this.dispatchEvent(new domWindow.Event('load'))
+      }
+    }
+    Object.defineProperty(globalThis, 'XMLHttpRequest', {
+      configurable: true,
+      value: SuccessfulUploadRequest,
+    })
+    URL.createObjectURL = () => 'blob:preview'
+    URL.revokeObjectURL = () => {}
+
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    try {
+      await act(async () => {
+        root.render(
+          <I18nextProvider i18n={i18n}>
+            <CreateAssetCard
+              uploadConfig={{
+                enabled: true,
+                limits: {
+                  image: 30_000_000,
+                  video: 200_000_000,
+                  audio: 15_000_000,
+                },
+              }}
+              onCreated={async () => {}}
+            />
+          </I18nextProvider>
+        )
+      })
+
+      const dropZone = container.querySelector('button.border-dashed')
+      assert.ok(dropZone)
+      const drop = new Event('drop', {
+        bubbles: true,
+        cancelable: true,
+      })
+      Object.defineProperty(drop, 'dataTransfer', {
+        value: {
+          files: [
+            new domWindow.File(['image'], 'sample.png', { type: 'image/png' }),
+          ],
+        },
+      })
+      await act(async () => dropZone.dispatchEvent(drop))
+
+      const form = container.querySelector('form')
+      assert.ok(form)
+      await act(async () =>
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+      )
+
+      assert.match(
+        container.textContent ?? '',
+        /Submitting temporary asset\.\.\./
+      )
+      assert.doesNotMatch(
+        container.textContent ?? '',
+        /Molii Volcengine Imagine API/
+      )
+    } finally {
+      await act(async () => {
+        completeUpload?.()
+      })
+      await act(async () => root.unmount())
+      container.remove()
+      post.mockRestore()
+      Object.defineProperty(globalThis, 'XMLHttpRequest', {
+        configurable: true,
+        value: originalXHR,
+      })
+      URL.createObjectURL = originalObjectURL
+      URL.revokeObjectURL = originalRevokeObjectURL
+    }
   })
 })

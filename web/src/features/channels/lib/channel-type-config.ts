@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   CHANNEL_TYPES,
+  CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
   CHANNEL_TYPE_MOLII_GROK_AIGC,
   MOLII_GROK_AIGC_MODELS,
   STARAI_MODELS,
@@ -32,6 +33,9 @@ export interface ChannelTypeConfig {
   name: string
   icon: string
   defaultBaseUrl?: string
+  requiresBaseUrl?: boolean
+  requiresKey?: boolean
+  supportsFetchModels?: boolean
   requiresOrganization?: boolean
   requiresRegion?: boolean
   supportedModels?: string[]
@@ -190,6 +194,19 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       key: 'Enter API key for this channel',
       models: MOLII_GROK_AIGC_MODELS.join(','),
       other: 'TCP reachability test only; no paid generation request is sent',
+    },
+  },
+  [CHANNEL_TYPE_BYTEDANCE_SEEDANCE]: {
+    id: CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_BYTEDANCE_SEEDANCE],
+    icon: 'Doubao',
+    requiresBaseUrl: true,
+    requiresKey: true,
+    supportsFetchModels: true,
+    hints: {
+      baseUrl: 'Base URL is required for this channel type',
+      key: 'Enter API key for this channel',
+      models: 'Models fetched from upstream /v1/models',
     },
   },
 }

@@ -77,6 +77,7 @@ export const STATIC_I18N_KEYS = [
   'Worker instances do not run master-only background tasks.',
   'Drawing task polling',
   'Molii Volcengine Imagine API',
+  'ByteDance Seedance',
   'Molii Volcengine Imagine API Pricing',
   'Reachability Test',
   'TCP reachability test only; no paid generation request is sent',

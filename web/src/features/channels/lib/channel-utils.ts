@@ -22,6 +22,7 @@ import { formatTimestampToDate } from '@/lib/format'
 import {
   CHANNEL_STATUS_CONFIG,
   CHANNEL_TYPE_MOLII_GROK_AIGC,
+  CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
   CHANNEL_TYPE_STARAI,
   CHANNEL_TYPES,
   MULTI_KEY_STATUS_CONFIG,
@@ -109,6 +110,7 @@ export function getChannelTypeIcon(type: number): string {
     54: 'Doubao', // DoubaoVideo
     61: 'Doubao', // Molii Volcengine Imagine API
     62: 'XAI', // Molii Grok Imagine API
+    [CHANNEL_TYPE_BYTEDANCE_SEEDANCE]: 'Doubao', // ByteDance Seedance
     56: 'Replicate', // Replicate
 
     // Tools & Platforms
