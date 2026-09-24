@@ -1,0 +1,12 @@
+{
+  "id": "design-reseller-upstream-channel",
+  "title": "设计代理商环境对接 Molii 上游协议的独立渠道类型",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "architecture",
+  "currentPhase": "implementation",
+  "nextAction": "按八个任务逐项实施、测试和审查",
+  "createdAt": "2026-09-25T00:00:00+08:00",
+  "branch": "design/reseller-upstream-channel"
+}
