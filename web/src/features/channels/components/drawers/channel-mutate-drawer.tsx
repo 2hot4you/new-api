@@ -159,6 +159,7 @@ import {
   channelFormSchema,
   channelsQueryKeys,
   getAdvancedCustomStats,
+  getBaseUrlForChannelTypeChange,
   transformChannelToFormDefaults,
   type ChannelFormValues,
   deduplicateKeys,
@@ -1965,7 +1966,25 @@ export function ChannelMutateDrawer({
                                             Number.isInteger(nextType) &&
                                             nextType > 0
                                           ) {
+                                            const baseUrl =
+                                              form.getValues('base_url') || ''
+                                            const nextBaseUrl =
+                                              getBaseUrlForChannelTypeChange(
+                                                Number(field.value),
+                                                nextType,
+                                                baseUrl
+                                              )
                                             field.onChange(nextType)
+                                            if (nextBaseUrl !== baseUrl) {
+                                              form.setValue(
+                                                'base_url',
+                                                nextBaseUrl,
+                                                {
+                                                  shouldDirty: true,
+                                                  shouldValidate: true,
+                                                }
+                                              )
+                                            }
                                           }
                                         }}
                                         placeholder={t('Select channel type')}
@@ -2972,10 +2991,16 @@ export function ChannelMutateDrawer({
                                 control={form.control}
                                 name='key'
                                 render={({ field }) => {
+                                  const switchingToSeedance =
+                                    isEditing &&
+                                    currentType ===
+                                      CHANNEL_TYPE_BYTEDANCE_SEEDANCE &&
+                                    form.getValues('original_type') !==
+                                      CHANNEL_TYPE_BYTEDANCE_SEEDANCE
                                   let keyPlaceholder = t(
                                     getKeyPromptForType(currentType)
                                   )
-                                  if (isEditing) {
+                                  if (isEditing && !switchingToSeedance) {
                                     keyPlaceholder = t(
                                       'Leave empty to keep existing key'
                                     )
@@ -3014,7 +3039,7 @@ export function ChannelMutateDrawer({
                                   let keyDescription: ReactNode = t(
                                     FIELD_DESCRIPTIONS.KEY
                                   )
-                                  if (isEditing) {
+                                  if (isEditing && !switchingToSeedance) {
                                     let keyModeDescription = t(
                                       'Append mode: New keys will be added to the end of the existing key list'
                                     )

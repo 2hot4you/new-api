@@ -14,9 +14,12 @@ import {
   CHANNEL_TYPE_OPTIONS,
   MODEL_FETCHABLE_TYPES,
 } from '../../constants'
+import { channelSchema } from '../../types'
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
   channelFormSchema,
+  getBaseUrlForChannelTypeChange,
+  transformChannelToFormDefaults,
   transformFormDataToCreatePayload,
 } from '../channel-form'
 import {
@@ -75,6 +78,88 @@ describe('ByteDance Seedance channel', () => {
     )
     expect(result.error.issues.map((issue) => issue.path[0])).toContain('key')
     expect(channelFormSchema.safeParse(formValues).success).toBe(true)
+  })
+
+  test('requires a new Key when editing a channel into type 64', () => {
+    const existing = channelSchema.parse({
+      id: 45,
+      type: 45,
+      key: 'saved-volcengine-key',
+      status: 1,
+      name: 'VolcEngine upstream',
+      created_time: 0,
+      test_time: 0,
+      response_time: 0,
+      balance_updated_time: 0,
+    })
+    const defaults = transformChannelToFormDefaults(existing)
+    expect(defaults.original_type).toBe(45)
+    const switched = {
+      ...defaults,
+      type: CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
+      base_url: 'https://seedance.example',
+      models: formValues.models,
+    }
+    const result = channelFormSchema.safeParse(switched)
+    expect(result.success).toBe(false)
+    if (result.success) return
+    expect(result.error.issues.map((issue) => issue.path[0])).toContain('key')
+    expect(
+      channelFormSchema.safeParse({ ...switched, key: 'new-seedance-key' })
+        .success
+    ).toBe(true)
+  })
+
+  test('allows an unchanged type-64 edit to keep its saved Key', () => {
+    const existing = channelSchema.parse({
+      id: 64,
+      type: CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
+      key: 'saved-seedance-key',
+      status: 1,
+      name: 'Seedance upstream',
+      base_url: formValues.base_url,
+      models: formValues.models,
+      created_time: 0,
+      test_time: 0,
+      response_time: 0,
+      balance_updated_time: 0,
+    })
+    const defaults = transformChannelToFormDefaults(existing)
+    expect(defaults.original_type).toBe(CHANNEL_TYPE_BYTEDANCE_SEEDANCE)
+    expect(defaults.key).toBe('')
+    expect(channelFormSchema.safeParse(defaults).success).toBe(true)
+  })
+
+  test('clears an Ark endpoint when changing type 45 to type 64', () => {
+    expect(
+      getBaseUrlForChannelTypeChange(
+        45,
+        CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
+        'https://ark.cn-beijing.volces.com'
+      )
+    ).toBe('')
+    expect(
+      getBaseUrlForChannelTypeChange(
+        45,
+        CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
+        'https://ark.ap-southeast.bytepluses.com'
+      )
+    ).toBe('')
+    expect(
+      getBaseUrlForChannelTypeChange(
+        45,
+        CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
+        'https://custom.example'
+      )
+    ).toBe('https://custom.example')
+  })
+
+  test('leaves Base URL unchanged for normal type switches', () => {
+    const arkURL = 'https://ark.cn-beijing.volces.com'
+    expect(getBaseUrlForChannelTypeChange(45, 60, arkURL)).toBe(arkURL)
+    expect(
+      getBaseUrlForChannelTypeChange(1, CHANNEL_TYPE_BYTEDANCE_SEEDANCE, arkURL)
+    ).toBe(arkURL)
   })
 
   test('keeps upstream auto-sync settings in the create payload', () => {

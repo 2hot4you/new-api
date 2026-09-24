@@ -44,6 +44,24 @@ import {
 // Form Validation Schema
 // ============================================================================
 
+export function getBaseUrlForChannelTypeChange(
+  previousType: number,
+  nextType: number,
+  baseUrl: string
+): string {
+  if (
+    previousType === 45 &&
+    nextType === CHANNEL_TYPE_BYTEDANCE_SEEDANCE &&
+    [
+      'https://ark.cn-beijing.volces.com',
+      'https://ark.ap-southeast.bytepluses.com',
+    ].includes(baseUrl.trim().replace(/\/+$/, ''))
+  ) {
+    return ''
+  }
+  return baseUrl
+}
+
 const SUPPORTED_PROXY_PROTOCOLS = new Set([
   'http:',
   'https:',
@@ -291,13 +309,15 @@ export const channelFormSchema = z
     molii_grok_management_access_token_configured: z.boolean().optional(),
     clear_molii_grok_management_access_token: z.boolean().optional(),
     is_editing: z.boolean().optional(),
+    original_type: z.number().optional(),
   })
   .superRefine((data, ctx) => {
     if (
-      [CHANNEL_TYPE_MOLII_GROK_AIGC, CHANNEL_TYPE_BYTEDANCE_SEEDANCE].includes(
-        data.type
-      ) &&
-      data.is_editing !== true &&
+      ((data.type === CHANNEL_TYPE_MOLII_GROK_AIGC &&
+        data.is_editing !== true) ||
+        (data.type === CHANNEL_TYPE_BYTEDANCE_SEEDANCE &&
+          (data.is_editing !== true ||
+            data.original_type !== CHANNEL_TYPE_BYTEDANCE_SEEDANCE))) &&
       !data.key?.trim()
     ) {
       addRequiredIssue(ctx, 'key', ERROR_MESSAGES.REQUIRED_KEY)
@@ -533,6 +553,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   molii_grok_management_access_token_configured: false,
   clear_molii_grok_management_access_token: false,
   is_editing: false,
+  original_type: undefined,
 }
 
 // ============================================================================
@@ -684,6 +705,7 @@ export function transformChannelToFormDefaults(
       channel.molii_grok_management_access_token_configured === true,
     clear_molii_grok_management_access_token: false,
     is_editing: true,
+    original_type: channel.type,
   }
 }
 
