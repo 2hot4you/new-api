@@ -51,3 +51,29 @@ ok  github.com/QuantumNous/new-api/controller  39.190s
 git diff --check
 (no output; exit 0)
 ```
+
+## Fix Round 2 — same hostname, different service port
+
+`TestByteDanceSeedanceFetchModelsPermitsSameHostDifferentPort` uses a real model-list server on `127.0.0.1` while the instance address is `http://127.0.0.1:443`; it verifies that the distinct upstream port is allowed and the authorized Seedance model is fetched. The direct-self check now compares effective ports for the same hostname, while retaining the existing no-explicit-port alternate-scheme guard and the loopback-alias guard.
+
+RED command/output:
+
+```text
+go test ./controller -run 'ByteDanceSeedanceFetchModelsPermitsSameHostDifferentPort' -count=1
+--- FAIL: TestByteDanceSeedanceFetchModelsPermitsSameHostDifferentPort
+    Received unexpected error: ByteDance Seedance Base URL cannot point to this instance
+FAIL
+```
+
+GREEN commands/output:
+
+```text
+go test ./controller -run 'ByteDanceSeedance' -count=1
+ok  github.com/QuantumNous/new-api/controller  1.313s
+go test ./controller -run 'Channel.*(Model|Fetch|Update|Test)|ByteDanceSeedance' -count=1
+ok  github.com/QuantumNous/new-api/controller  1.080s
+go test ./controller -count=1
+ok  github.com/QuantumNous/new-api/controller  32.787s
+git diff --check
+(no output; exit 0)
+```

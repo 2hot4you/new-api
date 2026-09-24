@@ -84,6 +84,21 @@ func TestByteDanceSeedanceFetchModelsRejectsAlternateSelfAddresses(t *testing.T)
 	}
 }
 
+func TestByteDanceSeedanceFetchModelsPermitsSameHostDifferentPort(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/models", r.URL.Path)
+		_, _ = w.Write([]byte(`{"data":[{"id":"doubao-seedance-2-5-260628"}]}`))
+	}))
+	defer server.Close()
+	oldAddress := system_setting.ServerAddress
+	system_setting.ServerAddress = "http://127.0.0.1:443"
+	t.Cleanup(func() { system_setting.ServerAddress = oldAddress })
+
+	models, err := fetchChannelUpstreamModelIDs(seedanceResellerChannel(server.URL, "instance-key"))
+	require.NoError(t, err)
+	require.Equal(t, []string{"doubao-seedance-2-5-260628"}, models)
+}
+
 func TestByteDanceSeedanceChannelTestUsesOnlyAuthorizedModelList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)

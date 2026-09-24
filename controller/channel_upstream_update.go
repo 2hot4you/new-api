@@ -537,7 +537,12 @@ func isDirectSeedanceSelfURL(upstream, self *url.URL) bool {
 	upstreamHost := strings.TrimSuffix(strings.ToLower(upstream.Hostname()), ".")
 	selfHost := strings.TrimSuffix(strings.ToLower(self.Hostname()), ".")
 	if upstreamHost == selfHost {
-		return true
+		// The same public hostname with implicit ports may be the same reverse
+		// proxy across HTTP/HTTPS. Explicit different service ports are not.
+		if upstream.Port() == "" && self.Port() == "" {
+			return true
+		}
+		return seedanceURLPort(upstream) == seedanceURLPort(self)
 	}
 	isLoopback := func(host string) bool {
 		if host == "localhost" {
