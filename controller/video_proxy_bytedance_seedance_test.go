@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -117,5 +120,113 @@ func TestByteDanceSeedanceVideoProxyUpstreamFailureDoesNotMutateTaskOrBilling(t 
 			assert.Equal(t, model.TaskBillingJobStatusSucceeded, job.Status)
 			assert.Equal(t, 777, job.FromQuota)
 		})
+	}
+}
+
+func TestByteDanceSeedanceVideoProxyDoesNotExposeUpstreamDisposition(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Disposition", `attachment; filename="task_molii_public-private.mp4"`)
+		_, _ = io.WriteString(w, "video")
+	}))
+	defer upstream.Close()
+	task := setupByteDanceSeedanceVideoProxy(t, upstream.URL, "")
+	recorder := serveByteDanceSeedanceVideoProxy(t, task, http.MethodGet, nil)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Empty(t, recorder.Header().Get("Content-Disposition"))
+	assert.NotContains(t, fmt.Sprint(recorder.Header()), "task_molii_public")
+}
+
+func TestByteDanceSeedanceVideoProxySanitizesRangeErrorBody(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Range", "bytes */300")
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Disposition", `attachment; filename="task_molii_public.mp4"`)
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+		_, _ = io.WriteString(w, "https://private.example/video.mp4?signature=secret")
+	}))
+	defer upstream.Close()
+	task := setupByteDanceSeedanceVideoProxy(t, upstream.URL, "")
+	recorder := serveByteDanceSeedanceVideoProxy(t, task, http.MethodGet, http.Header{"Range": []string{"bytes=500-599"}})
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, recorder.Code)
+	assert.Equal(t, "bytes */300", recorder.Header().Get("Content-Range"))
+	assert.Equal(t, "bytes", recorder.Header().Get("Accept-Ranges"))
+	assert.Equal(t, "0", recorder.Header().Get("Content-Length"))
+	assert.Empty(t, recorder.Header().Get("Content-Disposition"))
+	assert.Empty(t, recorder.Body.String())
+}
+
+func TestByteDanceSeedanceVideoProxyUsesSelectedSubmissionKeyAfterRotation(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer selected-submission-key", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = io.WriteString(w, "video")
+	}))
+	defer upstream.Close()
+	task := setupByteDanceSeedanceVideoProxy(t, upstream.URL, "")
+	var channel model.Channel
+	require.NoError(t, model.DB.First(&channel, task.ChannelId).Error)
+	channel.Key = "rotated-key\nother-key"
+	channel.ChannelInfo.IsMultiKey = true
+	require.NoError(t, model.DB.Save(&channel).Error)
+	selected := model.InitTask(task.Platform, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ChannelType: constant.ChannelTypeByteDanceSeedance, ApiKey: "selected-submission-key",
+	}, TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: task.TaskID}})
+	require.Equal(t, "selected-submission-key", selected.PrivateData.Key)
+	task.PrivateData.Key = selected.PrivateData.Key
+	require.NoError(t, model.DB.Save(task).Error)
+	recorder := serveByteDanceSeedanceVideoProxy(t, task, http.MethodGet, http.Header{"Authorization": []string{"Bearer end-user-key"}})
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "video", recorder.Body.String())
+	assert.NotContains(t, fmt.Sprint(recorder.Header()), "selected-submission-key")
+	assert.NotContains(t, recorder.Body.String(), "selected-submission-key")
+	publicTask, err := common.Marshal(task)
+	require.NoError(t, err)
+	assert.NotContains(t, string(publicTask), "selected-submission-key")
+}
+
+func TestByteDanceSeedanceVideoProxyLegacySingleKeyFallback(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer instance-key", r.Header.Get("Authorization"))
+		_, _ = io.WriteString(w, "video")
+	}))
+	defer upstream.Close()
+	task := setupByteDanceSeedanceVideoProxy(t, upstream.URL, "")
+	require.Empty(t, task.PrivateData.Key)
+	recorder := serveByteDanceSeedanceVideoProxy(t, task, http.MethodGet, nil)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "video", recorder.Body.String())
+}
+
+func TestByteDanceSeedanceVideoProxyRejectsLegacyMultiKeyWithoutLeak(t *testing.T) {
+	upstreamCalls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls++
+		_, _ = io.WriteString(w, "must not fetch")
+	}))
+	defer upstream.Close()
+	task := setupByteDanceSeedanceVideoProxy(t, upstream.URL, "")
+	var channel model.Channel
+	require.NoError(t, model.DB.First(&channel, task.ChannelId).Error)
+	channel.Key = "first-private-key\nsecond-private-key"
+	channel.ChannelInfo.IsMultiKey = true
+	require.NoError(t, model.DB.Save(&channel).Error)
+	var logOutput bytes.Buffer
+	common.LogWriterMu.Lock()
+	previousWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &logOutput
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = previousWriter
+		common.LogWriterMu.Unlock()
+	})
+	recorder := serveByteDanceSeedanceVideoProxy(t, task, http.MethodGet, nil)
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.Zero(t, upstreamCalls)
+	for _, secret := range []string{"first-private-key", "second-private-key"} {
+		assert.NotContains(t, recorder.Body.String(), secret)
+		assert.NotContains(t, fmt.Sprint(recorder.Header()), secret)
+		assert.NotContains(t, logOutput.String(), secret)
 	}
 }

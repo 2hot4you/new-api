@@ -183,7 +183,7 @@ func (a *TaskAdaptor) BuildContentRequest(task *model.Task, _ string, client cha
 	if task == nil || !isPublicTaskID(task.GetUpstreamTaskID()) {
 		return nil, errors.New("invalid Molii public task ID")
 	}
-	if a.baseURL == "" || a.apiKey == "" {
+	if a.baseURL == "" || a.apiKey == "" || strings.ContainsAny(a.apiKey, "\r\n") {
 		return nil, errors.New("Molii content channel is unavailable")
 	}
 	if client.Method != http.MethodGet && client.Method != http.MethodHead {

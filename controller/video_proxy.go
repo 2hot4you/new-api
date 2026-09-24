@@ -139,6 +139,13 @@ func VideoProxy(c *gin.Context) {
 			}
 			apiKey := task.PrivateData.Key
 			if apiKey == "" {
+				// A legacy Seedance task has no selected-key snapshot. A
+				// multi-key collection is not an authentication credential.
+				if channelModel.Type == constant.ChannelTypeByteDanceSeedance &&
+					(channelModel.ChannelInfo.IsMultiKey || len(channelModel.GetKeys()) != 1) {
+					writeTaskMediaProxyError(c, &taskMediaProxyError{status: http.StatusServiceUnavailable, code: "artifact_plugin_unavailable", message: "Artifact channel is unavailable"})
+					return
+				}
 				apiKey = channelModel.Key
 			}
 			adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
@@ -581,10 +588,19 @@ func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.T
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusPartialContent, http.StatusNotModified, http.StatusRequestedRangeNotSatisfiable:
 		copyTaskMediaResponseHeaders(c.Writer.Header(), resp.Header)
+		seedanceContent := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeByteDanceSeedance))
+		if seedanceContent {
+			c.Writer.Header().Del("Content-Disposition")
+			if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+				c.Writer.Header().Set("Content-Length", "0")
+				c.Writer.Header().Del("Content-Type")
+			}
+		}
 		setTaskMediaResponseSecurityHeaders(c.Writer.Header())
 		c.Status(resp.StatusCode)
 		c.Writer.WriteHeaderNow()
-		if c.Request.Method == http.MethodHead || resp.StatusCode == http.StatusNotModified {
+		if c.Request.Method == http.MethodHead || resp.StatusCode == http.StatusNotModified ||
+			seedanceContent && resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 			return nil
 		}
 		if _, err := io.Copy(c.Writer, resp.Body); err != nil {
