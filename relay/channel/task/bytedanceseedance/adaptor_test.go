@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/seedanceprotocol"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
@@ -346,6 +347,32 @@ func TestBuildRequestAndFetchUseMoliiPublicEndpoints(t *testing.T) {
 	resp, err := adaptor.FetchTask(server.URL, "molii-key", &model.Task{PrivateData: model.TaskPrivateData{UpstreamTaskID: "task_molii_public"}}, "")
 	require.NoError(t, err)
 	_ = resp.Body.Close()
+}
+
+func TestByteDanceSeedanceContentRequestUsesPublicIDAndChannelCredential(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://molii.example/", ApiKey: "instance-key"}})
+	task := &model.Task{TaskID: "task_reseller_public", PrivateData: model.TaskPrivateData{UpstreamTaskID: "task_molii_public", ResultURL: "https://expired.example/signed.mp4"}}
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		descriptor, err := adaptor.BuildContentRequest(task, "", channel.TaskArtifactClientRequest{Method: method, Headers: map[string]string{
+			"Authorization": "Bearer end-user-key", "Range": "bytes=100-199", "If-Range": `"etag"`,
+			"If-None-Match": `"do-not-forward"`, "X-Leak": "secret",
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, "https://molii.example/v1/videos/task_molii_public/content", descriptor.URL)
+		assert.Equal(t, method, descriptor.Method)
+		assert.Equal(t, map[string]string{"Authorization": "Bearer instance-key", "Range": "bytes=100-199", "If-Range": `"etag"`}, descriptor.Headers)
+		assert.NotContains(t, descriptor.URL, "expired.example")
+	}
+}
+
+func TestByteDanceSeedanceContentRequestRejectsNonPublicID(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://molii.example", ApiKey: "instance-key"}})
+	for _, id := range []string{"", "cgt-private", "task_", "task_bad/path", "task_bad?query"} {
+		_, err := adaptor.BuildContentRequest(&model.Task{PrivateData: model.TaskPrivateData{UpstreamTaskID: id}}, "", channel.TaskArtifactClientRequest{Method: http.MethodGet})
+		require.Error(t, err, id)
+	}
 }
 
 func TestSeedanceModelValidationLimits(t *testing.T) {

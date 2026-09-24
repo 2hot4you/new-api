@@ -34,6 +34,7 @@ type TaskAdaptor struct {
 }
 
 var _ channel.TaskAdaptor = (*TaskAdaptor)(nil)
+var _ channel.TaskContentRequestProvider = (*TaskAdaptor)(nil)
 var _ service.PrivateTaskPollingAdaptor = (*TaskAdaptor)(nil)
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -176,6 +177,28 @@ func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) 
 		return "", errors.New("Molii base URL is required")
 	}
 	return a.baseURL + "/v1/video/generations", nil
+}
+
+func (a *TaskAdaptor) BuildContentRequest(task *model.Task, _ string, client channel.TaskArtifactClientRequest) (*channel.TaskContentRequest, error) {
+	if task == nil || !isPublicTaskID(task.GetUpstreamTaskID()) {
+		return nil, errors.New("invalid Molii public task ID")
+	}
+	if a.baseURL == "" || a.apiKey == "" {
+		return nil, errors.New("Molii content channel is unavailable")
+	}
+	if client.Method != http.MethodGet && client.Method != http.MethodHead {
+		return nil, errors.New("unsupported Molii content method")
+	}
+	headers := map[string]string{"Authorization": "Bearer " + a.apiKey}
+	for _, name := range []string{"Range", "If-Range"} {
+		if value := strings.TrimSpace(client.Headers[name]); value != "" {
+			headers[name] = value
+		}
+	}
+	return &channel.TaskContentRequest{
+		URL:    strings.TrimRight(a.baseURL, "/") + "/v1/videos/" + url.PathEscape(task.GetUpstreamTaskID()) + "/content",
+		Method: client.Method, Headers: headers, ClientHeaderAllowlist: []string{"Range", "If-Range"},
+	}, nil
 }
 
 func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, request *http.Request, _ *relaycommon.RelayInfo) error {

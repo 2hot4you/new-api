@@ -19,7 +19,10 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
+	taskjsplugin "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
@@ -119,6 +122,36 @@ func VideoProxy(c *gin.Context) {
 			}
 		} else {
 			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Failed to project plugin video for task %s", taskID))
+		}
+	} else if adaptor := relay.GetTaskAdaptor(task.Platform); adaptor != nil {
+		// Legacy plugin tasks without an execution snapshot keep their stored
+		// result URL. Native adaptors may provide authenticated content directly.
+		_, isJSPlugin := adaptor.(*taskjsplugin.TaskAdaptor)
+		if provider, ok := adaptor.(relaychannel.TaskContentRequestProvider); ok && !isJSPlugin {
+			channelModel, channelErr := model.CacheGetChannel(task.ChannelId)
+			if channelErr != nil {
+				writeTaskMediaProxyError(c, &taskMediaProxyError{status: http.StatusServiceUnavailable, code: "artifact_plugin_unavailable", message: "Artifact channel is unavailable"})
+				return
+			}
+			baseURL := channelModel.GetBaseURL()
+			if baseURL == "" {
+				baseURL = constant.GetChannelBaseURL(channelModel.Type)
+			}
+			apiKey := task.PrivateData.Key
+			if apiKey == "" {
+				apiKey = channelModel.Key
+			}
+			adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+				ChannelType: channelModel.Type, ChannelBaseUrl: baseURL, ApiKey: apiKey,
+				ChannelSetting: channelModel.GetSetting(),
+			}})
+			descriptor, channelErr = provider.BuildContentRequest(task, "", relaychannel.TaskArtifactClientRequest{
+				Method: c.Request.Method, Headers: taskArtifactClientHeaders(c.Request.Header),
+			})
+			if channelErr != nil || descriptor == nil {
+				writeTaskMediaProxyError(c, &taskMediaProxyError{status: http.StatusBadGateway, code: "artifact_request_rejected", message: "Artifact content request was rejected"})
+				return
+			}
 		}
 	}
 	if descriptor == nil {
@@ -505,6 +538,17 @@ func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.T
 		}
 	}
 	clientHeaders := taskArtifactClientHeaders(c.Request.Header)
+	if descriptor.ClientHeaderAllowlist != nil {
+		allowed := make(map[string]struct{}, len(descriptor.ClientHeaderAllowlist))
+		for _, name := range descriptor.ClientHeaderAllowlist {
+			allowed[http.CanonicalHeaderKey(name)] = struct{}{}
+		}
+		for name := range clientHeaders {
+			if _, ok := allowed[name]; !ok {
+				delete(clientHeaders, name)
+			}
+		}
+	}
 	for name, value := range clientHeaders {
 		req.Header.Set(name, value)
 	}

@@ -106,11 +106,15 @@ type TaskArtifactProvider interface {
 }
 
 type TaskContentRequest struct {
-	URL            string
-	Method         string
-	Headers        map[string]string
-	Body           []byte
-	Credentialless bool
+	URL     string
+	Method  string
+	Headers map[string]string
+	// ClientHeaderAllowlist narrows the proxy's default conditional headers.
+	// Nil preserves existing plugin behavior; providers may only select from
+	// the proxy's fixed, safe set of client headers.
+	ClientHeaderAllowlist []string
+	Body                  []byte
+	Credentialless        bool
 }
 
 type TaskContentRequestProvider interface {
