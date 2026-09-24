@@ -1026,7 +1026,11 @@ func recordPollFailure(ctx context.Context, adaptor TaskPollingAdaptor, task *mo
 	}
 	// TASK_POLL_MAX_FAILURES <= 0 disables the consecutive-failure cutoff, matching
 	// TASK_TIMEOUT_MINUTES semantics; the 24h sweep remains the only backstop.
-	if constant.TaskPollMaxFailures > 0 && task.PrivateData.PollFailures >= constant.TaskPollMaxFailures {
+	// A retryable Molii query failure says nothing about the generation's
+	// terminal state. Keep its reservation until a terminal response or the
+	// independent timeout sweep, even across poller restarts.
+	retryableSeedance := isByteDanceSeedanceTask(task) && (class == pollClassTransport || class == pollClassTransient)
+	if !retryableSeedance && constant.TaskPollMaxFailures > 0 && task.PrivateData.PollFailures >= constant.TaskPollMaxFailures {
 		return failTaskFromPoll(ctx, adaptor, task, fromStatus, pollFailureReason(class, statusCode, detail))
 	}
 	if _, err := task.UpdateWithStatus(fromStatus); err != nil {

@@ -454,7 +454,8 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.T
 		item.TokenName = tokenNameMap[task.PrivateData.TokenId]
 		isStarAI := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeStarAI))
 		isMoliiGrok := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeMoliiGrokAIGC))
-		if isStarAI || isMoliiGrok {
+		isResellerSeedance := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeByteDanceSeedance))
+		if isStarAI || isMoliiGrok || isResellerSeedance {
 			if isStarAI && task.Status == model.TaskStatusSuccess && (task.PrivateData.StoredResult == nil || task.HasUnexpiredStoredResult(time.Now())) {
 				if task.PrivateData.StoredResult != nil {
 					item.ResultURL = service.BuildSignedVideoProxyPathUntil(task.TaskID, task.UserId, time.Unix(task.PrivateData.StoredResult.ExpiresAt, 0))

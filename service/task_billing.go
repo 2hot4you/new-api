@@ -284,6 +284,10 @@ func isStarAITask(task *model.Task) bool {
 	return task != nil && task.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI))
 }
 
+func isByteDanceSeedanceTask(task *model.Task) bool {
+	return task != nil && task.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeByteDanceSeedance))
+}
+
 func seedanceTaskLogContent(task *model.Task) string {
 	bc := task.PrivateData.BillingContext
 	if bc == nil {
@@ -444,6 +448,13 @@ func BuildTerminalTaskBillingJob(ctx context.Context, adaptor TaskPollingAdaptor
 		job.TargetQuota = nil
 		return job
 	}
+	if isByteDanceSeedanceTask(task) {
+		// Molii and the reseller maintain independent ledgers. Only actual
+		// token facts and the reseller's submission snapshot determine this
+		// target; never use an upstream cost or today's price configuration.
+		job.TargetQuota = seedanceResellerTargetQuota(task, taskResult)
+		return job
+	}
 	if billingContext := task.PrivateData.BillingContext; billingContext != nil && billingContext.TieredSnapshot != nil {
 		snapshot := billingContext.TieredSnapshot
 		usageFacts := make(map[string]any, len(snapshot.UsageFacts)+len(taskResult.UsageFacts))
@@ -501,6 +512,37 @@ func BuildTerminalTaskBillingJob(ctx context.Context, adaptor TaskPollingAdaptor
 		}
 	}
 	return job
+}
+
+func seedanceResellerTargetQuota(task *model.Task, result *relaycommon.TaskInfo) *int {
+	bc := task.PrivateData.BillingContext
+	if bc == nil || bc.PerCallBilling || bc.TieredSnapshot != nil ||
+		bc.ModelRatio <= 0 || math.IsNaN(bc.ModelRatio) || math.IsInf(bc.ModelRatio, 0) ||
+		bc.GroupRatio < 0 || math.IsNaN(bc.GroupRatio) || math.IsInf(bc.GroupRatio, 0) ||
+		result.TotalTokens < 0 || result.CompletionTokens < 0 {
+		return nil
+	}
+	tokens := result.TotalTokens
+	if tokens == 0 {
+		tokens = result.CompletionTokens
+	}
+	if tokens <= 0 {
+		return nil
+	}
+	multiplier := 1.0
+	for _, ratio := range bc.OtherRatios {
+		if ratio <= 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+			return nil
+		}
+		multiplier *= ratio
+	}
+	quotaValue := float64(tokens) * bc.ModelRatio * bc.GroupRatio * multiplier
+	if math.IsNaN(quotaValue) || math.IsInf(quotaValue, 0) {
+		return nil
+	}
+	quota, _ := common.QuotaFromFloatChecked(quotaValue)
+	bc.ActualTokens = tokens
+	return &quota
 }
 
 // TaskBillingPublicState exposes only the stable user-facing lifecycle. It

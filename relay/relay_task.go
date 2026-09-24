@@ -702,6 +702,12 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 			resultURL = strings.TrimSpace(task.PrivateData.ResultURL)
 		}
 	}
+	if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeByteDanceSeedance)) {
+		// Never project a nested provider response, including historical rows.
+		// Root diagnostics obtain only the stored Molii public ID separately.
+		taskData = nil
+		resultURL = ""
+	}
 	return &dto.TaskDto{
 		ID:         task.ID,
 		CreatedAt:  task.CreatedAt,
