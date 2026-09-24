@@ -34,6 +34,7 @@ type StarAIAssetBinding struct {
 	ID                    string `json:"id"`
 	UpstreamID            string `json:"upstream_id"`
 	ChannelID             int    `json:"channel_id,omitempty"`
+	ChannelType           int    `json:"channel_type,omitempty"`
 	ChannelKeyFingerprint string `json:"channel_key_fingerprint,omitempty"`
 	UserID                int    `json:"user_id"`
 	TokenID               int    `json:"token_id"`
@@ -65,9 +66,10 @@ type StarAIAssetStats struct {
 }
 
 type StarAIAssetVerificationConfig struct {
-	BaseURL string
-	APIKey  string
-	Proxy   string
+	BaseURL     string
+	APIKey      string
+	Proxy       string
+	ChannelType int
 }
 
 type starAIAssetVerificationResponse struct {
@@ -174,7 +176,11 @@ func SaveStarAIAssetBinding(binding *StarAIAssetBinding) error {
 		ttl = time.Duration(constant.DefaultStarAIAssetTTLHours) * time.Hour
 	}
 	binding.CreatedAt = now.Unix()
-	binding.ExpiresAt = now.Add(ttl).Unix()
+	if binding.ExpiresAt > now.Unix() && binding.ExpiresAt < now.Add(ttl).Unix() {
+		ttl = time.Until(time.Unix(binding.ExpiresAt, 0))
+	} else {
+		binding.ExpiresAt = now.Add(ttl).Unix()
+	}
 	binding.VerifiedAt = now.Unix()
 	body, err := common.Marshal(binding)
 	if err != nil {
@@ -433,8 +439,21 @@ func UpdateStarAIAssetVerification(binding *StarAIAssetBinding, status, errorCod
 	if err != nil || ttl <= 0 {
 		return ErrStarAIAssetNotFound
 	}
+	if binding.ExpiresAt > 0 {
+		remaining := time.Until(time.Unix(binding.ExpiresAt, 0))
+		if remaining > 0 && remaining < ttl {
+			ttl = remaining
+		}
+	}
 	body, _ := common.Marshal(binding)
-	return common.RDB.Set(context.Background(), key, body, ttl).Err()
+	ctx := context.Background()
+	pipe := common.RDB.TxPipeline()
+	pipe.Set(ctx, key, body, ttl)
+	if binding.COSKey != "" {
+		pipe.ZAdd(ctx, starAICOSCleanupIndexKey, &redis.Z{Score: float64(binding.ExpiresAt), Member: binding.COSKey})
+	}
+	_, err = pipe.Exec(ctx)
+	return err
 }
 
 func UpdateStarAIAssetSourceURL(binding *StarAIAssetBinding, sourceURL string) error {
@@ -463,9 +482,20 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 	if err != nil {
 		return "", err
 	}
-	// StarAI asset IDs are shared across API keys. The local binding lookup
-	// above remains the authorization boundary; verification uses the key of
-	// the channel selected for this generation request.
+	providerType := binding.ChannelType
+	if providerType == 0 {
+		providerType = constant.ChannelTypeStarAI
+	}
+	requestType := config.ChannelType
+	if requestType == 0 {
+		requestType = constant.ChannelTypeStarAI
+	}
+	if providerType != requestType {
+		return "", ErrStarAIAssetVerify
+	}
+	// The local binding lookup above is the authorization boundary. A key
+	// rotated on the same upstream account may still verify the raw asset ID;
+	// another account's not-found response is a safe verification failure.
 	baseURL := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
 	if baseURL == "" || strings.TrimSpace(config.APIKey) == "" {
 		return "", ErrStarAIAssetVerify
@@ -491,6 +521,9 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 		return "", fmt.Errorf("%w: response read failed", ErrStarAIAssetVerify)
 	}
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		if providerType == constant.ChannelTypeByteDanceSeedance {
+			return "", ErrStarAIAssetVerify
+		}
 		if updateErr := UpdateStarAIAssetStatus(binding, "EXPIRED"); updateErr != nil {
 			return "", updateErr
 		}

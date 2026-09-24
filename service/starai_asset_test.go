@@ -239,6 +239,60 @@ func TestResolveStarAIAssetURIRejectsUnboundUpstreamID(t *testing.T) {
 	require.Equal(t, "https://example.com/a.png", mustResolveUnchanged(t, "https://example.com/a.png"))
 }
 
+func TestTemporaryAssetRejectsDifferentLocalUserBeforeUpstream(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{UpstreamID: "asset-upstream", UserID: 42, AssetType: "image", Status: "ACTIVE"}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+	var upstreamCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
+	}))
+	t.Cleanup(server.Close)
+	_, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 84, StarAIAssetVerificationConfig{BaseURL: server.URL, APIKey: "instance-key"})
+	require.ErrorIs(t, err, ErrStarAIAssetNotFound)
+	require.Zero(t, upstreamCalls.Load())
+}
+
+func TestTemporaryAssetWrongResellerAccountIsSafeVerificationError(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{UpstreamID: "asset-reseller", UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance, AssetType: "image", Status: "ACTIVE"}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer rotated-same-account" {
+			_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+	config := StarAIAssetVerificationConfig{BaseURL: server.URL, APIKey: "rotated-same-account", ChannelType: constant.ChannelTypeByteDanceSeedance}
+	resolved, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, config)
+	require.NoError(t, err)
+	require.Equal(t, "asset://asset-reseller", resolved)
+	config.APIKey = "different-account"
+	_, err = ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, config)
+	require.ErrorIs(t, err, ErrStarAIAssetVerify)
+	stored, err := GetStarAIAssetBinding(binding.ID, 42)
+	require.NoError(t, err)
+	require.Equal(t, "ACTIVE", stored.Status)
+}
+
+func TestTemporaryAssetRejectsGenerationOnDifferentProviderBeforeUpstream(t *testing.T) {
+	useStarAIAssetRedis(t)
+	binding := &StarAIAssetBinding{UpstreamID: "asset-reseller", UserID: 42, ChannelType: constant.ChannelTypeByteDanceSeedance, AssetType: "image", Status: "ACTIVE"}
+	require.NoError(t, SaveStarAIAssetBinding(binding))
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"status":"ACTIVE"}`))
+	}))
+	t.Cleanup(server.Close)
+	_, err := ResolveStarAIAssetURI(context.Background(), "asset://"+binding.ID, 42, StarAIAssetVerificationConfig{BaseURL: server.URL, APIKey: "direct-key"})
+	require.ErrorIs(t, err, ErrStarAIAssetVerify)
+	require.Zero(t, calls.Load())
+}
+
 func TestResolveStarAIAssetURIMarksUpstreamNotFoundExpired(t *testing.T) {
 	useStarAIAssetRedis(t)
 	binding := &StarAIAssetBinding{UpstreamID: "asset-gone", UserID: 42, AssetType: "image", Status: "ACTIVE"}

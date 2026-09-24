@@ -2,10 +2,12 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -143,6 +145,46 @@ func TestCreateStarAIAssetRecordsItsChannelAndKeyOwnership(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, binding.ChannelID, stored.ChannelID)
 	require.Equal(t, binding.ChannelKeyFingerprint, stored.ChannelKeyFingerprint)
+}
+
+func TestTemporaryAssetResellerCreateRefreshesUpstreamExpiry(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	useControllerStarAIAssetRedis(t)
+	var calls atomic.Int32
+	expiresAt := time.Now().Add(2 * time.Hour).Unix()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		require.Equal(t, "Bearer instance-key", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodPost:
+			require.Equal(t, "/v1/assets", r.URL.Path)
+			_, _ = w.Write([]byte(`{"id":"asset-reseller","status":"PROCESSING"}`))
+		case http.MethodGet:
+			require.Equal(t, "/v1/assets/asset-reseller", r.URL.Path)
+			_, _ = fmt.Fprintf(w, `{"status":"ACTIVE","expires_at":%d}`, expiresAt)
+		default:
+			t.Errorf("unexpected upstream method %s", r.Method)
+		}
+	}))
+	t.Cleanup(server.Close)
+	baseURL := server.URL
+	channel := &model.Channel{Type: constant.ChannelTypeByteDanceSeedance, Status: common.ChannelStatusEnabled, Name: "reseller", Key: "instance-key", BaseURL: &baseURL}
+	require.NoError(t, db.Create(channel).Error)
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/assets", nil)
+	ctx.Set("id", 42)
+	binding, ok := createStarAIAssetUpstream(ctx, createStarAIAssetRequest{URL: "https://cdn.example.com/reference.png", AssetType: "image", Name: "reference"}, &service.StarAIAssetBinding{})
+	require.True(t, ok)
+	require.Equal(t, "asset-reseller", binding.ID)
+	require.Equal(t, constant.ChannelTypeByteDanceSeedance, binding.ChannelType)
+	require.Equal(t, "ACTIVE", binding.Status)
+	require.Equal(t, expiresAt, binding.ExpiresAt)
+	require.Equal(t, int32(2), calls.Load())
+	stored, err := service.GetStarAIAssetBinding(binding.ID, 42)
+	require.NoError(t, err)
+	require.Equal(t, expiresAt, stored.ExpiresAt)
 }
 
 func TestRefreshLegacyStarAIAssetUsesAnEnabledChannel(t *testing.T) {

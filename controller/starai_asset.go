@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -70,6 +69,7 @@ type starAIAssetUpstreamResponse struct {
 	ID        string                       `json:"id"`
 	Status    string                       `json:"status"`
 	AssetType string                       `json:"asset_type"`
+	ExpiresAt int64                        `json:"expires_at"`
 	Error     *starAIAssetErrorResponse    `json:"error,omitempty"`
 	Data      *starAIAssetUpstreamResponse `json:"data,omitempty"`
 }
@@ -170,6 +170,14 @@ func starAIAssetClientStatus(upstreamStatus int) int {
 }
 
 func writeStarAIAssetUpstreamFailure(c *gin.Context, channel *model.Channel, failure *starAIAssetUpstreamFailure) {
+	if channel.Type == constant.ChannelTypeByteDanceSeedance {
+		// A reseller must not relay account-scoped diagnostics from its upstream.
+		logger.LogError(c.Request.Context(), fmt.Sprintf("temporary asset %s failed channel_id=%d upstream_status=%d", failure.Operation, channel.Id, failure.Status))
+		c.JSON(starAIAssetClientStatus(failure.Status), gin.H{
+			"success": false, "code": "temporary_asset_upstream_error", "message": "temporary asset upstream request failed",
+		})
+		return
+	}
 	logger.LogError(c.Request.Context(), fmt.Sprintf(
 		"Molii Volcengine Imagine API asset %s failed channel_id=%d upstream_status=%d upstream_code=%q reason=%q cause_type=%T",
 		failure.Operation, channel.Id, failure.Status, failure.Code, failure.Reason, failure.Cause,
@@ -228,18 +236,7 @@ func isDashboardAssetRequest(c *gin.Context) bool {
 }
 
 func getStarAIAssetChannel(binding *service.StarAIAssetBinding) (*model.Channel, error) {
-	if binding != nil && binding.ChannelID > 0 {
-		channel, err := model.GetChannelById(binding.ChannelID, true)
-		if err == nil && channel.Type != constant.ChannelTypeStarAI {
-			return nil, errors.New("temporary asset channel type mismatch")
-		}
-		if err == nil && channel.Status == common.ChannelStatusEnabled {
-			return channel, nil
-		}
-	}
-	// StarAI asset IDs are shared across API keys, so an enabled channel can
-	// refresh bindings whose original channel was removed or disabled.
-	return model.GetFirstEnabledChannelByType(constant.ChannelTypeStarAI)
+	return resolveTemporaryAssetChannel(binding)
 }
 
 func validatePublicAssetURL(raw string) error {
@@ -260,39 +257,15 @@ func validatePublicAssetURL(raw string) error {
 	return nil
 }
 
-func doStarAIAssetRequest(channel *model.Channel, method, path string, body io.Reader) ([]byte, int, error) {
-	baseURL := strings.TrimRight(channel.GetBaseURL(), "/")
-	if baseURL == "" {
-		baseURL = constant.ChannelBaseURLs[constant.ChannelTypeStarAI]
-	}
-	req, err := http.NewRequest(method, baseURL+path, body)
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("Authorization", "Bearer "+channel.Key)
-	req.Header.Set("Content-Type", "application/json")
-	client, err := service.GetHttpClientWithProxy(channel.GetSetting().Proxy)
-	if err != nil {
-		return nil, 0, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return data, resp.StatusCode, err
-}
-
 func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, binding *service.StarAIAssetBinding) (*service.StarAIAssetBinding, bool) {
 	channel, err := getStarAIAssetChannel(nil)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("asset channel configuration unavailable: type=%d error=%v", constant.ChannelTypeStarAI, err))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("asset channel configuration unavailable: error_type=%T", err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "asset service is temporarily unavailable"})
 		return nil, false
 	}
 	body, _ := common.Marshal(input)
-	respBody, status, err := doStarAIAssetRequest(channel, http.MethodPost, "/v1/assets", strings.NewReader(string(body)))
+	respBody, status, err := doTemporaryAssetRequest(channel, http.MethodPost, "/v1/assets", strings.NewReader(string(body)))
 	if err != nil || status < 200 || status >= 300 {
 		writeStarAIAssetUpstreamFailure(c, channel, parseStarAIAssetUpstreamFailure("create", status, respBody, err))
 		return nil, false
@@ -310,12 +283,14 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 	}
 	binding.UpstreamID = upstream.ID
 	binding.ChannelID = channel.Id
+	binding.ChannelType = channel.Type
 	binding.ChannelKeyFingerprint = service.StarAIChannelKeyFingerprint(channel.Key)
 	binding.UserID = c.GetInt("id")
 	binding.TokenID = c.GetInt("token_id")
 	binding.AssetType = input.AssetType
 	binding.Name = input.Name
 	binding.Status = initialStatus
+	binding.ExpiresAt = upstream.ExpiresAt
 	if upstream.Error != nil && initialStatus == "FAILED" {
 		binding.ErrorCode = sanitizeStarAIAssetErrorCode(upstream.Error.Code)
 		binding.ErrorMessage = sanitizeStarAIAssetErrorText(upstream.Error.Message)
@@ -323,6 +298,12 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 	if err := service.SaveStarAIAssetBinding(binding); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "temporary asset mapping unavailable"})
 		return nil, false
+	}
+	if upstream.ExpiresAt == 0 {
+		if _, err := refreshStarAIAsset(c, binding); err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "temporary asset verification failed"})
+			return nil, false
+		}
 	}
 	return binding, true
 }
@@ -428,8 +409,11 @@ func refreshStarAIAsset(c *gin.Context, binding *service.StarAIAssetBinding) (*s
 	if err != nil {
 		return nil, err
 	}
-	body, status, err := doStarAIAssetRequest(channel, http.MethodGet, "/v1/assets/"+url.PathEscape(binding.UpstreamID), nil)
+	body, status, err := doTemporaryAssetRequest(channel, http.MethodGet, "/v1/assets/"+url.PathEscape(binding.UpstreamID), nil)
 	if err == nil && (status == http.StatusNotFound || status == http.StatusGone) {
+		if binding.ChannelType == constant.ChannelTypeByteDanceSeedance {
+			return nil, errors.New("temporary asset upstream verification failed")
+		}
 		if updateErr := service.UpdateStarAIAssetStatus(binding, "EXPIRED"); updateErr != nil {
 			return nil, updateErr
 		}
@@ -448,6 +432,9 @@ func refreshStarAIAsset(c *gin.Context, binding *service.StarAIAssetBinding) (*s
 	}
 	if upstream.AssetType != "" {
 		binding.AssetType = upstream.AssetType
+	}
+	if upstream.ExpiresAt > 0 {
+		binding.ExpiresAt = upstream.ExpiresAt
 	}
 	errorCode, errorMessage := "", ""
 	if upstream.Error != nil {
