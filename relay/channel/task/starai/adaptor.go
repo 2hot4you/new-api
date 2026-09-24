@@ -19,6 +19,7 @@ import (
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/task/seedanceprotocol"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -28,84 +29,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type mediaURL struct {
-	URL string `json:"url,omitempty"`
-}
-
-type contentItem struct {
-	Type     string    `json:"type,omitempty"`
-	Text     string    `json:"text,omitempty"`
-	ImageURL *mediaURL `json:"image_url,omitempty"`
-	VideoURL *mediaURL `json:"video_url,omitempty"`
-	AudioURL *mediaURL `json:"audio_url,omitempty"`
-	Role     string    `json:"role,omitempty"`
-}
-
-type tool struct {
-	Type string `json:"type,omitempty"`
-}
-
-type requestPayload struct {
-	Model         string        `json:"model"`
-	Content       []contentItem `json:"content"`
-	GenerateAudio *bool         `json:"generate_audio,omitempty"`
-	Resolution    string        `json:"resolution,omitempty"`
-	Ratio         string        `json:"ratio,omitempty"`
-	Duration      *int          `json:"duration,omitempty"`
-	Watermark     *bool         `json:"watermark,omitempty"`
-	Tools         []tool        `json:"tools,omitempty"`
-}
-
-type usage struct {
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-	ToolUsage        struct {
-		WebSearch int `json:"web_search"`
-	} `json:"tool_usage"`
-}
-
-type nestedTaskPayload struct {
-	Status          string  `json:"status"`
-	Message         string  `json:"message"`
-	FailReason      string  `json:"fail_reason"`
-	Duration        float64 `json:"duration"`
-	Resolution      string  `json:"resolution"`
-	Ratio           string  `json:"ratio"`
-	FramesPerSecond int     `json:"framespersecond"`
-	Seed            int64   `json:"seed"`
-	Content         struct {
-		VideoURL string `json:"video_url"`
-	} `json:"content"`
-	Usage *usage `json:"usage"`
-	Error any    `json:"error"`
-}
-
-type taskPayload struct {
-	TaskID     string            `json:"task_id"`
-	ID         any               `json:"id"`
-	Message    string            `json:"message"`
-	Status     string            `json:"status"`
-	FailReason string            `json:"fail_reason"`
-	ResultURL  string            `json:"result_url"`
-	Progress   any               `json:"progress"`
-	Usage      *usage            `json:"usage"`
-	Error      any               `json:"error"`
-	Data       nestedTaskPayload `json:"data"`
-}
-
-type responseEnvelope struct {
-	Code       any         `json:"code"`
-	Message    string      `json:"message"`
-	Error      any         `json:"error"`
-	FailReason string      `json:"fail_reason"`
-	TaskID     string      `json:"task_id"`
-	ID         any         `json:"id"`
-	Status     string      `json:"status"`
-	ResultURL  string      `json:"result_url"`
-	Progress   any         `json:"progress"`
-	Usage      *usage      `json:"usage"`
-	Data       taskPayload `json:"data"`
-}
+type mediaURL = seedanceprotocol.MediaURL
+type contentItem = seedanceprotocol.ContentItem
+type tool = seedanceprotocol.Tool
+type requestPayload = seedanceprotocol.Payload
+type usage = seedanceprotocol.Usage
+type responseEnvelope = seedanceprotocol.ResponseEnvelope
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
@@ -248,36 +177,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 }
 
 func decodeStarAIResponse(body []byte, target any) error {
-	trimmed := bytes.TrimSpace(bytes.TrimPrefix(body, []byte{0xef, 0xbb, 0xbf}))
-	if err := common.Unmarshal(trimmed, target); err == nil {
-		return nil
-	}
-
-	text := strings.TrimSpace(string(trimmed))
-	if strings.HasPrefix(text, "```") {
-		lines := strings.Split(text, "\n")
-		if len(lines) >= 3 && strings.HasPrefix(strings.TrimSpace(lines[0]), "```") && strings.TrimSpace(lines[len(lines)-1]) == "```" {
-			text = strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
-			if err := common.Unmarshal([]byte(text), target); err == nil {
-				return nil
-			}
-		}
-	}
-
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" || payload == "[DONE]" {
-			continue
-		}
-		if err := common.Unmarshal([]byte(payload), target); err == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("response is not valid JSON")
+	return seedanceprotocol.DecodeResponse(body, target)
 }
 
 func (a *TaskAdaptor) FetchTask(baseURL, key string, task *model.Task, proxy string) (*http.Response, error) {
@@ -583,14 +483,7 @@ func (a *TaskAdaptor) resolveTemporaryAssets(c *gin.Context, payload *requestPay
 }
 
 func validateDuration(model string, duration *int) error {
-	if duration == nil {
-		return nil
-	}
-	maxDuration := capabilitiesForModel(model).maxDuration
-	if *duration != -1 && (*duration < 4 || *duration > maxDuration) {
-		return fmt.Errorf("duration must be -1 or between 4 and %d", maxDuration)
-	}
-	return nil
+	return seedanceprotocol.ValidateDuration(model, duration)
 }
 
 func applyTopLevelFields(c *gin.Context, payload *requestPayload) error {
@@ -634,98 +527,7 @@ func applyTopLevelFields(c *gin.Context, payload *requestPayload) error {
 }
 
 func validatePayload(payload *requestPayload) error {
-	payload.Resolution = strings.ToLower(strings.TrimSpace(payload.Resolution))
-	if payload.Resolution != "480p" && payload.Resolution != "720p" && payload.Resolution != "1080p" && payload.Resolution != "4k" {
-		return fmt.Errorf("resolution must be one of 480p, 720p, 1080p, or 4k")
-	}
-	if _, ok := capabilitiesForModel(payload.Model).supportedResolution[payload.Resolution]; !ok {
-		return fmt.Errorf("%s is not supported by %s", payload.Resolution, payload.Model)
-	}
-	validRatios := map[string]struct{}{"16:9": {}, "4:3": {}, "1:1": {}, "3:4": {}, "9:16": {}, "21:9": {}, "adaptive": {}}
-	if _, ok := validRatios[payload.Ratio]; !ok {
-		return fmt.Errorf("unsupported ratio %q", payload.Ratio)
-	}
-	for _, item := range payload.Tools {
-		if item.Type != "web_search" {
-			return fmt.Errorf("unsupported tool type %q", item.Type)
-		}
-	}
-
-	var textCount, imageCount, videoCount, audioCount int
-	var firstFrameCount, lastFrameCount, referenceImageCount int
-	for _, item := range payload.Content {
-		switch strings.ToLower(strings.TrimSpace(item.Type)) {
-		case "text":
-			if strings.TrimSpace(item.Text) == "" {
-				return fmt.Errorf("text content must not be empty")
-			}
-			textCount++
-		case "image_url":
-			if item.ImageURL == nil || strings.TrimSpace(item.ImageURL.URL) == "" {
-				return fmt.Errorf("image_url content requires a URL")
-			}
-			imageCount++
-			switch item.Role {
-			case "", "first_frame":
-				firstFrameCount++
-			case "last_frame":
-				lastFrameCount++
-			case "reference_image":
-				referenceImageCount++
-			default:
-				return fmt.Errorf("unsupported image role %q", item.Role)
-			}
-		case "video_url":
-			if item.VideoURL == nil || strings.TrimSpace(item.VideoURL.URL) == "" {
-				return fmt.Errorf("video_url content requires a URL")
-			}
-			if item.Role != "reference_video" {
-				return fmt.Errorf("video role must be reference_video")
-			}
-			videoCount++
-		case "audio_url":
-			if item.AudioURL == nil || strings.TrimSpace(item.AudioURL.URL) == "" {
-				return fmt.Errorf("audio_url content requires a URL")
-			}
-			if item.Role != "reference_audio" {
-				return fmt.Errorf("audio role must be reference_audio")
-			}
-			audioCount++
-		default:
-			return fmt.Errorf("unsupported content type %q", item.Type)
-		}
-	}
-	if textCount+imageCount+videoCount+audioCount == 0 || (imageCount+videoCount == 0 && textCount == 0) {
-		return fmt.Errorf("prompt or reference image/video is required")
-	}
-	capabilities := capabilitiesForModel(payload.Model)
-	if imageCount > capabilities.maxImages || videoCount > capabilities.maxVideos || audioCount > capabilities.maxAudioFiles {
-		return fmt.Errorf(
-			"at most %d images, %d videos, and %d audio files are supported",
-			capabilities.maxImages,
-			capabilities.maxVideos,
-			capabilities.maxAudioFiles,
-		)
-	}
-	frameScene := firstFrameCount > 0 || lastFrameCount > 0
-	referenceScene := referenceImageCount > 0 || videoCount > 0 || audioCount > 0
-	if frameScene && referenceScene {
-		return fmt.Errorf("frame-based and multimodal reference content cannot be mixed")
-	}
-	if frameScene {
-		if firstFrameCount != 1 || lastFrameCount > 1 || imageCount > 2 {
-			return fmt.Errorf("frame-based generation requires one first frame and at most one last frame")
-		}
-	}
-	if referenceScene {
-		if imageCount != referenceImageCount {
-			return fmt.Errorf("multimodal images must use role reference_image")
-		}
-		if audioCount > 0 && imageCount+videoCount == 0 {
-			return fmt.Errorf("audio requires at least one reference image or video")
-		}
-	}
-	return nil
+	return seedanceprotocol.ValidatePayload(payload)
 }
 
 func inputMediaCounts(payload *requestPayload) (images int, videos int, audio int) {

@@ -1,5 +1,7 @@
 package starai
 
+import "github.com/QuantumNous/new-api/relay/channel/task/seedanceprotocol"
+
 const ChannelName = "molii-aigc"
 
 const (
@@ -9,40 +11,4 @@ const (
 	ModelSeedance25     = "doubao-seedance-2-5-260628"
 )
 
-var ModelList = []string{
-	ModelSeedance20,
-	ModelSeedance20Fast,
-	ModelSeedance20Mini,
-	ModelSeedance25,
-}
-
-type modelCapabilities struct {
-	maxDuration         int
-	maxImages           int
-	maxVideos           int
-	maxAudioFiles       int
-	supportedResolution map[string]struct{}
-}
-
-func capabilitiesForModel(model string) modelCapabilities {
-	capabilities := modelCapabilities{
-		maxDuration:   15,
-		maxImages:     9,
-		maxVideos:     3,
-		maxAudioFiles: 3,
-		supportedResolution: map[string]struct{}{
-			"480p": {}, "720p": {}, "1080p": {}, "4k": {},
-		},
-	}
-	switch model {
-	case ModelSeedance20Fast, ModelSeedance20Mini:
-		capabilities.supportedResolution = map[string]struct{}{"480p": {}, "720p": {}}
-	case ModelSeedance25:
-		capabilities.maxDuration = 30
-		capabilities.maxImages = 30
-		capabilities.maxVideos = 10
-		capabilities.maxAudioFiles = 10
-		capabilities.supportedResolution = map[string]struct{}{"480p": {}, "720p": {}, "1080p": {}}
-	}
-	return capabilities
-}
+var ModelList = seedanceprotocol.SupportedModels()

@@ -24,7 +24,13 @@ func TestTaskAdaptorAndEndpointRegistration(t *testing.T) {
 	}, adaptor.GetModelList())
 	assert.False(t, relay.TaskAdaptorAllowsRetry(platform))
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, common.GetEndpointTypesByChannelType(constant.ChannelTypeStarAI, adaptor.GetModelList()[0]))
-	assert.Equal(t, constant.ChannelTypeStarAI+3, constant.ChannelTypeDummy)
+	assert.Equal(t, constant.ChannelTypeStarAI+4, constant.ChannelTypeDummy)
 	_, chatMapped := common.ChannelType2APIType(constant.ChannelTypeStarAI)
 	assert.False(t, chatMapped, "video provider must remain task-only and must not use a chat adaptor")
+}
+
+func TestByteDanceSeedanceChannelRegistration(t *testing.T) {
+	assert.Equal(t, "ByteDance Seedance", constant.GetChannelTypeName(constant.ChannelTypeByteDanceSeedance))
+	assert.Empty(t, constant.GetChannelBaseURL(constant.ChannelTypeByteDanceSeedance))
+	assert.Greater(t, constant.ChannelTypeDummy, constant.ChannelTypeByteDanceSeedance)
 }
