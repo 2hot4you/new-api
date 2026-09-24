@@ -49,6 +49,27 @@ func TestSubmitStoresOnlyMoliiPublicTaskID(t *testing.T) {
 	assert.NotContains(t, string(parsed.TaskData), "task_molii_public")
 }
 
+func TestSubmitRejectsNonPublicTaskIDs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"private root ID", `{"id":"cgt-private"}`},
+		{"private nested ID", `{"code":"success","data":{"task_id":"cgt-private"}}`},
+		{"empty suffix", `{"id":"task_"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(tc.body))}
+			parsed, taskErr := (&TaskAdaptor{}).ParseResponse(ctx, resp, &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_reseller_public"}})
+			assert.Nil(t, parsed)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "invalid_response", taskErr.Code)
+			assert.NotContains(t, taskErr.Message, "cgt-private")
+		})
+	}
+}
+
 func TestPollDropsNestedStarAIPrivateDiagnostics(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 	body := []byte(`{"code":"success","data":{"task_id":"task_molii_public","upstream_id":"cgt-private","status":"SUCCESS","data":{"private":"secret"},"usage":{"total_tokens":288625}}}`)
@@ -71,7 +92,7 @@ func TestOpenAIVideoPollPreservesUsageWithoutPrivateFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskStatusSuccess, result.Status)
 	assert.Equal(t, 150, result.TotalTokens)
-	assert.Equal(t, "https://molii.example/video.mp4", result.Url)
+	assert.Empty(t, result.Url, "polling must not persist Molii's possibly signed result URL")
 	safeData := adaptor.SafePollingData(result)
 	task := &model.Task{TaskID: "task_reseller_public", Status: model.TaskStatusSuccess, Data: safeData, PrivateData: model.TaskPrivateData{UpstreamTaskID: "task_molii_public"}}
 	clientBody, err := adaptor.ConvertToOpenAIVideo(task)
@@ -79,6 +100,14 @@ func TestOpenAIVideoPollPreservesUsageWithoutPrivateFields(t *testing.T) {
 	assert.Contains(t, string(clientBody), `"total_tokens":150`)
 	assert.NotContains(t, string(clientBody), "task_molii_public")
 	assert.NotContains(t, string(clientBody), "cgt-private")
+}
+
+func TestPollDiscardsNestedAndTopLevelResultURLs(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	result, err := adaptor.ParseTaskResult(nil, nil, []byte(`{"code":"success","result_url":"https://private.example/root?signature=secret","data":{"status":"SUCCESS","result_url":"https://private.example/data?signature=secret","data":{"content":{"video_url":"https://private.example/nested?signature=secret"}}}}`))
+	require.NoError(t, err)
+	assert.Empty(t, result.Url)
+	assert.NotContains(t, string(adaptor.SafePollingData(result)), "private.example")
 }
 
 func TestFailureReasonCannotStoreNestedDiagnostic(t *testing.T) {
@@ -95,6 +124,12 @@ func TestPollRejectsResponseWithoutStatus(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "cgt-private")
 	assert.NotContains(t, err.Error(), "secret")
+}
+
+func TestPollRejectsUnknownStatus(t *testing.T) {
+	_, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, []byte(`{"code":"success","data":{"status":"MYSTERY","upstream_id":"cgt-private"}}`))
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "cgt-private")
 }
 
 func TestPollRejectsPrivateResolutionDiagnostic(t *testing.T) {

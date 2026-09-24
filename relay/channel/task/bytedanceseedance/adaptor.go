@@ -224,8 +224,8 @@ func (a *TaskAdaptor) ParseResponse(_ *gin.Context, resp *http.Response, info *r
 		return nil, service.TaskErrorWrapper(errors.New("Molii video request failed"), "molii_video_api_error", http.StatusBadGateway)
 	}
 	id := first(envelope.Data.TaskID, stringValue(envelope.Data.ID), envelope.TaskID, stringValue(envelope.ID))
-	if id == "" {
-		return nil, service.TaskErrorWrapper(errors.New("Molii video response omitted task ID"), "invalid_response", http.StatusBadGateway)
+	if !isPublicTaskID(id) {
+		return nil, service.TaskErrorWrapper(errors.New("Molii video response omitted a valid public task ID"), "invalid_response", http.StatusBadGateway)
 	}
 	publicID, originModel := "", ""
 	if info != nil {
@@ -274,6 +274,10 @@ func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, body []by
 	if status == "" {
 		return nil, errors.New("Molii video task response omitted status")
 	}
+	mappedStatus := mapStatus(status)
+	if mappedStatus == "" {
+		return nil, errors.New("Molii video task response has unknown status")
+	}
 	usage := envelope.Data.Data.Usage
 	if usage == nil {
 		usage = envelope.Data.Usage
@@ -282,9 +286,10 @@ func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, body []by
 		usage = envelope.Usage
 	}
 	result := &relaycommon.TaskInfo{
-		Status:                mapStatus(status),
-		Progress:              progress(status),
-		Url:                   first(envelope.Data.ResultURL, envelope.ResultURL),
+		Status:   mappedStatus,
+		Progress: progress(status),
+		// Molii may include a private signed result URL. The content proxy
+		// must obtain media separately from the authenticated public API.
 		ActualDurationSeconds: envelope.Data.Data.Duration,
 		ActualResolution:      safeResolution(envelope.Data.Data.Resolution),
 	}
@@ -349,6 +354,19 @@ func first(values ...string) string {
 	return ""
 }
 
+func isPublicTaskID(value string) bool {
+	if !strings.HasPrefix(value, "task_") || len(value) <= len("task_") {
+		return false
+	}
+	for _, ch := range value[len("task_"):] {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func stringValue(value any) string {
 	switch v := value.(type) {
 	case string:
@@ -391,7 +409,7 @@ func mapStatus(status string) string {
 	case "FAILURE", "FAILED", "CANCELLED", "EXPIRED":
 		return model.TaskStatusFailure
 	default:
-		return model.TaskStatusInProgress
+		return ""
 	}
 }
 

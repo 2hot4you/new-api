@@ -41,3 +41,35 @@
 - `result_url` is accepted only from the public envelope's explicit `result_url` fields, not nested provider content. Molii controls that value; further origin-policy validation would require a separate media-delivery contract.
 - The required routing test command's regex misses the existing service test named `TestPinnedTaskPluginChannelTypesIncludesStarAIForUnifiedSeedance2`; the full service run exposed it. This is an expected assertion update, not an implementation regression.
 - The plan's `ParseResponse` pseudocode used direct `RelayInfo` fields; this repository nests `PublicTaskID` in `TaskRelayInfo`, so tests and implementation use the project-native structure.
+
+## Fix Round 1 — review blockers
+
+Review findings were reproduced and fixed within the assigned files. This section supersedes the earlier statement that `result_url` is accepted and the earlier service-test failure concern.
+
+- `relay/channel/task/bytedanceseedance/adaptor_test.go` now checks that top-level, envelope, and nested result URLs are discarded; unknown poll statuses return a safe parse error; and private/non-`task_…` submit IDs cannot be persisted. The existing OpenAI-video poll test now requires an empty `TaskInfo.Url`. `adaptor.go` implements these checks and leaves media delivery to Task 6's authenticated content proxy.
+- `service/channel_select_test.go` now names both native Seedance channels and expects `[54,45,61,64]` for unified Seedance 2.x routing.
+
+TDD RED: `go test ./relay/channel/task/bytedanceseedance -run 'TestSubmitRejectsNonPublicTaskIDs|TestOpenAIVideoPollPreservesUsageWithoutPrivateFields|TestPollDiscardsNestedAndTopLevelResultURLs|TestPollRejectsUnknownStatus' -count=1` exited 1: private root/nested IDs and `task_` were accepted; `result.Url` retained the Molii URL; unknown status returned no error. The stale service route assertion had previously failed with expected `[54,45,61]`, actual `[54,45,61,64]`.
+
+GREEN / exact validation:
+
+```text
+$ go test ./relay/channel/task/bytedanceseedance -run 'TestSubmitRejectsNonPublicTaskIDs|TestOpenAIVideoPollPreservesUsageWithoutPrivateFields|TestPollDiscardsNestedAndTopLevelResultURLs|TestPollRejectsUnknownStatus' -count=1
+ok  github.com/QuantumNous/new-api/relay/channel/task/bytedanceseedance  1.111s
+$ go test ./service -run 'TestPinnedTaskPluginChannelTypes' -count=1
+ok  github.com/QuantumNous/new-api/service  0.916s
+$ go test ./relay/channel/task/bytedanceseedance ./relay ./service ./controller -run 'ByteDanceSeedance|UnifiedNativeTask|ChannelSelect' -count=1
+ok  github.com/QuantumNous/new-api/relay/channel/task/bytedanceseedance  0.887s
+ok  github.com/QuantumNous/new-api/relay  1.196s [no tests to run]
+ok  github.com/QuantumNous/new-api/service  1.638s [no tests to run]
+ok  github.com/QuantumNous/new-api/controller  1.191s [no tests to run]
+$ go test ./relay/channel/task/bytedanceseedance ./relay ./service ./controller -count=1
+ok  github.com/QuantumNous/new-api/relay/channel/task/bytedanceseedance  0.858s
+ok  github.com/QuantumNous/new-api/relay  1.201s
+ok  github.com/QuantumNous/new-api/service  4.131s
+ok  github.com/QuantumNous/new-api/controller  34.509s
+$ git diff --check
+(no output; exit 0)
+```
+
+Self-review: No direct StarAI predicate changed. Unknown statuses no longer become in-progress; submit ID validation allows only a nonempty `task_` suffix of ASCII letters, digits, `_`, and `-`; neither poll result URLs nor raw error strings are stored. Remaining dependency: Task 6 must provide the authenticated content proxy before completed video content can be fetched.

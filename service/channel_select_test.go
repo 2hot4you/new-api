@@ -132,7 +132,7 @@ func TestPinnedTaskPluginChannelTypesIncludesCompatibleTypes(t *testing.T) {
 	assert.Equal(t, []int{constant.ChannelTypeSora, constant.ChannelTypeOpenAI}, pinnedTaskPluginChannelTypes(c, "sora-select"))
 }
 
-func TestPinnedTaskPluginChannelTypesIncludesStarAIForUnifiedSeedance2(t *testing.T) {
+func TestPinnedTaskPluginChannelTypesIncludesNativeSeedanceChannelsForUnifiedSeedance2(t *testing.T) {
 	registry := jsplugin.NewRegistry()
 	plugin, err := registry.Register(channelSelectSeedancePluginSource(), jsplugin.Options{})
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ func TestPinnedTaskPluginChannelTypesIncludesStarAIForUnifiedSeedance2(t *testin
 
 	assert.Equal(
 		t,
-		[]int{constant.ChannelTypeDoubaoVideo, constant.ChannelTypeVolcEngine, constant.ChannelTypeStarAI},
+		[]int{constant.ChannelTypeDoubaoVideo, constant.ChannelTypeVolcEngine, constant.ChannelTypeStarAI, constant.ChannelTypeByteDanceSeedance},
 		pinnedTaskPluginChannelTypes(c, "doubao"),
 	)
 }
