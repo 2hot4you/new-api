@@ -91,6 +91,7 @@ func init() {
 		})
 	}
 	starAITaskAdaptor := relay.GetTaskAdaptor(constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)))
+	byteDanceSeedanceTaskAdaptor := relay.GetTaskAdaptor(constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeByteDanceSeedance)))
 	if starAITaskAdaptor != nil {
 		for _, modelName := range starAITaskAdaptor.GetModelList() {
 			openAIModels = append(openAIModels, dto.OpenAIModels{
@@ -98,6 +99,14 @@ func init() {
 				Object:  "model",
 				Created: 1626777600,
 				OwnedBy: starAITaskAdaptor.GetChannelName(),
+			})
+		}
+	}
+	if byteDanceSeedanceTaskAdaptor != nil {
+		for _, modelName := range byteDanceSeedanceTaskAdaptor.GetModelList() {
+			openAIModels = append(openAIModels, dto.OpenAIModels{
+				Id: modelName, Object: "model", Created: 1626777600,
+				OwnedBy: byteDanceSeedanceTaskAdaptor.GetChannelName(),
 			})
 		}
 	}
@@ -150,6 +159,9 @@ func init() {
 	if starAITaskAdaptor != nil {
 		channelId2Models[constant.ChannelTypeStarAI] = starAITaskAdaptor.GetModelList()
 	}
+	if byteDanceSeedanceTaskAdaptor != nil {
+		channelId2Models[constant.ChannelTypeByteDanceSeedance] = byteDanceSeedanceTaskAdaptor.GetModelList()
+	}
 	if moliiGrokTaskAdaptor != nil {
 		channelId2Models[constant.ChannelTypeMoliiGrokAIGC] = lo.Uniq(append(channelId2Models[constant.ChannelTypeMoliiGrokAIGC], moliiGrokTaskAdaptor.GetModelList()...))
 	}
@@ -159,7 +171,7 @@ func init() {
 }
 
 func channelOwnerName(channelType int) string {
-	if channelType == constant.ChannelTypeStarAI {
+	if channelType == constant.ChannelTypeStarAI || channelType == constant.ChannelTypeByteDanceSeedance {
 		platform := constant.TaskPlatform(fmt.Sprintf("%d", channelType))
 		if adaptor := relay.GetTaskAdaptor(platform); adaptor != nil {
 			if name := strings.TrimSpace(adaptor.GetChannelName()); name != "" {

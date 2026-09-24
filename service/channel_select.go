@@ -258,9 +258,8 @@ func pinnedTaskPluginChannelTypes(c *gin.Context, expected string) []int {
 
 // appendUnifiedNativeTaskChannelTypes keeps endpoint routing compatible with
 // native task adaptors whose upstream wire format differs from the JS plugin.
-// StarAI supports only the Seedance 2.x model IDs below; registering the whole
-// Doubao plugin for channel type 61 would incorrectly expose its Seedance 1.x
-// models and would also select the plugin's Ark request paths for StarAI.
+// The native StarAI and ByteDance Seedance channels support only the Seedance
+// 2.x models below. The Doubao plugin also exposes unrelated model IDs.
 func appendUnifiedNativeTaskChannelTypes(c *gin.Context, expected string, channelTypes []int) []int {
 	if c == nil || expected != "doubao" {
 		return channelTypes
@@ -278,10 +277,17 @@ func appendUnifiedNativeTaskChannelTypes(c *gin.Context, expected string, channe
 	default:
 		return channelTypes
 	}
-	for _, channelType := range channelTypes {
-		if channelType == constant.ChannelTypeStarAI {
-			return channelTypes
+	for _, nativeType := range []int{constant.ChannelTypeStarAI, constant.ChannelTypeByteDanceSeedance} {
+		present := false
+		for _, channelType := range channelTypes {
+			if channelType == nativeType {
+				present = true
+				break
+			}
+		}
+		if !present {
+			channelTypes = append(channelTypes, nativeType)
 		}
 	}
-	return append(channelTypes, constant.ChannelTypeStarAI)
+	return channelTypes
 }

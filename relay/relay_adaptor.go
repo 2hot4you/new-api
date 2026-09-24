@@ -37,6 +37,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/siliconflow"
 	"github.com/QuantumNous/new-api/relay/channel/sub2api"
 	"github.com/QuantumNous/new-api/relay/channel/submodel"
+	taskbytedanceseedance "github.com/QuantumNous/new-api/relay/channel/task/bytedanceseedance"
 	jspluginadaptor "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	taskmoliigrok "github.com/QuantumNous/new-api/relay/channel/task/moliigrok"
 	taskstarai "github.com/QuantumNous/new-api/relay/channel/task/starai"
@@ -161,6 +162,8 @@ var taskPluginKeys = map[constant.TaskPlatform]string{
 func getNativeTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 	if channelType, err := strconv.ParseInt(string(platform), 10, 64); err == nil {
 		switch channelType {
+		case constant.ChannelTypeByteDanceSeedance:
+			return &taskbytedanceseedance.TaskAdaptor{}
 		case constant.ChannelTypeStarAI:
 			return &taskstarai.TaskAdaptor{}
 		case constant.ChannelTypeMoliiGrokAIGC:
