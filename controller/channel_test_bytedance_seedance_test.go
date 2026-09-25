@@ -33,6 +33,42 @@ func TestByteDanceSeedancePartialChannelUpdateValidatesEffectiveURL(t *testing.T
 	require.Equal(t, "https://upstream.example", reloaded.GetBaseURL())
 }
 
+func TestByteDanceSeedancePartialChannelUpdateCannotBypassEffectiveURLValidation(t *testing.T) {
+	invalidBaseURL := "https://user:password@upstream.example?secret=value#fragment"
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "zero type follows persisted update semantics", body: `{"id":%d,"type":0,"base_url":%q}`},
+		{name: "null type follows persisted update semantics", body: `{"id":%d,"type":null,"base_url":%q}`},
+		{name: "case insensitive base url field", body: `{"id":%d,"type":64,"BASE_URL":%q}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupModelListControllerTestDB(t)
+			channel := seedanceResellerChannel("https://upstream.example", "instance-key")
+			require.NoError(t, db.Create(channel).Error)
+
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(
+				http.MethodPut,
+				"/api/channel",
+				strings.NewReader(fmt.Sprintf(test.body, channel.Id, invalidBaseURL)),
+			)
+			ctx.Set("id", 1)
+			ctx.Set("role", common.RoleRootUser)
+			UpdateChannel(ctx)
+
+			require.Contains(t, recorder.Body.String(), `"success":false`)
+			reloaded, err := model.GetChannelById(channel.Id, true)
+			require.NoError(t, err)
+			require.Equal(t, constant.ChannelTypeByteDanceSeedance, reloaded.Type)
+			require.Equal(t, "https://upstream.example", reloaded.GetBaseURL())
+		})
+	}
+}
+
 func seedanceResellerChannel(baseURL, key string) *model.Channel {
 	return &model.Channel{
 		Type: constant.ChannelTypeByteDanceSeedance, BaseURL: &baseURL,

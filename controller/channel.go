@@ -1030,6 +1030,15 @@ type ChannelStatusBatchRequest struct {
 	Status int   `json:"status"`
 }
 
+func requestIncludesJSONField(requestData map[string]any, field string) bool {
+	for key := range requestData {
+		if strings.EqualFold(key, field) {
+			return true
+		}
+	}
+	return false
+}
+
 func UpdateChannel(c *gin.Context) {
 	channel := PatchChannel{}
 	rawBody, err := c.GetRawData()
@@ -1074,13 +1083,19 @@ func UpdateChannel(c *gin.Context) {
 	}
 	validationChannel := &channel.Channel
 	effectiveType := channel.Type
-	if _, supplied := requestData["type"]; !supplied {
+	typeSupplied := requestIncludesJSONField(requestData, "type")
+	// GORM struct updates omit a zero channel type, so an omitted, null, or
+	// explicit zero value leaves the persisted provider unchanged. Validation
+	// must use that same effective provider instead of validating a value that
+	// will never be written.
+	if !typeSupplied || effectiveType == 0 {
 		effectiveType = originChannel.Type
 	}
+	baseURLSupplied := requestIncludesJSONField(requestData, "base_url")
 	if effectiveType == constant.ChannelTypeByteDanceSeedance {
 		effective := channel.Channel
 		effective.Type = effectiveType
-		if _, supplied := requestData["base_url"]; !supplied {
+		if !baseURLSupplied {
 			effective.BaseURL = originChannel.BaseURL
 		}
 		validationChannel = &effective
@@ -1092,7 +1107,7 @@ func UpdateChannel(c *gin.Context) {
 		})
 		return
 	}
-	if _, supplied := requestData["base_url"]; supplied && effectiveType == constant.ChannelTypeByteDanceSeedance {
+	if baseURLSupplied && effectiveType == constant.ChannelTypeByteDanceSeedance {
 		channel.BaseURL = validationChannel.BaseURL
 	}
 	channel.MoliiGrokManagementAccessToken = originChannel.MoliiGrokManagementAccessToken
