@@ -10,7 +10,11 @@ import { afterEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
-import { getVideoStudioTask, getVideoStudioTasks } from '../api'
+import {
+  estimateVideoStudioTask,
+  getVideoStudioTask,
+  getVideoStudioTasks,
+} from '../api'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -39,5 +43,30 @@ test('loads one current task by its encoded platform task id', async () => {
   await expect(getVideoStudioTask('task/current')).resolves.toBe(current)
   expect(get).toHaveBeenCalledExactlyOnceWith(
     '/api/video-studio/tasks/task%2Fcurrent'
+  )
+})
+
+test('requests a side-effect-free estimate with the selected key', async () => {
+  const payload = {
+    model: 'doubao-seedance-2-5-260628',
+    content: [{ type: 'text', text: 'test' }],
+    resolution: '720p',
+    ratio: '16:9',
+    duration: 6,
+    generate_audio: true,
+    watermark: false,
+  }
+  const estimate = { quota: 250000, estimated_cost: 0.5, estimated: true }
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: estimate },
+  })
+
+  await expect(estimateVideoStudioTask({ tokenId: 42, payload })).resolves.toBe(
+    estimate
+  )
+  expect(post).toHaveBeenCalledExactlyOnceWith(
+    '/api/video-studio/estimate',
+    payload,
+    { headers: { 'X-Video-Studio-Token-ID': '42' } }
   )
 })

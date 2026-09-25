@@ -407,6 +407,16 @@ func SetApiRouter(router *gin.Engine) {
 			videoStudioRoute.GET("/tasks", controller.GetVideoStudioTasks)
 			videoStudioRoute.GET("/tasks/:task_id", controller.GetVideoStudioTask)
 			videoStudioRoute.POST(
+				"/estimate",
+				middleware.VideoStudioTokenAuth(),
+				middleware.SystemPerformanceCheck(),
+				middleware.PrepareVideoStudioRequest(),
+				middleware.PinTaskPluginEndpoint(),
+				middleware.PrepareTaskPluginEndpoint(),
+				middleware.Distribute(),
+				controller.EstimateVideoStudioTask,
+			)
+			videoStudioRoute.POST(
 				"/tasks",
 				middleware.VideoStudioTokenAuth(),
 				middleware.VideoStudioIdempotency(),

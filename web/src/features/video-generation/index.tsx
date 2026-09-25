@@ -34,12 +34,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
 import type { COSUploadConfig } from '@/features/temporary-assets/components/create-asset-card'
 import type { TemporaryAsset } from '@/features/temporary-assets/lib/asset-utils'
 import { api } from '@/lib/api'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 
 import {
+  estimateVideoStudioTask,
   getVideoStudioOptions,
   getVideoStudioTask,
   getVideoStudioTasks,
@@ -47,13 +48,21 @@ import {
 } from './api'
 import { VideoStudioCurrentPreview } from './components/current-video-preview'
 import { VideoStudioMediaPicker } from './components/media-picker'
+import { VideoStudioPaidRequestDialog } from './components/paid-request-dialog'
+import { VideoStudioPromptComposer } from './components/prompt-composer'
 import { VideoStudioTaskHistory } from './components/task-history'
+import {
+  chooseDefaultVideoStudioTokenID,
+  hasUnavailableSelectedAsset,
+} from './lib/authoring'
 import { videoStudioFormSchema } from './lib/form-schema'
 import { buildSeedancePayload, validateMediaSelection } from './lib/payload'
 import type {
   VideoStudioFormValues,
+  VideoStudioEstimate,
   VideoStudioMedia,
   VideoStudioMode,
+  SeedancePayload,
   VideoStudioTask,
 } from './types'
 
@@ -115,6 +124,11 @@ export function VideoGenerationStudio() {
   const [pageIndex, setPageIndex] = useState(0)
   const [pageSize, setPageSize] = useState(20)
   const [currentTaskID, setCurrentTaskID] = useState('')
+  const [pendingRequest, setPendingRequest] = useState<{
+    values: VideoStudioFormValues
+    payload: SeedancePayload
+    estimate: VideoStudioEstimate
+  } | null>(null)
   const optionsQuery = useQuery({
     queryKey: optionsQueryKey,
     queryFn: getVideoStudioOptions,
@@ -180,6 +194,16 @@ export function VideoGenerationStudio() {
   const capability = model ? optionsQuery.data?.capabilities[model] : undefined
 
   useEffect(() => {
+    const nextTokenID = chooseDefaultVideoStudioTokenID(
+      form.getValues('tokenId'),
+      optionsQuery.data?.tokens ?? []
+    )
+    if (nextTokenID && nextTokenID !== form.getValues('tokenId')) {
+      form.setValue('tokenId', nextTokenID)
+    }
+  }, [form, optionsQuery.data?.tokens])
+
+  useEffect(() => {
     if (currentTaskID || !tasksQuery.data?.items[0]) return
     setCurrentTaskID(tasksQuery.data.items[0].task.task_id)
   }, [currentTaskID, tasksQuery.data])
@@ -212,43 +236,59 @@ export function VideoGenerationStudio() {
   }, [capability, form])
 
   const selectedAssetUnavailable = useMemo(() => {
-    const assets = new Map(
-      (assetsQuery.data ?? []).map((asset) => [asset.id, asset])
-    )
-    return media.some((item) => {
-      if (item.source !== 'asset') return false
-      const asset = assets.get(item.value)
-      if (!asset) return true
-      const status = asset.status.toUpperCase()
-      return (
-        !['ACTIVE', 'SUCCESS'].includes(status) ||
-        (asset.expires_at > 0 && asset.expires_at <= Date.now() / 1000)
-      )
-    })
+    return hasUnavailableSelectedAsset(media, assetsQuery.data ?? [])
   }, [assetsQuery.data, media])
 
-  const submit = useMutation({
+  const preparePayload = (values: VideoStudioFormValues) => {
+    if (!capability) throw new Error(t('Select a supported model'))
+    if (!values.prompt.trim() && values.mode === 'text') {
+      throw new Error(t('Enter a prompt for text-to-video generation'))
+    }
+    const mediaResult = validateMediaSelection(values.mode, media, capability)
+    if (!mediaResult.valid) {
+      throw new Error(t(mediaValidationMessage(mediaResult.reason)))
+    }
+    if (hasUnavailableSelectedAsset(media, assetsQuery.data ?? [])) {
+      throw new Error(
+        t('Wait for selected assets to become available or replace them.')
+      )
+    }
+    return buildSeedancePayload({ ...values, media })
+  }
+
+  const estimate = useMutation({
     mutationFn: async (values: VideoStudioFormValues) => {
-      if (!capability) throw new Error(t('Select a supported model'))
-      if (!values.prompt.trim() && values.mode === 'text') {
-        throw new Error(t('Enter a prompt for text-to-video generation'))
-      }
-      const mediaResult = validateMediaSelection(values.mode, media, capability)
-      if (!mediaResult.valid) {
-        throw new Error(t(mediaValidationMessage(mediaResult.reason)))
-      }
-      if (selectedAssetUnavailable) {
-        throw new Error(
-          t('Wait for selected assets to become available or replace them.')
-        )
-      }
-      return submitVideoStudioTask({
+      const payload = preparePayload(values)
+      const quote = await estimateVideoStudioTask({
         tokenId: Number(values.tokenId),
+        payload,
+      })
+      return { values, payload, estimate: quote }
+    },
+    onSuccess: setPendingRequest,
+    onError: (error) => {
+      toast.error(
+        requestErrorMessage(error) ||
+          (error instanceof Error
+            ? error.message
+            : t('Failed to estimate video generation cost'))
+      )
+    },
+  })
+
+  const submit = useMutation({
+    mutationFn: async (request: {
+      values: VideoStudioFormValues
+      payload: SeedancePayload
+    }) => {
+      return submitVideoStudioTask({
+        tokenId: Number(request.values.tokenId),
         requestId: crypto.randomUUID(),
-        payload: buildSeedancePayload({ ...values, media }),
+        payload: request.payload,
       })
     },
     onSuccess: async (result) => {
+      setPendingRequest(null)
       toast.success(t('Video generation task submitted'))
       const submittedTaskID = result.task_id || result.id
       if (submittedTaskID) setCurrentTaskID(submittedTaskID)
@@ -371,7 +411,9 @@ export function VideoGenerationStudio() {
                 )}
               <form
                 className='space-y-5'
-                onSubmit={form.handleSubmit((values) => submit.mutate(values))}
+                onSubmit={form.handleSubmit((values) =>
+                  estimate.mutate(values)
+                )}
               >
                 <div className='grid gap-4 sm:grid-cols-2'>
                   <Controller
@@ -398,7 +440,7 @@ export function VideoGenerationStudio() {
                                 key={token.id}
                                 value={String(token.id)}
                               >
-                                {token.name} · {token.masked_key}
+                                {token.masked_key}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -438,13 +480,27 @@ export function VideoGenerationStudio() {
 
                 <div className='space-y-1.5'>
                   <Label htmlFor='video-studio-prompt'>{t('Prompt')}</Label>
-                  <Textarea
-                    id='video-studio-prompt'
-                    rows={8}
-                    placeholder={t(
-                      'Describe the video, camera movement, scene, dialogue, and sound...'
+                  <Controller
+                    control={form.control}
+                    name='prompt'
+                    render={({ field }) => (
+                      <VideoStudioPromptComposer
+                        value={field.value}
+                        mode={mode}
+                        media={media}
+                        assets={assetsQuery.data ?? []}
+                        onChange={field.onChange}
+                        onMediaChange={(nextMedia) => {
+                          setMedia(nextMedia)
+                          if (
+                            nextMedia.length > 0 &&
+                            form.getValues('mode') === 'text'
+                          ) {
+                            form.setValue('mode', 'references')
+                          }
+                        }}
+                      />
                     )}
-                    {...form.register('prompt')}
                   />
                 </div>
 
@@ -459,14 +515,12 @@ export function VideoGenerationStudio() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value='text'>
-                            {t('Text to video')}
-                          </SelectItem>
+                          <SelectItem value='text'>{t('文生视频')}</SelectItem>
                           <SelectItem value='frames'>
-                            {t('First / last frame')}
+                            {t('首尾帧生成')}
                           </SelectItem>
                           <SelectItem value='references'>
-                            {t('Multimodal references')}
+                            {t('多模态参考')}
                           </SelectItem>
                         </SelectContent>
                       </Select>
@@ -585,6 +639,7 @@ export function VideoGenerationStudio() {
                   className='w-full'
                   type='submit'
                   disabled={
+                    estimate.isPending ||
                     submit.isPending ||
                     !selectedToken ||
                     !capability ||
@@ -592,7 +647,9 @@ export function VideoGenerationStudio() {
                   }
                 >
                   <Send />
-                  {submit.isPending ? t('Submitting...') : t('Generate video')}
+                  {estimate.isPending
+                    ? t('Calculating estimated cost...')
+                    : t('Generate video')}
                 </Button>
               </form>
             </CardContent>
@@ -626,6 +683,24 @@ export function VideoGenerationStudio() {
             onReuse={reuseTask}
           />
         </section>
+        <VideoStudioPaidRequestDialog
+          open={Boolean(pendingRequest)}
+          estimatedCost={formatQuotaWithCurrency(
+            pendingRequest?.estimate.quota
+          )}
+          estimatedTokens={pendingRequest?.estimate.estimated_tokens}
+          pending={submit.isPending}
+          onOpenChange={(open) => {
+            if (!open && !submit.isPending) setPendingRequest(null)
+          }}
+          onConfirm={() => {
+            if (!pendingRequest) return
+            submit.mutate({
+              values: pendingRequest.values,
+              payload: pendingRequest.payload,
+            })
+          }}
+        />
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )

@@ -95,6 +95,19 @@ export type VideoStudioSubmission = {
   created_at?: number
 }
 
+export type VideoStudioEstimate = {
+  model: string
+  upstream_model?: string
+  billing_model?: string
+  quota: number
+  estimated_cost: number
+  estimated_tokens?: number
+  group_ratio: number
+  group_special_ratio?: number
+  other_ratios?: Record<string, number>
+  estimated: true
+}
+
 export type SeedancePayload = {
   model: string
   content: Array<Record<string, unknown>>

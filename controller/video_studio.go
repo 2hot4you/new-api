@@ -10,7 +10,10 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/channel/task/seedanceprotocol"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
@@ -28,6 +31,19 @@ type videoStudioTokenOption struct {
 type videoStudioOptions struct {
 	Tokens       []videoStudioTokenOption                      `json:"tokens"`
 	Capabilities map[string]seedanceprotocol.ModelCapabilities `json:"capabilities"`
+}
+
+type videoStudioEstimateResponse struct {
+	Model             string             `json:"model"`
+	UpstreamModel     string             `json:"upstream_model,omitempty"`
+	BillingModel      string             `json:"billing_model,omitempty"`
+	Quota             int                `json:"quota"`
+	EstimatedCost     float64            `json:"estimated_cost"`
+	EstimatedTokens   int                `json:"estimated_tokens,omitempty"`
+	GroupRatio        float64            `json:"group_ratio"`
+	GroupSpecialRatio float64            `json:"group_special_ratio,omitempty"`
+	OtherRatios       map[string]float64 `json:"other_ratios,omitempty"`
+	Estimated         bool               `json:"estimated"`
 }
 
 func GetVideoStudioOptions(c *gin.Context) {
@@ -80,7 +96,7 @@ func GetVideoStudioOptions(c *gin.Context) {
 			continue
 		}
 		options = append(options, videoStudioTokenOption{
-			ID: token.Id, Name: token.Name, MaskedKey: token.GetMaskedKey(), Group: token.Group,
+			ID: token.Id, Name: token.Name, MaskedKey: videoStudioMaskedKey(token.Key), Group: token.Group,
 			UnlimitedQuota: token.UnlimitedQuota, RemainQuota: token.RemainQuota, AvailableModels: models,
 		})
 	}
@@ -92,6 +108,56 @@ func GetVideoStudioOptions(c *gin.Context) {
 		}
 	}
 	common.ApiSuccess(c, videoStudioOptions{Tokens: options, Capabilities: capabilities})
+}
+
+// EstimateVideoStudioTask validates and prices the selected request without
+// reserving quota, creating a task, or contacting the upstream provider.
+func EstimateVideoStudioTask(c *gin.Context) {
+	relayInfo, err := relaycommon.GenRelayInfo(c, relaytypes.RelayFormatTask, nil, nil)
+	if err != nil {
+		respondTaskSubmissionError(c, service.TaskErrorWrapperLocal(err, "gen_relay_info_failed", http.StatusInternalServerError))
+		return
+	}
+	if action := c.GetString("task_action"); action != "" {
+		relayInfo.Action = action
+	}
+	if taskErr := relay.ResolveOriginTask(c, relayInfo); taskErr != nil {
+		respondTaskSubmissionError(c, taskErr)
+		return
+	}
+	if taskErr := relay.ApplyOriginTaskAffinity(c, relayInfo); taskErr != nil {
+		respondTaskSubmissionError(c, taskErr)
+		return
+	}
+	estimate, taskErr := relay.EstimateTaskSubmit(c, relayInfo)
+	if taskErr != nil {
+		respondTaskSubmissionError(c, taskErr)
+		return
+	}
+	otherRatios := estimate.PriceData.OtherRatios()
+	if otherRatios == nil {
+		otherRatios = map[string]float64{}
+	}
+	common.ApiSuccess(c, videoStudioEstimateResponse{
+		Model:             estimate.ModelName,
+		UpstreamModel:     estimate.UpstreamModelName,
+		BillingModel:      estimate.BillingModelName,
+		Quota:             estimate.Quota,
+		EstimatedCost:     float64(estimate.Quota) / common.QuotaPerUnit,
+		EstimatedTokens:   estimate.EstimatedTokens,
+		GroupRatio:        estimate.PriceData.GroupRatioInfo.GroupRatio,
+		GroupSpecialRatio: estimate.PriceData.GroupRatioInfo.GroupSpecialRatio,
+		OtherRatios:       otherRatios,
+		Estimated:         true,
+	})
+}
+
+func videoStudioMaskedKey(key string) string {
+	key = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(key), "sk-"))
+	if len(key) <= 8 {
+		return "sk-xxxx"
+	}
+	return "sk-" + key[:4] + "xxxx" + key[len(key)-4:]
 }
 
 func videoStudioTokenCurrentlyUsable(token *model.Token) bool {

@@ -196,6 +196,125 @@ func ApplyOriginTaskAffinity(c *gin.Context, info *relaycommon.RelayInfo) *dto.T
 // 构建/发送/解析上游请求 → 提交后计费调整(AdjustBillingOnSubmit)。
 // 共享控制器编排负责未落库退款、最终额度预留、落库和结算。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
+	prepared, taskErr := prepareTaskBilling(c, info)
+	if taskErr != nil {
+		return nil, taskErr
+	}
+	platform := prepared.Platform
+	adaptor := prepared.Adaptor
+
+	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
+	if info.Billing == nil && !info.PriceData.FreeModel {
+		info.ForcePreConsume = true
+		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
+			return nil, service.TaskErrorFromAPIError(apiErr)
+		}
+	}
+
+	// 8. 构建请求体
+	requestBody, err := adaptor.BuildRequestBody(c, info)
+	if err != nil {
+		return nil, service.TaskErrorWrapper(err, "build_request_failed", http.StatusInternalServerError)
+	}
+
+	// 9. 发送请求
+	resp, err := adaptor.DoRequest(c, info, requestBody)
+	if err != nil {
+		if mapper, ok := adaptor.(channel.TaskTransportErrorMapper); ok {
+			return nil, mapper.MapTaskTransportError(err)
+		}
+		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
+	}
+	if resp == nil {
+		return nil, service.TaskErrorWrapperLocal(errors.New("upstream returned an empty response"), "fail_to_fetch_task", http.StatusBadGateway)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		responseBody, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if mapper, ok := adaptor.(channel.TaskSubmitErrorMapper); ok {
+			return nil, mapper.MapTaskSubmitError(resp.StatusCode, responseBody)
+		}
+		errorMessage := string(responseBody)
+		if sanitizer, ok := adaptor.(channel.TaskSubmitErrorSanitizer); ok {
+			errorMessage = sanitizer.SanitizeTaskSubmitError(responseBody)
+		}
+		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", errorMessage), "fail_to_fetch_task", resp.StatusCode)
+	}
+
+	// 10. Parse only. The controller presents the response after the durable
+	// task barrier and billing settlement.
+	parsed, taskErr := adaptor.ParseResponse(c, resp, info)
+	if taskErr != nil {
+		return nil, taskErr
+	}
+	if parsed == nil {
+		return nil, service.TaskErrorWrapperLocal(errors.New("task adaptor returned an empty response"), "plugin_submit_response_invalid", http.StatusBadGateway)
+	}
+
+	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
+	finalQuota := info.PriceData.Quota
+	if info.TieredBillingSnapshot == nil {
+		if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, parsed.TaskData); len(adjustedRatios) > 0 {
+			if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
+				// 基于调整后的 ratios 重新计算 quota
+				finalQuota = adjustedQuota
+				info.PriceData.ReplaceOtherRatios(adjustedRatios)
+				info.PriceData.Quota = finalQuota
+			}
+		}
+	}
+
+	return &TaskSubmitResult{
+		UpstreamTaskID: parsed.UpstreamTaskID,
+		TaskData:       parsed.TaskData,
+		ClientResponse: parsed.ClientResponse,
+		Platform:       platform,
+		Quota:          finalQuota,
+		Immediate:      parsed.Immediate,
+		PluginState:    parsed.PluginState,
+	}, nil
+}
+
+// TaskBillingEstimate is the side-effect-free pricing result used by the
+// dashboard confirmation dialog. It deliberately excludes any reservation,
+// task persistence, or upstream request.
+type TaskBillingEstimate struct {
+	Platform          constant.TaskPlatform
+	ModelName         string
+	UpstreamModelName string
+	BillingModelName  string
+	Quota             int
+	EstimatedTokens   int
+	PriceData         types.PriceData
+}
+
+type preparedTaskBilling struct {
+	Platform         constant.TaskPlatform
+	Adaptor          channel.TaskAdaptor
+	BillingModelName string
+}
+
+// EstimateTaskSubmit runs the exact validation, mapping, pricing, group-ratio,
+// and request-specific multiplier stages used by RelayTaskSubmit, then stops
+// before quota reservation and upstream I/O.
+func EstimateTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskBillingEstimate, *dto.TaskError) {
+	prepared, taskErr := prepareTaskBilling(c, info)
+	if taskErr != nil {
+		return nil, taskErr
+	}
+	return &TaskBillingEstimate{
+		Platform:          prepared.Platform,
+		ModelName:         info.OriginModelName,
+		UpstreamModelName: info.UpstreamModelName,
+		BillingModelName:  prepared.BillingModelName,
+		Quota:             info.PriceData.Quota,
+		EstimatedTokens:   info.EstimatedVideoTokens,
+		PriceData:         info.PriceData,
+	}, nil
+}
+
+func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedTaskBilling, *dto.TaskError) {
 	if info.TaskRelayInfo == nil {
 		info.TaskRelayInfo = &relaycommon.TaskRelayInfo{}
 	}
@@ -348,77 +467,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		}
 	}
 
-	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
-	if info.Billing == nil && !info.PriceData.FreeModel {
-		info.ForcePreConsume = true
-		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
-			return nil, service.TaskErrorFromAPIError(apiErr)
-		}
-	}
-
-	// 8. 构建请求体
-	requestBody, err := adaptor.BuildRequestBody(c, info)
-	if err != nil {
-		return nil, service.TaskErrorWrapper(err, "build_request_failed", http.StatusInternalServerError)
-	}
-
-	// 9. 发送请求
-	resp, err := adaptor.DoRequest(c, info, requestBody)
-	if err != nil {
-		if mapper, ok := adaptor.(channel.TaskTransportErrorMapper); ok {
-			return nil, mapper.MapTaskTransportError(err)
-		}
-		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
-	}
-	if resp == nil {
-		return nil, service.TaskErrorWrapperLocal(errors.New("upstream returned an empty response"), "fail_to_fetch_task", http.StatusBadGateway)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		responseBody, _ := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if mapper, ok := adaptor.(channel.TaskSubmitErrorMapper); ok {
-			return nil, mapper.MapTaskSubmitError(resp.StatusCode, responseBody)
-		}
-		errorMessage := string(responseBody)
-		if sanitizer, ok := adaptor.(channel.TaskSubmitErrorSanitizer); ok {
-			errorMessage = sanitizer.SanitizeTaskSubmitError(responseBody)
-		}
-		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", errorMessage), "fail_to_fetch_task", resp.StatusCode)
-	}
-
-	// 10. Parse only. The controller presents the response after the durable
-	// task barrier and billing settlement.
-	parsed, taskErr := adaptor.ParseResponse(c, resp, info)
-	if taskErr != nil {
-		return nil, taskErr
-	}
-	if parsed == nil {
-		return nil, service.TaskErrorWrapperLocal(errors.New("task adaptor returned an empty response"), "plugin_submit_response_invalid", http.StatusBadGateway)
-	}
-
-	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
-	finalQuota := info.PriceData.Quota
-	if info.TieredBillingSnapshot == nil {
-		if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, parsed.TaskData); len(adjustedRatios) > 0 {
-			if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
-				// 基于调整后的 ratios 重新计算 quota
-				finalQuota = adjustedQuota
-				info.PriceData.ReplaceOtherRatios(adjustedRatios)
-				info.PriceData.Quota = finalQuota
-			}
-		}
-	}
-
-	return &TaskSubmitResult{
-		UpstreamTaskID: parsed.UpstreamTaskID,
-		TaskData:       parsed.TaskData,
-		ClientResponse: parsed.ClientResponse,
-		Platform:       platform,
-		Quota:          finalQuota,
-		Immediate:      parsed.Immediate,
-		PluginState:    parsed.PluginState,
-	}, nil
+	return &preparedTaskBilling{Platform: platform, Adaptor: adaptor, BillingModelName: billingModelName}, nil
 }
 
 // applyEstimatedVideoQuota replaces the generic half-million-token task

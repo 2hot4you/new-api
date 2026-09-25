@@ -289,3 +289,25 @@ func TestRelayTaskSubmitPerCallBillingIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestEstimateTaskSubmitReusesBillingWithoutPreconsumingOrCallingUpstream(t *testing.T) {
+	saveBillingConfig(t)
+	previousPrices := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices)) })
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"alias-model":2}`))
+
+	c, info := newTaskSubmitContext(t, "alias-model", `{"alias-model":"declared-model"}`)
+	pinMappingOrderPlugin(t, c, billingFallbackPlugin)
+	info.OriginModelName = "alias-model"
+	info.UserGroup, info.UsingGroup = "default", "default"
+
+	estimate, taskErr := EstimateTaskSubmit(c, info)
+
+	require.Nil(t, taskErr)
+	require.NotNil(t, estimate)
+	assert.Equal(t, "alias-model", estimate.ModelName)
+	assert.Equal(t, "declared-model", estimate.UpstreamModelName)
+	assert.Equal(t, info.PriceData.Quota, estimate.Quota)
+	assert.Greater(t, estimate.Quota, 0)
+	assert.Nil(t, info.Billing, "an estimate must never reserve user quota")
+}

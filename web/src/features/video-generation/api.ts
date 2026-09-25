@@ -11,6 +11,7 @@ import { api } from '@/lib/api'
 import type {
   SeedancePayload,
   VideoStudioOptions,
+  VideoStudioEstimate,
   VideoStudioSubmission,
   VideoStudioTask,
   VideoStudioTaskPage,
@@ -56,4 +57,20 @@ export async function submitVideoStudioTask(input: {
     },
   })
   return response.data as VideoStudioSubmission
+}
+
+export async function estimateVideoStudioTask(input: {
+  tokenId: number
+  payload: SeedancePayload
+}): Promise<VideoStudioEstimate> {
+  const response = await api.post<ApiEnvelope<VideoStudioEstimate>>(
+    '/api/video-studio/estimate',
+    input.payload,
+    {
+      headers: {
+        'X-Video-Studio-Token-ID': String(input.tokenId),
+      },
+    }
+  )
+  return response.data.data
 }
