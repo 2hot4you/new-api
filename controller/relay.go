@@ -802,6 +802,9 @@ func executeTaskSubmissionWith(
 		finalUsageLogOnly = service.ConfigureGrokVideoFinalUsage(task.PrivateData.BillingContext, snapshot, c.Request.URL.Path)
 	}
 	task.Data = result.TaskData
+	if finalUsageLogOnly && result.Platform == constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeByteDanceSeedance)) {
+		service.CaptureSeedanceTaskFacts(task, task.SubmitTime, relayInfo.StartTime.Unix())
+	}
 	if result.Platform == constant.TaskPlatform(fmt.Sprintf("%d", constant.ChannelTypeStarAI)) {
 		service.CaptureStarAITaskTiming(task, task.Data, task.Status, task.SubmitTime, relayInfo.StartTime.Unix())
 	}

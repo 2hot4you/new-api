@@ -133,7 +133,7 @@ func TestByteDanceSeedanceVideoProxyDoesNotExposeUpstreamDisposition(t *testing.
 	task := setupByteDanceSeedanceVideoProxy(t, upstream.URL, "")
 	recorder := serveByteDanceSeedanceVideoProxy(t, task, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, recorder.Code)
-	assert.Empty(t, recorder.Header().Get("Content-Disposition"))
+	assert.Equal(t, `inline; filename="video.mp4"`, recorder.Header().Get("Content-Disposition"))
 	assert.NotContains(t, fmt.Sprint(recorder.Header()), "task_molii_public")
 }
 

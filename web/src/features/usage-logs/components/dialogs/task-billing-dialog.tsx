@@ -119,6 +119,20 @@ export function TaskBillingDialog(props: {
                 value={`${formatTaskBillingCny(seedance.unit_price)} / 1M Tokens`}
                 mono
               />
+              {seedance.model_ratio != null ? (
+                <BillingMetric
+                  label={t('Model ratio')}
+                  value={`${seedance.model_ratio}x`}
+                  mono
+                />
+              ) : null}
+              {seedance.other_ratio != null ? (
+                <BillingMetric
+                  label={t('Other Ratios')}
+                  value={`${seedance.other_ratio}x`}
+                  mono
+                />
+              ) : null}
               <BillingMetric
                 label={t('Resolution')}
                 value={seedance.resolution?.toUpperCase() || '-'}

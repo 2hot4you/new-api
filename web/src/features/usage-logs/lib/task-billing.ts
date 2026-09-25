@@ -45,5 +45,16 @@ export function formatTaskBillingFormula(
   }
   const seedance = billing.seedance
   if (!seedance || seedance.actual_tokens <= 0) return null
+  if (
+    !Number.isFinite(seedance.unit_price) ||
+    seedance.unit_price < 0 ||
+    !Number.isFinite(billing.group_ratio) ||
+    billing.group_ratio < 0 ||
+    (billing.final_cost > 0 &&
+      (Number(seedance.unit_price.toFixed(6)) === 0 ||
+        Number(billing.group_ratio.toFixed(4)) === 0))
+  ) {
+    return null
+  }
   return `${seedance.actual_tokens} × ${formatTaskBillingCny(seedance.unit_price)} ÷ 1,000,000 × ${billing.group_ratio.toFixed(4)} = ${formatTaskBillingCny(billing.final_cost)}`
 }

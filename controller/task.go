@@ -128,6 +128,9 @@ func writeTaskArtifacts(c *gin.Context, task *model.Task, dashboard bool) {
 }
 
 func projectTaskArtifacts(task *model.Task) ([]relaychannel.TaskArtifact, error) {
+	if task != nil && task.Status == model.TaskStatusSuccess && task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeByteDanceSeedance)) {
+		return []relaychannel.TaskArtifact{{Key: "video", Type: "video", MimeType: "video/mp4"}}, nil
+	}
 	if task == nil || task.Status != model.TaskStatusSuccess || !taskHasPluginExecution(task) {
 		return []relaychannel.TaskArtifact{}, nil
 	}
@@ -294,6 +297,18 @@ func TaskArtifactContent(c *gin.Context) {
 	}
 	if task.Status != model.TaskStatusSuccess {
 		writeTaskArtifactError(c, http.StatusConflict, "artifact_not_ready", "Task artifacts are not ready")
+		return
+	}
+	if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeByteDanceSeedance)) {
+		if artifactKey != "video" {
+			writeTaskArtifactError(c, http.StatusNotFound, "artifact_not_found", "Task or artifact not found")
+			return
+		}
+		// Use the same authenticated native content provider as /v1/videos.
+		// In particular, never treat this task's local proxy URL as a
+		// credentialless legacy upstream and recurse back into this instance.
+		c.Params = append(c.Params, gin.Param{Key: "task_id", Value: task.TaskID})
+		VideoProxy(c)
 		return
 	}
 	if !taskHasPluginExecution(task) {
@@ -464,6 +479,8 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.T
 				}
 			} else if isMoliiGrok && task.Status == model.TaskStatusSuccess && service.IsTrustedMoliiGrokVideoURL(task.PrivateData.ResultURL) {
 				item.ResultURL = service.BuildSignedVideoProxyPath(task.TaskID, task.UserId)
+			} else if isResellerSeedance && task.Status == model.TaskStatusSuccess {
+				item.ResultURL, _ = service.BuildTaskArtifactContentURL(task.TaskID, "video")
 			} else {
 				item.ResultURL = ""
 			}
@@ -491,6 +508,12 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.T
 				item.VideoParams.InputAudioCount = &audioCount
 			}
 			item.Billing = taskBillingSummary(task, billingJobs[task.ID])
+			if isResellerSeedance {
+				if item.VideoParams == nil {
+					item.VideoParams = &dto.TaskVideoParams{}
+				}
+				service.ApplySeedanceVideoFacts(item.VideoParams, task.Data)
+			}
 		} else {
 			item.LegacyVideoAvailable = legacyVideoAvailable(task)
 			if task.Status == model.TaskStatusSuccess {
@@ -502,7 +525,7 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.T
 		}
 		if viewerRole >= common.RoleAdminUser {
 			adminInfo := &dto.TaskAdminInfo{}
-			if isStarAI {
+			if isStarAI || isResellerSeedance {
 				adminInfo.Timing = service.BuildTaskTimingSummary(task)
 			}
 			if execution := task.PrivateData.Execution; execution != nil {
@@ -579,6 +602,11 @@ func taskBillingSummary(task *model.Task, job *model.TaskBillingJob) *dto.TaskBi
 	}
 
 	if mode == "seedance" {
+		if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeByteDanceSeedance)) {
+			summary.Seedance = service.SeedanceResellerBillingDetail(task)
+			summary.DetailAvailable = summary.Seedance != nil
+			return summary
+		}
 		summary.Seedance = &dto.TaskSeedanceBilling{
 			ActualTokens: bc.ActualTokens,
 			Resolution:   bc.EstimatedResolution,

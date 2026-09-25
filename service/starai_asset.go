@@ -34,7 +34,8 @@ const temporaryAssetMaxTTL = 168 * time.Hour
 
 func SafeTemporaryAssetFailure(channelType int, code, message string) (string, string) {
 	if channelType == constant.ChannelTypeByteDanceSeedance {
-		return "temporary_asset_failed", "temporary asset processing failed"
+		safe := SafeSeedanceBusinessFields(code, message, "", "temporary_asset_failed", "temporary asset processing failed")
+		return safe.Code, safe.Message
 	}
 	return SanitizeStarAIAssetErrorCode(code), SanitizeStarAIAssetErrorMessage(message)
 }
@@ -74,6 +75,7 @@ type StarAIAssetBinding struct {
 	VerifiedAt            int64  `json:"verified_at"`
 	ErrorCode             string `json:"error_code,omitempty"`
 	ErrorMessage          string `json:"error_message,omitempty"`
+	ErrorType             string `json:"error_type,omitempty"`
 }
 
 type StarAIAssetStats struct {
@@ -104,6 +106,7 @@ type starAIAssetVerificationResponse struct {
 type starAIAssetVerificationError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Type    string `json:"type,omitempty"`
 }
 
 var (
@@ -217,9 +220,10 @@ func SaveStarAIAssetBinding(binding *StarAIAssetBinding) error {
 		}
 	}
 	if binding.ChannelType == constant.ChannelTypeByteDanceSeedance && binding.Status == "FAILED" {
-		binding.ErrorCode, binding.ErrorMessage = SafeTemporaryAssetFailure(binding.ChannelType, binding.ErrorCode, binding.ErrorMessage)
+		safe := SafeSeedanceBusinessFields(binding.ErrorCode, binding.ErrorMessage, binding.ErrorType, "temporary_asset_failed", "temporary asset processing failed")
+		binding.ErrorCode, binding.ErrorMessage, binding.ErrorType = safe.Code, safe.Message, safe.Type
 	} else if binding.ChannelType == constant.ChannelTypeByteDanceSeedance {
-		binding.ErrorCode, binding.ErrorMessage = "", ""
+		binding.ErrorCode, binding.ErrorMessage, binding.ErrorType = "", "", ""
 	}
 	binding.VerifiedAt = now.Unix()
 	body, err := common.Marshal(binding)
@@ -482,10 +486,10 @@ func UpdateStarAIAssetStatus(binding *StarAIAssetBinding, status string) error {
 		errorCode = binding.ErrorCode
 		errorMessage = binding.ErrorMessage
 	}
-	return UpdateStarAIAssetVerification(binding, status, errorCode, errorMessage)
+	return UpdateStarAIAssetVerification(binding, status, errorCode, errorMessage, binding.ErrorType)
 }
 
-func UpdateStarAIAssetVerification(binding *StarAIAssetBinding, status, errorCode, errorMessage string) error {
+func UpdateStarAIAssetVerification(binding *StarAIAssetBinding, status, errorCode, errorMessage string, errorTypes ...string) error {
 	if binding == nil || !common.RedisEnabled || common.RDB == nil {
 		return ErrStarAIAssetUnavailable
 	}
@@ -499,9 +503,17 @@ func UpdateStarAIAssetVerification(binding *StarAIAssetBinding, status, errorCod
 	}
 	if binding.Status == "FAILED" {
 		binding.ErrorCode, binding.ErrorMessage = SafeTemporaryAssetFailure(binding.ChannelType, errorCode, errorMessage)
+		if binding.ChannelType == constant.ChannelTypeByteDanceSeedance {
+			kind := ""
+			if len(errorTypes) > 0 {
+				kind = errorTypes[0]
+			}
+			binding.ErrorType = SafeSeedanceBusinessFields(errorCode, errorMessage, kind, "temporary_asset_failed", "temporary asset processing failed").Type
+		}
 	} else {
 		binding.ErrorCode = ""
 		binding.ErrorMessage = ""
+		binding.ErrorType = ""
 	}
 	binding.VerifiedAt = time.Now().Unix()
 	key := starAIAssetBindingKey(binding)
@@ -584,6 +596,13 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 	// rotated on the same upstream account may still verify the raw asset ID;
 	// another account's not-found response is a safe verification failure.
 	baseURL := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
+	if providerType == constant.ChannelTypeByteDanceSeedance {
+		var err error
+		baseURL, err = ValidateByteDanceSeedanceBaseURL(baseURL)
+		if err != nil {
+			return "", ErrStarAIAssetVerify
+		}
+	}
 	if baseURL == "" || strings.TrimSpace(config.APIKey) == "" {
 		return "", ErrStarAIAssetVerify
 	}
@@ -635,12 +654,13 @@ func ResolveStarAIAssetURI(ctx context.Context, raw string, userID int, config S
 			return "", ErrStarAIAssetExpired
 		}
 	}
-	errorCode, errorMessage := "", ""
+	errorCode, errorMessage, errorType := "", "", ""
 	if payload.Error != nil {
 		errorCode = payload.Error.Code
 		errorMessage = payload.Error.Message
+		errorType = payload.Error.Type
 	}
-	if err := UpdateStarAIAssetVerification(binding, status, errorCode, errorMessage); err != nil {
+	if err := UpdateStarAIAssetVerification(binding, status, errorCode, errorMessage, errorType); err != nil {
 		return "", err
 	}
 	switch status {

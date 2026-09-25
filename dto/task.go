@@ -136,12 +136,14 @@ type TaskBillingSummary struct {
 }
 
 type TaskSeedanceBilling struct {
-	ActualTokens int     `json:"actual_tokens"`
-	Resolution   string  `json:"resolution,omitempty"`
-	Ratio        string  `json:"ratio,omitempty"`
-	Seconds      int     `json:"seconds,omitempty"`
-	HasVideo     bool    `json:"has_video"`
-	UnitPrice    float64 `json:"unit_price"`
+	ModelRatio   *float64 `json:"model_ratio,omitempty"`
+	OtherRatio   *float64 `json:"other_ratio,omitempty"`
+	ActualTokens int      `json:"actual_tokens"`
+	Resolution   string   `json:"resolution,omitempty"`
+	Ratio        string   `json:"ratio,omitempty"`
+	Seconds      int      `json:"seconds,omitempty"`
+	HasVideo     bool     `json:"has_video"`
+	UnitPrice    float64  `json:"unit_price"`
 }
 
 // TaskGrokVideoBillingV1 mirrors the versioned, public-safe task snapshot.

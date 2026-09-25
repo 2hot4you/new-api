@@ -6440,6 +6440,8 @@
     "Submitting to Molii Volcengine Imagine API...": "Molii Volcengine Imagine API に送信中...",
     "Submitting temporary asset...": "一時アセットを送信中...",
     "ByteDance Seedance": "ByteDance Seedance",
+    "Other Ratios": "その他の倍率",
+    "Save the channel before fetching upstream models.": "上流モデルを取得する前にチャネルを保存してください。",
     "Enter the upstream API Base URL. Do not add /v1 or trailing slash.": "上流 API のベース URL を入力してください。/v1 や末尾のスラッシュは追加しないでください。",
     "Failed to upload temporary asset": "Failed to upload temporary asset",
     "Upload failed": "Upload failed",

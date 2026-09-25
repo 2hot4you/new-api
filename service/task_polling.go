@@ -443,6 +443,7 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 		if isNonTerminalPollStatus(parsedStatus) {
 			task.PrivateData.PollFailures = 0
 		}
+		task.PrivateData.PollFailureClass = ""
 		if len(responseItem.TaskInfo.PluginState) > 0 {
 			task.PrivateData.PluginState = responseItem.TaskInfo.PluginState
 		}
@@ -774,6 +775,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	if isNonTerminalPollStatus(parsedStatus) {
 		task.PrivateData.PollFailures = 0
 	}
+	task.PrivateData.PollFailureClass = ""
 	now := time.Now().Unix()
 	if isStarAI {
 		CaptureStarAITaskTiming(task, responseBody, parsedStatus, now)
@@ -789,6 +791,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	task.Status = parsedStatus
+	if isByteDanceSeedanceTask(task) {
+		CaptureSeedanceTaskFacts(task, now)
+	}
 	switch parsedStatus {
 	case model.TaskStatusNotStart:
 		task.Progress = taskcommon.ProgressSubmitted
@@ -1017,19 +1022,22 @@ func unrecognizedPollDetail(reason string, body []byte) string {
 func recordPollFailure(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, fromStatus model.TaskStatus, class string, statusCode int, detail string) error {
 	// Provider diagnostics may contain credentials, URLs, IDs, or costs. Never persist or log them.
 	detail = ""
-	task.PrivateData.PollFailures++
+	if task.PrivateData.PollFailures < 1_000_000 {
+		task.PrivateData.PollFailures++
+	}
+	if isByteDanceSeedanceTask(task) {
+		task.PrivateData.PollFailureClass = class
+	}
 	if class == pollClassUnrecognized || class == pollClassHookError {
 		// The redacted body is intentionally not persisted to Task.Data on these
 		// paths, so the WARN line is the only operator-visible copy of what the
 		// plugin could not interpret.
 		logger.LogWarn(ctx, fmt.Sprintf("task %s poll %s (failures=%d, http=%d): %s", task.TaskID, class, task.PrivateData.PollFailures, statusCode, detail))
 	}
-	// TASK_POLL_MAX_FAILURES <= 0 disables the consecutive-failure cutoff, matching
-	// TASK_TIMEOUT_MINUTES semantics; the 24h sweep remains the only backstop.
 	// A retryable Molii query failure says nothing about the generation's
-	// terminal state. Keep its reservation until a terminal response or the
-	// independent timeout sweep, even across poller restarts.
-	retryableSeedance := isByteDanceSeedanceTask(task) && (class == pollClassTransport || class == pollClassTransient)
+	// terminal state. Keep its reservation until a terminal response, even
+	// across restarts. The timeout sweep also excludes reseller tasks.
+	retryableSeedance := isByteDanceSeedanceTask(task) && (class == pollClassTransport || class == pollClassTransient || class == pollClassAuth)
 	if !retryableSeedance && constant.TaskPollMaxFailures > 0 && task.PrivateData.PollFailures >= constant.TaskPollMaxFailures {
 		return failTaskFromPoll(ctx, adaptor, task, fromStatus, pollFailureReason(class, statusCode, detail))
 	}

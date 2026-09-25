@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+
 import { describe, test } from 'vitest'
 
 import type { TaskBillingSummary } from '../../types'
@@ -9,6 +10,39 @@ import {
 } from '../task-billing.ts'
 
 describe('generation record billing', () => {
+  test('suppresses a zero-rate formula for a nonzero charge', () => {
+    assert.equal(
+      formatTaskBillingFormula({
+        state: 'settled',
+        mode: 'seedance',
+        final_cost: 1,
+        group_ratio: 1,
+        detail_available: true,
+        seedance: { actual_tokens: 100, unit_price: 0, has_video: false },
+      }),
+      null
+    )
+  })
+  test('suppresses rates that round to zero and invalid group ratios', () => {
+    for (const [price, group] of [
+      [0.000000001, 1],
+      [1, 0.00000001],
+      [1, Number.NaN],
+      [1, Infinity],
+    ]) {
+      assert.equal(
+        formatTaskBillingFormula({
+          state: 'settled',
+          mode: 'seedance',
+          final_cost: 1,
+          group_ratio: group,
+          detail_available: true,
+          seedance: { actual_tokens: 100, unit_price: price, has_video: false },
+        }),
+        null
+      )
+    }
+  })
   test('formats the settled Seedance formula from the final task snapshot', () => {
     const billing: TaskBillingSummary = {
       state: 'settled',

@@ -20,7 +20,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
-	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -690,17 +689,36 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 // IDs, URLs and diagnostics are excluded from the final allowlisted projection.
 func seedancePublicPollingData(task *model.Task) json.RawMessage {
 	projection := struct {
-		Status string                        `json:"status"`
-		Usage  *relaykitdto.OpenAIVideoUsage `json:"usage,omitempty"`
+		service.SeedanceTaskFacts
+		Error  *service.SeedancePublicError `json:"error,omitempty"`
+		Status string                       `json:"status"`
+		Usage  map[string]int               `json:"usage,omitempty"`
 	}{Status: string(task.Status)}
+	if task.Status == model.TaskStatusFailure {
+		safe := service.SeedanceBusinessError(task.Data, "molii_video_failed", "Molii video task failed")
+		projection.Error = &safe
+	}
+	var storedFacts service.SeedanceTaskFacts
+	_ = common.Unmarshal(task.Data, &storedFacts)
+	factsData, _ := common.Marshal(storedFacts)
 	envelope, err := common.Marshal(struct {
 		Status string          `json:"status"`
 		Usage  json.RawMessage `json:"usage"`
-	}{string(task.Status), task.Data})
+		Data   json.RawMessage `json:"data"`
+	}{string(task.Status), task.Data, factsData})
 	if err == nil {
 		result, parseErr := GetTaskAdaptor(task.Platform).ParseTaskResult(nil, nil, envelope)
+		if parseErr == nil && result != nil {
+			projection.SeedanceTaskFacts, _ = result.UsageFacts["seedance"].(service.SeedanceTaskFacts)
+		}
 		if parseErr == nil && result != nil && (result.TotalTokens > 0 || result.CompletionTokens > 0) {
-			projection.Usage = &relaykitdto.OpenAIVideoUsage{TotalTokens: result.TotalTokens, CompletionTokens: result.CompletionTokens}
+			projection.Usage = map[string]int{}
+			if result.TotalTokens > 0 {
+				projection.Usage["total_tokens"] = result.TotalTokens
+			}
+			if result.CompletionTokens > 0 {
+				projection.Usage["completion_tokens"] = result.CompletionTokens
+			}
 		}
 	}
 	safe, _ := common.Marshal(projection)
@@ -736,7 +754,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		resultURL = ""
 		failReason = ""
 		if task.Status == model.TaskStatusFailure {
-			failReason = "Molii video task failed"
+			failReason = service.SeedanceBusinessError(task.Data, "molii_video_failed", "Molii video task failed").Message
 		}
 	}
 	return &dto.TaskDto{

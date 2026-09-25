@@ -93,6 +93,51 @@ func setupSeedanceResellerIntegration(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestSeedanceResellerAuthFailureRestartRetainsReservation(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			db := setupSeedanceResellerIntegration(t)
+			oldMax, oldTimeout := constant.TaskPollMaxFailures, constant.TaskTimeoutMinutes
+			constant.TaskPollMaxFailures, constant.TaskTimeoutMinutes = 1, 1
+			t.Cleanup(func() { constant.TaskPollMaxFailures, constant.TaskTimeoutMinutes = oldMax, oldTimeout })
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+				_, _ = io.WriteString(w, `{"error":{"message":"private-key cgt-private"}}`)
+			}))
+			defer upstream.Close()
+			ch := seedanceResellerChannel(upstream.URL, "fixture-reseller-key")
+			require.NoError(t, db.Create(ch).Error)
+			task := &model.Task{TaskID: "task_auth_restart", ChannelId: ch.Id, UserId: 1, Platform: "64", Status: model.TaskStatusInProgress, Progress: "50%", Quota: 777, SubmitTime: time.Now().Unix(), PrivateData: model.TaskPrivateData{UpstreamTaskID: "task_molii_auth", Key: "fixture-reseller-key"}}
+			require.NoError(t, db.Create(task).Error)
+			for attempt := 0; attempt < 3; attempt++ {
+				_, err := service.RunTaskPollingOnceWithError(context.Background(), nil)
+				require.NoError(t, err)
+				var stored model.Task
+				require.NoError(t, model.DB.First(&stored, task.ID).Error)
+				require.EqualValues(t, model.TaskStatusInProgress, stored.Status)
+				require.Equal(t, 777, stored.Quota)
+				require.Equal(t, attempt+1, stored.PrivateData.PollFailures)
+				encoded, encodeErr := json.Marshal(stored.PrivateData)
+				require.NoError(t, encodeErr)
+				require.Contains(t, string(encoded), `"poll_failure_class":"auth"`)
+				require.Empty(t, stored.FailReason)
+				require.Zero(t, stored.FinishTime)
+				require.NotContains(t, string(stored.Data), "private")
+				var jobs int64
+				require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Count(&jobs).Error)
+				require.Zero(t, jobs, "auth uncertainty must not enqueue a refund")
+				// Restart with new DB connections and fresh adaptor instances, then run
+				// beyond the ordinary timeout cutoff. Only persisted facts survive.
+				require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Update("submit_time", time.Now().Add(-2*time.Minute).Unix()).Error)
+				reopened, err := gorm.Open(db.Dialector, &gorm.Config{})
+				require.NoError(t, err)
+				model.DB, model.LOG_DB = reopened, reopened
+				t.Cleanup(func() { sqlDB, _ := reopened.DB(); _ = sqlDB.Close() })
+			}
+		})
+	}
+}
+
 // Catches removal of local asset ownership checks, changed credential/task-ID
 // routing, forwarding raw provider diagnostics, or duplicate terminal charging.
 // Only the two remote HTTP services are fixtures; local auth, assets, submit,
@@ -130,13 +175,29 @@ func TestSeedanceResellerFullChain(t *testing.T) {
 			submits.Add(1)
 			body, err := io.ReadAll(r.Body)
 			assert.NoError(t, err)
-			assert.Contains(t, string(body), "asset://"+assetID)
-			assert.Contains(t, string(body), modelName)
+			var payload struct {
+				Model   string `json:"model"`
+				Content []struct {
+					Type     string `json:"type"`
+					ImageURL struct {
+						URL string `json:"url"`
+					} `json:"image_url"`
+				} `json:"content"`
+			}
+			assert.NoError(t, json.Unmarshal(body, &payload))
+			assert.Equal(t, modelName, payload.Model)
+			var imageURI string
+			for _, item := range payload.Content {
+				if item.Type == "image_url" {
+					imageURI = item.ImageURL.URL
+				}
+			}
+			assert.Equal(t, "asset://"+assetID, imageURI)
 			assert.NotContains(t, string(body), moliiKey)
 			_ = json.NewEncoder(w).Encode(gin.H{"id": starAITask, "status": "queued"})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/video/generations/"+starAITask:
 			polls.Add(1)
-			_ = json.NewEncoder(w).Encode(gin.H{"status": "SUCCESS", "progress": "100%", "usage": gin.H{"total_tokens": 40, "completion_tokens": 30}, "upstream_id": starAITask, "api_key": starAIKey, "url": "https://private.invalid/result?token=" + starAIKey})
+			_ = json.NewEncoder(w).Encode(gin.H{"code": "success", "data": gin.H{"status": "SUCCESS", "progress": "100%", "usage": gin.H{"total_tokens": 40, "completion_tokens": 30}, "upstream_id": starAITask, "api_key": starAIKey, "url": "https://private.invalid/result?token=" + starAIKey}})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/videos/"+starAITask+"/content":
 			downloads.Add(1)
 			assert.Equal(t, "bytes=2-5", r.Header.Get("Range"))
@@ -190,25 +251,18 @@ func TestSeedanceResellerFullChain(t *testing.T) {
 				w.WriteHeader(http.StatusBadGateway)
 				return
 			}
-			platform := constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeByteDanceSeedance))
+			platform := constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeStarAI))
 			adaptor := relay.GetTaskAdaptor(platform)
 			facts, parseErr := adaptor.ParseTaskResult(nil, response, body)
 			if !assert.NoError(t, parseErr) {
 				w.WriteHeader(http.StatusBadGateway)
 				return
 			}
-			safe := adaptor.(interface {
-				SafePollingData(*relaycommon.TaskInfo) []byte
-			}).SafePollingData(facts)
-			var historical map[string]any
-			assert.NoError(t, json.Unmarshal(safe, &historical))
-			historical["upstream_id"], historical["api_key"] = starAITask, starAIKey
-			historical["url"] = "https://private.invalid/result?token=" + starAIKey
-			contaminated, marshalErr := json.Marshal(historical)
-			assert.NoError(t, marshalErr)
+			safe := service.SanitizeStarAIResponseBody(body, moliiTask)
 			publicTask := relay.TaskModel2Dto(&model.Task{
 				TaskID: moliiTask, Platform: platform, Status: model.TaskStatus(facts.Status),
-				Data: contaminated, FailReason: "fixture-private-provider-diagnostic",
+				SubmitTime: 1700000000, StartTime: 1700000002, FinishTime: 1700000008,
+				Data: safe, FailReason: "fixture-private-provider-diagnostic",
 				PrivateData: model.TaskPrivateData{Key: starAIKey, UpstreamTaskID: starAITask, ResultURL: "https://private.invalid/result"},
 			})
 			w.Header().Set("Content-Type", "application/json")
@@ -339,7 +393,10 @@ func TestSeedanceResellerFullChain(t *testing.T) {
 	require.NoError(t, db.First(&stored, stored.ID).Error)
 	assert.EqualValues(t, model.TaskStatusSuccess, stored.Status)
 	assert.Equal(t, 40, stored.Quota)
-	assert.Nil(t, stored.PrivateData.Timing)
+	assert.NotNil(t, stored.PrivateData.Timing)
+	assert.EqualValues(t, 1700000000, stored.PrivateData.Timing.UpstreamSubmittedAt)
+	assert.EqualValues(t, 1700000002, stored.PrivateData.Timing.UpstreamStartedAt)
+	assert.EqualValues(t, 1700000008, stored.PrivateData.Timing.UpstreamFinishedAt)
 	assert.Nil(t, stored.PrivateData.StoredResult, "reseller must not persist another video copy")
 	for _, private := range []string{moliiKey, starAIKey, starAITask, "private.invalid"} {
 		assert.NotContains(t, string(stored.Data), private)

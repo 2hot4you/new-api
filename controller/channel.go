@@ -455,6 +455,13 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	if channel == nil {
 		return fmt.Errorf("channel cannot be empty")
 	}
+	if channel.Type == constant.ChannelTypeByteDanceSeedance {
+		base, err := service.ValidateByteDanceSeedanceBaseURL(channel.GetBaseURL())
+		if err != nil {
+			return err
+		}
+		channel.BaseURL = &base
+	}
 
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
@@ -1055,15 +1062,8 @@ func UpdateChannel(c *gin.Context) {
 
 	baseURLFromPluginDefault := channel.Type == constant.ChannelTypeTaskPlugin &&
 		(channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "")
-	// 使用统一的校验函数
-	if err := validateChannel(&channel.Channel, false); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-	// Preserve existing ChannelInfo to ensure multi-key channels keep correct state even if the client does not send ChannelInfo in the request.
+	// Resolve the effective provider before validating a partial update.
+	// Omitted type/base_url fields must not bypass reseller URL validation.
 	originChannel, err := model.GetChannelById(channel.Id, true)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -1071,6 +1071,29 @@ func UpdateChannel(c *gin.Context) {
 			"message": err.Error(),
 		})
 		return
+	}
+	validationChannel := &channel.Channel
+	effectiveType := channel.Type
+	if _, supplied := requestData["type"]; !supplied {
+		effectiveType = originChannel.Type
+	}
+	if effectiveType == constant.ChannelTypeByteDanceSeedance {
+		effective := channel.Channel
+		effective.Type = effectiveType
+		if _, supplied := requestData["base_url"]; !supplied {
+			effective.BaseURL = originChannel.BaseURL
+		}
+		validationChannel = &effective
+	}
+	if err := validateChannel(validationChannel, false); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	if _, supplied := requestData["base_url"]; supplied && effectiveType == constant.ChannelTypeByteDanceSeedance {
+		channel.BaseURL = validationChannel.BaseURL
 	}
 	channel.MoliiGrokManagementAccessToken = originChannel.MoliiGrokManagementAccessToken
 	channel.MoliiGrokManagementUserID = originChannel.MoliiGrokManagementUserID

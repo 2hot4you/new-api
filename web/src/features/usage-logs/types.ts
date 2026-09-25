@@ -507,6 +507,8 @@ export type TaskBillingState =
   | 'unavailable'
 
 export interface TaskSeedanceBilling {
+  model_ratio?: number
+  other_ratio?: number
   actual_tokens: number
   resolution?: string
   ratio?: string

@@ -17,9 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test } from 'vitest'
 
 import { TASK_PLATFORMS, TASK_STATUS } from '../../constants'
 import { taskActionMapper, taskPlatformMapper } from '../mappers'
@@ -69,7 +69,10 @@ const reactTestGlobals = globalThis as typeof globalThis & {
 }
 reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
-async function renderVideoPreview(platform: string) {
+async function renderVideoPreview(
+  platform: string,
+  resultURL = '/v1/videos/task_public_preview/content?signature=test'
+) {
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -89,7 +92,7 @@ async function renderVideoPreview(platform: string) {
             action: 'generate',
             channel_id: 1,
             submit_time: 1,
-            result_url: '/v1/videos/task_public_preview/content?signature=test',
+            result_url: resultURL,
             video_params: {
               has_video: false,
               resolution: '720p',
@@ -138,6 +141,20 @@ async function renderVideoPreview(platform: string) {
 }
 
 describe('task video preview', () => {
+  test('previews native reseller content using the local authenticated artifact URL', async () => {
+    const task = {
+      platform: '64',
+      status: TASK_STATUS.SUCCESS,
+      result_url: `https://reseller.example/v1/tasks/task_local/artifacts/video/content?access=${'A'.repeat(43)}`,
+    }
+    assert.equal(isGeneratedVideoTask(task), true)
+    assert.equal(canPreviewVideoTask(task), true)
+    assert.equal(taskPlatformMapper.getLabel('64'), 'ByteDance Seedance')
+    const { root, host } = await renderVideoPreview('64', task.result_url)
+    assert.equal(document.querySelector('video')?.src, task.result_url)
+    await act(async () => root.unmount())
+    host.remove()
+  })
   after(() => domWindow.close())
 
   test('maps Grok video edit tasks to their user-facing labels', () => {

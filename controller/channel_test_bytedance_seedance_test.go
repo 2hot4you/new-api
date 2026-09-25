@@ -2,17 +2,36 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestByteDanceSeedancePartialChannelUpdateValidatesEffectiveURL(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	ch := seedanceResellerChannel("https://upstream.example", "instance-key")
+	require.NoError(t, db.Create(ch).Error)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/channel", strings.NewReader(fmt.Sprintf(`{"id":%d,"base_url":"https://upstream.example?secret=value"}`, ch.Id)))
+	c.Set("id", 1)
+	c.Set("role", common.RoleRootUser)
+	UpdateChannel(c)
+	require.Contains(t, recorder.Body.String(), `"success":false`)
+	reloaded, err := model.GetChannelById(ch.Id, true)
+	require.NoError(t, err)
+	require.Equal(t, "https://upstream.example", reloaded.GetBaseURL())
+}
 
 func seedanceResellerChannel(baseURL, key string) *model.Channel {
 	return &model.Channel{
@@ -191,7 +210,7 @@ func TestByteDanceSeedanceScheduledRevocationReportsRemovedModel(t *testing.T) {
 	require.Empty(t, reloaded.GetOtherSettings().UpstreamModelUpdateLastRemovedModels)
 }
 
-func TestByteDanceSeedanceFailedRefreshKeepsExistingModels(t *testing.T) {
+func TestByteDanceSeedanceEmptyRefreshRevokesExistingModels(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[]}`))
@@ -204,16 +223,36 @@ func TestByteDanceSeedanceFailedRefreshKeepsExistingModels(t *testing.T) {
 	require.NoError(t, db.Create(channel).Error)
 
 	changed, added, err := checkAndPersistChannelUpstreamModelUpdates(channel, &settings, true, true)
-	require.Error(t, err)
-	require.False(t, changed)
+	require.NoError(t, err)
+	require.True(t, changed)
 	require.Zero(t, added)
 	reloaded, err := model.GetChannelById(channel.Id, true)
 	require.NoError(t, err)
-	require.Equal(t, "doubao-seedance-2-0-260128", reloaded.Models)
+	require.Empty(t, reloaded.Models)
 	require.Empty(t, reloaded.GetOtherSettings().UpstreamModelUpdateLastRemovedModels)
 }
 
-func TestByteDanceSeedanceUnsupportedOnlyRefreshKeepsExistingModels(t *testing.T) {
+func TestByteDanceSeedanceRevocationDoesNotRequireAutoEnableNewModels(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+	channel := seedanceResellerChannel(server.URL, "instance-key")
+	channel.Models = "doubao-seedance-2-0-260128"
+	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true}
+	channel.SetOtherSettings(settings)
+	require.NoError(t, db.Create(channel).Error)
+	changed, added, err := checkAndPersistChannelUpstreamModelUpdates(channel, &settings, true, false)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Zero(t, added)
+	reloaded, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	require.Empty(t, reloaded.Models)
+}
+
+func TestByteDanceSeedanceUnsupportedOnlyRefreshRevokesExistingModels(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.6-sol"},{"id":"doubao-seedance-unknown"}]}`))
@@ -226,8 +265,44 @@ func TestByteDanceSeedanceUnsupportedOnlyRefreshKeepsExistingModels(t *testing.T
 	require.NoError(t, db.Create(channel).Error)
 
 	_, _, err := checkAndPersistChannelUpstreamModelUpdates(channel, &settings, true, true)
-	require.ErrorContains(t, err, "supported")
+	require.NoError(t, err)
 	reloaded, err := model.GetChannelById(channel.Id, true)
 	require.NoError(t, err)
-	require.Equal(t, "doubao-seedance-2-0-260128", reloaded.Models)
+	require.Empty(t, reloaded.Models)
+}
+
+func TestByteDanceSeedanceChannelWriteAndAssetsValidateBaseURL(t *testing.T) {
+	old := system_setting.ServerAddress
+	system_setting.ServerAddress = "https://reseller.example"
+	t.Cleanup(func() { system_setting.ServerAddress = old })
+	for _, base := range []string{"", "relative/path", "ftp://upstream.example", "https://user:pass@upstream.example", "https://upstream.example?key=secret", "https://upstream.example#fragment", "https://upstream.example?", "http://reseller.example", "http://upstream.example:99999"} {
+		t.Run(base, func(t *testing.T) {
+			ch := seedanceResellerChannel(base, "instance-key")
+			require.Error(t, validateChannel(ch, true))
+			require.Error(t, validateChannel(ch, false))
+			_, _, err := doTemporaryAssetRequest(ch, http.MethodGet, "/v1/assets/asset-one", nil)
+			require.Error(t, err)
+			_, err = fetchChannelUpstreamModelIDs(ch)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestByteDanceSeedanceMalformedModelRefreshRetainsAuthorization(t *testing.T) {
+	for _, body := range []string{`{}`, `{"data":null}`, `{"data":[{}]}`, `{"data":[{"id":""}]}`, `{"data":[null]}`, `{"data":{}}`} {
+		t.Run(body, func(t *testing.T) {
+			db := setupModelListControllerTestDB(t)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+			defer upstream.Close()
+			ch := seedanceResellerChannel(upstream.URL, "instance-key")
+			ch.Models = "doubao-seedance-2-0-260128"
+			settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true}
+			require.NoError(t, db.Create(ch).Error)
+			_, _, err := checkAndPersistChannelUpstreamModelUpdates(ch, &settings, true, true)
+			require.Error(t, err)
+			reloaded, err := model.GetChannelById(ch.Id, true)
+			require.NoError(t, err)
+			require.Equal(t, "doubao-seedance-2-0-260128", reloaded.Models)
+		})
+	}
 }

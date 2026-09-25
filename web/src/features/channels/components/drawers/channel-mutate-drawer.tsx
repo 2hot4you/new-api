@@ -176,6 +176,7 @@ import {
   validateModelMappingJson,
   hasAdvancedSettingsErrors,
 } from '../../lib'
+import { mustSaveBeforeModelFetch } from '../../lib/channel-model-fetch'
 import {
   collectInvalidStatusCodeEntries,
   collectNewDisallowedStatusCodeRedirects,
@@ -776,6 +777,18 @@ export function ChannelMutateDrawer({
   const shouldPreviewUnsavedModels =
     !isEditing ||
     (currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && canEditSensitive)
+  const modelFetchNeedsSave = mustSaveBeforeModelFetch(
+    currentRow?.type,
+    currentType,
+    form.formState.isDirty,
+    {
+      savedBaseURL: currentRow?.base_url,
+      savedModels: currentRow?.models,
+      baseURL: currentBaseUrl,
+      models: currentModels,
+      key: currentKey,
+    }
+  )
   const {
     unlocked: doubaoApiEditUnlocked,
     handleClick: handleApiConfigSecretClick,
@@ -1397,6 +1410,10 @@ export function ChannelMutateDrawer({
 
   // Handle fetching models from upstream
   const handleFetchModels = useCallback(async () => {
+    if (modelFetchNeedsSave) {
+      toast.info(t('Save the channel before fetching upstream models.'))
+      return
+    }
     const type = form.getValues('type')
 
     if (!MODEL_FETCHABLE_TYPES.has(type)) {
@@ -1419,7 +1436,7 @@ export function ChannelMutateDrawer({
     }
 
     setFetchModelsDialogOpen(true)
-  }, [isEditing, canEditSensitive, form, t])
+  }, [isEditing, canEditSensitive, form, t, modelFetchNeedsSave])
 
   const formPreviewFetcher = useCallback(async (): Promise<string[]> => {
     if (!canEditSensitive) {
@@ -3587,7 +3604,10 @@ export function ChannelMutateDrawer({
                                       variant='outline'
                                       size='sm'
                                       onClick={handleFetchModels}
-                                      disabled={!isEditing && !canEditSensitive}
+                                      disabled={
+                                        modelFetchNeedsSave ||
+                                        (!isEditing && !canEditSensitive)
+                                      }
                                     >
                                       <Sparkles
                                         className='mr-2 h-4 w-4'
@@ -3595,6 +3615,16 @@ export function ChannelMutateDrawer({
                                       />
                                       {t('Fetch from Upstream')}
                                     </Button>
+                                    {modelFetchNeedsSave && (
+                                      <span
+                                        role='status'
+                                        className='text-muted-foreground basis-full text-xs'
+                                      >
+                                        {t(
+                                          'Save the channel before fetching upstream models.'
+                                        )}
+                                      </span>
+                                    )}
                                     {!isEditing && !canEditSensitive && (
                                       <span className='text-muted-foreground basis-full text-xs'>
                                         {t(

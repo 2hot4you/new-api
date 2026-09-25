@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +26,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -498,15 +495,11 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return models, nil
 	}
 	if channel.Type == constant.ChannelTypeByteDanceSeedance {
-		models, err := parseOpenAIModelIDs(body)
+		models, err := parseSeedanceAuthorizedModels(body)
 		if err != nil {
 			return nil, sanitizeFetchModelsError(err, key)
 		}
-		supported := seedanceprotocol.FilterSupportedModels(models)
-		if len(supported) == 0 {
-			return nil, errors.New("ByteDance Seedance upstream returned no supported authorized models")
-		}
-		return supported, nil
+		return seedanceprotocol.FilterSupportedModels(models), nil
 	}
 
 	var result OpenAIModelsResponse
@@ -523,51 +516,26 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 }
 
 func validateByteDanceSeedanceBaseURL(raw string) (string, error) {
-	baseURL := strings.TrimRight(strings.TrimSpace(raw), "/")
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
-		return "", errors.New("ByteDance Seedance requires an absolute HTTP(S) Base URL")
-	}
-	if self, selfErr := url.Parse(strings.TrimSpace(system_setting.ServerAddress)); selfErr == nil && self.Hostname() != "" && isDirectSeedanceSelfURL(parsed, self) {
-		return "", errors.New("ByteDance Seedance Base URL cannot point to this instance")
-	}
-	return baseURL, nil
+	return service.ValidateByteDanceSeedanceBaseURL(raw)
 }
 
-func isDirectSeedanceSelfURL(upstream, self *url.URL) bool {
-	upstreamHost := strings.TrimSuffix(strings.ToLower(upstream.Hostname()), ".")
-	selfHost := strings.TrimSuffix(strings.ToLower(self.Hostname()), ".")
-	if upstreamHost == selfHost {
-		// The same public hostname with implicit ports may be the same reverse
-		// proxy across HTTP/HTTPS. Explicit different service ports are not.
-		if upstream.Port() == "" && self.Port() == "" {
-			return true
+// An empty, valid authorization list revokes everything. Missing/malformed
+// data (including malformed entries) must not accidentally revoke access.
+func parseSeedanceAuthorizedModels(body []byte) ([]string, error) {
+	var response struct {
+		Data *[]*OpenAIModel `json:"data"`
+	}
+	if common.Unmarshal(body, &response) != nil || response.Data == nil {
+		return nil, errors.New("invalid authorized models response")
+	}
+	ids := make([]string, 0, len(*response.Data))
+	for _, entry := range *response.Data {
+		if entry == nil || strings.TrimSpace(entry.ID) == "" {
+			return nil, errors.New("invalid authorized model entry")
 		}
-		return seedanceURLPort(upstream) == seedanceURLPort(self)
+		ids = append(ids, entry.ID)
 	}
-	isLoopback := func(host string) bool {
-		if host == "localhost" {
-			return true
-		}
-		ip := net.ParseIP(host)
-		return ip != nil && ip.IsLoopback()
-	}
-	return isLoopback(upstreamHost) && isLoopback(selfHost) &&
-		seedanceURLPort(upstream) == seedanceURLPort(self)
-}
-
-func seedanceURLPort(parsed *url.URL) int {
-	if port := parsed.Port(); port != "" {
-		portNumber, err := strconv.Atoi(port)
-		if err != nil {
-			return -1
-		}
-		return portNumber
-	}
-	if parsed.Scheme == "https" {
-		return 443
-	}
-	return 80
+	return normalizeModelNames(ids), nil
 }
 
 func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {
@@ -640,11 +608,18 @@ func checkAndPersistChannelUpstreamModelUpdates(
 		return false, 0, fetchErr
 	}
 
-	if allowAutoApply && settings.UpstreamModelUpdateAutoSyncEnabled && (len(pendingAddModels) > 0 ||
-		(channel.Type == constant.ChannelTypeByteDanceSeedance && len(pendingRemoveModels) > 0)) {
+	autoEnable := allowAutoApply && settings.UpstreamModelUpdateAutoSyncEnabled
+	// Revocation is an authorization boundary, not opt-in model enablement.
+	// A valid empty list must remove old reseller abilities even in manual mode.
+	revokeReseller := channel.Type == constant.ChannelTypeByteDanceSeedance && len(pendingRemoveModels) > 0
+	if (autoEnable && len(pendingAddModels) > 0) || revokeReseller {
 		originModels := normalizeModelNames(channel.GetModels())
-		mergedModels := mergeModelNames(originModels, pendingAddModels)
-		autoAdded = len(mergedModels) - len(originModels)
+		mergedModels := originModels
+		if autoEnable {
+			mergedModels = mergeModelNames(originModels, pendingAddModels)
+			autoAdded = len(mergedModels) - len(originModels)
+			pendingAddModels = nil
+		}
 		if channel.Type == constant.ChannelTypeByteDanceSeedance {
 			mergedModels = subtractModelNames(mergedModels, pendingRemoveModels)
 		}
@@ -652,13 +627,11 @@ func checkAndPersistChannelUpstreamModelUpdates(
 			channel.Models = strings.Join(mergedModels, ",")
 			modelsChanged = true
 		}
-		settings.UpstreamModelUpdateLastDetectedModels = []string{}
 		if channel.Type == constant.ChannelTypeByteDanceSeedance {
 			pendingRemoveModels = nil
 		}
-	} else {
-		settings.UpstreamModelUpdateLastDetectedModels = pendingAddModels
 	}
+	settings.UpstreamModelUpdateLastDetectedModels = pendingAddModels
 	settings.UpstreamModelUpdateLastRemovedModels = pendingRemoveModels
 
 	if err = updateChannelUpstreamModelSettings(channel, *settings, modelsChanged); err != nil {

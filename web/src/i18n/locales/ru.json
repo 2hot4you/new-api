@@ -6440,6 +6440,8 @@
     "Submitting to Molii Volcengine Imagine API...": "Отправка в Molii Volcengine Imagine API...",
     "Submitting temporary asset...": "Отправка временного ресурса...",
     "ByteDance Seedance": "ByteDance Seedance",
+    "Other Ratios": "Другие множители",
+    "Save the channel before fetching upstream models.": "Сохраните канал перед получением моделей провайдера.",
     "Enter the upstream API Base URL. Do not add /v1 or trailing slash.": "Укажите базовый URL вышестоящего API без /v1 и завершающего слеша.",
     "Failed to upload temporary asset": "Failed to upload temporary asset",
     "Upload failed": "Upload failed",

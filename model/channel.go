@@ -197,7 +197,15 @@ func (channel *Channel) GetKeys() []string {
 		if err := common.Unmarshal([]byte(trimmed), &arr); err == nil {
 			res := make([]string, len(arr))
 			for i, v := range arr {
-				res[i] = string(v)
+				if channel.Type == constant.ChannelTypeByteDanceSeedance {
+					// Seedance collections contain bearer strings, not Vertex
+					// credential objects. Never send JSON quotes as part of a key.
+					if common.Unmarshal(v, &res[i]) != nil {
+						return nil
+					}
+				} else {
+					res[i] = string(v)
+				}
 			}
 			return res
 		}

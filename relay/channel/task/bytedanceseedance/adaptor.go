@@ -79,6 +79,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 			}
 		}
 		info.VideoInputMediaCountsAvailable = true
+		info.EstimatedVideoResolution, info.EstimatedVideoRatio = payload.Resolution, payload.Ratio
+		if payload.Duration != nil {
+			info.EstimatedVideoSeconds = *payload.Duration
+		}
+		info.EstimatedVideoHasInput = info.VideoInputVideoCount > 0
 	}
 	return nil
 }
@@ -173,10 +178,11 @@ func isSupportedModel(value string) bool {
 }
 
 func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
-	if a.baseURL == "" {
-		return "", errors.New("Molii base URL is required")
+	base, err := service.ValidateByteDanceSeedanceBaseURL(a.baseURL)
+	if err != nil {
+		return "", err
 	}
-	return a.baseURL + "/v1/video/generations", nil
+	return base + "/v1/video/generations", nil
 }
 
 func (a *TaskAdaptor) BuildContentRequest(task *model.Task, _ string, client channel.TaskArtifactClientRequest) (*channel.TaskContentRequest, error) {
@@ -189,6 +195,10 @@ func (a *TaskAdaptor) BuildContentRequest(task *model.Task, _ string, client cha
 	if client.Method != http.MethodGet && client.Method != http.MethodHead {
 		return nil, errors.New("unsupported Molii content method")
 	}
+	base, err := service.ValidateByteDanceSeedanceBaseURL(a.baseURL)
+	if err != nil {
+		return nil, err
+	}
 	headers := map[string]string{"Authorization": "Bearer " + a.apiKey}
 	for _, name := range []string{"Range", "If-Range"} {
 		if value := strings.TrimSpace(client.Headers[name]); value != "" {
@@ -196,7 +206,7 @@ func (a *TaskAdaptor) BuildContentRequest(task *model.Task, _ string, client cha
 		}
 	}
 	return &channel.TaskContentRequest{
-		URL:    strings.TrimRight(a.baseURL, "/") + "/v1/videos/" + url.PathEscape(task.GetUpstreamTaskID()) + "/content",
+		URL:    base + "/v1/videos/" + url.PathEscape(task.GetUpstreamTaskID()) + "/content",
 		Method: client.Method, Headers: headers, ClientHeaderAllowlist: []string{"Range", "If-Range"},
 	}, nil
 }
@@ -277,7 +287,7 @@ func (a *TaskAdaptor) ParseResponse(_ *gin.Context, resp *http.Response, info *r
 		return nil, service.TaskErrorWrapper(errors.New("invalid Molii video response"), "invalid_response", http.StatusBadGateway)
 	}
 	if !successCode(envelope.Code) {
-		return nil, service.TaskErrorWrapper(errors.New("Molii video request failed"), "molii_video_api_error", http.StatusBadGateway)
+		return nil, a.MapTaskSubmitError(http.StatusBadGateway, body)
 	}
 	id := first(envelope.Data.TaskID, stringValue(envelope.Data.ID), envelope.TaskID, stringValue(envelope.ID))
 	if !isPublicTaskID(id) {
@@ -290,19 +300,40 @@ func (a *TaskAdaptor) ParseResponse(_ *gin.Context, resp *http.Response, info *r
 	client := dto.NewOpenAIVideo()
 	client.ID, client.TaskID, client.Model = publicID, publicID, originModel
 	client.CreatedAt = time.Now().Unix()
+	nodes, _ := pollingNodes(body)
+	facts := service.SeedanceTaskFacts{}
+	if len(nodes) > 0 {
+		facts = publicPollingFacts(nodes)
+	}
 	safe, _ := common.Marshal(struct {
+		service.SeedanceTaskFacts
 		ID     string `json:"id"`
 		Status string `json:"status"`
 		Model  string `json:"model,omitempty"`
-	}{publicID, "queued", originModel})
+	}{facts, publicID, "queued", originModel})
 	return &channel.TaskSubmitResponse{UpstreamTaskID: id, TaskData: safe, ClientResponse: client}, nil
 }
 
-func (a *TaskAdaptor) SanitizeTaskSubmitError(_ []byte) string { return "Molii video request failed" }
+func (a *TaskAdaptor) SanitizeTaskSubmitError(body []byte) string {
+	return a.MapTaskSubmitError(http.StatusBadGateway, body).Message
+}
+
+func (a *TaskAdaptor) MapTaskSubmitError(status int, body []byte) *taskdto.TaskError {
+	safe := service.SeedanceBusinessError(body, "molii_video_api_error", "Molii video request failed")
+	return &taskdto.TaskError{Code: safe.Code, Message: safe.Message, Type: safe.Type, StatusCode: status}
+}
+
+func (a *TaskAdaptor) MapTaskTransportError(_ error) *taskdto.TaskError {
+	return &taskdto.TaskError{Code: "upstream_unavailable", Message: "Molii video service is unavailable", StatusCode: http.StatusBadGateway}
+}
 
 func (a *TaskAdaptor) FetchTask(baseURL, key string, task *model.Task, proxy string) (*http.Response, error) {
 	if task == nil || strings.TrimSpace(task.GetUpstreamTaskID()) == "" {
 		return nil, errors.New("missing Molii task ID")
+	}
+	baseURL, err := service.ValidateByteDanceSeedanceBaseURL(baseURL)
+	if err != nil {
+		return nil, err
 	}
 	endpoint := strings.TrimRight(baseURL, "/") + "/v1/video/generations/" + url.PathEscape(task.GetUpstreamTaskID())
 	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
@@ -322,28 +353,22 @@ func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, body []by
 	// Decode usage separately so invalid token facts cannot turn an otherwise
 	// valid SUCCESS into a hook error and eventually an automatic refund.
 	// Keep this projection local: direct StarAI's decoding contract is unchanged.
-	var envelope struct {
-		Code   any             `json:"code"`
-		Status string          `json:"status"`
-		Usage  json.RawMessage `json:"usage"`
-		Data   struct {
-			Status string          `json:"status"`
-			Usage  json.RawMessage `json:"usage"`
-			Data   struct {
-				Status     string          `json:"status"`
-				Usage      json.RawMessage `json:"usage"`
-				Duration   float64         `json:"duration"`
-				Resolution string          `json:"resolution"`
-			} `json:"data"`
-		} `json:"data"`
+	nodes, err := pollingNodes(body)
+	if err != nil {
+		return nil, err
 	}
-	if err := seedanceprotocol.DecodeResponse(body, &envelope); err != nil {
-		return nil, errors.New("invalid Molii video task response")
-	}
-	if !successCode(envelope.Code) {
+	var code any
+	_ = json.Unmarshal(nodes[0]["code"], &code)
+	if !successCode(code) {
 		return nil, errors.New("Molii video task query failed")
 	}
-	status := first(envelope.Data.Status, envelope.Data.Data.Status, envelope.Status)
+	status := ""
+	for _, node := range nodes[1:] {
+		if status == "" {
+			status = nodeString(node, "status")
+		}
+	}
+	status = first(status, nodeString(nodes[0], "status"))
 	if status == "" {
 		return nil, errors.New("Molii video task response omitted status")
 	}
@@ -351,24 +376,31 @@ func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, body []by
 	if mappedStatus == "" {
 		return nil, errors.New("Molii video task response has unknown status")
 	}
-	usage := envelope.Data.Data.Usage
-	if len(usage) == 0 {
-		usage = envelope.Data.Usage
+	// Known public envelopes: OpenAI video; TaskResponse<TaskDto>; and
+	// TaskDto.Data containing the direct StarAI response (one or two data levels).
+	// Never recursively walk arbitrary diagnostics looking for billable usage.
+	var usage json.RawMessage
+	for i := len(nodes) - 1; i >= 0; i-- {
+		if len(nodes[i]["usage"]) > 0 {
+			usage = nodes[i]["usage"]
+			break
+		}
 	}
-	if len(usage) == 0 {
-		usage = envelope.Usage
-	}
+	facts := publicPollingFacts(nodes)
 	result := &relaycommon.TaskInfo{
 		Status:   mappedStatus,
 		Progress: progress(status),
 		// Molii may include a private signed result URL. The content proxy
 		// must obtain media separately from the authenticated public API.
-		ActualDurationSeconds: envelope.Data.Data.Duration,
-		ActualResolution:      safeResolution(envelope.Data.Data.Resolution),
+		ActualDurationSeconds: facts.Duration,
+		ActualResolution:      facts.Resolution,
+		UsageFacts:            map[string]any{"seedance": facts},
 	}
 	result.CompletionTokens, result.TotalTokens = trustworthyPollingTokens(usage)
 	if result.Status == model.TaskStatusFailure {
-		result.Reason = "Molii video task failed"
+		safe := service.SeedanceBusinessError(body, "molii_video_failed", "Molii video task failed")
+		result.Reason = safe.Message
+		result.UsageFacts["public_error"] = safe
 	}
 	return result, nil
 }
@@ -398,6 +430,9 @@ func trustworthyPollingTokens(raw json.RawMessage) (completion, total int) {
 			return 0, 0
 		}
 	}
+	if len(usage.Total) > 0 && total < completion {
+		return 0, 0
+	}
 	return completion, total
 }
 
@@ -413,14 +448,21 @@ func (a *TaskAdaptor) SafePollingData(result *relaycommon.TaskInfo) []byte {
 	if result == nil {
 		return []byte(`{}`)
 	}
+	facts, _ := result.UsageFacts["seedance"].(service.SeedanceTaskFacts)
+	var publicError *service.SeedancePublicError
+	if result.Status == model.TaskStatusFailure {
+		if safe, ok := result.UsageFacts["public_error"].(service.SeedancePublicError); ok {
+			publicError = &safe
+		}
+	}
 	data, _ := common.Marshal(struct {
-		Status           string  `json:"status"`
-		Progress         string  `json:"progress,omitempty"`
-		CompletionTokens int     `json:"completion_tokens,omitempty"`
-		TotalTokens      int     `json:"total_tokens,omitempty"`
-		Duration         float64 `json:"duration,omitempty"`
-		Resolution       string  `json:"resolution,omitempty"`
-	}{result.Status, result.Progress, result.CompletionTokens, result.TotalTokens, result.ActualDurationSeconds, result.ActualResolution})
+		service.SeedanceTaskFacts
+		Error            *service.SeedancePublicError `json:"error,omitempty"`
+		Status           string                       `json:"status"`
+		Progress         string                       `json:"progress,omitempty"`
+		CompletionTokens int                          `json:"completion_tokens,omitempty"`
+		TotalTokens      int                          `json:"total_tokens,omitempty"`
+	}{facts, publicError, result.Status, result.Progress, result.CompletionTokens, result.TotalTokens})
 	return data
 }
 
@@ -431,17 +473,22 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	video.Status = task.Status.ToVideoStatus()
 	video.SetProgressStr(task.Progress)
 	video.CreatedAt, video.CompletedAt = task.CreatedAt, task.UpdatedAt
-	var safeData struct {
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
+	completion, total := trustworthyPollingTokens(task.Data)
+	usage := map[string]int{}
+	if completion > 0 {
+		usage["completion_tokens"] = completion
 	}
-	if len(task.Data) > 0 && common.Unmarshal(task.Data, &safeData) == nil && (safeData.CompletionTokens != 0 || safeData.TotalTokens != 0) {
-		video.Usage = &dto.OpenAIVideoUsage{CompletionTokens: safeData.CompletionTokens, TotalTokens: safeData.TotalTokens}
+	if total > 0 {
+		usage["total_tokens"] = total
 	}
 	if task.Status == model.TaskStatusFailure {
-		video.Error = &dto.OpenAIVideoError{Code: "molii_video_failed", Message: "Molii video task failed"}
+		safe := service.SeedanceBusinessError(task.Data, "molii_video_failed", "Molii video task failed")
+		video.Error = &dto.OpenAIVideoError{Code: safe.Code, Message: safe.Message, Type: safe.Type}
 	}
-	return common.Marshal(video)
+	return common.Marshal(struct {
+		*dto.OpenAIVideo
+		Usage map[string]int `json:"usage,omitempty"`
+	}{video, usage})
 }
 
 func first(values ...string) string {

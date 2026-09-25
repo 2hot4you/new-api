@@ -63,6 +63,7 @@ type starAIAssetResponse struct {
 type starAIAssetErrorResponse struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
+	Type    string `json:"type,omitempty"`
 }
 
 type starAIAssetUpstreamResponse struct {
@@ -75,11 +76,12 @@ type starAIAssetUpstreamResponse struct {
 }
 
 type starAIAssetUpstreamFailure struct {
-	Operation string
-	Status    int
-	Code      string
-	Reason    string
-	Cause     error
+	PublicError *service.SeedancePublicError
+	Operation   string
+	Status      int
+	Code        string
+	Reason      string
+	Cause       error
 }
 
 func (e *starAIAssetUpstreamFailure) Error() string {
@@ -132,6 +134,8 @@ func sanitizeStarAIAssetErrorCode(value string) string {
 
 func parseStarAIAssetUpstreamFailure(operation string, status int, body []byte, cause error) *starAIAssetUpstreamFailure {
 	failure := &starAIAssetUpstreamFailure{Operation: operation, Status: status, Cause: cause}
+	safe := service.SeedanceBusinessError(body, "temporary_asset_upstream_error", "temporary asset upstream request failed")
+	failure.PublicError = &safe
 	var value any
 	if len(body) > 0 && common.Unmarshal(body, &value) == nil {
 		failure.Code = sanitizeStarAIAssetErrorCode(starAIAssetStringField(value, "code", "error_code", "type"))
@@ -173,9 +177,15 @@ func writeStarAIAssetUpstreamFailure(c *gin.Context, channel *model.Channel, fai
 	if channel.Type == constant.ChannelTypeByteDanceSeedance {
 		// A reseller must not relay account-scoped diagnostics from its upstream.
 		logger.LogError(c.Request.Context(), fmt.Sprintf("temporary asset %s failed channel_id=%d upstream_status=%d", failure.Operation, channel.Id, failure.Status))
-		c.JSON(starAIAssetClientStatus(failure.Status), gin.H{
-			"success": false, "code": "temporary_asset_upstream_error", "message": "temporary asset upstream request failed",
-		})
+		safe := failure.PublicError
+		if safe == nil {
+			fallback := service.SafeSeedanceBusinessFields(failure.Code, failure.Reason, "", "temporary_asset_upstream_error", "temporary asset upstream request failed")
+			safe = &fallback
+		}
+		c.JSON(starAIAssetClientStatus(failure.Status), struct {
+			Success bool `json:"success"`
+			service.SeedancePublicError
+		}{false, *safe})
 		return
 	}
 	logger.LogError(c.Request.Context(), fmt.Sprintf(
@@ -227,6 +237,9 @@ func safeStarAIAsset(binding *service.StarAIAssetBinding) starAIAssetResponse {
 	if binding.ErrorCode != "" || binding.ErrorMessage != "" {
 		code, message := service.SafeTemporaryAssetFailure(binding.ChannelType, binding.ErrorCode, binding.ErrorMessage)
 		response.Error = &starAIAssetErrorResponse{Code: code, Message: message}
+		if binding.ChannelType == constant.ChannelTypeByteDanceSeedance {
+			response.Error.Type = service.SafeSeedanceBusinessFields(code, message, binding.ErrorType, "temporary_asset_failed", "temporary asset processing failed").Type
+		}
 	}
 	return response
 }
@@ -303,6 +316,9 @@ func createStarAIAssetUpstream(c *gin.Context, input createStarAIAssetRequest, b
 	}
 	if upstream.Error != nil && initialStatus == "FAILED" {
 		binding.ErrorCode, binding.ErrorMessage = service.SafeTemporaryAssetFailure(channel.Type, upstream.Error.Code, upstream.Error.Message)
+		if channel.Type == constant.ChannelTypeByteDanceSeedance {
+			binding.ErrorType = service.SafeSeedanceBusinessFields(upstream.Error.Code, upstream.Error.Message, upstream.Error.Type, "temporary_asset_failed", "temporary asset processing failed").Type
+		}
 	}
 	if err := service.SaveStarAIAssetBinding(binding); err != nil {
 		if errors.Is(err, service.ErrStarAIAssetExpired) {
@@ -454,12 +470,13 @@ func refreshStarAIAsset(c *gin.Context, binding *service.StarAIAssetBinding) (*s
 	if binding.ChannelType == constant.ChannelTypeByteDanceSeedance && upstream.ExpiresAt > 0 {
 		binding.ExpiresAt = upstream.ExpiresAt
 	}
-	errorCode, errorMessage := "", ""
+	errorCode, errorMessage, errorType := "", "", ""
 	if upstream.Error != nil {
 		errorCode = upstream.Error.Code
 		errorMessage = upstream.Error.Message
+		errorType = upstream.Error.Type
 	}
-	if err := service.UpdateStarAIAssetVerification(binding, binding.Status, errorCode, errorMessage); err != nil {
+	if err := service.UpdateStarAIAssetVerification(binding, binding.Status, errorCode, errorMessage, errorType); err != nil {
 		return nil, err
 	}
 	return binding, nil

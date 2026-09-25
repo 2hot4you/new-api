@@ -134,6 +134,8 @@ type TaskPrivateData struct {
 	PluginState json.RawMessage `json:"plugin_state,omitempty"`
 	// PollFailures counts consecutive unrecognized or transient poll outcomes.
 	PollFailures int `json:"poll_failures,omitempty"`
+	// PollFailureClass is a bounded, provider-neutral reconciliation hint.
+	PollFailureClass string `json:"poll_failure_class,omitempty"`
 }
 
 // TaskTimingSnapshot stores only provider-neutral timestamps needed for
@@ -262,7 +264,7 @@ func (p TaskPrivateData) Value() (driver.Value, error) {
 	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" &&
 		p.Execution == nil && p.Timing == nil && p.InputMedia == nil && p.StoredResult == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
 		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
-		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 {
+		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 && p.PollFailureClass == "" {
 		return nil, nil
 	}
 	// 同 Properties.Value:string 避免 PG simple protocol 的 bytea 编码。
@@ -417,6 +419,10 @@ func GetTimedOutUnfinishedTasksWithError(cutoffUnix int64, limit int) ([]*Task, 
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
+		// Reseller polling can be unavailable while the upstream has succeeded.
+		// Elapsed time is not evidence of failure; retain its reservation until
+		// an explicit terminal response (including across process restarts).
+		Where("platform <> ?", strconv.Itoa(constant.ChannelTypeByteDanceSeedance)).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
@@ -587,15 +593,16 @@ func (Task *Task) InsertWithContext(ctx context.Context) error {
 }
 
 type taskSnapshot struct {
-	Status       TaskStatus
-	Progress     string
-	StartTime    int64
-	FinishTime   int64
-	FailReason   string
-	ResultURL    string
-	Data         json.RawMessage
-	PluginState  json.RawMessage
-	PollFailures int
+	Status           TaskStatus
+	Progress         string
+	StartTime        int64
+	FinishTime       int64
+	FailReason       string
+	ResultURL        string
+	Data             json.RawMessage
+	PluginState      json.RawMessage
+	PollFailures     int
+	PollFailureClass string
 }
 
 func (s taskSnapshot) Equal(other taskSnapshot) bool {
@@ -607,20 +614,21 @@ func (s taskSnapshot) Equal(other taskSnapshot) bool {
 		s.ResultURL == other.ResultURL &&
 		bytes.Equal(s.Data, other.Data) &&
 		bytes.Equal(s.PluginState, other.PluginState) &&
-		s.PollFailures == other.PollFailures
+		s.PollFailures == other.PollFailures && s.PollFailureClass == other.PollFailureClass
 }
 
 func (t *Task) Snapshot() taskSnapshot {
 	return taskSnapshot{
-		Status:       t.Status,
-		Progress:     t.Progress,
-		StartTime:    t.StartTime,
-		FinishTime:   t.FinishTime,
-		FailReason:   t.FailReason,
-		ResultURL:    t.PrivateData.ResultURL,
-		Data:         t.Data,
-		PluginState:  t.PrivateData.PluginState,
-		PollFailures: t.PrivateData.PollFailures,
+		Status:           t.Status,
+		Progress:         t.Progress,
+		StartTime:        t.StartTime,
+		FinishTime:       t.FinishTime,
+		FailReason:       t.FailReason,
+		ResultURL:        t.PrivateData.ResultURL,
+		Data:             t.Data,
+		PluginState:      t.PrivateData.PluginState,
+		PollFailures:     t.PrivateData.PollFailures,
+		PollFailureClass: t.PrivateData.PollFailureClass,
 	}
 }
 

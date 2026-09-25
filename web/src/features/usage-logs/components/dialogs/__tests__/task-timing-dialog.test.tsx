@@ -22,6 +22,7 @@ import { beforeAll, describe, expect, test } from 'vitest'
 
 import type { TaskLog } from '../../../types'
 import { TaskDurationCell } from '../../columns/task-logs-columns'
+import { TaskBillingDialog } from '../task-billing-dialog'
 
 const log: TaskLog = {
   id: 1,
@@ -64,17 +65,50 @@ beforeAll(() => {
 })
 
 describe('Seedance task timing', () => {
-  test('lets an administrator open the full timing breakdown', () => {
-    render(<TaskDurationCell log={log} isAdmin />)
+  test.each(['61', '64'])(
+    'lets an administrator open platform %s timing',
+    (platform) => {
+      render(<TaskDurationCell log={{ ...log, platform }} isAdmin />)
 
-    fireEvent.click(screen.getByRole('button', { name: /1107\.0s/ }))
+      fireEvent.click(screen.getByRole('button', { name: /1107\.0s/ }))
 
-    expect(screen.getByText('Task Timing')).toBeInTheDocument()
-    expect(screen.getByText('Upstream Queue')).toBeInTheDocument()
-    expect(screen.getByText('129s')).toBeInTheDocument()
-    expect(screen.getByText('Upstream Generation')).toBeInTheDocument()
-    expect(screen.getByText('974s')).toBeInTheDocument()
-    expect(screen.getByText('Completion Polling Delay')).toBeInTheDocument()
+      expect(screen.getByText('Task Timing')).toBeInTheDocument()
+      expect(screen.getByText('Upstream Queue')).toBeInTheDocument()
+      expect(screen.getByText('129s')).toBeInTheDocument()
+      expect(screen.getByText('Upstream Generation')).toBeInTheDocument()
+      expect(screen.getByText('974s')).toBeInTheDocument()
+      expect(screen.getByText('Completion Polling Delay')).toBeInTheDocument()
+    }
+  )
+
+  test('shows the reseller local ratio snapshot and its nonzero effective rate', () => {
+    render(
+      <TaskBillingDialog
+        open
+        onOpenChange={() => undefined}
+        billing={{
+          state: 'settled',
+          mode: 'seedance',
+          final_cost: 0.00005,
+          group_ratio: 0.5,
+          detail_available: true,
+          seedance: {
+            actual_tokens: 100,
+            unit_price: 1,
+            model_ratio: 2,
+            other_ratio: 0.25,
+            has_video: false,
+          },
+        }}
+      />
+    )
+    expect(screen.getByText('Model ratio')).toBeInTheDocument()
+    expect(screen.getByText('2x')).toBeInTheDocument()
+    expect(screen.getByText('Other Ratios')).toBeInTheDocument()
+    expect(screen.getByText('0.25x')).toBeInTheDocument()
+    expect(
+      screen.getByText('100 × ¥1.000000 ÷ 1,000,000 × 0.5000 = ¥0.000050')
+    ).toBeInTheDocument()
   })
 
   test('keeps the total duration non-interactive for ordinary users', () => {

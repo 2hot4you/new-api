@@ -53,6 +53,29 @@ func TestByteDanceSeedanceAdminDiagnosticsHideStarAIID(t *testing.T) {
 	assert.NotContains(t, string(encoded), "private.invalid")
 }
 
+func TestByteDanceSeedanceAdminFactsAndLocalRatioBilling(t *testing.T) {
+	task := &model.Task{TaskID: "task_local", Platform: "64", Status: model.TaskStatusSuccess, Quota: 25, SubmitTime: 1700000000,
+		Data:        json.RawMessage(`{"submit_time":1700000000,"start_time":1700000002,"finish_time":1700000008,"duration":6,"resolution":"1080p","ratio":"16:9","input_image_count":2}`),
+		PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{ActualTokens: 100, ModelRatio: 2, GroupRatio: 0.5, OtherRatios: map[string]float64{"local_discount": 0.25}}}}
+	view := tasksToDto([]*model.Task{task}, false, common.RoleAdminUser)[0]
+	require.NotNil(t, view.AdminInfo)
+	require.NotNil(t, view.AdminInfo.Timing)
+	require.EqualValues(t, 6, *view.AdminInfo.Timing.UpstreamGenerationSeconds)
+	require.NotNil(t, view.VideoParams)
+	require.Equal(t, "1080p", view.VideoParams.Resolution)
+	require.Equal(t, 6, view.VideoParams.Seconds)
+	require.Contains(t, view.ResultURL, "/v1/tasks/task_local/artifacts/video/content?access=")
+	summary := taskBillingSummary(task, &model.TaskBillingJob{Status: model.TaskBillingJobStatusSucceeded, Operation: model.TaskBillingOperationSettle})
+	require.True(t, summary.DetailAvailable)
+	require.Equal(t, 1.0, summary.Seedance.UnitPrice, "2 local model ratio × .25 local discount × 1M / 500000 quota units")
+	encoded, err := json.Marshal(summary)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"model_ratio":2`)
+	require.Contains(t, string(encoded), `"other_ratio":0.25`)
+	task.PrivateData.BillingContext.ModelRatio = 0
+	require.False(t, taskBillingSummary(task, &model.TaskBillingJob{Status: model.TaskBillingJobStatusSucceeded, Operation: model.TaskBillingOperationSettle}).DetailAvailable)
+}
+
 func setupSeedancePollingBillingDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -101,7 +124,7 @@ func TestByteDanceSeedanceBillingSubmissionDoesNotCountFinalUsage(t *testing.T) 
 	assert.Zero(t, logs, "reservation must not be logged as final consumption")
 	assert.Equal(t, "task_molii_public", outcome.Task.PrivateData.UpstreamTaskID)
 	assert.Equal(t, 2.0, outcome.Task.PrivateData.BillingContext.ModelRatio)
-	assert.Nil(t, outcome.Task.PrivateData.Timing)
+	assert.NotNil(t, outcome.Task.PrivateData.Timing)
 }
 
 func TestByteDanceSeedanceBillingSubmissionCapturesExplicitFreeGroup(t *testing.T) {
@@ -199,7 +222,7 @@ func TestByteDanceSeedancePollingBillingRestartRecovery(t *testing.T) {
 				assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), stored.Status)
 			}
 			assert.Equal(t, "task_molii_public", stored.PrivateData.UpstreamTaskID)
-			assert.Nil(t, stored.PrivateData.Timing)
+			assert.NotNil(t, stored.PrivateData.Timing)
 			assert.Nil(t, stored.PrivateData.StoredResult)
 			assert.NotContains(t, string(stored.Data), "cgt-private")
 			assert.NotContains(t, string(stored.Data), "private.invalid")

@@ -22,6 +22,7 @@ import type { TaskLog } from '../types'
 const VIDEO_TASK_PLATFORMS: ReadonlySet<string> = new Set([
   TASK_PLATFORMS.STARAI,
   TASK_PLATFORMS.MOLII_GROK,
+  TASK_PLATFORMS.BYTEDANCE_SEEDANCE,
 ])
 
 export function shouldShowGrokVideoTemporaryLinkWarning(

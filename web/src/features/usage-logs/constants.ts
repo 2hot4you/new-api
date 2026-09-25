@@ -208,6 +208,7 @@ export const TASK_STATUS = {
  * Task platforms
  */
 export const TASK_PLATFORMS = {
+  BYTEDANCE_SEEDANCE: '64',
   SUNO: 'suno',
   STARAI: '61',
   MOLII_GROK: '62',
@@ -332,6 +333,10 @@ export const TASK_PLATFORM_MAPPINGS: Record<string, StatusMapping> = {
     variant: 'blue',
   },
   [TASK_PLATFORMS.MOLII_GROK]: { label: 'Grok', variant: 'blue' },
+  [TASK_PLATFORMS.BYTEDANCE_SEEDANCE]: {
+    label: 'ByteDance Seedance',
+    variant: 'blue',
+  },
   [TASK_PLATFORMS.KLING]: { label: 'kling', variant: 'blue' },
   [TASK_PLATFORMS.RUNWAY]: { label: 'runway', variant: 'violet' },
   [TASK_PLATFORMS.LUMA]: { label: 'luma', variant: 'orange' },

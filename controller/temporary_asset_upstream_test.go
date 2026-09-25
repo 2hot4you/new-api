@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +16,72 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTemporaryAssetResellerPreservesSafeBusinessFields(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/assets", nil)
+	body := []byte(`{"error":{"code":"asset_not_ready","message":"Temporary asset is not ready","type":"invalid_request_error","diagnostics":{"api_key":"canary","upstream_id":"cgt-private"}}}`)
+	failure := parseStarAIAssetUpstreamFailure("create", 400, body, nil)
+	writeStarAIAssetUpstreamFailure(c, &model.Channel{Type: constant.ChannelTypeByteDanceSeedance}, failure)
+	require.Contains(t, recorder.Body.String(), `"code":"asset_not_ready"`)
+	require.Contains(t, recorder.Body.String(), `"type":"invalid_request_error"`)
+	require.Contains(t, recorder.Body.String(), `"message":"Temporary asset is not ready"`)
+	require.NotContains(t, recorder.Body.String(), "canary")
+	require.NotContains(t, recorder.Body.String(), "cgt-private")
+}
+
+func TestTemporaryAssetResellerStoredBusinessErrorRetainsSafeType(t *testing.T) {
+	db := setupSingleStarAIChannelTestDB(t)
+	useControllerStarAIAssetRedis(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"id":"asset-failed","status":"FAILED","expires_at":%d,"error":{"code":"unsupported_media_type","message":"Unsupported media format","type":"invalid_request_error","diagnostics":{"token":"private-canary"}}}`, time.Now().Add(time.Hour).Unix())
+	}))
+	t.Cleanup(server.Close)
+	baseURL := server.URL
+	require.NoError(t, db.Create(&model.Channel{Type: constant.ChannelTypeByteDanceSeedance, Status: common.ChannelStatusEnabled, Name: "reseller", Key: "account-key", BaseURL: &baseURL}).Error)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/assets", nil)
+	c.Set("id", 42)
+	binding, ok := createStarAIAssetUpstream(c, createStarAIAssetRequest{AssetType: "image", Name: "reference"}, &service.StarAIAssetBinding{})
+	require.True(t, ok)
+	for round := 0; round < 2; round++ {
+		stored, err := service.GetStarAIAssetBinding(binding.ID, 42)
+		require.NoError(t, err)
+		public, err := common.Marshal(safeStarAIAsset(stored))
+		require.NoError(t, err)
+		require.Contains(t, string(public), `"code":"unsupported_media_type"`)
+		require.Contains(t, string(public), `"message":"Unsupported media format"`)
+		require.Contains(t, string(public), `"type":"invalid_request_error"`)
+		require.NotContains(t, string(public), "private-canary")
+		_, err = refreshStarAIAsset(c, binding)
+		require.NoError(t, err)
+	}
+}
+
+func TestTemporaryAssetResellerSelectsOneEnabledCredential(t *testing.T) {
+	for _, keys := range []string{"disabled-key\nenabled-key", `["disabled-key","enabled-key"]`} {
+		t.Run(keys, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer enabled-key" {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				_, _ = w.Write([]byte(`{"id":"asset-one"}`))
+			}))
+			defer server.Close()
+			ch := seedanceResellerChannel(server.URL, keys)
+			ch.ChannelInfo.IsMultiKey = true
+			ch.ChannelInfo.MultiKeySize = 2
+			ch.ChannelInfo.MultiKeyStatusList = map[int]int{0: common.ChannelStatusManuallyDisabled}
+			for _, method := range []string{http.MethodPost, http.MethodGet} {
+				_, status, err := doTemporaryAssetRequest(ch, method, "/v1/assets", strings.NewReader(`{}`))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, status)
+			}
+		})
+	}
+}
 
 func TestTemporaryAssetUsesByteDanceSeedanceChannelOnReseller(t *testing.T) {
 	db := setupSingleStarAIChannelTestDB(t)

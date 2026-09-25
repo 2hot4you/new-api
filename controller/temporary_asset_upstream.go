@@ -51,6 +51,13 @@ func resolveTemporaryAssetChannel(binding *service.StarAIAssetBinding) (*model.C
 
 func doTemporaryAssetRequest(channel *model.Channel, method, path string, body io.Reader) ([]byte, int, error) {
 	baseURL := strings.TrimRight(channel.GetBaseURL(), "/")
+	if channel.Type == constant.ChannelTypeByteDanceSeedance {
+		var err error
+		baseURL, err = service.ValidateByteDanceSeedanceBaseURL(baseURL)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
 	if baseURL == "" {
 		return nil, 0, errors.New("temporary asset upstream URL is required")
 	}
@@ -58,7 +65,18 @@ func doTemporaryAssetRequest(channel *model.Channel, method, path string, body i
 	if err != nil {
 		return nil, 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+channel.Key)
+	key := channel.Key
+	if channel.Type == constant.ChannelTypeByteDanceSeedance {
+		selected, _, keyErr := channel.GetNextEnabledKey()
+		if keyErr != nil {
+			return nil, 0, errors.New("temporary asset credential is unavailable")
+		}
+		key = strings.TrimSpace(selected)
+		if key == "" || strings.ContainsAny(key, "\r\n") || strings.HasPrefix(key, "[") {
+			return nil, 0, errors.New("temporary asset credential is invalid")
+		}
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
 	client, err := service.GetHttpClientWithProxy(channel.GetSetting().Proxy)
 	if err != nil {

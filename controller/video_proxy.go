@@ -591,6 +591,13 @@ func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.T
 		seedanceContent := task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeByteDanceSeedance))
 		if seedanceContent {
 			c.Writer.Header().Del("Content-Disposition")
+			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent {
+				disposition := `inline; filename="video.mp4"`
+				if c.Query("download") == "1" {
+					disposition = `attachment; filename="video.mp4"`
+				}
+				c.Writer.Header().Set("Content-Disposition", disposition)
+			}
 			if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 				c.Writer.Header().Set("Content-Length", "0")
 				c.Writer.Header().Del("Content-Type")

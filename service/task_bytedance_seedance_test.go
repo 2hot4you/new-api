@@ -100,7 +100,7 @@ func TestByteDanceSeedancePollingRetryableErrorsRetainState(t *testing.T) {
 	previous := constant.TaskPollMaxFailures
 	constant.TaskPollMaxFailures = 1
 	t.Cleanup(func() { constant.TaskPollMaxFailures = previous })
-	for _, code := range []int{0, 429, 502, 503, 504} {
+	for _, code := range []int{0, 401, 403, 429, 502, 503, 504} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			truncate(t)
 			task := resellerSeedanceTask()

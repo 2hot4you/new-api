@@ -6440,6 +6440,8 @@
     "Submitting to Molii Volcengine Imagine API...": "正在提交到 Molii Volcengine Imagine API…",
     "Submitting temporary asset...": "正在提交临时素材…",
     "ByteDance Seedance": "ByteDance Seedance",
+    "Other Ratios": "其他倍率",
+    "Save the channel before fetching upstream models.": "请先保存渠道，再获取上游模型。",
     "Enter the upstream API Base URL. Do not add /v1 or trailing slash.": "请输入上游 API 的基础 URL，不要添加 /v1 或结尾斜杠。",
     "Failed to upload temporary asset": "临时素材上传失败",
     "Upload failed": "上传失败",

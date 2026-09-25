@@ -50,6 +50,7 @@ func NewOpenAIVideo() *OpenAIVideo {
 }
 
 type OpenAIVideoError struct {
+	Type    string `json:"type,omitempty"`
 	Message string `json:"message"`
 	Code    string `json:"code"`
 }
