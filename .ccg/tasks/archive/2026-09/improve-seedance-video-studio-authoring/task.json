@@ -1,0 +1,12 @@
+{
+  "id": "improve-seedance-video-studio-authoring",
+  "title": "优化 Seedance 密钥、素材引用与付费确认体验",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并等待是否推送到 develop",
+  "createdAt": "2026-09-26T04:10:00+08:00",
+  "branch": "feat/seedance-video-studio-authoring"
+}
