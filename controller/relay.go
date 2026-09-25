@@ -790,6 +790,7 @@ func executeTaskSubmissionWith(
 			AudioCount: relayInfo.VideoInputAudioCount,
 		}
 	}
+	task.PrivateData.VideoStudioRequest = service.VideoStudioRequestSnapshotFromContext(c)
 	task.Quota = result.Quota
 	// Reseller Seedance reservations are accounted once by durable terminal
 	// reconciliation, independently of Molii's own billing ledger.

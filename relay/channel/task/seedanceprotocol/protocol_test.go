@@ -73,3 +73,18 @@ func TestValidateDurationPreservesModelLimits(t *testing.T) {
 	assert.EqualError(t, ValidateDuration("doubao-seedance-2-5-260628", &tooLong), "duration must be -1 or between 4 and 30")
 	assert.NoError(t, ValidateDuration("doubao-seedance-2-0-260128", &smart))
 }
+
+func TestCapabilitiesExposeTheSameLimitsUsedByValidation(t *testing.T) {
+	capabilities, ok := CapabilitiesForModel("doubao-seedance-2-5-260628")
+	require.True(t, ok)
+	assert.Equal(t, 30, capabilities.MaxDuration)
+	assert.Equal(t, 30, capabilities.MaxImages)
+	assert.Equal(t, 10, capabilities.MaxVideos)
+	assert.Equal(t, 10, capabilities.MaxAudioFiles)
+	assert.Equal(t, []string{"480p", "720p", "1080p"}, capabilities.Resolutions)
+	assert.Contains(t, capabilities.Ratios, "adaptive")
+	assert.True(t, capabilities.SupportsWebSearch)
+
+	_, ok = CapabilitiesForModel("not-a-seedance-model")
+	assert.False(t, ok)
+}

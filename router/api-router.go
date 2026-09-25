@@ -400,6 +400,26 @@ func SetApiRouter(router *gin.Engine) {
 			assetAdminRoute.DELETE("/:id", controller.DeleteStarAIAssetForAdmin)
 		}
 
+		videoStudioRoute := apiRouter.Group("/video-studio")
+		videoStudioRoute.Use(middleware.UserAuth())
+		{
+			videoStudioRoute.GET("/options", controller.GetVideoStudioOptions)
+			videoStudioRoute.GET("/tasks", controller.GetVideoStudioTasks)
+			videoStudioRoute.GET("/tasks/:task_id", controller.GetVideoStudioTask)
+			videoStudioRoute.POST(
+				"/tasks",
+				middleware.VideoStudioTokenAuth(),
+				middleware.VideoStudioIdempotency(),
+				middleware.SystemPerformanceCheck(),
+				middleware.PrepareVideoStudioRequest(),
+				middleware.PinTaskPluginEndpoint(),
+				middleware.TaskPluginEndpointOnly(middleware.ModelRequestRateLimit()),
+				middleware.PrepareTaskPluginEndpoint(),
+				middleware.Distribute(),
+				func(c *gin.Context) { controller.RelayTaskPluginEndpoint(c, controller.RelayTask) },
+			)
+		}
+
 		vendorRoute := apiRouter.Group("/vendors")
 		vendorRoute.Use(middleware.AdminAuth())
 		{

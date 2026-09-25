@@ -13,6 +13,41 @@ type modelCapabilities struct {
 	supportedResolution map[string]struct{}
 }
 
+// ModelCapabilities is the public, presentation-safe description consumed by
+// the dashboard. Validation continues to use the same internal source of truth.
+type ModelCapabilities struct {
+	MaxDuration       int      `json:"max_duration"`
+	MaxImages         int      `json:"max_images"`
+	MaxVideos         int      `json:"max_videos"`
+	MaxAudioFiles     int      `json:"max_audio_files"`
+	Resolutions       []string `json:"resolutions"`
+	Ratios            []string `json:"ratios"`
+	SupportsWebSearch bool     `json:"supports_web_search"`
+}
+
+func CapabilitiesForModel(model string) (ModelCapabilities, bool) {
+	if _, ok := modelSet[model]; !ok {
+		return ModelCapabilities{}, false
+	}
+	internal := capabilitiesForModel(model)
+	resolutionOrder := []string{"480p", "720p", "1080p", "4k"}
+	resolutions := make([]string, 0, len(internal.supportedResolution))
+	for _, resolution := range resolutionOrder {
+		if _, ok := internal.supportedResolution[resolution]; ok {
+			resolutions = append(resolutions, resolution)
+		}
+	}
+	return ModelCapabilities{
+		MaxDuration:       internal.maxDuration,
+		MaxImages:         internal.maxImages,
+		MaxVideos:         internal.maxVideos,
+		MaxAudioFiles:     internal.maxAudioFiles,
+		Resolutions:       resolutions,
+		Ratios:            []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"},
+		SupportsWebSearch: true,
+	}, true
+}
+
 func capabilitiesForModel(model string) modelCapabilities {
 	capabilities := modelCapabilities{
 		maxDuration:   15,

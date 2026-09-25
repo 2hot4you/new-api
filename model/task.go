@@ -111,13 +111,14 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key            string                 `json:"key,omitempty"`
-	UpstreamTaskID string                 `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string                 `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
-	StoredResult   *TaskStoredResult      `json:"stored_result,omitempty"`
-	Execution      *TaskExecutionSnapshot `json:"execution,omitempty"`
-	Timing         *TaskTimingSnapshot    `json:"timing,omitempty"`
-	InputMedia     *TaskInputMediaSummary `json:"input_media,omitempty"`
+	Key                string                      `json:"key,omitempty"`
+	UpstreamTaskID     string                      `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	ResultURL          string                      `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	StoredResult       *TaskStoredResult           `json:"stored_result,omitempty"`
+	Execution          *TaskExecutionSnapshot      `json:"execution,omitempty"`
+	Timing             *TaskTimingSnapshot         `json:"timing,omitempty"`
+	InputMedia         *TaskInputMediaSummary      `json:"input_media,omitempty"`
+	VideoStudioRequest *VideoStudioRequestSnapshot `json:"video_studio_request,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -136,6 +137,33 @@ type TaskPrivateData struct {
 	PollFailures int `json:"poll_failures,omitempty"`
 	// PollFailureClass is a bounded, provider-neutral reconciliation hint.
 	PollFailureClass string `json:"poll_failure_class,omitempty"`
+}
+
+// VideoStudioRequestSnapshot contains the user-owned, reusable request shape.
+// Asset references are logical identifiers; short-lived signed URLs never
+// belong in this snapshot.
+type VideoStudioRequestSnapshot struct {
+	Version       int                         `json:"version"`
+	RequestID     string                      `json:"request_id,omitempty"`
+	Model         string                      `json:"model"`
+	Prompt        string                      `json:"prompt,omitempty"`
+	Resolution    string                      `json:"resolution,omitempty"`
+	Ratio         string                      `json:"ratio,omitempty"`
+	Duration      int                         `json:"duration,omitempty"`
+	GenerateAudio bool                        `json:"generate_audio"`
+	Watermark     bool                        `json:"watermark"`
+	WebSearch     bool                        `json:"web_search"`
+	Media         []VideoStudioMediaReference `json:"media,omitempty"`
+}
+
+type VideoStudioMediaReference struct {
+	Type      string `json:"type"`
+	Role      string `json:"role"`
+	Source    string `json:"source"`
+	AssetID   string `json:"asset_id,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Name      string `json:"name,omitempty"`
+	ExpiresAt int64  `json:"expires_at,omitempty"`
 }
 
 // TaskTimingSnapshot stores only provider-neutral timestamps needed for
@@ -262,7 +290,7 @@ func (p *TaskPrivateData) Scan(val any) error {
 
 func (p TaskPrivateData) Value() (driver.Value, error) {
 	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" &&
-		p.Execution == nil && p.Timing == nil && p.InputMedia == nil && p.StoredResult == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
+		p.Execution == nil && p.Timing == nil && p.InputMedia == nil && p.VideoStudioRequest == nil && p.StoredResult == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
 		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
 		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 && p.PollFailureClass == "" {
 		return nil, nil
@@ -363,6 +391,19 @@ func TaskGetAllUserTask(userId int, startIdx int, num int, queryParams SyncTaskQ
 	}
 
 	return tasks
+}
+
+func GetRecentUserTasksForPlatforms(userID int, platforms []constant.TaskPlatform, limit int) ([]*Task, error) {
+	if userID <= 0 || len(platforms) == 0 {
+		return []*Task{}, nil
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	var tasks []*Task
+	err := DB.Where("user_id = ? AND platform IN ?", userID, platforms).
+		Omit("channel_id").Order("id desc").Limit(limit).Find(&tasks).Error
+	return tasks, err
 }
 
 func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*Task {

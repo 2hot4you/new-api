@@ -37,6 +37,7 @@ import {
   Ticket,
   User,
   Users,
+  Video,
   Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -95,6 +96,11 @@ export function useSidebarData(): SidebarData {
             title: t('Temporary Assets'),
             url: '/temporary-assets',
             icon: Package,
+          },
+          {
+            title: t('Video Generation'),
+            url: '/video-generation',
+            icon: Video,
           },
           {
             title: t('Usage Logs'),

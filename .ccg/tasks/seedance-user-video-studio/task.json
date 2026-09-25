@@ -1,0 +1,12 @@
+{
+  "id": "seedance-user-video-studio",
+  "title": "为所有登录用户新增 Seedance 视频生成工作台",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并保留功能分支等待集成决定",
+  "createdAt": "2026-09-25T00:00:00Z",
+  "branch": "feat/seedance-video-studio"
+}

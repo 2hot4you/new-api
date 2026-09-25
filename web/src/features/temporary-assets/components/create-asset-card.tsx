@@ -34,6 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
 
 import { type AssetType, getAssetTypeLabel } from '../lib/asset-utils'
+import { createTemporaryAssetFromFile } from '../lib/cos-upload'
 import {
   fileNameWithoutExtension,
   formatUploadSize,
@@ -43,12 +44,6 @@ import {
 export type COSUploadConfig = {
   enabled: boolean
   limits: Record<AssetType, number>
-}
-
-type UploadAuthorization = {
-  upload_id: string
-  upload_url: string
-  headers: Record<string, string>
 }
 
 type CreateAssetCardProps = {
@@ -63,37 +58,6 @@ function getRequestError(error: unknown): string | undefined {
   const data = response.data
   if (!data || typeof data !== 'object' || !('message' in data)) return
   return typeof data.message === 'string' ? data.message : undefined
-}
-
-function uploadFile(
-  authorization: UploadAuthorization,
-  file: File,
-  onProgress: (progress: number) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest()
-    request.open('PUT', authorization.upload_url)
-    Object.entries(authorization.headers).forEach(([key, value]) =>
-      request.setRequestHeader(key, value)
-    )
-    request.upload.addEventListener('progress', (event) => {
-      if (event.lengthComputable) {
-        onProgress(Math.round((event.loaded / event.total) * 100))
-      }
-    })
-    request.addEventListener('load', () => {
-      if (request.status >= 200 && request.status < 300) {
-        onProgress(100)
-        resolve()
-        return
-      }
-      reject(new Error(`COS upload failed (${request.status})`))
-    })
-    request.addEventListener('error', () =>
-      reject(new Error('COS upload network error'))
-    )
-    request.send(file)
-  })
 }
 
 const uploadIcon = { image: Image, video: Video, audio: Music }
@@ -151,19 +115,14 @@ export function CreateAssetCard(props: CreateAssetCardProps) {
     setSubmitting(true)
     try {
       setUploadStage(t('Preparing upload...'))
-      const intentResponse = await api.post('/api/assets/self/upload-intent', {
-        file_name: file.name,
-        content_type: file.type || 'application/octet-stream',
-        asset_type: fileType,
-        name: fileName.trim(),
-        file_size: file.size,
-      })
-      const authorization = intentResponse.data?.data as UploadAuthorization
       setUploadStage(t('Uploading to COS...'))
-      await uploadFile(authorization, file, setUploadProgress)
-      setUploadStage(t('Submitting temporary asset...'))
-      await api.post('/api/assets/self/upload-complete', {
-        upload_id: authorization.upload_id,
+      await createTemporaryAssetFromFile({
+        file,
+        assetType: fileType,
+        name: fileName.trim(),
+        onProgress: setUploadProgress,
+        onUploadComplete: () =>
+          setUploadStage(t('Submitting temporary asset...')),
       })
       toast.success(t('Temporary asset created'))
       setFile(null)
