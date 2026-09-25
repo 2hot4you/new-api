@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,4 +193,48 @@ func TestPrepareVideoStudioRequestRejectsNonSeedanceModel(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Contains(t, response.Body.String(), "Seedance")
+}
+
+func TestCaptureVideoStudioRequestSnapshotRecordsPublicSeedanceRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/v1/videos", func(c *gin.Context) {
+		c.Set("id", 7)
+		c.Next()
+	}, CaptureVideoStudioRequestSnapshot(), func(c *gin.Context) {
+		snapshot := service.VideoStudioRequestSnapshotFromContext(c)
+		require.NotNil(t, snapshot)
+		assert.Equal(t, "doubao-seedance-2-5-260628", snapshot.Model)
+		assert.Equal(t, "public API prompt", snapshot.Prompt)
+		assert.Equal(t, "720p", snapshot.Resolution)
+		assert.Equal(t, "9:16", snapshot.Ratio)
+		assert.Equal(t, 15, snapshot.Duration)
+		assert.True(t, snapshot.GenerateAudio)
+		assert.False(t, snapshot.Watermark)
+		c.Status(http.StatusNoContent)
+	})
+
+	body := `{"model":"doubao-seedance-2-5-260628","content":[{"type":"text","text":"public API prompt"}],"resolution":"720p","ratio":"9:16","duration":15,"generate_audio":true,"watermark":false}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusNoContent, recorder.Code)
+}
+
+func TestCaptureVideoStudioRequestSnapshotDoesNotChangeNonSeedanceRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/v1/videos", CaptureVideoStudioRequestSnapshot(), func(c *gin.Context) {
+		assert.Nil(t, service.VideoStudioRequestSnapshotFromContext(c))
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"other-video-model"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusNoContent, recorder.Code)
 }

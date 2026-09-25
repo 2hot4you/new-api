@@ -406,6 +406,19 @@ func GetRecentUserTasksForPlatforms(userID int, platforms []constant.TaskPlatfor
 	return tasks, err
 }
 
+func GetUserTasksForPlatformsPage(userID int, platforms []constant.TaskPlatform, offset int, limit int) ([]*Task, error) {
+	if userID <= 0 || len(platforms) == 0 || limit <= 0 {
+		return []*Task{}, nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var tasks []*Task
+	err := DB.Where("user_id = ? AND platform IN ?", userID, platforms).
+		Omit("channel_id").Order("id desc").Offset(offset).Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
 func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*Task {
 	var tasks []*Task
 	var err error

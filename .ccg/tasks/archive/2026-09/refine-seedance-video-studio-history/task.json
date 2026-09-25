@@ -1,0 +1,12 @@
+{
+  "id": "refine-seedance-video-studio-history",
+  "title": "优化 Seedance 当前任务展示与分页历史表格",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-backend",
+  "currentPhase": "completed",
+  "nextAction": "等待用户验收及后续提交指令",
+  "createdAt": "2026-09-26T00:00:00+08:00",
+  "branch": "feat/seedance-video-studio-history"
+}

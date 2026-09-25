@@ -36,7 +36,7 @@ func taskPluginProtocolHandlers(protocol, operation string) ([]gin.HandlerFunc, 
 		}, nil
 	case "openai_video.create":
 		return []gin.HandlerFunc{
-			middleware.RouteTag("relay"), middleware.TokenAuth(), middleware.SystemPerformanceCheck(),
+			middleware.RouteTag("relay"), middleware.TokenAuth(), middleware.CaptureVideoStudioRequestSnapshot(), middleware.SystemPerformanceCheck(),
 			middleware.PinTaskPluginEndpoint(), middleware.TaskPluginEndpointOnly(middleware.ModelRequestRateLimit()), middleware.PrepareTaskPluginEndpoint(), middleware.Distribute(),
 			func(c *gin.Context) { controller.RelayTaskPluginEndpoint(c, controller.RelayTask) },
 		}, nil

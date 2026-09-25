@@ -138,22 +138,51 @@ type videoStudioTaskResponse struct {
 
 func GetVideoStudioTasks(c *gin.Context) {
 	page := common.GetPageQuery(c)
-	tasks, err := model.GetRecentUserTasksForPlatforms(c.GetInt("id"), videoStudioPlatforms(), 1000)
+	userID := c.GetInt("id")
+	tasks, total, err := paginateSeedanceTasks(
+		page.GetStartIdx(),
+		page.GetPageSize(),
+		func(offset, limit int) ([]*model.Task, error) {
+			return model.GetUserTasksForPlatformsPage(userID, videoStudioPlatforms(), offset, limit)
+		},
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to load video tasks"})
 		return
 	}
-	filtered := filterSeedanceTasks(tasks)
-	start, end := page.GetStartIdx(), page.GetEndIdx()
-	if start > len(filtered) {
-		start = len(filtered)
-	}
-	if end > len(filtered) {
-		end = len(filtered)
-	}
-	page.SetTotal(len(filtered))
-	page.SetItems(buildVideoStudioTaskResponses(c.GetInt("id"), filtered[start:end]))
+	page.SetTotal(total)
+	page.SetItems(buildVideoStudioTaskResponses(userID, tasks))
 	common.ApiSuccess(c, page)
+}
+
+type videoStudioTaskBatchFetcher func(offset, limit int) ([]*model.Task, error)
+
+func paginateSeedanceTasks(start, pageSize int, fetch videoStudioTaskBatchFetcher) ([]*model.Task, int, error) {
+	const batchSize = 200
+	if start < 0 {
+		start = 0
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	selected := make([]*model.Task, 0, pageSize)
+	total := 0
+	for offset := 0; ; offset += batchSize {
+		batch, err := fetch(offset, batchSize)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, task := range filterSeedanceTasks(batch) {
+			if total >= start && len(selected) < pageSize {
+				selected = append(selected, task)
+			}
+			total++
+		}
+		if len(batch) < batchSize {
+			break
+		}
+	}
+	return selected, total, nil
 }
 
 func GetVideoStudioTask(c *gin.Context) {

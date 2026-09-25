@@ -41,11 +41,13 @@ import { api } from '@/lib/api'
 
 import {
   getVideoStudioOptions,
+  getVideoStudioTask,
   getVideoStudioTasks,
   submitVideoStudioTask,
 } from './api'
+import { VideoStudioCurrentPreview } from './components/current-video-preview'
 import { VideoStudioMediaPicker } from './components/media-picker'
-import { VideoStudioTaskResults } from './components/task-results'
+import { VideoStudioTaskHistory } from './components/task-history'
 import { videoStudioFormSchema } from './lib/form-schema'
 import { buildSeedancePayload, validateMediaSelection } from './lib/payload'
 import type {
@@ -110,6 +112,9 @@ export function VideoGenerationStudio() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [media, setMedia] = useState<VideoStudioMedia[]>([])
+  const [pageIndex, setPageIndex] = useState(0)
+  const [pageSize, setPageSize] = useState(20)
+  const [currentTaskID, setCurrentTaskID] = useState('')
   const optionsQuery = useQuery({
     queryKey: optionsQueryKey,
     queryFn: getVideoStudioOptions,
@@ -138,14 +143,18 @@ export function VideoGenerationStudio() {
     },
   })
   const tasksQuery = useQuery({
-    queryKey: tasksQueryKey,
-    queryFn: getVideoStudioTasks,
-    refetchInterval: (query) =>
-      query.state.data?.some(
-        (item) => !['SUCCESS', 'FAILURE'].includes(item.task.status)
-      )
-        ? 5_000
-        : false,
+    queryKey: [...tasksQueryKey, pageIndex, pageSize],
+    queryFn: () => getVideoStudioTasks({ page: pageIndex + 1, pageSize }),
+    placeholderData: (previousData) => previousData,
+  })
+  const currentTaskQuery = useQuery({
+    queryKey: ['video-studio', 'task', currentTaskID],
+    queryFn: () => getVideoStudioTask(currentTaskID),
+    enabled: Boolean(currentTaskID),
+    refetchInterval: (query) => {
+      const status = query.state.data?.task.status
+      return status && !['SUCCESS', 'FAILURE'].includes(status) ? 5_000 : false
+    },
   })
   const form = useForm<VideoStudioFormValues>({
     resolver: zodResolver(videoStudioFormSchema),
@@ -169,6 +178,17 @@ export function VideoGenerationStudio() {
     (token) => String(token.id) === tokenID
   )
   const capability = model ? optionsQuery.data?.capabilities[model] : undefined
+
+  useEffect(() => {
+    if (currentTaskID || !tasksQuery.data?.items[0]) return
+    setCurrentTaskID(tasksQuery.data.items[0].task.task_id)
+  }, [currentTaskID, tasksQuery.data])
+
+  useEffect(() => {
+    const status = currentTaskQuery.data?.task.status
+    if (!status || !['SUCCESS', 'FAILURE'].includes(status)) return
+    void queryClient.invalidateQueries({ queryKey: tasksQueryKey })
+  }, [currentTaskQuery.data?.task.status, queryClient])
 
   useEffect(() => {
     if (!selectedToken) {
@@ -228,8 +248,10 @@ export function VideoGenerationStudio() {
         payload: buildSeedancePayload({ ...values, media }),
       })
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       toast.success(t('Video generation task submitted'))
+      const submittedTaskID = result.task_id || result.id
+      if (submittedTaskID) setCurrentTaskID(submittedTaskID)
       await queryClient.invalidateQueries({ queryKey: tasksQueryKey })
     },
     onError: (error) => {
@@ -283,6 +305,10 @@ export function VideoGenerationStudio() {
     toast.success(t('Generation settings restored'))
   }
 
+  const currentTask =
+    currentTaskQuery.data ??
+    tasksQuery.data?.items.find((item) => item.task.task_id === currentTaskID)
+
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
@@ -291,16 +317,25 @@ export function VideoGenerationStudio() {
       <SectionPageLayout.Actions>
         <Button
           variant='outline'
-          disabled={tasksQuery.isFetching}
-          onClick={() => void tasksQuery.refetch()}
+          disabled={tasksQuery.isFetching || currentTaskQuery.isFetching}
+          onClick={() => {
+            void tasksQuery.refetch()
+            if (currentTaskID) void currentTaskQuery.refetch()
+          }}
         >
-          <RefreshCw className={tasksQuery.isFetching ? 'animate-spin' : ''} />
+          <RefreshCw
+            className={
+              tasksQuery.isFetching || currentTaskQuery.isFetching
+                ? 'animate-spin'
+                : ''
+            }
+          />
           {t('Refresh tasks')}
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='grid items-start gap-4 xl:grid-cols-[minmax(420px,0.9fr)_minmax(520px,1.1fr)]'>
-          <Card>
+        <div className='grid items-stretch gap-4 xl:grid-cols-[minmax(420px,0.9fr)_minmax(520px,1.1fr)]'>
+          <Card className='h-full'>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
                 <Video className='size-5' />
@@ -563,14 +598,34 @@ export function VideoGenerationStudio() {
             </CardContent>
           </Card>
 
-          <section aria-label={t('Video generation results')}>
-            <VideoStudioTaskResults
-              tasks={tasksQuery.data ?? []}
-              loading={tasksQuery.isLoading}
+          <section
+            className='h-full'
+            aria-label={t('Video generation results')}
+          >
+            <VideoStudioCurrentPreview
+              task={currentTask}
+              loading={tasksQuery.isLoading || currentTaskQuery.isLoading}
               onReuse={reuseTask}
             />
           </section>
         </div>
+
+        <section className='mt-4' aria-label={t('Generation history')}>
+          <VideoStudioTaskHistory
+            items={tasksQuery.data?.items ?? []}
+            total={tasksQuery.data?.total ?? 0}
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            loading={tasksQuery.isLoading}
+            onPageChange={setPageIndex}
+            onPageSizeChange={(size) => {
+              setPageIndex(0)
+              setPageSize(size)
+            }}
+            onPreview={(item) => setCurrentTaskID(item.task.task_id)}
+            onReuse={reuseTask}
+          />
+        </section>
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )

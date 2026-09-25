@@ -11,12 +11,12 @@ import { api } from '@/lib/api'
 import type {
   SeedancePayload,
   VideoStudioOptions,
+  VideoStudioSubmission,
   VideoStudioTask,
+  VideoStudioTaskPage,
 } from './types'
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data: T }
-type PageEnvelope<T> = { items: T[]; total: number }
-
 export async function getVideoStudioOptions(): Promise<VideoStudioOptions> {
   const response = await api.get<ApiEnvelope<VideoStudioOptions>>(
     '/api/video-studio/options'
@@ -24,23 +24,36 @@ export async function getVideoStudioOptions(): Promise<VideoStudioOptions> {
   return response.data.data
 }
 
-export async function getVideoStudioTasks(): Promise<VideoStudioTask[]> {
-  const response = await api.get<ApiEnvelope<PageEnvelope<VideoStudioTask>>>(
-    '/api/video-studio/tasks?page=1&page_size=30'
+export async function getVideoStudioTasks(input: {
+  page: number
+  pageSize: number
+}): Promise<VideoStudioTaskPage> {
+  const response = await api.get<ApiEnvelope<VideoStudioTaskPage>>(
+    '/api/video-studio/tasks',
+    { params: { p: input.page, page_size: input.pageSize } }
   )
-  return response.data.data.items ?? []
+  return response.data.data
+}
+
+export async function getVideoStudioTask(
+  taskID: string
+): Promise<VideoStudioTask> {
+  const response = await api.get<ApiEnvelope<VideoStudioTask>>(
+    `/api/video-studio/tasks/${encodeURIComponent(taskID)}`
+  )
+  return response.data.data
 }
 
 export async function submitVideoStudioTask(input: {
   tokenId: number
   requestId: string
   payload: SeedancePayload
-}): Promise<unknown> {
+}): Promise<VideoStudioSubmission> {
   const response = await api.post('/api/video-studio/tasks', input.payload, {
     headers: {
       'X-Video-Studio-Token-ID': String(input.tokenId),
       'X-Video-Studio-Request-ID': input.requestId,
     },
   })
-  return response.data
+  return response.data as VideoStudioSubmission
 }

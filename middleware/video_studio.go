@@ -151,6 +151,28 @@ func PrepareVideoStudioRequest() gin.HandlerFunc {
 	}
 }
 
+// CaptureVideoStudioRequestSnapshot enriches public Seedance API tasks with
+// the same user-owned, reusable request metadata as the dashboard studio. It
+// deliberately stays observational: malformed or non-Seedance requests are
+// left to the existing relay validation path so this middleware cannot change
+// the public API contract.
+func CaptureVideoStudioRequestSnapshot() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var payload seedanceprotocol.Payload
+		if err := common.UnmarshalBodyReusable(c, &payload); err != nil {
+			return
+		}
+		if _, supported := seedanceprotocol.CapabilitiesForModel(payload.Model); !supported {
+			return
+		}
+		snapshot, err := buildVideoStudioSnapshot(c, &payload)
+		if err != nil {
+			return
+		}
+		service.SetVideoStudioRequestSnapshot(c, snapshot)
+	}
+}
+
 func buildVideoStudioSnapshot(c *gin.Context, payload *seedanceprotocol.Payload) (*model.VideoStudioRequestSnapshot, error) {
 	snapshot := &model.VideoStudioRequestSnapshot{
 		Version:    1,

@@ -80,6 +80,21 @@ export type VideoStudioTask = {
   unavailable_asset_ids?: string[]
 }
 
+export type VideoStudioTaskPage = {
+  items: VideoStudioTask[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type VideoStudioSubmission = {
+  id?: string
+  task_id?: string
+  status?: string
+  model?: string
+  created_at?: number
+}
+
 export type SeedancePayload = {
   model: string
   content: Array<Record<string, unknown>>
