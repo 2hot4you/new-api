@@ -118,6 +118,10 @@ func EstimateVideoStudioTask(c *gin.Context) {
 		respondTaskSubmissionError(c, service.TaskErrorWrapperLocal(err, "gen_relay_info_failed", http.StatusInternalServerError))
 		return
 	}
+	if taskErr := cacheVideoStudioEstimateAssets(c, relayInfo, service.GetStarAIAssetBinding); taskErr != nil {
+		respondTaskSubmissionError(c, taskErr)
+		return
+	}
 	if action := c.GetString("task_action"); action != "" {
 		relayInfo.Action = action
 	}
@@ -150,6 +154,65 @@ func EstimateVideoStudioTask(c *gin.Context) {
 		OtherRatios:       otherRatios,
 		Estimated:         true,
 	})
+}
+
+const videoStudioResolvedAssetCacheKey = "starai_resolved_asset_uris"
+
+// cacheVideoStudioEstimateAssets supplies the StarAI adaptor with locally
+// authorized asset IDs so its request validation remains side-effect-free.
+// A real submission does not receive this cache and still verifies the asset
+// against the selected upstream account before reserving quota.
+func cacheVideoStudioEstimateAssets(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	lookup func(string, int) (*service.StarAIAssetBinding, error),
+) *dto.TaskError {
+	if info == nil || common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeStarAI {
+		return nil
+	}
+	snapshot := service.VideoStudioRequestSnapshotFromContext(c)
+	if snapshot == nil || len(snapshot.Media) == 0 {
+		return nil
+	}
+
+	resolved := make(map[string]string, len(snapshot.Media))
+	now := time.Now().Unix()
+	for _, media := range snapshot.Media {
+		if media.Source != "asset" || strings.TrimSpace(media.AssetID) == "" {
+			continue
+		}
+		binding, err := lookup(media.AssetID, info.UserId)
+		if err != nil || binding == nil {
+			if err == nil {
+				err = service.ErrStarAIAssetNotFound
+			}
+			return service.TaskErrorWrapperLocal(err, "temporary_asset_not_ready", http.StatusBadRequest)
+		}
+		providerType := binding.ChannelType
+		if providerType == 0 {
+			providerType = constant.ChannelTypeStarAI
+		}
+		if providerType != constant.ChannelTypeStarAI || strings.TrimSpace(binding.UpstreamID) == "" {
+			return service.TaskErrorWrapperLocal(service.ErrStarAIAssetVerify, "temporary_asset_verification_failed", http.StatusBadRequest)
+		}
+		if binding.ExpiresAt > 0 && binding.ExpiresAt <= now {
+			return service.TaskErrorWrapperLocal(service.ErrStarAIAssetExpired, "temporary_asset_expired", http.StatusBadRequest)
+		}
+		switch service.NormalizeTemporaryAssetStatus(providerType, binding.Status) {
+		case "ACTIVE", "SUCCESS":
+		case "EXPIRED":
+			return service.TaskErrorWrapperLocal(service.ErrStarAIAssetExpired, "temporary_asset_expired", http.StatusBadRequest)
+		case "FAILED":
+			return service.TaskErrorWrapperLocal(service.ErrStarAIAssetVerify, "temporary_asset_verification_failed", http.StatusBadRequest)
+		default:
+			return service.TaskErrorWrapperLocal(service.ErrStarAIAssetNotReady, "temporary_asset_not_ready", http.StatusBadRequest)
+		}
+		resolved["asset://"+media.AssetID] = "asset://" + binding.UpstreamID
+	}
+	if len(resolved) > 0 {
+		c.Set(videoStudioResolvedAssetCacheKey, resolved)
+	}
+	return nil
 }
 
 func videoStudioMaskedKey(key string) string {
