@@ -304,7 +304,7 @@ export function VideoStudioPromptComposer(props: {
         id='video-studio-prompt'
         aria-label={t('Prompt')}
         value={props.value}
-        className='max-h-none min-h-[32rem] resize-y rounded-none border-0 focus-visible:ring-0'
+        className='min-h-56 resize-y rounded-none border-0 focus-visible:ring-0'
         placeholder={t(
           'Describe the video, camera movement, scene, dialogue, and sound... Type @ to reference an asset.'
         )}

@@ -24,7 +24,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -69,6 +68,12 @@ import type {
 const optionsQueryKey = ['video-studio', 'options'] as const
 const tasksQueryKey = ['video-studio', 'tasks'] as const
 const assetsQueryKey = ['video-studio', 'assets'] as const
+
+const videoStudioModeLabels: Record<VideoStudioMode, string> = {
+  text: 'Text to video',
+  frames: 'First / last frame',
+  references: 'Multimodal references',
+}
 
 function requestErrorMessage(error: unknown): string | undefined {
   if (!error || typeof error !== 'object' || !('response' in error)) return
@@ -192,6 +197,14 @@ export function VideoGenerationStudio() {
     (token) => String(token.id) === tokenID
   )
   const capability = model ? optionsQuery.data?.capabilities[model] : undefined
+  const durationOptions = useMemo(
+    () =>
+      Array.from(
+        { length: Math.max(0, (capability?.max_duration ?? 3) - 3) },
+        (_, index) => index + 4
+      ),
+    [capability?.max_duration]
+  )
 
   useEffect(() => {
     const nextTokenID = chooseDefaultVideoStudioTokenID(
@@ -428,11 +441,14 @@ export function VideoGenerationStudio() {
                         >
                           <SelectTrigger
                             className='w-full'
+                            aria-label={t('API Key')}
                             aria-invalid={Boolean(
                               form.formState.errors.tokenId
                             )}
                           >
-                            <SelectValue placeholder={t('Select an API key')} />
+                            <SelectValue placeholder={t('Select an API key')}>
+                              {selectedToken?.masked_key}
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {optionsQuery.data?.tokens.map((token) => (
@@ -511,17 +527,22 @@ export function VideoGenerationStudio() {
                     <div className='space-y-1.5'>
                       <Label>{t('Generation mode')}</Label>
                       <Select value={field.value} onValueChange={changeMode}>
-                        <SelectTrigger className='w-full'>
-                          <SelectValue />
+                        <SelectTrigger
+                          className='w-full'
+                          aria-label={t('Generation mode')}
+                        >
+                          <SelectValue>
+                            {t(videoStudioModeLabels[mode])}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value='text'>{t('文生视频')}</SelectItem>
-                          <SelectItem value='frames'>
-                            {t('首尾帧生成')}
-                          </SelectItem>
-                          <SelectItem value='references'>
-                            {t('多模态参考')}
-                          </SelectItem>
+                          {Object.entries(videoStudioModeLabels).map(
+                            ([value, label]) => (
+                              <SelectItem key={value} value={value}>
+                                {t(label)}
+                              </SelectItem>
+                            )
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
@@ -589,18 +610,37 @@ export function VideoGenerationStudio() {
                       </div>
                     )}
                   />
-                  <div className='space-y-1.5'>
-                    <Label htmlFor='video-studio-duration'>
-                      {t('Duration (seconds)')}
-                    </Label>
-                    <Input
-                      id='video-studio-duration'
-                      type='number'
-                      min={4}
-                      max={capability?.max_duration ?? 15}
-                      {...form.register('duration', { valueAsNumber: true })}
-                    />
-                  </div>
+                  <Controller
+                    control={form.control}
+                    name='duration'
+                    render={({ field }) => (
+                      <div className='space-y-1.5'>
+                        <Label>{t('Duration (seconds)')}</Label>
+                        <Select
+                          value={String(field.value)}
+                          onValueChange={(value) =>
+                            field.onChange(Number(value))
+                          }
+                        >
+                          <SelectTrigger
+                            className='w-full'
+                            aria-label={t('Duration (seconds)')}
+                          >
+                            <SelectValue>
+                              {field.value} {t('seconds')}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {durationOptions.map((value) => (
+                              <SelectItem key={value} value={String(value)}>
+                                {value} {t('seconds')}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  />
                 </div>
 
                 <div className='grid gap-3 sm:grid-cols-3'>
