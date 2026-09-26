@@ -7134,6 +7134,14 @@
     "SUBMITTED": "Submitted",
     "Reuse settings": "Reuse settings",
     "Reference media": "Reference media",
-    "Generation settings restored": "Generation settings restored"
+    "Generation settings restored": "生成設定を復元しました",
+    "Choose first frame": "開始フレームを選択",
+    "Choose last frame": "終了フレームを選択",
+    "Choose reference media": "参照素材を選択",
+    "Add reference media": "参照素材を追加",
+    "Select images, videos, or audio from your temporary asset library.": "一時素材ライブラリから画像、動画、音声を選択します。",
+    "Select an available image, upload a new one, or enter a public URL.": "利用可能な画像を選択するか、新規アップロードまたは公開 URL を入力します。",
+    "Add new media": "新しい素材を追加",
+    "Add selected": "選択項目を追加"
   }
 }

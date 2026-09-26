@@ -7134,6 +7134,14 @@
     "SUBMITTED": "已提交",
     "Reuse settings": "复用设置",
     "Reference media": "参考素材",
-    "Generation settings restored": "生成设置已恢复"
+    "Generation settings restored": "生成设置已恢复",
+    "Choose first frame": "选择首帧",
+    "Choose last frame": "选择尾帧",
+    "Choose reference media": "选择参考素材",
+    "Add reference media": "添加参考素材",
+    "Select images, videos, or audio from your temporary asset library.": "从临时素材库选择图片、视频或音频。",
+    "Select an available image, upload a new one, or enter a public URL.": "选择可用图片、上传新图片或输入公网 URL。",
+    "Add new media": "添加新素材",
+    "Add selected": "添加所选素材"
   }
 }

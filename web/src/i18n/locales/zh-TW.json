@@ -7134,6 +7134,14 @@
     "SUBMITTED": "Submitted",
     "Reuse settings": "Reuse settings",
     "Reference media": "Reference media",
-    "Generation settings restored": "Generation settings restored"
+    "Generation settings restored": "生成設定已還原",
+    "Choose first frame": "選擇首幀",
+    "Choose last frame": "選擇尾幀",
+    "Choose reference media": "選擇參考素材",
+    "Add reference media": "新增參考素材",
+    "Select images, videos, or audio from your temporary asset library.": "從臨時素材庫選擇圖片、影片或音訊。",
+    "Select an available image, upload a new one, or enter a public URL.": "選擇可用圖片、上傳新圖片或輸入公開 URL。",
+    "Add new media": "新增素材",
+    "Add selected": "新增所選素材"
   }
 }

@@ -7134,6 +7134,14 @@
     "SUBMITTED": "Submitted",
     "Reuse settings": "Reuse settings",
     "Reference media": "Reference media",
-    "Generation settings restored": "Generation settings restored"
+    "Generation settings restored": "Generation settings restored",
+    "Choose first frame": "Choose first frame",
+    "Choose last frame": "Choose last frame",
+    "Choose reference media": "Choose reference media",
+    "Add reference media": "Add reference media",
+    "Select images, videos, or audio from your temporary asset library.": "Select images, videos, or audio from your temporary asset library.",
+    "Select an available image, upload a new one, or enter a public URL.": "Select an available image, upload a new one, or enter a public URL.",
+    "Add new media": "Add new media",
+    "Add selected": "Add selected"
   }
 }

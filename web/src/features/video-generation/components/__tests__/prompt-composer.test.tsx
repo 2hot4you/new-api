@@ -6,7 +6,7 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { expect, test, vi } from 'vitest'
@@ -179,4 +179,51 @@ test('renders selected assets inside the editor with availability state', () => 
     'unavailable'
   )
   expect(screen.getByText('审核未通过')).toBeInTheDocument()
+})
+
+test('keeps mention numbering stable when an earlier asset is removed', async () => {
+  const user = userEvent.setup()
+  const onMediaChange = vi.fn()
+  render(
+    <VideoStudioPromptComposer
+      value='@图片1 和 @图片2'
+      mode='references'
+      media={[
+        {
+          clientId: 'first',
+          type: 'image',
+          source: 'asset',
+          role: 'reference_image',
+          value: 'asset-image-old',
+          name: '旧角色立绘',
+          mentionIndex: 1,
+        },
+        {
+          clientId: 'second',
+          type: 'image',
+          source: 'asset',
+          role: 'reference_image',
+          value: 'asset-image-new',
+          name: '新角色立绘',
+          mentionIndex: 2,
+        },
+      ]}
+      assets={assets}
+      onChange={vi.fn()}
+      onMediaChange={onMediaChange}
+    />
+  )
+
+  const oldChip = screen.getByTestId('prompt-asset-asset-image-old')
+  await user.click(
+    within(oldChip).getByRole('button', { name: 'Remove media' })
+  )
+
+  expect(onMediaChange).toHaveBeenCalledWith([
+    expect.objectContaining({
+      value: 'asset-image-new',
+      mentionIndex: 2,
+    }),
+  ])
+  expect(screen.getByText('@图片2')).toBeInTheDocument()
 })

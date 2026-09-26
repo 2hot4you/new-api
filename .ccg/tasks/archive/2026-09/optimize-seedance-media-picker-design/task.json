@@ -1,0 +1,12 @@
+{
+  "id": "optimize-seedance-media-picker-design",
+  "title": "优化 Seedance 首尾帧与参考素材选择交互",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "等待用户决定是否推送并合并到 develop",
+  "createdAt": "2026-09-27T00:30:00+08:00",
+  "branch": "feat/seedance-video-studio-authoring"
+}

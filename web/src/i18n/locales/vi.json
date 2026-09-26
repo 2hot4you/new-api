@@ -7134,6 +7134,14 @@
     "SUBMITTED": "Submitted",
     "Reuse settings": "Reuse settings",
     "Reference media": "Reference media",
-    "Generation settings restored": "Generation settings restored"
+    "Generation settings restored": "Đã khôi phục cài đặt tạo",
+    "Choose first frame": "Chọn khung hình đầu",
+    "Choose last frame": "Chọn khung hình cuối",
+    "Choose reference media": "Chọn tư liệu tham chiếu",
+    "Add reference media": "Thêm tư liệu tham chiếu",
+    "Select images, videos, or audio from your temporary asset library.": "Chọn hình ảnh, video hoặc âm thanh từ thư viện tư liệu tạm thời.",
+    "Select an available image, upload a new one, or enter a public URL.": "Chọn hình ảnh khả dụng, tải lên hình mới hoặc nhập URL công khai.",
+    "Add new media": "Thêm tư liệu mới",
+    "Add selected": "Thêm mục đã chọn"
   }
 }

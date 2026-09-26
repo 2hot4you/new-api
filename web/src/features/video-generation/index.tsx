@@ -360,6 +360,7 @@ export function VideoGenerationStudio() {
       watermark: request.watermark,
       webSearch: request.web_search,
     })
+    const mentionCounts = { image: 0, video: 0, audio: 0 }
     setMedia(
       (request.media ?? []).map((entry) => ({
         clientId: crypto.randomUUID(),
@@ -370,6 +371,9 @@ export function VideoGenerationStudio() {
           entry.source === 'asset' ? (entry.asset_id ?? '') : (entry.url ?? ''),
         name: entry.name || entry.asset_id || entry.url || t('Reference media'),
         expiresAt: entry.expires_at,
+        mentionIndex: entry.role.startsWith('reference_')
+          ? ++mentionCounts[entry.type]
+          : undefined,
       }))
     )
     toast.success(t('Generation settings restored'))

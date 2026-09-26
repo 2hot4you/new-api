@@ -70,6 +70,27 @@ function roleForAsset(
   return 'reference_image'
 }
 
+function mentionIndexForMedia(
+  item: VideoStudioMedia,
+  media: VideoStudioMedia[]
+): number {
+  if (item.mentionIndex) return item.mentionIndex
+  return (
+    media.filter((candidate) => candidate.type === item.type).indexOf(item) + 1
+  )
+}
+
+function nextMentionIndex(media: VideoStudioMedia[], type: AssetType): number {
+  return (
+    Math.max(
+      0,
+      ...media
+        .filter((item) => item.type === type)
+        .map((item) => mentionIndexForMedia(item, media))
+    ) + 1
+  )
+}
+
 function mentionRange(value: string, cursor: number) {
   const before = value.slice(0, cursor)
   const match = before.match(/(^|\s)@([^\s@]*)$/)
@@ -197,6 +218,7 @@ export function VideoStudioPromptComposer(props: {
     : []
 
   const selectAsset = (asset: TemporaryAsset) => {
+    if (!assetAvailable(asset)) return
     let nextMedia = props.media
     const existing = nextMedia.find(
       (item) => item.source === 'asset' && item.value === asset.id
@@ -212,16 +234,17 @@ export function VideoStudioPromptComposer(props: {
           value: asset.id,
           name: asset.name || asset.id,
           expiresAt: asset.expires_at,
+          mentionIndex: nextMentionIndex(nextMedia, asset.asset_type),
         },
       ]
       props.onMediaChange(nextMedia)
     }
-    const typeIndex =
-      nextMedia
-        .filter((item) => item.type === asset.asset_type)
-        .findIndex(
-          (item) => item.source === 'asset' && item.value === asset.id
-        ) + 1
+    const selected = nextMedia.find(
+      (item) => item.source === 'asset' && item.value === asset.id
+    )
+    const typeIndex = selected
+      ? mentionIndexForMedia(selected, nextMedia)
+      : nextMentionIndex(nextMedia, asset.asset_type)
     const token = `@${typeMeta[asset.asset_type].mention}${typeIndex}`
     const range = currentMention ?? {
       start: props.value.length,
@@ -263,6 +286,10 @@ export function VideoStudioPromptComposer(props: {
                 <AssetChipThumbnail asset={asset} fallback={Icon} />
                 <span className='max-w-48 min-w-0'>
                   <span className='block truncate font-medium'>
+                    @{typeMeta[media.type].mention}
+                    {mentionIndexForMedia(media, props.media)}
+                  </span>
+                  <span className='block truncate text-[11px]'>
                     {media.name}
                   </span>
                   {!available && (
@@ -389,8 +416,9 @@ export function VideoStudioPromptComposer(props: {
                   aria-selected={props.media.some(
                     (item) => item.source === 'asset' && item.value === asset.id
                   )}
+                  disabled={!available}
                   className={cn(
-                    'flex min-w-0 items-center gap-2 rounded-md border p-2 text-left transition-colors hover:bg-accent',
+                    'flex min-w-0 items-center gap-2 rounded-md border p-2 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-70',
                     !available &&
                       'border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/20'
                   )}

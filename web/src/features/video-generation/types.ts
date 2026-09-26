@@ -25,6 +25,7 @@ export type VideoStudioMedia = {
   value: string
   name: string
   expiresAt?: number
+  mentionIndex?: number
 }
 
 export type VideoStudioCapability = {
