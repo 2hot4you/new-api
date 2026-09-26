@@ -10,7 +10,9 @@ import { expect, test } from 'vitest'
 
 import {
   chooseDefaultVideoStudioTokenID,
+  findLatestActiveVideoStudioTaskID,
   hasUnavailableSelectedAsset,
+  stripVideoStudioAssetMentions,
 } from '../authoring'
 
 test('defaults to the newest compatible key without overriding a selection', () => {
@@ -63,4 +65,31 @@ test('treats missing, failed, pending, and expired referenced assets as unavaila
       100
     )
   ).toBe(true)
+})
+
+test('restores only the latest unfinished task after a page refresh', () => {
+  const task = (taskID: string, status: string) => ({
+    task: { task_id: taskID, status },
+  })
+
+  expect(
+    findLatestActiveVideoStudioTaskID([
+      task('task-success', 'SUCCESS'),
+      task('task-running', 'IN_PROGRESS'),
+      task('task-queued', 'SUBMITTED'),
+    ])
+  ).toBe('task-running')
+  expect(
+    findLatestActiveVideoStudioTaskID([
+      task('task-success', 'SUCCESS'),
+      task('task-failed', 'FAILURE'),
+      task('task-expired', 'EXPIRED'),
+    ])
+  ).toBe('')
+})
+
+test('removes structured asset mentions when leaving reference mode', () => {
+  expect(
+    stripVideoStudioAssetMentions('让 @图片1 看向 @视频2 并听见 @音频1 的声音')
+  ).toBe('让 看向 并听见 的声音')
 })

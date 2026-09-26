@@ -21,6 +21,7 @@ export type MediaValidationResult =
       reason:
         | 'frame_required'
         | 'frame_count'
+        | 'text_media_not_allowed'
         | 'reference_required'
         | 'audio_requires_visual'
         | 'image_limit'
@@ -44,6 +45,9 @@ export function validateMediaSelection(
   }
   if (audio.length > capability.max_audio_files) {
     return { valid: false, reason: 'audio_limit' }
+  }
+  if (mode === 'text' && media.length > 0) {
+    return { valid: false, reason: 'text_media_not_allowed' }
   }
   if (mode === 'frames') {
     const firstFrames = images.filter((item) => item.role === 'first_frame')

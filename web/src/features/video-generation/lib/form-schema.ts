@@ -15,7 +15,10 @@ export const videoStudioFormSchema = z.object({
   mode: z.enum(['text', 'frames', 'references']),
   resolution: z.string().min(1),
   ratio: z.string().min(1),
-  duration: z.number().int().min(4).max(30),
+  duration: z
+    .number()
+    .int()
+    .refine((value) => value === -1 || (value >= 4 && value <= 30)),
   generateAudio: z.boolean(),
   watermark: z.boolean(),
   webSearch: z.boolean(),

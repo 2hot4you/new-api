@@ -153,9 +153,17 @@ export function VideoStudioPromptComposer(props: {
   const [cursor, setCursor] = useState(props.value.length)
   const [filter, setFilter] = useState<AssetFilter>('all')
   const [search, setSearch] = useState('')
-  const currentMention = mentionRange(props.value, cursor)
+  const referencesEnabled = props.mode === 'references'
+  const currentMention = referencesEnabled
+    ? mentionRange(props.value, cursor)
+    : null
 
   useEffect(() => {
+    if (!referencesEnabled) {
+      setOpen(false)
+      setSearch('')
+      return
+    }
     const mention = mentionRange(props.value, cursor)
     if (mention) {
       setOpen(true)
@@ -163,7 +171,7 @@ export function VideoStudioPromptComposer(props: {
     } else {
       setOpen(false)
     }
-  }, [cursor, props.value])
+  }, [cursor, props.value, referencesEnabled])
 
   const assets = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -179,12 +187,14 @@ export function VideoStudioPromptComposer(props: {
       .sort((left, right) => right.created_at - left.created_at)
   }, [filter, props.assets, props.mode, search])
 
-  const selectedAssets = props.media
-    .filter((item) => item.source === 'asset')
-    .map((item) => ({
-      media: item,
-      asset: props.assets.find((asset) => asset.id === item.value),
-    }))
+  const selectedAssets = referencesEnabled
+    ? props.media
+        .filter((item) => item.source === 'asset')
+        .map((item) => ({
+          media: item,
+          asset: props.assets.find((asset) => asset.id === item.value),
+        }))
+    : []
 
   const selectAsset = (asset: TemporaryAsset) => {
     let nextMedia = props.media
@@ -305,9 +315,15 @@ export function VideoStudioPromptComposer(props: {
         aria-label={t('Prompt')}
         value={props.value}
         className='min-h-56 resize-y rounded-none border-0 focus-visible:ring-0'
-        placeholder={t(
-          'Describe the video, camera movement, scene, dialogue, and sound... Type @ to reference an asset.'
-        )}
+        placeholder={
+          referencesEnabled
+            ? t(
+                'Describe the video, camera movement, scene, dialogue, and sound... Type @ to reference an asset.'
+              )
+            : t(
+                'Describe the video, camera movement, scene, dialogue, and sound...'
+              )
+        }
         onClick={(event) => setCursor(event.currentTarget.selectionStart)}
         onKeyUp={(event) => setCursor(event.currentTarget.selectionStart)}
         onChange={(event) => {

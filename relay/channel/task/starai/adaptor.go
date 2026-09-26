@@ -324,8 +324,14 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	priceRatio := price / (2 * modelRatio)
 	width, height := seedanceDimensions(billedModel, payload.Resolution, payload.Ratio)
 	seconds := 5
-	if payload.Duration != nil && *payload.Duration > 0 {
-		seconds = *payload.Duration
+	if payload.Duration != nil {
+		if *payload.Duration == -1 {
+			if capabilities, found := seedanceprotocol.CapabilitiesForModel(billedModel); found {
+				seconds = capabilities.MaxDuration
+			}
+		} else if *payload.Duration > 0 {
+			seconds = *payload.Duration
+		}
 	}
 	const fps = 24
 	estimatedTokens := int(math.Ceil(float64(width*height*(fps*seconds+1)) / 1024.0))

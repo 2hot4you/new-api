@@ -96,6 +96,28 @@ test('opens the categorized asset picker on @ and inserts one asset reference', 
   ])
 })
 
+test.each(['text', 'frames'] as const)(
+  'does not open generic @ references in %s mode',
+  async (mode) => {
+    const user = userEvent.setup()
+    render(
+      <VideoStudioPromptComposer
+        value=''
+        mode={mode}
+        media={[]}
+        assets={assets}
+        onChange={vi.fn()}
+        onMediaChange={vi.fn()}
+      />
+    )
+
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), '@')
+    expect(
+      screen.queryByRole('listbox', { name: 'Temporary assets' })
+    ).not.toBeInTheDocument()
+  }
+)
+
 test('filters by media type and fuzzy searches asset name or id', async () => {
   const user = userEvent.setup()
   render(

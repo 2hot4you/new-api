@@ -40,6 +40,42 @@ test('adds a public image URL as the first frame', async () => {
       value: 'https://cdn.example.com/first-frame.png',
     }),
   ])
+  expect(screen.getByText('First frame · Required')).toBeInTheDocument()
+  expect(screen.getByText('Last frame · Optional')).toBeInTheDocument()
+})
+
+test('prevents adding a third image to first and last frame mode', () => {
+  render(
+    <VideoStudioMediaPicker
+      mode='frames'
+      media={[
+        {
+          clientId: 'first',
+          type: 'image',
+          source: 'url',
+          role: 'first_frame',
+          value: 'https://cdn.example.com/first.png',
+          name: 'first.png',
+        },
+        {
+          clientId: 'last',
+          type: 'image',
+          source: 'url',
+          role: 'last_frame',
+          value: 'https://cdn.example.com/last.png',
+          name: 'last.png',
+        },
+      ]}
+      assets={[]}
+      onChange={vi.fn()}
+      onAssetsChanged={vi.fn()}
+    />
+  )
+
+  expect(screen.getByRole('button', { name: 'Add URL' })).toBeDisabled()
+  expect(
+    screen.getByRole('button', { name: 'Upload from device' })
+  ).toBeDisabled()
 })
 
 test('does not expose media inputs in text mode', () => {

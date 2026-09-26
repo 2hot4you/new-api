@@ -25,6 +25,7 @@ export function VideoStudioPaidRequestDialog(props: {
   open: boolean
   estimatedCost: string
   estimatedTokens?: number
+  upperBound?: boolean
   pending: boolean
   onConfirm: () => void
   onOpenChange: (open: boolean) => void
@@ -47,7 +48,9 @@ export function VideoStudioPaidRequestDialog(props: {
         <div className='bg-muted/40 grid gap-3 rounded-lg border p-4 sm:grid-cols-2'>
           <div>
             <p className='text-muted-foreground text-xs'>
-              {t('Estimated cost')}
+              {props.upperBound
+                ? t('Estimated maximum cost')
+                : t('Estimated cost')}
             </p>
             <p className='mt-1 text-xl font-semibold'>{props.estimatedCost}</p>
           </div>
@@ -63,9 +66,13 @@ export function VideoStudioPaidRequestDialog(props: {
           )}
         </div>
         <p className='text-muted-foreground text-xs'>
-          {t(
-            'The estimate uses the selected API key, model, parameters, and effective group ratio. It does not reserve quota.'
-          )}
+          {props.upperBound
+            ? t(
+                'Automatic duration is estimated using the model maximum. The final charge follows the actual provider usage.'
+              )
+            : t(
+                'The estimate uses the selected API key, model, parameters, and effective group ratio. It does not reserve quota.'
+              )}
         </p>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={props.pending}>

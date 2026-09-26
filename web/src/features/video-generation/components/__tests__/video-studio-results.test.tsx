@@ -73,6 +73,7 @@ beforeAll(() => {
     'Generating video': 'Generating video',
     'The task is being processed. The preview will appear automatically.':
       'The task is being processed. The preview will appear automatically.',
+    Auto: 'Auto',
   })
 })
 
@@ -110,6 +111,33 @@ describe('current Seedance video preview', () => {
     expect(video).not.toBeNull()
     expect(video).toHaveAttribute('src', '/v1/videos/task-platform-001/content')
     expect(screen.getByText('task-platform-001')).toBeInTheDocument()
+  })
+
+  test('renders adaptive ratio as automatic in the current preview', () => {
+    const current = task({
+      status: 'SUCCESS',
+      video_params: {
+        resolution: '720p',
+        ratio: 'adaptive',
+        seconds: 15,
+        fps: 24,
+        width: 1280,
+        height: 720,
+        has_video: true,
+      },
+    })
+    if (!current.request) throw new Error('expected request metadata')
+    current.request = { ...current.request, ratio: 'adaptive' }
+
+    render(
+      <VideoStudioCurrentPreview
+        task={current}
+        loading={false}
+        onReuse={() => undefined}
+      />
+    )
+
+    expect(screen.getByText('720p · Auto')).toBeInTheDocument()
   })
 })
 
@@ -156,6 +184,44 @@ describe('Seedance generation history', () => {
     expect(
       within(listbox).queryByRole('option', { name: '30' })
     ).not.toBeInTheDocument()
+  })
+
+  test('renders adaptive ratio and smart duration as automatic values', () => {
+    const automatic = task({
+      video_params: {
+        resolution: '720p',
+        ratio: 'adaptive',
+        seconds: 18,
+        fps: 24,
+        width: 1280,
+        height: 720,
+        has_video: true,
+      },
+    })
+    if (!automatic.request) throw new Error('expected request metadata')
+    automatic.request = {
+      ...automatic.request,
+      ratio: 'adaptive',
+      duration: -1,
+    }
+
+    render(
+      <VideoStudioTaskHistory
+        items={[automatic]}
+        total={1}
+        pageIndex={0}
+        pageSize={20}
+        loading={false}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onPreview={() => undefined}
+        onReuse={() => undefined}
+      />
+    )
+
+    const row = screen.getByRole('row', { name: /task-platform-001/ })
+    expect(row).toHaveTextContent('720p / Auto')
+    expect(row).toHaveTextContent('Auto · 18s')
   })
 
   test('previews and safely restores a history row without submitting it', () => {

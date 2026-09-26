@@ -16,13 +16,14 @@ type modelCapabilities struct {
 // ModelCapabilities is the public, presentation-safe description consumed by
 // the dashboard. Validation continues to use the same internal source of truth.
 type ModelCapabilities struct {
-	MaxDuration       int      `json:"max_duration"`
-	MaxImages         int      `json:"max_images"`
-	MaxVideos         int      `json:"max_videos"`
-	MaxAudioFiles     int      `json:"max_audio_files"`
-	Resolutions       []string `json:"resolutions"`
-	Ratios            []string `json:"ratios"`
-	SupportsWebSearch bool     `json:"supports_web_search"`
+	MaxDuration          int      `json:"max_duration"`
+	MaxImages            int      `json:"max_images"`
+	MaxVideos            int      `json:"max_videos"`
+	MaxAudioFiles        int      `json:"max_audio_files"`
+	Resolutions          []string `json:"resolutions"`
+	Ratios               []string `json:"ratios"`
+	SupportsAutoDuration bool     `json:"supports_auto_duration"`
+	SupportsWebSearch    bool     `json:"supports_web_search"`
 }
 
 func CapabilitiesForModel(model string) (ModelCapabilities, bool) {
@@ -38,13 +39,14 @@ func CapabilitiesForModel(model string) (ModelCapabilities, bool) {
 		}
 	}
 	return ModelCapabilities{
-		MaxDuration:       internal.maxDuration,
-		MaxImages:         internal.maxImages,
-		MaxVideos:         internal.maxVideos,
-		MaxAudioFiles:     internal.maxAudioFiles,
-		Resolutions:       resolutions,
-		Ratios:            []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"},
-		SupportsWebSearch: true,
+		MaxDuration:          internal.maxDuration,
+		MaxImages:            internal.maxImages,
+		MaxVideos:            internal.maxVideos,
+		MaxAudioFiles:        internal.maxAudioFiles,
+		Resolutions:          resolutions,
+		Ratios:               []string{"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"},
+		SupportsAutoDuration: true,
+		SupportsWebSearch:    true,
 	}, true
 }
 

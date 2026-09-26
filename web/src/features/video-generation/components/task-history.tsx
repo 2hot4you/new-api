@@ -119,8 +119,17 @@ export function VideoStudioTaskHistory(props: {
               const params = task.video_params
               const resolution =
                 request?.resolution || params?.resolution || '—'
-              const ratio = request?.ratio || params?.ratio || '—'
-              const duration = request?.duration || params?.seconds
+              const rawRatio = request?.ratio || params?.ratio || '—'
+              const ratio = rawRatio === 'adaptive' ? t('Auto') : rawRatio
+              const requestedDuration = request?.duration
+              let duration: number | string | undefined
+              if (requestedDuration === -1) {
+                duration = params?.seconds
+                  ? `${t('Auto')} · ${params.seconds}s`
+                  : t('Auto')
+              } else {
+                duration = requestedDuration || params?.seconds
+              }
               const elapsedSeconds = taskElapsedSeconds(item)
               return (
                 <TableRow key={task.task_id}>
@@ -155,7 +164,9 @@ export function VideoStudioTaskHistory(props: {
                   <TableCell>{taskDimensions(item)}</TableCell>
                   <TableCell>{`${resolution} / ${ratio}`}</TableCell>
                   <TableCell>
-                    {duration ? `${duration}s` : '—'}
+                    {typeof duration === 'number'
+                      ? `${duration}s`
+                      : duration || '—'}
                     <p data-table-text='secondary'>
                       {params?.fps ? `${params.fps} FPS` : '—'}
                     </p>

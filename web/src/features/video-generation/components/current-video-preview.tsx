@@ -54,6 +54,8 @@ export function VideoStudioCurrentPreview(props: {
   const task = item?.task
   const running = Boolean(task && !['SUCCESS', 'FAILURE'].includes(task.status))
   const progress = item ? taskProgress(item) : null
+  const rawRatio = item?.request?.ratio || task?.video_params?.ratio || '—'
+  const ratio = rawRatio === 'adaptive' ? t('Auto') : rawRatio
   let previewContent
   if (props.loading && !task) {
     previewContent = (
@@ -159,7 +161,7 @@ export function VideoStudioCurrentPreview(props: {
                   {item.request?.resolution ||
                     task.video_params?.resolution ||
                     '—'}{' '}
-                  · {item.request?.ratio || task.video_params?.ratio || '—'}
+                  · {ratio}
                 </p>
               </div>
               <div className='rounded-lg border p-3'>

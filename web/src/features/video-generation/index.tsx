@@ -52,7 +52,9 @@ import { VideoStudioPromptComposer } from './components/prompt-composer'
 import { VideoStudioTaskHistory } from './components/task-history'
 import {
   chooseDefaultVideoStudioTokenID,
+  findLatestActiveVideoStudioTaskID,
   hasUnavailableSelectedAsset,
+  stripVideoStudioAssetMentions,
 } from './lib/authoring'
 import { videoStudioFormSchema } from './lib/form-schema'
 import { buildSeedancePayload, validateMediaSelection } from './lib/payload'
@@ -101,6 +103,7 @@ function mediaValidationMessage(reason: string): string {
     frame_required: 'Frame mode requires exactly one first-frame image.',
     frame_count:
       'Frame mode supports one first frame and one optional last frame.',
+    text_media_not_allowed: 'Text mode does not include reference media.',
     reference_required:
       'Add at least one reference image, video, or audio file.',
     audio_requires_visual:
@@ -198,12 +201,14 @@ export function VideoGenerationStudio() {
   )
   const capability = model ? optionsQuery.data?.capabilities[model] : undefined
   const durationOptions = useMemo(
-    () =>
-      Array.from(
+    () => [
+      ...(capability?.supports_auto_duration ? [-1] : []),
+      ...Array.from(
         { length: Math.max(0, (capability?.max_duration ?? 3) - 3) },
         (_, index) => index + 4
       ),
-    [capability?.max_duration]
+    ],
+    [capability?.max_duration, capability?.supports_auto_duration]
   )
 
   useEffect(() => {
@@ -217,8 +222,11 @@ export function VideoGenerationStudio() {
   }, [form, optionsQuery.data?.tokens])
 
   useEffect(() => {
-    if (currentTaskID || !tasksQuery.data?.items[0]) return
-    setCurrentTaskID(tasksQuery.data.items[0].task.task_id)
+    if (currentTaskID || !tasksQuery.data) return
+    const activeTaskID = findLatestActiveVideoStudioTaskID(
+      tasksQuery.data.items
+    )
+    if (activeTaskID) setCurrentTaskID(activeTaskID)
   }, [currentTaskID, tasksQuery.data])
 
   useEffect(() => {
@@ -243,7 +251,9 @@ export function VideoGenerationStudio() {
       form.setValue('resolution', capability.resolutions[0] ?? '720p')
     }
     const duration = form.getValues('duration')
-    if (duration > capability.max_duration) {
+    if (duration === -1 && !capability.supports_auto_duration) {
+      form.setValue('duration', Math.min(6, capability.max_duration))
+    } else if (duration > capability.max_duration) {
       form.setValue('duration', capability.max_duration)
     }
   }, [capability, form])
@@ -319,8 +329,15 @@ export function VideoGenerationStudio() {
 
   const changeMode = (value: VideoStudioMode | null) => {
     if (!value) return
+    const previousMode = form.getValues('mode')
     form.setValue('mode', value as VideoStudioMode)
     setMedia([])
+    if (previousMode === 'references' && value !== 'references') {
+      form.setValue(
+        'prompt',
+        stripVideoStudioAssetMentions(form.getValues('prompt'))
+      )
+    }
     if (value === 'frames') form.setValue('ratio', 'adaptive')
   }
 
@@ -506,15 +523,7 @@ export function VideoGenerationStudio() {
                         media={media}
                         assets={assetsQuery.data ?? []}
                         onChange={field.onChange}
-                        onMediaChange={(nextMedia) => {
-                          setMedia(nextMedia)
-                          if (
-                            nextMedia.length > 0 &&
-                            form.getValues('mode') === 'text'
-                          ) {
-                            form.setValue('mode', 'references')
-                          }
-                        }}
+                        onMediaChange={setMedia}
                       />
                     )}
                   />
@@ -596,13 +605,20 @@ export function VideoGenerationStudio() {
                           onValueChange={field.onChange}
                           disabled={mode === 'frames'}
                         >
-                          <SelectTrigger className='w-full'>
-                            <SelectValue />
+                          <SelectTrigger
+                            className='w-full'
+                            aria-label={t('Aspect ratio')}
+                          >
+                            <SelectValue>
+                              {field.value === 'adaptive'
+                                ? t('Auto')
+                                : field.value}
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {capability?.ratios.map((value) => (
                               <SelectItem key={value} value={value}>
-                                {value}
+                                {value === 'adaptive' ? t('Auto') : value}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -627,13 +643,17 @@ export function VideoGenerationStudio() {
                             aria-label={t('Duration (seconds)')}
                           >
                             <SelectValue>
-                              {field.value} {t('seconds')}
+                              {field.value === -1
+                                ? t('Auto')
+                                : `${field.value} ${t('seconds')}`}
                             </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {durationOptions.map((value) => (
                               <SelectItem key={value} value={String(value)}>
-                                {value} {t('seconds')}
+                                {value === -1
+                                  ? t('Auto')
+                                  : `${value} ${t('seconds')}`}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -729,6 +749,10 @@ export function VideoGenerationStudio() {
             pendingRequest?.estimate.quota
           )}
           estimatedTokens={pendingRequest?.estimate.estimated_tokens}
+          upperBound={
+            pendingRequest?.values.duration === -1 &&
+            (pendingRequest.estimate.estimated_tokens ?? 0) > 0
+          }
           pending={submit.isPending}
           onOpenChange={(open) => {
             if (!open && !submit.isPending) setPendingRequest(null)

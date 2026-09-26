@@ -15,8 +15,8 @@ import (
 )
 
 func TestVideoStudioMaskedKeyUsesClientFacingSKFormat(t *testing.T) {
-	assert.Equal(t, "sk-abcdxxxxwxyz", videoStudioMaskedKey("abcdefghijklmnopwxyz"))
-	assert.Equal(t, "sk-xxxx", videoStudioMaskedKey("short"))
+	assert.Equal(t, "sk-abcd****wxyz", videoStudioMaskedKey("abcdefghijklmnopwxyz"))
+	assert.Equal(t, "sk-****", videoStudioMaskedKey("short"))
 }
 
 func TestCacheVideoStudioEstimateAssetsAvoidsUpstreamVerification(t *testing.T) {

@@ -218,9 +218,9 @@ func cacheVideoStudioEstimateAssets(
 func videoStudioMaskedKey(key string) string {
 	key = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(key), "sk-"))
 	if len(key) <= 8 {
-		return "sk-xxxx"
+		return "sk-****"
 	}
-	return "sk-" + key[:4] + "xxxx" + key[len(key)-4:]
+	return "sk-" + key[:4] + "****" + key[len(key)-4:]
 }
 
 func videoStudioTokenCurrentlyUsable(token *model.Token) bool {

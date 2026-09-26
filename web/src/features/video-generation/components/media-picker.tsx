@@ -79,10 +79,20 @@ export function VideoStudioMediaPicker(props: {
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const availableAssets = props.assets.filter(isAvailable)
+  const firstFrame = props.media.find((item) => item.role === 'first_frame')
+  const lastFrame = props.media.find((item) => item.role === 'last_frame')
+  const frameSlotsFull =
+    props.mode === 'frames' && Boolean(firstFrame && lastFrame)
 
   const append = (item: Omit<VideoStudioMedia, 'clientId' | 'role'>) => {
     if (props.mode === 'frames' && item.type !== 'image') {
       toast.error(t('Frame mode only accepts images'))
+      return
+    }
+    if (frameSlotsFull) {
+      toast.error(
+        t('Frame mode supports one first frame and one optional last frame.')
+      )
       return
     }
     props.onChange([
@@ -160,12 +170,35 @@ export function VideoStudioMediaPicker(props: {
 
   return (
     <div className='space-y-4'>
+      {props.mode === 'frames' && (
+        <div className='grid gap-3 sm:grid-cols-2'>
+          <div className='rounded-lg border p-3'>
+            <p className='text-sm font-medium'>
+              {t('First frame')} · {t('Required')}
+            </p>
+            <p className='text-muted-foreground mt-1 truncate text-xs'>
+              {firstFrame?.name || '—'}
+            </p>
+          </div>
+          <div className='rounded-lg border p-3'>
+            <p className='text-sm font-medium'>
+              {t('Last frame')} · {t('Optional')}
+            </p>
+            <p className='text-muted-foreground mt-1 truncate text-xs'>
+              {lastFrame?.name || '—'}
+            </p>
+          </div>
+        </div>
+      )}
       <div className='grid gap-3 sm:grid-cols-[1fr_auto]'>
         <div>
           <Label htmlFor='video-studio-asset'>
-            {t('Temporary asset library')}
+            {props.mode === 'frames'
+              ? t('First / last frame')
+              : t('Temporary asset library')}
           </Label>
           <Select
+            disabled={frameSlotsFull}
             onValueChange={(id) => {
               const asset = availableAssets.find((item) => item.id === id)
               if (!asset) return
@@ -179,7 +212,13 @@ export function VideoStudioMediaPicker(props: {
             }}
           >
             <SelectTrigger id='video-studio-asset'>
-              <SelectValue placeholder={t('Choose an available asset')} />
+              <SelectValue
+                placeholder={
+                  frameSlotsFull
+                    ? t('First / last frame')
+                    : t('Choose an available asset')
+                }
+              />
             </SelectTrigger>
             <SelectContent>
               {availableAssets
@@ -200,14 +239,22 @@ export function VideoStudioMediaPicker(props: {
             ref={fileInput}
             className='sr-only'
             type='file'
-            accept='.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif,.mp4,.mov,.wav,.mp3'
-            disabled={!props.uploadConfig?.enabled || uploading}
+            accept={
+              props.mode === 'frames'
+                ? '.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif'
+                : '.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif,.mp4,.mov,.wav,.mp3'
+            }
+            disabled={
+              !props.uploadConfig?.enabled || uploading || frameSlotsFull
+            }
             onChange={(event) => void upload(event.target.files?.[0])}
           />
           <Button
             type='button'
             variant='outline'
-            disabled={!props.uploadConfig?.enabled || uploading}
+            disabled={
+              !props.uploadConfig?.enabled || uploading || frameSlotsFull
+            }
             onClick={() => fileInput.current?.click()}
           >
             <FileUp />
@@ -245,7 +292,12 @@ export function VideoStudioMediaPicker(props: {
           aria-label={t('Public media URL')}
           onChange={(event) => setURL(event.target.value)}
         />
-        <Button type='button' variant='outline' onClick={addURL}>
+        <Button
+          type='button'
+          variant='outline'
+          disabled={frameSlotsFull}
+          onClick={addURL}
+        >
           <Link2 />
           {t('Add URL')}
         </Button>
@@ -272,11 +324,24 @@ export function VideoStudioMediaPicker(props: {
                   value={item.role}
                   onValueChange={(role) =>
                     props.onChange(
-                      props.media.map((current, currentIndex) =>
-                        currentIndex === index
-                          ? { ...current, role: role as VideoStudioMediaRole }
-                          : current
-                      )
+                      props.media.map((current, currentIndex) => {
+                        if (currentIndex === index) {
+                          return {
+                            ...current,
+                            role: role as VideoStudioMediaRole,
+                          }
+                        }
+                        if (current.role === role) {
+                          return {
+                            ...current,
+                            role:
+                              role === 'first_frame'
+                                ? 'last_frame'
+                                : 'first_frame',
+                          }
+                        }
+                        return current
+                      })
                     )
                   }
                 >
@@ -314,7 +379,9 @@ export function VideoStudioMediaPicker(props: {
         {props.media.length === 0 && (
           <div className='text-muted-foreground flex min-h-20 items-center justify-center rounded-lg border border-dashed text-sm'>
             <Plus className='mr-2 size-4' />
-            {t('Add reference media for this generation')}
+            {props.mode === 'frames'
+              ? t('Frame mode requires exactly one first-frame image.')
+              : t('Add reference media for this generation')}
           </div>
         )}
       </div>

@@ -34,6 +34,7 @@ export type VideoStudioCapability = {
   max_audio_files: number
   resolutions: string[]
   ratios: string[]
+  supports_auto_duration: boolean
   supports_web_search: boolean
 }
 

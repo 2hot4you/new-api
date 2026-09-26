@@ -442,6 +442,24 @@ func TestEstimateBillingRecordsSeedanceTokenAndPriceEstimate(t *testing.T) {
 	assert.InDelta(t, 5.0094, info.EstimatedVideoPrice, 1e-9)
 }
 
+func TestEstimateBillingUsesModelMaximumForSmartDurationUpperBound(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{Model: "doubao-seedance-2-5-260628"})
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(
+		`{"model":"doubao-seedance-2-5-260628","content":[{"type":"text","text":"prompt"}],"resolution":"720p","ratio":"16:9","duration":-1}`,
+	))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	info.OriginModelName = "doubao-seedance-2-5-260628"
+	info.UpstreamModelName = "doubao-seedance-2-5-260628"
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	ratios := adaptor.EstimateBilling(ctx, info)
+	require.Len(t, ratios, 1)
+	assert.Equal(t, 30, info.EstimatedVideoSeconds)
+	assert.Positive(t, info.EstimatedVideoTokens)
+}
+
 func TestDecodeStarAIResponseAcceptsCommonWrappers(t *testing.T) {
 	tests := [][]byte{
 		[]byte("\xef\xbb\xbf" + `{"code":"success","data":{"task_id":"upstream-task"}}`),

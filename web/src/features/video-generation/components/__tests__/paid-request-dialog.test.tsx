@@ -34,3 +34,22 @@ test('shows the estimated charge and only submits after explicit confirmation', 
   await user.click(screen.getByRole('button', { name: 'Confirm and pay' }))
   expect(onConfirm).toHaveBeenCalledTimes(1)
 })
+
+test('labels smart-duration token estimates as an upper bound', () => {
+  render(
+    <VideoStudioPaidRequestDialog
+      open
+      estimatedCost='¥32.6472'
+      estimatedTokens={605700}
+      upperBound
+      pending={false}
+      onConfirm={vi.fn()}
+      onOpenChange={vi.fn()}
+    />
+  )
+
+  expect(screen.getByText('Estimated maximum cost')).toBeInTheDocument()
+  expect(
+    screen.getByText(/Automatic duration is estimated using the model maximum/)
+  ).toBeInTheDocument()
+})

@@ -46,6 +46,7 @@ vi.mock('react-i18next', () => ({
         'Multimodal references': '多模态参考',
         'Duration (seconds)': '时长（秒）',
         seconds: '秒',
+        Auto: '自动',
       })[key] ?? key,
   }),
 }))
@@ -56,7 +57,7 @@ beforeEach(() => {
       {
         id: 34,
         name: 'Seedance production',
-        masked_key: 'sk-abcdxxxxefgh',
+        masked_key: 'sk-abcd****efgh',
         group: 'ByteDance',
         unlimited_quota: true,
         available_models: ['doubao-seedance-2-0-260128'],
@@ -69,7 +70,8 @@ beforeEach(() => {
         max_videos: 3,
         max_audio_files: 3,
         resolutions: ['720p'],
-        ratios: ['16:9'],
+        ratios: ['16:9', 'adaptive'],
+        supports_auto_duration: true,
         supports_web_search: false,
       },
     },
@@ -101,12 +103,12 @@ test('shows the masked API key in both the trigger and option list', async () =>
   renderStudio()
 
   const trigger = await screen.findByRole('combobox', { name: 'API 密钥' })
-  await waitFor(() => expect(trigger).toHaveTextContent('sk-abcdxxxxefgh'))
+  await waitFor(() => expect(trigger).toHaveTextContent('sk-abcd****efgh'))
   expect(trigger).not.toHaveTextContent('34')
 
   await user.click(trigger)
   expect(
-    screen.getByRole('option', { name: 'sk-abcdxxxxefgh' })
+    screen.getByRole('option', { name: 'sk-abcd****efgh' })
   ).toBeInTheDocument()
 })
 
@@ -129,8 +131,21 @@ test('shows Chinese generation modes and model-bounded duration choices', async 
   const options = screen.getByRole('listbox')
   expect(within(options).getByRole('option', { name: '4 秒' })).toBeVisible()
   expect(within(options).getByRole('option', { name: '15 秒' })).toBeVisible()
+  expect(within(options).getByRole('option', { name: '自动' })).toBeVisible()
   expect(
     within(options).queryByRole('option', { name: '16 秒' })
+  ).not.toBeInTheDocument()
+})
+
+test('renders adaptive ratio as automatic instead of the protocol value', async () => {
+  const user = userEvent.setup()
+  renderStudio()
+
+  const ratio = await screen.findByRole('combobox', { name: 'Aspect ratio' })
+  await user.click(ratio)
+  expect(screen.getByRole('option', { name: '自动' })).toBeInTheDocument()
+  expect(
+    screen.queryByRole('option', { name: 'adaptive' })
   ).not.toBeInTheDocument()
 })
 

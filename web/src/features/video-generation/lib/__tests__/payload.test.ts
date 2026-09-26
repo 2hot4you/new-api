@@ -18,6 +18,7 @@ const capability: VideoStudioCapability = {
   max_audio_files: 3,
   resolutions: ['480p', '720p'],
   ratios: ['16:9', 'adaptive'],
+  supports_auto_duration: true,
   supports_web_search: true,
 }
 
@@ -85,6 +86,24 @@ describe('Seedance video studio payload', () => {
     expect(payload.tools).toEqual([{ type: 'web_search' }])
   })
 
+  it('preserves automatic ratio and duration protocol values', () => {
+    const payload = buildSeedancePayload({
+      model: 'doubao-seedance-2-0-260128',
+      prompt: 'A slow camera move',
+      mode: 'text',
+      resolution: '720p',
+      ratio: 'adaptive',
+      duration: -1,
+      generateAudio: true,
+      watermark: false,
+      webSearch: false,
+      media: [],
+    })
+
+    expect(payload.ratio).toBe('adaptive')
+    expect(payload.duration).toBe(-1)
+  })
+
   it('rejects media that exceed the selected model limits', () => {
     const items = Array.from({ length: 4 }, (_, index) =>
       media({
@@ -97,6 +116,13 @@ describe('Seedance video studio payload', () => {
     expect(validateMediaSelection('references', items, capability)).toEqual({
       valid: false,
       reason: 'audio_limit',
+    })
+  })
+
+  it('rejects reference media in text-to-video mode', () => {
+    expect(validateMediaSelection('text', [media({})], capability)).toEqual({
+      valid: false,
+      reason: 'text_media_not_allowed',
     })
   })
 })

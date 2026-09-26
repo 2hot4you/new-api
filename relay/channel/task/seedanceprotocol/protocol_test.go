@@ -83,6 +83,7 @@ func TestCapabilitiesExposeTheSameLimitsUsedByValidation(t *testing.T) {
 	assert.Equal(t, 10, capabilities.MaxAudioFiles)
 	assert.Equal(t, []string{"480p", "720p", "1080p"}, capabilities.Resolutions)
 	assert.Contains(t, capabilities.Ratios, "adaptive")
+	assert.True(t, capabilities.SupportsAutoDuration)
 	assert.True(t, capabilities.SupportsWebSearch)
 
 	_, ok = CapabilitiesForModel("not-a-seedance-model")
