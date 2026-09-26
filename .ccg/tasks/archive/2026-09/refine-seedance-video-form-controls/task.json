@@ -1,12 +1,12 @@
 {
   "id": "refine-seedance-video-form-controls",
   "title": "修正 Seedance 视频工作台密钥、提示框、生成模式与时长控件",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "review",
-  "nextAction": "完成最终验证并归档任务",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
   "createdAt": "2026-09-26T05:40:00+08:00",
   "branch": "feat/seedance-video-studio-authoring"
 }
