@@ -102,3 +102,40 @@ MySQL/PostgreSQL DSN-backed integration tests were not available locally. SQLite
 ## Review execution
 
 Review used local verification and independent internal review agents only. The user explicitly prohibited antigravity/Claude external executors, and none were used.
+
+# rc.40 checkpoint review
+
+## Result
+
+No open Critical or Warning findings after independent internal backend and frontend review and a focused RelayKit re-review.
+
+## Resolved findings
+
+- Upgraded Task Plugin `Source` and `Icon` storage to dialect-aware long text: MySQL `LONGTEXT`, PostgreSQL/SQLite `TEXT`.
+- Raised plugin uploads to an inclusive 8 MiB limit on both backend and frontend, with exact-limit acceptance and limit-plus-one rejection tests.
+- Kept sync snapshots metadata-only. Source is loaded by row ID only for changed plugins; source read or compilation failure retains the incumbent runtime.
+- Accepted every HTTP 2xx task submission status while preserving the adaptor's original status and empty-body behavior for 204.
+- Integrated Claude/Responses tool-output media hoisting and stream lifecycle fixes. Internal review found and fixed repeated tool-call chat-index reuse after `finish_reason` by making tool state segment-aware.
+- Added static-only plugin metadata preview parsing with bounded AST traversal; dynamic or unsafe JavaScript is never evaluated.
+- Integrated pricing enum/condition/copy fixes and locale updates without changing Molii CNY/catalog behavior.
+- Integrated theme storage helpers and cache keys while keeping the active Molii providers locked to system mode and branded defaults; setters/reset remain no-ops and stored arbitrary presets/fonts/modes are ignored.
+- Preserved Molii branding, local metadata policy, channel IDs 61–67, Task Plugin marketplace, COS/task billing behavior, Seedance, StarAI and Grok integrations.
+
+## Verification
+
+- `go test ./... -count=1`: passed after the frontend production artifact was generated.
+- `go vet ./...`: passed.
+- RelayKit full tests and vet: passed after the final segment-aware tool-call fix.
+- Frontend typecheck: passed.
+- Frontend Vitest: 283 files, 2694 tests passed.
+- Frontend production build: passed.
+- i18n completeness: passed.
+- Staged diff, conflict and conflict-marker checks: passed.
+
+## Known environment limits
+
+Real MySQL/PostgreSQL DSN-backed migration tests were not configured. SQLite and dialect-aware unit coverage passed, but live MySQL/PostgreSQL migration behavior remains unverified in this local environment.
+
+## Review execution
+
+Review used local verification and two independent internal review agents only. The user explicitly prohibited antigravity/Claude external executors, and none were used.

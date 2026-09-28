@@ -231,7 +231,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, service.TaskErrorWrapperLocal(errors.New("upstream returned an empty response"), "fail_to_fetch_task", http.StatusBadGateway)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	// Task APIs commonly answer 201 Created or 202 Accepted. Preserve the
+	// exact status for ParseResponse, including 204 so the adaptor can enforce
+	// its existing empty-body contract.
+	if resp.StatusCode/100 != 2 {
 		responseBody, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if mapper, ok := adaptor.(channel.TaskSubmitErrorMapper); ok {

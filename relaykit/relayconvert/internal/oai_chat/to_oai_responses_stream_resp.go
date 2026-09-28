@@ -38,12 +38,19 @@ type ChatToResponsesStreamState struct {
 	finalized          bool
 	nextSequenceNumber int
 	nextOutputIndex    int
-	toolsByIndex       map[int]*chatToResponsesStreamTool
+	toolsByIndex       map[int][]*chatToResponsesStreamTool
 	hostedByID         map[string]*chatToResponsesHostedTool
 	outputOrder        []chatToResponsesOutputRef
 	text               strings.Builder
 	annotations        []any
 	reasoning          strings.Builder
+	// A mid-stream finish_reason closes the message and reasoning items. Deltas that
+	// arrive afterwards open a fresh item (next segment ordinal) instead of touching the
+	// closed one; the closed items are snapshotted so the final response keeps them.
+	textSegment      int
+	reasoningSegment int
+	closedMessages   []dto.ResponsesOutput
+	closedReasonings []dto.ResponsesOutput
 }
 
 type chatToResponsesStreamTool struct {
@@ -58,6 +65,7 @@ type chatToResponsesStreamTool struct {
 
 type chatToResponsesOutputRef struct {
 	Kind      string
+	Segment   int
 	ToolIndex int
 	HostedID  string
 }
@@ -98,7 +106,7 @@ func NewChatToResponsesStreamState(id string, model string) *ChatToResponsesStre
 		status:          "completed",
 		textOutputIndex: -1,
 		reasoningIndex:  -1,
-		toolsByIndex:    make(map[int]*chatToResponsesStreamTool),
+		toolsByIndex:    make(map[int][]*chatToResponsesStreamTool),
 		hostedByID:      make(map[string]*chatToResponsesHostedTool),
 	}
 }
@@ -403,9 +411,16 @@ func (s *ChatToResponsesStreamState) appendTextDelta(delta string) []ChatToRespo
 }
 
 func (s *ChatToResponsesStreamState) startText() []ChatToResponsesStreamEvent {
+	if s.textDone {
+		s.textSegment++
+		s.textStarted = false
+		s.textDone = false
+		s.text.Reset()
+		s.annotations = nil
+	}
 	if !s.textStarted {
 		s.textStarted = true
-		s.textOutputIndex = s.nextIndex("message", -1)
+		s.textOutputIndex = s.nextIndex(chatToResponsesOutputRef{Kind: "message", Segment: s.textSegment})
 		return []ChatToResponsesStreamEvent{s.event(responsesEventOutputItemAdded, dto.ResponsesStreamResponse{
 			Type:        responsesEventOutputItemAdded,
 			OutputIndex: intPtr(s.textOutputIndex),
@@ -447,10 +462,16 @@ func (s *ChatToResponsesStreamState) appendAnnotationDelta(raw []byte) ([]ChatTo
 }
 
 func (s *ChatToResponsesStreamState) appendReasoningDelta(delta string) []ChatToResponsesStreamEvent {
-	events := make([]ChatToResponsesStreamEvent, 0, 2)
+	events := make([]ChatToResponsesStreamEvent, 0, 3)
+	if s.reasoningDone {
+		s.reasoningSegment++
+		s.reasoningStarted = false
+		s.reasoningDone = false
+		s.reasoning.Reset()
+	}
 	if !s.reasoningStarted {
 		s.reasoningStarted = true
-		s.reasoningIndex = s.nextIndex("reasoning", -1)
+		s.reasoningIndex = s.nextIndex(chatToResponsesOutputRef{Kind: "reasoning", Segment: s.reasoningSegment})
 		events = append(events, s.event(responsesEventOutputItemAdded, dto.ResponsesStreamResponse{
 			Type:        responsesEventOutputItemAdded,
 			OutputIndex: intPtr(s.reasoningIndex),
@@ -460,6 +481,13 @@ func (s *ChatToResponsesStreamState) appendReasoningDelta(delta string) []ChatTo
 				Status:  "in_progress",
 				Summary: []dto.ResponsesReasoningSummaryPart{},
 			},
+		}))
+		events = append(events, s.event(responsesEventReasoningSummaryPartAdded, dto.ResponsesStreamResponse{
+			Type:         responsesEventReasoningSummaryPartAdded,
+			OutputIndex:  intPtr(s.reasoningIndex),
+			SummaryIndex: intPtr(0),
+			ItemID:       s.reasoningID(),
+			Part:         &dto.ResponsesReasoningSummaryPart{Type: "summary_text"},
 		}))
 	}
 	s.reasoning.WriteString(delta)
@@ -479,20 +507,28 @@ func (s *ChatToResponsesStreamState) appendToolCallDelta(toolCall dto.ToolCallRe
 		chatIndex = *toolCall.Index
 	}
 	incomingID := strings.TrimSpace(toolCall.ID)
-	tool := s.toolsByIndex[chatIndex]
+	segments := s.toolsByIndex[chatIndex]
+	var tool *chatToResponsesStreamTool
+	if len(segments) > 0 {
+		tool = segments[len(segments)-1]
+	}
 	events := make([]ChatToResponsesStreamEvent, 0, 2)
-	if tool == nil {
+	if tool == nil || tool.Done {
+		segment := len(segments)
 		tool = &chatToResponsesStreamTool{
 			ChatIndex:   chatIndex,
-			OutputIndex: s.nextIndex("tool", chatIndex),
+			OutputIndex: s.nextIndex(chatToResponsesOutputRef{Kind: "tool", Segment: segment, ToolIndex: chatIndex}),
 			CallID:      incomingID,
 			Name:        strings.TrimSpace(toolCall.Function.Name),
 		}
 		tool.ItemID = incomingID
 		if tool.ItemID == "" {
 			tool.ItemID = fmt.Sprintf("%s_call_%d", s.ID, chatIndex)
+			if segment > 0 {
+				tool.ItemID = fmt.Sprintf("%s_%d", tool.ItemID, segment)
+			}
 		}
-		s.toolsByIndex[chatIndex] = tool
+		s.toolsByIndex[chatIndex] = append(segments, tool)
 		events = append(events, s.event(responsesEventOutputItemAdded, dto.ResponsesStreamResponse{
 			Type:        responsesEventOutputItemAdded,
 			OutputIndex: intPtr(tool.OutputIndex),
@@ -506,9 +542,6 @@ func (s *ChatToResponsesStreamState) appendToolCallDelta(toolCall dto.ToolCallRe
 				Arguments: []byte(`""`),
 			},
 		}))
-	}
-	if tool.Done {
-		return nil, fmt.Errorf("tool-call stream index %d received data after completion", chatIndex)
 	}
 	if incomingID != "" {
 		if tool.CallID != "" && tool.CallID != incomingID {
@@ -550,11 +583,13 @@ func (s *ChatToResponsesStreamState) doneDeltaEvents() []ChatToResponsesStreamEv
 			textDone.Text = kitutil.GetPointer(s.text.String())
 		}
 		events = append(events, s.event("response.output_text.done", textDone))
+		closedMessage := s.messageOutput(status)
 		events = append(events, s.event(responsesEventOutputItemDone, dto.ResponsesStreamResponse{
 			Type:        responsesEventOutputItemDone,
 			OutputIndex: intPtr(s.textOutputIndex),
-			Item:        s.messageOutput(status),
+			Item:        closedMessage,
 		}))
+		s.closedMessages = append(s.closedMessages, *closedMessage)
 	}
 	if s.reasoningStarted && !s.reasoningDone {
 		s.reasoningDone = true
@@ -573,11 +608,23 @@ func (s *ChatToResponsesStreamState) doneDeltaEvents() []ChatToResponsesStreamEv
 			reasoningDone.Part = nil
 		}
 		events = append(events, s.event(responsesEventReasoningSummaryDone, reasoningDone))
+		events = append(events, s.event(responsesEventReasoningSummaryPartDone, dto.ResponsesStreamResponse{
+			Type:         responsesEventReasoningSummaryPartDone,
+			OutputIndex:  intPtr(s.reasoningIndex),
+			SummaryIndex: intPtr(0),
+			ItemID:       s.reasoningID(),
+			Part: &dto.ResponsesReasoningSummaryPart{
+				Type: "summary_text",
+				Text: s.reasoning.String(),
+			},
+		}))
+		closedReasoning := s.reasoningOutput(status)
 		events = append(events, s.event(responsesEventOutputItemDone, dto.ResponsesStreamResponse{
 			Type:        responsesEventOutputItemDone,
 			OutputIndex: intPtr(s.reasoningIndex),
-			Item:        s.reasoningOutput(status),
+			Item:        closedReasoning,
 		}))
+		s.closedReasonings = append(s.closedReasonings, *closedReasoning)
 	}
 	for _, tool := range s.sortedTools() {
 		if tool.Done {
@@ -649,12 +696,25 @@ func (s *ChatToResponsesStreamState) finalResponse() *dto.OpenAIResponsesRespons
 	for _, ref := range s.outputOrder {
 		switch ref.Kind {
 		case "message":
+			if ref.Segment < len(s.closedMessages) {
+				closed := s.closedMessages[ref.Segment]
+				closed.Status = status
+				output = append(output, closed)
+				continue
+			}
 			output = append(output, *s.messageOutput(status))
 		case "reasoning":
+			if ref.Segment < len(s.closedReasonings) {
+				closed := s.closedReasonings[ref.Segment]
+				closed.Status = status
+				output = append(output, closed)
+				continue
+			}
 			output = append(output, *s.reasoningOutput(status))
 		case "tool":
-			if tool := s.toolsByIndex[ref.ToolIndex]; tool != nil {
-				output = append(output, *s.toolOutput(tool, status))
+			segments := s.toolsByIndex[ref.ToolIndex]
+			if ref.Segment < len(segments) {
+				output = append(output, *s.toolOutput(segments[ref.Segment], status))
 			}
 		case "hosted":
 			if tool := s.hostedByID[ref.HostedID]; tool != nil {
@@ -685,10 +745,10 @@ func (s *ChatToResponsesStreamState) createdResponse() *dto.OpenAIResponsesRespo
 	}
 }
 
-func (s *ChatToResponsesStreamState) nextIndex(kind string, toolIndex int) int {
+func (s *ChatToResponsesStreamState) nextIndex(ref chatToResponsesOutputRef) int {
 	index := s.nextOutputIndex
 	s.nextOutputIndex++
-	s.outputOrder = append(s.outputOrder, chatToResponsesOutputRef{Kind: kind, ToolIndex: toolIndex})
+	s.outputOrder = append(s.outputOrder, ref)
 	return index
 }
 
@@ -707,7 +767,10 @@ func (s *ChatToResponsesStreamState) sortedTools() []*chatToResponsesStreamTool 
 	sort.Ints(indexes)
 	tools := make([]*chatToResponsesStreamTool, 0, len(indexes))
 	for _, index := range indexes {
-		tools = append(tools, s.toolsByIndex[index])
+		segments := s.toolsByIndex[index]
+		if len(segments) > 0 {
+			tools = append(tools, segments[len(segments)-1])
+		}
 	}
 	return tools
 }
@@ -720,11 +783,11 @@ func (s *ChatToResponsesStreamState) outputStatus() string {
 }
 
 func (s *ChatToResponsesStreamState) messageID() string {
-	return fmt.Sprintf("%s_msg_0", s.ID)
+	return fmt.Sprintf("%s_msg_%d", s.ID, s.textSegment)
 }
 
 func (s *ChatToResponsesStreamState) reasoningID() string {
-	return fmt.Sprintf("%s_reasoning_0", s.ID)
+	return fmt.Sprintf("%s_reasoning_%d", s.ID, s.reasoningSegment)
 }
 
 func (s *ChatToResponsesStreamState) messageOutput(status string) *dto.ResponsesOutput {

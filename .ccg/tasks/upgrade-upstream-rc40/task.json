@@ -1,12 +1,12 @@
 {
   "id": "upgrade-upstream-rc40",
   "title": "从 v1.0.0-rc.36 分阶段升级 Molii New API 至 rc.40",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "implementation",
-  "nextAction": "合并 rc.40，集成长文本插件存储、8 MiB 上传、按需源码同步、2xx 提交、RelayKit 转换与锁定主题存储",
+  "currentPhase": "completed",
+  "nextAction": "提交 rc.40 merge checkpoint，归档 CCG 任务并交付升级结果",
   "createdAt": "2026-09-28T07:20:23Z",
   "branch": "upgrade/rc40"
 }
