@@ -16,11 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Combobox } from '@/components/ui/combobox'
 import {
   AlertTriangle,
   ChevronDown,
   GripVertical,
+  Search,
+  X,
   Info,
   Plus,
   Trash2,
@@ -37,6 +38,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { AutoGroupOrderItem } from '@/components/auto-group-order-item'
 import { StaticDataTable } from '@/components/data-table/static/static-data-table'
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
 import { Dialog } from '@/components/dialog'
@@ -45,6 +47,7 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { EmptyState } from '@/components/empty-state'
 import { MultiSelect, type Option } from '@/components/multi-select'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
@@ -61,9 +64,16 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
-
+import { Separator } from '@/components/ui/separator'
 import {
   Sheet,
   SheetContent,
@@ -71,18 +81,31 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { Vendor } from '@/features/models/types'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { safeJsonParse } from '../utils/json-parser'
+import { GroupSpecialUsableRulesEditor } from './group-special-usable-editor'
+
+export type GroupSettingsSection =
+  | 'pricing'
+  | 'overrides'
+  | 'visibility'
+  | 'auto'
 
 type GroupRatioVisualEditorProps = {
+  section?: GroupSettingsSection
+  onSectionChange?: (section: GroupSettingsSection) => void
+  defaultUseAutoGroupField?: ReactNode
   groupRatio: string
   topupGroupRatio: string
   userUsableGroups: string
   groupGroupRatio: string
   autoGroups: string
-  groupMetadata: string
+  groupMetadata?: string
   vendors?: Vendor[]
   maxTokenAutoGroupsField: ReactNode
   groupSpecialUsableGroup: string
@@ -111,9 +134,8 @@ type RegistryEntry = {
   ratio: number
 }
 
-const sectionCardClassName =
-  'relative shadow-sm ring-0 before:pointer-events-none before:absolute before:inset-0 before:rounded-xl before:border before:border-border/90'
-const sectionHeaderClassName = 'border-b bg-muted/20'
+const sectionCardClassName = 'min-w-0 shadow-none'
+const sectionHeaderClassName = 'gap-2 border-b'
 
 let groupPricingIdCounter = 0
 function createGroupPricingId() {
@@ -353,29 +375,35 @@ function GroupNameSelect(props: GroupNameSelectProps) {
 
   return (
     <Combobox
-  options={options.map((name) => ({ value: name, label: name }))}
-  value={props.value}
-  onValueChange={(value) => { if (value) props.onValueChange(value) }}
-  className={props.className ?? 'w-48'}
-  placeholder={props.placeholder}
-  aria-label={props.placeholder}
-/>
+      options={options.map((name) => ({ value: name, label: name }))}
+      value={props.value}
+      onValueChange={(value) => {
+        if (value) props.onValueChange(value)
+      }}
+      className={props.className ?? 'w-48'}
+      placeholder={props.placeholder}
+      aria-label={props.placeholder}
+    />
   )
 }
 
 export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
+  section = 'pricing',
+  onSectionChange,
+  defaultUseAutoGroupField,
   groupRatio,
   topupGroupRatio,
   userUsableGroups,
   groupGroupRatio,
   autoGroups,
-  groupMetadata,
+  groupMetadata = '',
   vendors = [],
   maxTokenAutoGroupsField,
   groupSpecialUsableGroup,
   onChange,
 }: GroupRatioVisualEditorProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const [detailGroup, setDetailGroup] = useState<string | null>(null)
 
   const registry = useMemo<RegistryEntry[]>(() => {
@@ -439,84 +467,120 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   )
 
   return (
-    <div className='space-y-4'>
-      <GroupPricingTable
-        groupRatio={groupRatio}
-        userUsableGroups={userUsableGroups}
-        topupGroupRatio={topupGroupRatio}
-        groupMetadata={groupMetadata}
-        vendors={vendors}
-        onChange={onChange}
-        onShowDetail={setDetailGroup}
-      />
-
-      <GroupOverrideRules
-        registry={registry}
-        groupGroupRatio={groupGroupRatio}
-        onChange={onChange}
-      />
-
-      {/* Auto Groups */}
-      <Card className={sectionCardClassName}>
-        <CardHeader className={sectionHeaderClassName}>
-          <CardTitle>{t('Auto assignment order')}</CardTitle>
-          <CardDescription>
-            {t(
-              'Priority order for tokens in the auto group. The system tries groups from top to bottom.'
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className='space-y-4'>
-            {maxTokenAutoGroupsField}
-            <GroupNameSelect
-              options={autoGroupCandidates}
-              value={null}
-              placeholder={t('Add group')}
-              onValueChange={handleAutoGroupAdd}
-            />
-            {autoGroupsList.length > 0 && (
-              <div className='space-y-2'>
-                {autoGroupsList.map((group, index) => (
-                  <div
-                    key={group}
-                    className='flex items-center gap-2 rounded-md border p-3'
-                  >
-                    <GripVertical className='text-muted-foreground h-4 w-4' />
-                    <span className='font-medium'>{group}</span>
-                    {!registryNames.includes(group) && <UnknownGroupBadge />}
-                    <div className='ml-auto flex gap-1'>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        disabled={index === 0}
-                        onClick={() => handleAutoGroupMove(index, 'up')}
-                      >
-                        ↑
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        disabled={index === autoGroupsList.length - 1}
-                        onClick={() => handleAutoGroupMove(index, 'down')}
-                      >
-                        ↓
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={() => handleAutoGroupDelete(index)}
-                      >
-                        <Trash2 className='h-4 w-4' />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+    <Tabs
+      value={section}
+      onValueChange={(value) =>
+        onSectionChange?.(value as GroupSettingsSection)
+      }
+      className='min-w-0 gap-5'
+    >
+      <div className='min-w-0 overflow-x-auto pb-1'>
+        <TabsList aria-label={t('Group settings')} className='w-full min-w-max'>
+          <TabsTrigger value='pricing' className='px-3'>
+            {t('Pricing groups')}
+          </TabsTrigger>
+          <TabsTrigger value='overrides' className='px-3'>
+            {t('Special ratio rules')}
+          </TabsTrigger>
+          <TabsTrigger value='visibility' className='px-3'>
+            {t('Group visibility')}
+          </TabsTrigger>
+          <TabsTrigger value='auto' className='px-3'>
+            {t('Auto group order')}
+          </TabsTrigger>
+        </TabsList>
+      </div>
+      <TabsContent value='pricing' keepMounted>
+        <GroupPricingTable
+          groupRatio={groupRatio}
+          userUsableGroups={userUsableGroups}
+          topupGroupRatio={topupGroupRatio}
+          groupMetadata={groupMetadata}
+          vendors={vendors}
+          onChange={onChange}
+          onShowDetail={setDetailGroup}
+        />
+      </TabsContent>
+      <TabsContent value='overrides' keepMounted>
+        <GroupOverrideRules
+          registry={registry}
+          groupGroupRatio={groupGroupRatio}
+          onChange={onChange}
+        />
+      </TabsContent>
+      <TabsContent value='visibility' keepMounted>
+        <GroupSpecialUsableRulesEditor
+          value={groupSpecialUsableGroup}
+          groupOptions={registryNames}
+          onChange={(value) => onChange('GroupSpecialUsableGroup', value)}
+        />
+      </TabsContent>
+      <TabsContent value='auto' keepMounted>
+        <Card className={sectionCardClassName}>
+          <CardHeader className={sectionHeaderClassName}>
+            <CardTitle>{t('Auto group order')}</CardTitle>
+            <CardDescription>
+              {t(
+                'Priority order for tokens in the auto group. The system tries groups from top to bottom.'
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className='grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,0.7fr)]'>
+            <div className='flex min-w-0 flex-col gap-3'>
+              <GroupNameSelect
+                options={autoGroupCandidates}
+                value={null}
+                className='w-full'
+                placeholder={t('Add group')}
+                onValueChange={handleAutoGroupAdd}
+              />
+              {autoGroupsList.length === 0 ? (
+                <EmptyState
+                  className='min-h-40'
+                  title={t('No auto groups configured')}
+                  description={t(
+                    'Add groups in the order they should be tried.'
+                  )}
+                />
+              ) : (
+                <Reorder.Group
+                  as='ol'
+                  axis='y'
+                  values={autoGroupsList}
+                  onReorder={(groups) =>
+                    onChange('AutoGroups', JSON.stringify(groups, null, 2))
+                  }
+                  aria-label={t('Auto group order')}
+                  className='flex flex-col gap-2'
+                >
+                  {autoGroupsList.map((group, index) => (
+                    <AutoGroupOrderItem
+                      key={group}
+                      group={group}
+                      index={index}
+                      count={autoGroupsList.length}
+                      onMove={handleAutoGroupMove}
+                      onRemove={() => handleAutoGroupDelete(index)}
+                      leading={
+                        <span className='text-muted-foreground w-5 shrink-0 text-center text-sm tabular-nums'>
+                          {formatNumber(index + 1, locale)}
+                        </span>
+                      }
+                    >
+                      {!registryNames.includes(group) && <UnknownGroupBadge />}
+                    </AutoGroupOrderItem>
+                  ))}
+                </Reorder.Group>
+              )}
+            </div>
+            <div className='bg-muted/20 flex min-w-0 flex-col gap-4 self-start rounded-lg border p-4'>
+              {defaultUseAutoGroupField}
+              <Separator />
+              {maxTokenAutoGroupsField}
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
 
       <GroupDetailSheet
         groupName={detailGroup}
@@ -530,7 +594,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         autoGroups={autoGroupsList}
         groupSpecialUsableGroup={groupSpecialUsableGroup}
       />
-    </div>
+    </Tabs>
   )
 })
 
@@ -790,6 +854,7 @@ function GroupPricingTable({
   onShowDetail,
 }: GroupPricingTableProps) {
   const { t } = useTranslation()
+  const [search, setSearch] = useState('')
   const [rows, setRows] = useState<GroupPricingRow[]>(() =>
     buildGroupPricingRows(
       groupRatio,
@@ -868,6 +933,7 @@ function GroupPricingTable({
   )
 
   const addRow = useCallback(() => {
+    setSearch('')
     const existingNames = new Set(rows.map((row) => row.name))
     let index = 1
     let name = `group_${index}`
@@ -924,6 +990,27 @@ function GroupPricingTable({
       .map(([name]) => name)
   }, [rows])
 
+  const query = search.trim().toLowerCase()
+  const visibleRows = rows.filter(
+    (row) =>
+      !query ||
+      row.name.toLowerCase().includes(query) ||
+      row.description.toLowerCase().includes(query)
+  )
+  const handleVisibleRowsReorder = (nextVisibleRows: GroupPricingRow[]) => {
+    if (!query) {
+      emitMetadataRows(nextVisibleRows)
+      return
+    }
+    const visibleIds = new Set(nextVisibleRows.map((row) => row._id))
+    let visibleIndex = 0
+    emitMetadataRows(
+      rows.map((row) =>
+        visibleIds.has(row._id) ? nextVisibleRows[visibleIndex++] : row
+      )
+    )
+  }
+
   return (
     <Card className={sectionCardClassName}>
       <CardHeader className={sectionHeaderClassName}>
@@ -944,6 +1031,28 @@ function GroupPricingTable({
       </CardHeader>
       <CardContent>
         <div className='space-y-3'>
+          <InputGroup className='max-w-sm'>
+            <InputGroupAddon>
+              <Search aria-hidden='true' />
+            </InputGroupAddon>
+            <InputGroupInput
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              aria-label={t('Search groups by name or description')}
+              placeholder={t('Search groups by name or description')}
+            />
+            {search && (
+              <InputGroupAddon align='inline-end'>
+                <InputGroupButton
+                  size='icon-xs'
+                  aria-label={t('Clear search')}
+                  onClick={() => setSearch('')}
+                >
+                  <X aria-hidden='true' />
+                </InputGroupButton>
+              </InputGroupAddon>
+            )}
+          </InputGroup>
           <div className='overflow-x-auto'>
             <div className='min-w-[1280px]'>
               <div className='text-muted-foreground grid grid-cols-[minmax(12rem,2fr)_minmax(14rem,2fr)_minmax(11rem,1.5fr)_7rem_7rem_8rem_minmax(12rem,2fr)_auto] gap-2 px-2 pb-2 text-xs font-medium'>
@@ -956,23 +1065,25 @@ function GroupPricingTable({
                 <span>{t('Description')}</span>
                 <span>{t('Actions')}</span>
               </div>
-              {rows.length === 0 ? (
+              {visibleRows.length === 0 ? (
                 <p className='text-muted-foreground h-20 p-2 text-sm'>
-                  {t('No groups yet. Add a group to get started.')}
+                  {query
+                    ? t('No results found')
+                    : t('No groups yet. Add a group to get started.')}
                 </p>
               ) : (
                 <Reorder.Group
                   axis='y'
-                  values={rows}
-                  onReorder={emitMetadataRows}
+                  values={visibleRows}
+                  onReorder={handleVisibleRowsReorder}
                   className='space-y-2'
                   data-group-pricing-sortable-list
                 >
-                  {rows.map((row, index) => (
+                  {visibleRows.map((row) => (
                     <GroupPricingSortableRow
                       key={row._id}
                       row={row}
-                      index={index}
+                      index={rows.findIndex((item) => item._id === row._id)}
                       count={rows.length}
                       duplicateNames={duplicateNames}
                       vendors={vendors}
@@ -1143,19 +1254,37 @@ function GroupOverrideRules({
             <Plus className='mr-2 h-4 w-4' />
             {t('Add user group')}
           </Button>
+          {groupGroupRatioList.length === 0 && (
+            <EmptyState
+              className='min-h-40'
+              title={t('No special ratios configured')}
+              description={t(
+                'Base group ratios apply until you add an override.'
+              )}
+            />
+          )}
           {groupGroupRatioList.length > 0 && (
             <div className='space-y-3'>
               {groupGroupRatioList.map((userGroupData) => (
-                <Collapsible key={userGroupData.userGroup}>
+                <Collapsible key={userGroupData.userGroup} defaultOpen>
                   <div className='rounded-lg border'>
-                    <div className='flex items-center justify-between p-4'>
-                      <div className='flex items-center gap-2'>
-                        <CollapsibleTrigger
-                          render={<Button variant='ghost' size='sm' />}
-                        >
-                          <ChevronDown className='h-4 w-4' />
-                        </CollapsibleTrigger>
-                        <span className='font-semibold'>
+                    <div className='flex items-center justify-between gap-2 p-3'>
+                      <CollapsibleTrigger
+                        render={
+                          <Button
+                            variant='ghost'
+                            className='h-auto min-w-0 justify-start whitespace-normal'
+                          />
+                        }
+                        aria-label={t('Rules for {{group}}', {
+                          group: userGroupData.userGroup,
+                        })}
+                      >
+                        <ChevronDown
+                          className='size-4 shrink-0'
+                          aria-hidden='true'
+                        />
+                        <span className='min-w-0 truncate font-semibold'>
                           {userGroupData.userGroup}
                         </span>
                         {!registryNames.includes(userGroupData.userGroup) && (
@@ -1169,11 +1298,12 @@ function GroupOverrideRules({
                             count: userGroupData.overrides.length,
                           })}
                         </span>
-                      </div>
-                      <div className='flex gap-2'>
+                      </CollapsibleTrigger>
+                      <div className='flex shrink-0 gap-1'>
                         <Button
                           variant='ghost'
                           size='sm'
+                          aria-label={t('Add ratio override')}
                           onClick={() =>
                             handleOverrideAdd(userGroupData.userGroup)
                           }
@@ -1183,6 +1313,9 @@ function GroupOverrideRules({
                         <Button
                           variant='ghost'
                           size='sm'
+                          aria-label={t('Remove {{group}}', {
+                            group: userGroupData.userGroup,
+                          })}
                           onClick={() =>
                             handleUserGroupDelete(userGroupData.userGroup)
                           }
@@ -1204,8 +1337,13 @@ function GroupOverrideRules({
                                 header: t('Billing group'),
                                 cellClassName: 'font-medium',
                                 cell: (override) => (
-                                  <span className='inline-flex items-center gap-1.5'>
-                                    {override.targetGroup}
+                                  <span className='inline-flex max-w-48 items-center gap-1.5'>
+                                    <span
+                                      className='truncate'
+                                      title={override.targetGroup}
+                                    >
+                                      {override.targetGroup}
+                                    </span>
                                     {!registryNames.includes(
                                       override.targetGroup
                                     ) && (
@@ -1592,7 +1730,7 @@ function GroupDetailSheet(props: GroupDetailSheetProps) {
                 )}
                 <div className='flex justify-between'>
                   <dt className='text-muted-foreground'>
-                    {t('Auto assignment order')}
+                    {t('Auto group order')}
                   </dt>
                   <dd className='font-medium'>
                     {detail.autoIndex >= 0

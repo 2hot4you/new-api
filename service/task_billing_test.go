@@ -390,6 +390,70 @@ func TestLogTaskConsumptionWithoutSnapshotKeepsRatioMode(t *testing.T) {
 	assert.Contains(t, log.Content, "size: 2.00")
 }
 
+// Task logs distinguish protocols whose callers poll from protocols that own
+// the wait, independent of request-context lifetime, and flag discarded data.
+func TestLogTaskConsumptionMarksSynchronousProtocolsAndDiscardedArtifacts(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		status              model.TaskStatus
+		discarded           bool
+		synchronousProtocol bool
+		wantSync, wantKept  bool
+	}{
+		{"asynchronous job", model.TaskStatusNotStart, false, false, false, true},
+		{"immediate result on a discarding route", model.TaskStatusSuccess, true, true, true, false},
+		{"synchronous image protocol survives timeout or disconnect", model.TaskStatusNotStart, false, true, true, true},
+		{"immediate failure", model.TaskStatusFailure, false, true, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			const userID, channelID = 43, 43
+			seedUser(t, userID, 10_000)
+			seedChannel(t, channelID)
+			task := makeTask(userID, channelID, 100, 0, BillingSourceWallet, 0)
+			task.Status = tc.status
+			task.PrivateData.ResultDiscarded = tc.discarded
+			task.PrivateData.SynchronousProtocol = tc.synchronousProtocol
+			info := &relaycommon.RelayInfo{
+				UserId: userID, OriginModelName: "qwen-image-plus", UsingGroup: "default",
+				ChannelMeta:   &relaycommon.ChannelMeta{ChannelId: channelID},
+				TaskRelayInfo: &relaycommon.TaskRelayInfo{Action: "text_to_image"},
+				PriceData:     types.PriceData{ModelPrice: 0.03, Quota: 100, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
+			}
+			gin.SetMode(gin.TestMode)
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+			ctx.Set("token_name", "test_token")
+			LogTaskConsumption(ctx, info, task)
+			log := getLastLog(t)
+			require.NotNil(t, log)
+			var other map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+			assert.Equal(t, true, other["is_task"])
+			if tc.wantSync {
+				assert.Equal(t, true, other["task_sync"])
+			} else {
+				assert.NotContains(t, other, "task_sync")
+			}
+			if tc.wantKept {
+				assert.NotContains(t, other, "result_discarded")
+			} else {
+				assert.Equal(t, true, other["result_discarded"])
+			}
+		})
+	}
+}
+
+func TestTaskBillingOtherCarriesPersistedSynchronousProtocolContract(t *testing.T) {
+	task := makeTask(1, 1, 100, 0, BillingSourceWallet, 0)
+	task.PrivateData.SynchronousProtocol = true
+
+	other := taskBillingOther(task)
+	var decoded map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(other.JSONString(), &decoded))
+	assert.Equal(t, true, decoded["task_sync"])
+}
+
 func TestTaskBillingOtherSeparatesPluginAndRootDiagnostics(t *testing.T) {
 	task := makeTask(1, 1, 100, 0, BillingSourceWallet, 0)
 	task.TaskID = "task_public"

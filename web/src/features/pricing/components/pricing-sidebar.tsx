@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ChevronDown, RotateCcw } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { memo, useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -73,17 +73,17 @@ export interface PricingSidebarProps {
   vendorFilter: string
   groupFilter: string
   tagFilter: string
-  inputModalityFilter: string
-  contextFilter: string
-  capabilityFilter: string
+  inputModalityFilter?: string
+  contextFilter?: string
+  capabilityFilter?: string
   onQuotaTypeChange: (value: string) => void
   onEndpointTypeChange: (value: string) => void
   onVendorChange: (value: string) => void
   onGroupChange: (value: string) => void
   onTagChange: (value: string) => void
-  onInputModalityChange: (value: string) => void
-  onContextChange: (value: string) => void
-  onCapabilityChange: (value: string) => void
+  onInputModalityChange?: (value: string) => void
+  onContextChange?: (value: string) => void
+  onCapabilityChange?: (value: string) => void
   vendors: PricingVendor[]
   groups: string[]
   groupRatios?: Record<string, number>
@@ -175,8 +175,40 @@ function FilterSection(props: FilterSectionProps) {
   )
 }
 
-export function PricingSidebar(props: PricingSidebarProps) {
+export const PricingSidebar = memo(function PricingSidebar(
+  props: PricingSidebarProps
+) {
   const { t } = useTranslation()
+  const counts = useMemo(() => {
+    const vendors = new Map<string, number>()
+    const tags = new Map<string, number>()
+    const endpoints = new Map<string, number>()
+    const quotas = { token: 0, request: 0, task: 0 }
+    for (const model of props.models) {
+      if (model.vendor_name) {
+        vendors.set(
+          model.vendor_name,
+          (vendors.get(model.vendor_name) ?? 0) + 1
+        )
+      }
+      for (const tag of new Set(
+        parseTags(model.tags).map((tag) => tag.toLowerCase())
+      )) {
+        tags.set(tag, (tags.get(tag) ?? 0) + 1)
+      }
+      for (const endpoint of new Set(model.supported_endpoint_types ?? [])) {
+        endpoints.set(endpoint, (endpoints.get(endpoint) ?? 0) + 1)
+      }
+      if (hasTaskUsageSchema(model)) {
+        quotas.task++
+      } else if (model.quota_type === 0) {
+        quotas.token++
+      } else if (model.quota_type === 1) {
+        quotas.request++
+      }
+    }
+    return { vendors, tags, endpoints, quotas }
+  }, [props.models])
   const quotaTypeLabels = getQuotaTypeLabels(t)
   const endpointTypeLabels = getEndpointTypeLabels(t)
 
@@ -190,10 +222,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
       .map((vendor) => ({
         value: vendor.name,
         label: vendor.name,
-        count: countBy(
-          props.models,
-          (model) => model.vendor_name === vendor.name
-        ),
+        count: counts.vendors.get(vendor.name) ?? 0,
         icon: vendor.icon ? getLobeIcon(vendor.icon, 14) : undefined,
       }))
       .filter((vendor) => vendor.count > 0),
@@ -243,10 +272,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
     {
       value: QUOTA_TYPES.REQUEST,
       label: quotaTypeLabels[QUOTA_TYPES.REQUEST],
-      count: countBy(
-        props.models,
-        (model) => model.quota_type === 1 && !hasTaskUsageSchema(model)
-      ),
+      count: counts.quotas.request,
     },
     {
       value: QUOTA_TYPES.DYNAMIC,
@@ -260,9 +286,9 @@ export function PricingSidebar(props: PricingSidebarProps) {
     {
       value: QUOTA_TYPES.TASK,
       label: quotaTypeLabels[QUOTA_TYPES.TASK],
-      count: countBy(props.models, (model) => hasTaskUsageSchema(model)),
+      count: counts.quotas.task,
     },
-  ].filter((option) => option.value === QUOTA_TYPES.ALL || option.count > 0)
+  ]
 
   const tagOptions: FilterOption[] = [
     {
@@ -273,11 +299,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
     ...props.tags.map((tag) => ({
       value: tag,
       label: tag,
-      count: countBy(props.models, (model) =>
-        parseTags(model.tags)
-          .map((item) => item.toLowerCase())
-          .includes(tag.toLowerCase())
-      ),
+      count: counts.tags.get(tag.toLowerCase()) ?? 0,
     })),
   ]
 
@@ -292,12 +314,9 @@ export function PricingSidebar(props: PricingSidebarProps) {
       .map(([value, label]) => ({
         value,
         label,
-        count: countBy(
-          props.models,
-          (model) => model.supported_endpoint_types?.includes(value) ?? false
-        ),
+        count: counts.endpoints.get(value) ?? 0,
       })),
-  ].filter((option) => option.value === ENDPOINT_TYPES.ALL || option.count > 0)
+  ]
 
   const inputModalities = new Set<Modality>()
   const capabilities = new Set<ModelCapability>()
@@ -425,16 +444,16 @@ export function PricingSidebar(props: PricingSidebarProps) {
         <FilterSection
           id='input-types'
           title={t('Input Types')}
-          value={props.inputModalityFilter}
+          value={props.inputModalityFilter ?? FILTER_ALL}
           options={inputOptions}
-          onChange={props.onInputModalityChange}
+          onChange={props.onInputModalityChange ?? (() => {})}
         />
         <FilterSection
           id='context-length'
           title={t('Context Length')}
-          value={props.contextFilter}
+          value={props.contextFilter ?? FILTER_ALL}
           options={contextOptions}
-          onChange={props.onContextChange}
+          onChange={props.onContextChange ?? (() => {})}
         />
         <FilterSection
           id='vendors'
@@ -446,9 +465,9 @@ export function PricingSidebar(props: PricingSidebarProps) {
         <FilterSection
           id='capabilities'
           title={t('Supported Capabilities')}
-          value={props.capabilityFilter}
+          value={props.capabilityFilter ?? FILTER_ALL}
           options={capabilityOptions}
-          onChange={props.onCapabilityChange}
+          onChange={props.onCapabilityChange ?? (() => {})}
         />
         <FilterSection
           id='endpoint-types'
@@ -481,4 +500,4 @@ export function PricingSidebar(props: PricingSidebarProps) {
       </div>
     </aside>
   )
-}
+})

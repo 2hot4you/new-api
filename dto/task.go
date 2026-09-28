@@ -58,8 +58,11 @@ type TaskDto struct {
 	VideoParams          *TaskVideoParams    `json:"video_params,omitempty"`
 	Billing              *TaskBillingSummary `json:"billing,omitempty"`
 	LegacyVideoAvailable bool                `json:"legacy_video_available,omitempty"`
-	AdminInfo            *TaskAdminInfo      `json:"admin_info,omitempty"`
-	RootInfo             *TaskRootInfo       `json:"root_info,omitempty"`
+	// ResultDiscarded marks a synchronous result that was returned inline and
+	// never persisted; the UI must not offer artifact retrieval for it.
+	ResultDiscarded bool           `json:"result_discarded,omitempty"`
+	AdminInfo       *TaskAdminInfo `json:"admin_info,omitempty"`
+	RootInfo        *TaskRootInfo  `json:"root_info,omitempty"`
 }
 
 type TaskPluginInfo struct {

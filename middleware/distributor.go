@@ -168,11 +168,11 @@ func channelMatchesExpectedTaskPlugin(c *gin.Context, channel *model.Channel, ex
 			return true
 		}
 	}
-	if channel.Type == constant.ChannelTypeTaskPlugin {
-		return expected != "" && channel.GetSetting().TaskPluginKey == expected
-	}
 	if expected == "" {
-		return true
+		return channel.Type != constant.ChannelTypeTaskPlugin
+	}
+	if channel.Type == constant.ChannelTypeTaskPlugin || channel.Type == constant.ChannelTypeNewAPI {
+		return channel.GetSetting().BindsTaskPlugin(expected)
 	}
 	if slices.Contains(service.TaskPluginChannelTypesForRequest(c, expected), channel.Type) {
 		return true
@@ -205,6 +205,7 @@ func pinnedEndpointCandidateForChannel(c *gin.Context, channel *model.Channel, e
 	}
 	expectedOwned := false
 	selected := jsplugin.ProtocolBinding{}
+	setting := channel.GetSetting()
 	for _, candidate := range candidates {
 		if candidate.Plugin == nil {
 			continue
@@ -212,8 +213,12 @@ func pinnedEndpointCandidateForChannel(c *gin.Context, channel *model.Channel, e
 		if candidate.Plugin.Meta.Key == expected {
 			expectedOwned = true
 		}
-		if channel.Type == constant.ChannelTypeTaskPlugin {
-			if channel.GetSetting().TaskPluginKey == candidate.Plugin.Meta.Key {
+		if channel.Type == constant.ChannelTypeTaskPlugin || channel.Type == constant.ChannelTypeNewAPI {
+			// A New API channel may bind several candidates. The first bound
+			// candidate in generation order executes, so the billing provider
+			// depends only on the channel and the request, never on which
+			// channels an earlier retry attempt happened to try.
+			if selected.Plugin == nil && setting.BindsTaskPlugin(candidate.Plugin.Meta.Key) {
 				selected = candidate
 			}
 			continue
@@ -623,11 +628,18 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelCreateTime, channel.CreatedTime)
 	common.SetContextKey(c, constant.ContextKeyChannelSetting, channel.GetSetting())
 	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, channel.GetOtherSettings())
-	if channel.Type == constant.ChannelTypeTaskPlugin {
+	switch channel.Type {
+	case constant.ChannelTypeTaskPlugin:
 		pluginKey := channel.GetSetting().TaskPluginKey
 		c.Set("task_plugin_key", pluginKey)
 		if !matchedCandidate {
 			c.Set("platform", pluginKey)
+		}
+	case constant.ChannelTypeNewAPI:
+		// The bound plugin verified above executes; ordinary requests through
+		// the same gateway channel carry no pinned plugin.
+		if executing := c.GetString("expected_task_plugin_key"); executing != "" {
+			c.Set("task_plugin_key", executing)
 		}
 	}
 	logTaskPluginChannelDecision(c, channel, modelName, "channel_selected", "")

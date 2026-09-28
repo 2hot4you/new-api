@@ -25,6 +25,7 @@ import (
 
 type taskPollingFetchAdaptor struct {
 	mu           sync.Mutex
+	initInfo     *relaycommon.RelayInfo
 	taskIDs      []string
 	fetched      chan string
 	blockTaskID  string
@@ -147,7 +148,19 @@ func (a *sunoFailurePollingAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *re
 	return 0
 }
 
-func (a *taskPollingFetchAdaptor) Init(_ *relaycommon.RelayInfo) {}
+func (a *taskPollingFetchAdaptor) Init(info *relaycommon.RelayInfo) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.initInfo = info
+}
+func (a *taskPollingFetchAdaptor) initChannelMeta() *relaycommon.ChannelMeta {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.initInfo == nil {
+		return nil
+	}
+	return a.initInfo.ChannelMeta
+}
 
 func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, task *model.Task, _ string) (*http.Response, error) {
 	taskID := ""
@@ -514,6 +527,37 @@ func TestUpdateVideoTasksDefaultSleepWaitsBetweenTasks(t *testing.T) {
 	assert.Equal(t, 1, adaptor.fetchCount())
 }
 
+func TestPollingPassesExecutingChannelTypeToAdaptor(t *testing.T) {
+	truncate(t)
+	const channelID = 112
+	baseURL := "https://gateway.example"
+	gateway := &model.Channel{Id: channelID, Type: constant.ChannelTypeNewAPI, Name: "gateway", Key: "sk-gateway", Status: common.ChannelStatusEnabled, BaseURL: &baseURL}
+	gateway.SetOtherSettings(dto.ChannelOtherSettings{DisableTaskPollingSleep: true})
+	require.NoError(t, model.DB.Create(gateway).Error)
+	task := seedPollingTask(t, channelID, "task_gateway", "upstream_gateway")
+	taskChannels := map[int][]string{channelID: {task.GetUpstreamTaskID()}}
+	tasks := map[string]*model.Task{task.GetUpstreamTaskID(): task}
+
+	perTask := &taskPollingFetchAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return perTask }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+	require.NoError(t, UpdateVideoTasks(context.Background(), constant.TaskPlatform("kling"), taskChannels, tasks))
+	meta := perTask.initChannelMeta()
+	require.NotNil(t, meta, "per-task polling initializes the adaptor with channel metadata")
+	assert.Equal(t, constant.ChannelTypeNewAPI, meta.ChannelType, "the adaptor derives the upstream kind from the channel type")
+	assert.Equal(t, channelID, meta.ChannelId)
+	assert.Equal(t, baseURL, meta.ChannelBaseUrl)
+
+	batch := &batchPollingAdaptor{}
+	require.NoError(t, UpdateBatchTasks(context.Background(), batch, taskChannels, tasks))
+	meta = batch.initChannelMeta()
+	require.NotNil(t, meta, "batch polling initializes the adaptor with channel metadata")
+	assert.Equal(t, constant.ChannelTypeNewAPI, meta.ChannelType)
+	assert.Equal(t, channelID, meta.ChannelId)
+	assert.Equal(t, baseURL, meta.ChannelBaseUrl)
+}
+
 func TestUpdateVideoTasksCanSkipPollingSleepPerChannel(t *testing.T) {
 	truncate(t)
 
@@ -794,20 +838,41 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	previousFactory := GetTaskAdaptorFunc
 	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
 	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+	performanceSamples := 0
+	previousRecorder := recordTerminalTaskPerformance
+	recordTerminalTaskPerformance = func(*model.Task, *relaycommon.TaskInfo) { performanceSamples++ }
+	t.Cleanup(func() { recordTerminalTaskPerformance = previousRecorder })
 
 	require.NoError(t, updateSunoTasks(context.Background(), channelID, []string{upstreamTaskID}, map[string]*model.Task{
 		upstreamTaskID: &firstPollTask,
 	}))
+	adaptor.failReason = "stale second poll must not escape"
 	require.NoError(t, updateSunoTasks(context.Background(), channelID, []string{upstreamTaskID}, map[string]*model.Task{
 		upstreamTaskID: &staleSecondPollTask,
 	}))
+	assert.Equal(t, 1, performanceSamples, "the terminal CAS loser must not record a duplicate sample")
 
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Equal(t, "upstream failed", reloaded.FailReason)
+	for name, polled := range map[string]*model.Task{
+		"winner": &firstPollTask,
+		"loser":  &staleSecondPollTask,
+	} {
+		assert.Equal(t, reloaded.Status, polled.Status, "%s must expose the authoritative status", name)
+		assert.Equal(t, reloaded.Progress, polled.Progress, "%s must expose the authoritative progress", name)
+		assert.Equal(t, reloaded.FailReason, polled.FailReason, "%s must expose the authoritative failure reason", name)
+		assert.Equal(t, reloaded.FinishTime, polled.FinishTime, "%s must expose the authoritative finish time", name)
+		assert.Equal(t, reloaded.Data, polled.Data, "%s must expose the authoritative result data", name)
+		assert.Equal(t, reloaded.PrivateData, polled.PrivateData, "%s must expose the authoritative private data", name)
+	}
 	assert.Equal(t, taskQuota, reloaded.Quota)
 	job := loadTaskBillingJobByTaskID(t, task.ID)
 	assert.Equal(t, model.TaskBillingJobStatusPending, job.Status)
+	var jobs int64
+	require.NoError(t, model.DB.Model(&model.TaskBillingJob{}).Where("task_id = ?", task.ID).Count(&jobs).Error)
+	assert.Equal(t, int64(1), jobs, "stale terminal polling must not enqueue duplicate billing")
 	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota, getTokenRemainQuota(t, tokenID))
 	assert.Zero(t, countLogs(t))
@@ -819,6 +884,32 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	assert.Equal(t, initialTokenQuota+taskQuota, getTokenRemainQuota(t, tokenID))
 	assert.Zero(t, getTaskQuota(t, task.ID))
 	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestFinalizePolledTaskCASLoserReturnsAuthoritativeReloadError(t *testing.T) {
+	setupTaskBillingReconciliationTest(t)
+
+	task := makeTask(1, 0, 100, 0, BillingSourceWallet, 0)
+	task.TaskID = "deleted_before_authoritative_reload"
+	task.Status = model.TaskStatusInProgress
+	require.NoError(t, model.DB.Create(task).Error)
+
+	stale := *task
+	require.NoError(t, model.DB.Delete(&model.Task{}, task.ID).Error)
+	stale.Status = model.TaskStatusFailure
+	stale.Progress = "100%"
+	stale.FailReason = "stale terminal result"
+
+	won, err := finalizePolledTaskWithBilling(
+		context.Background(),
+		&stale,
+		model.TaskStatusInProgress,
+		nil,
+		relaycommon.FailTaskInfo(stale.FailReason),
+	)
+	assert.False(t, won)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reload authoritative terminal task")
 }
 
 func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {

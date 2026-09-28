@@ -59,7 +59,7 @@ import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
 export interface ModelCardProps {
   model: PricingModel
-  onClick: () => void
+  onClick: (modelName: string) => void
   priceRate?: number
   usdExchangeRate?: number
   tokenUnit?: TokenUnit
@@ -434,7 +434,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      props.onClick()
+      props.onClick(props.model.model_name || '')
     }
   }
 
@@ -443,7 +443,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       role='link'
       tabIndex={0}
       data-model-card='true'
-      onClick={props.onClick}
+      onClick={() => props.onClick(props.model.model_name || '')}
       onKeyDown={handleKeyDown}
       className={cn(
         'group bg-background relative flex min-h-[330px] cursor-pointer flex-col border-r border-b p-4 outline-none transition-colors sm:p-5',
@@ -627,7 +627,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         type='button'
         onClick={(event) => {
           event.stopPropagation()
-          props.onClick()
+          props.onClick(props.model.model_name || '')
         }}
         className='sr-only'
       >

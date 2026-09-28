@@ -62,6 +62,7 @@ import { TaskDetailsDialog } from '../dialogs/task-details-dialog'
 import { TaskTimingDialog } from '../dialogs/task-timing-dialog'
 import { VideoPreviewDialog } from '../dialogs/video-preview-dialog'
 import { ModelBadge } from '../model-badge'
+import { TaskArtifactsCell } from '../task-artifacts'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import { createChannelColumn } from './column-helpers'
 
@@ -485,6 +486,15 @@ export function useTaskLogsColumns(
       accessorKey: 'progress',
       header: t('Progress'),
       cell: ({ row }) => <TaskProgressCell log={row.original} />,
+    },
+    {
+      id: 'artifacts',
+      header: t('Artifacts'),
+      cell: ({ row }) => (
+        <TaskArtifactsCell key={row.original.task_id} log={row.original} />
+      ),
+      size: 120,
+      maxSize: 140,
     },
     {
       accessorKey: 'billing',

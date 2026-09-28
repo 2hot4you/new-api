@@ -76,6 +76,40 @@ func TestByteDanceSeedanceAdminFactsAndLocalRatioBilling(t *testing.T) {
 	require.False(t, taskBillingSummary(task, &model.TaskBillingJob{Status: model.TaskBillingJobStatusSucceeded, Operation: model.TaskBillingOperationSettle}).DetailAvailable)
 }
 
+func TestByteDanceSeedanceGenericTaskListKeepsProjectedGenerationFacts(t *testing.T) {
+	db := setupSeedancePollingBillingDB(t)
+	task := &model.Task{
+		TaskID:     "task_list_facts",
+		UserId:     42,
+		Platform:   constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeByteDanceSeedance)),
+		Status:     model.TaskStatusSuccess,
+		Quota:      25,
+		SubmitTime: 1700000000,
+		Data:       json.RawMessage(`{"duration":6,"resolution":"1080p","ratio":"16:9","input_image_count":2,"private_token":"must-not-leak"}`),
+		PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+			ActualTokens: 100,
+			ModelRatio:   2,
+			GroupRatio:   0.5,
+		}},
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	items := model.TaskGetAllUserTask(task.UserId, 0, 10, model.SyncTaskQueryParams{})
+	require.Len(t, items, 1)
+	views := tasksToDto(items, false, common.RoleCommonUser)
+	require.Len(t, views, 1)
+	require.NotNil(t, views[0].VideoParams)
+	assert.Equal(t, "1080p", views[0].VideoParams.Resolution)
+	assert.Equal(t, "16:9", views[0].VideoParams.Ratio)
+	assert.Equal(t, 6, views[0].VideoParams.Seconds)
+	require.NotNil(t, views[0].VideoParams.InputImageCount)
+	assert.Equal(t, 2, *views[0].VideoParams.InputImageCount)
+	assert.Nil(t, views[0].Data)
+	encoded, err := json.Marshal(views[0])
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "must-not-leak")
+}
+
 func setupSeedancePollingBillingDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

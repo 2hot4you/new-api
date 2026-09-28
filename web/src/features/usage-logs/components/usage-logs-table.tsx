@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
+import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -41,6 +42,7 @@ import {
   LOG_TYPE_ALL_VALUE,
   LOG_TYPE_ENUM,
 } from '../constants'
+import { shouldShowBillingSource } from '../lib/billing-source'
 import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
 import { fetchLogsByCategory, shouldReuseLogPlaceholder } from '../lib/utils'
@@ -49,7 +51,7 @@ import type { UsageLogsDataSource } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
-import { useLogsViewScope } from './usage-logs-provider'
+import { useLogsViewScope, type LogsViewAccess } from './usage-logs-provider'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
@@ -64,9 +66,9 @@ const quotaSaturationRowTint = 'bg-amber-50/60 dark:bg-amber-950/25'
 
 function getColumnVisibilityStorageKey(
   logCategory: UsageLogsDataSource,
-  isAdmin: boolean
+  viewAccess: LogsViewAccess
 ): string {
-  return `usage-logs:${logCategory}:${isAdmin ? 'admin' : 'user'}:column-visibility`
+  return `usage-logs:${logCategory}:${viewAccess}:column-visibility`
 }
 
 function deserializeLogTypeFilter(value: unknown): unknown[] {
@@ -86,23 +88,39 @@ interface UsageLogsTableProps {
 
 export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
   const { t } = useTranslation()
-  const { isAdminView: isAdmin, isRootView: isRoot } = useLogsViewScope()
+  const getColumnClassName = useCallback(
+    () => (logCategory === 'common' ? 'py-2' : 'py-3.5'),
+    [logCategory]
+  )
+  const {
+    isAdminView: isAdmin,
+    isRootView: isRoot,
+    viewAccess,
+  } = useLogsViewScope()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
   const userId = useAuthStore((state) => state.auth.user?.id)
-  const { data: showWalletSource = false } = useQuery({
-    queryKey: ['usage-log-wallet-source', isAdmin, userId],
+  const { data: showBillingSource = false } = useQuery({
+    queryKey: ['usage-log-billing-source', isAdmin, userId],
     enabled: logCategory === 'common' && userId != null,
     queryFn: async () => {
       if (isAdmin) {
-        const result = await getAdminPlans()
-        return result.success && (result.data?.length ?? 0) > 0
+        const plansResult = await getAdminPlans()
+        return shouldShowBillingSource({
+          isAdmin,
+          plans: plansResult.success ? plansResult.data : undefined,
+          subscriptions: undefined,
+        })
       }
 
-      const result = await getSelfSubscriptionFull()
-      const subscriptions =
-        result.data?.all_subscriptions ?? result.data?.subscriptions
-      return result.success && (subscriptions?.length ?? 0) > 0
+      const selfResult = await getSelfSubscriptionFull()
+      return shouldShowBillingSource({
+        isAdmin,
+        plans: undefined,
+        subscriptions: selfResult.success
+          ? selfResult.data?.subscriptions
+          : undefined,
+      })
     },
   })
 
@@ -149,7 +167,7 @@ export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
       'logs',
       logCategory,
       source,
-      isAdmin,
+      viewAccess,
       pagination.pageIndex + 1,
       pagination.pageSize,
       columnFilters,
@@ -176,7 +194,12 @@ export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
     placeholderData: (previousData, previousQuery) => {
       if (
         previousQuery &&
-        shouldReuseLogPlaceholder(previousQuery.queryKey, logCategory, source)
+        shouldReuseLogPlaceholder(
+          previousQuery.queryKey,
+          logCategory,
+          source
+        ) &&
+        previousQuery.queryKey[3] === viewAccess
       ) {
         return previousData
       }
@@ -189,7 +212,7 @@ export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
     logCategory,
     isAdmin,
     isRoot,
-    showWalletSource
+    showBillingSource
   )
   const isLoadingData = isLoading || (isFetching && !data)
 
@@ -199,7 +222,7 @@ export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
     columnFilters,
     columnVisibilityStorageKey: getColumnVisibilityStorageKey(
       logCategory,
-      isAdmin
+      viewAccess
     ),
     pagination,
     enableRowSelection: false,
@@ -278,7 +301,8 @@ export function UsageLogsTable({ logCategory, source }: UsageLogsTableProps) {
             key={row.id}
             row={row}
             className={cn('transition-colors', tintClass)}
-            getColumnClassName={() => (isCommon ? 'py-2' : 'py-3.5')}
+            getColumnClassName={getColumnClassName}
+            cellRenderColumns={table.options.columns}
           />
         )
       }}

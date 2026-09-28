@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "implementation",
-  "nextAction": "集成 rc.39，并保持 trust quota 默认关闭及 Molii 任务结算语义",
+  "nextAction": "合并 rc.40，集成长文本插件存储、8 MiB 上传、按需源码同步、2xx 提交、RelayKit 转换与锁定主题存储",
   "createdAt": "2026-09-28T07:20:23Z",
   "branch": "upgrade/rc40"
 }

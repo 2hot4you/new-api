@@ -72,6 +72,12 @@ func TestUpstreamRc38ChannelsUseUnusedPersistedIDs(t *testing.T) {
 			declaredType:  ChannelTypeSGLang,
 			wantName:      "SGLang",
 		},
+		{
+			name:          "Dummy remains the registry sentinel after persisted channels",
+			persistedType: 67,
+			declaredType:  ChannelTypeDummy,
+			wantName:      "Dummy",
+		},
 	}
 
 	for _, test := range tests {

@@ -211,6 +211,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeByteDanceSeedance: "ByteDance Seedance",
 	ChannelTypeVLLM:              "vLLM",
 	ChannelTypeSGLang:            "SGLang",
+	ChannelTypeDummy:             "Dummy",
 }
 
 func GetChannelTypeName(channelType int) string {

@@ -9,7 +9,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"gorm.io/gorm"
 )
 
@@ -149,14 +148,6 @@ func recordTaskBillingReconciliationEvent(ctx context.Context, job *model.TaskBi
 		completionTokens = billingContext.ActualTokens
 	}
 	elapsedSeconds := taskElapsedSeconds(task)
-	perfmetrics.Record(perfmetrics.Sample{
-		Model:        taskModelName(task),
-		Group:        task.Group,
-		LatencyMs:    int64(elapsedSeconds) * 1000,
-		Success:      job.Operation == model.TaskBillingOperationSettle,
-		OutputTokens: int64(completionTokens),
-		GenerationMs: int64(elapsedSeconds) * 1000,
-	})
 	return model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:           task.UserId,
 		LogType:          logType,

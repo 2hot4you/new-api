@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   BILLING_PRICING_VARS,
+  parseTaskTiersFromExpr,
   splitBillingExprAndRequestRules,
   type ParsedTaskTier,
   type ParsedTier,
@@ -289,7 +290,15 @@ function taskUsageDimensions(
   basisRatio: number | null,
   discountCoefficient: number | null
 ): QuotePriceDimension[] {
-  const tiers = getDynamicPricingTiers(model) as ParsedTaskTier[]
+  const parsedTiers = parseTaskTiersFromExpr(
+    model.billing_expr ?? '',
+    model.billing_usage_schema,
+    true
+  )
+  const tiers =
+    parsedTiers.length > 0
+      ? parsedTiers
+      : (getDynamicPricingTiers(model) as ParsedTaskTier[])
   const { requestRuleExpr } = splitBillingExprAndRequestRules(
     model.billing_expr ?? ''
   )

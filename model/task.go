@@ -138,6 +138,15 @@ type TaskPrivateData struct {
 	PollFailures int `json:"poll_failures,omitempty"`
 	// PollFailureClass is a bounded, provider-neutral reconciliation hint.
 	PollFailureClass string `json:"poll_failure_class,omitempty"`
+	// ResultDiscarded marks an immediate terminal result whose submit route
+	// declared retainResult: false, or a synchronous protocol result that was
+	// cleared after response preparation. Every retrieval surface treats the
+	// task as not found. The zero value keeps historical rows retrievable.
+	ResultDiscarded bool `json:"result_discarded,omitempty"`
+	// SynchronousProtocol means the caller-facing protocol never requires task
+	// polling. It does not claim the client received a response: disconnects
+	// and timeouts keep the same protocol contract and durable billing path.
+	SynchronousProtocol bool `json:"synchronous_protocol,omitempty"`
 }
 
 // VideoStudioRequestSnapshot contains the user-owned, reusable request shape.
@@ -257,6 +266,12 @@ const GrokVideoResolutionSourceProviderPollV1 = commonRelay.GrokVideoResolutionS
 
 type GrokVideoBillingSnapshot = commonRelay.GrokVideoBillingSnapshot
 
+// ResultRetrievable reports whether retrieval surfaces (native query routes,
+// protocol retrieve endpoints, artifact projection) may serve this task.
+func (t *Task) ResultRetrievable() bool {
+	return !t.PrivateData.ResultDiscarded
+}
+
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
 // 旧数据没有 UpstreamTaskID 时，TaskID 本身就是上游 ID
 func (t *Task) GetUpstreamTaskID() string {
@@ -293,7 +308,8 @@ func (p TaskPrivateData) Value() (driver.Value, error) {
 	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" &&
 		p.Execution == nil && p.Timing == nil && p.InputMedia == nil && p.VideoStudioRequest == nil && p.StoredResult == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
 		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
-		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 && p.PollFailureClass == "" {
+		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 &&
+		p.PollFailureClass == "" && !p.ResultDiscarded && !p.SynchronousProtocol {
 		return nil, nil
 	}
 	// 同 Properties.Value:string 避免 PG simple protocol 的 bytea 编码。
@@ -321,10 +337,13 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 	properties := Properties{}
 	privateData := TaskPrivateData{}
 	if relayInfo != nil && relayInfo.ChannelMeta != nil {
+		// A New API channel may rotate between several gateway tokens, so the
+		// task keeps the key that submitted it and polls with the same identity.
 		if relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
 			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi ||
 			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeStarAI ||
-			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeByteDanceSeedance {
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeByteDanceSeedance ||
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeNewAPI {
 			privateData.Key = relayInfo.ChannelMeta.ApiKey
 		}
 		if relayInfo.UpstreamModelName != "" {
@@ -386,10 +405,13 @@ func TaskGetAllUserTask(userId int, startIdx int, num int, queryParams SyncTaskQ
 	}
 
 	// 获取数据
-	err = query.Omit("channel_id").Order("id desc").Limit(num).Offset(startIdx).Find(&tasks).Error
+	// Task lists never render the persisted upstream snapshot; the dashboard
+	// loads media through the artifacts endpoint instead.
+	err = query.Omit("channel_id", "data").Order("id desc").Limit(num).Offset(startIdx).Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
+	hydrateResellerSeedanceTaskListData(tasks)
 
 	return tasks
 }
@@ -457,12 +479,48 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 	}
 
 	// 获取数据
-	err = query.Order("id desc").Limit(num).Offset(startIdx).Find(&tasks).Error
+	err = query.Omit("data").Order("id desc").Limit(num).Offset(startIdx).Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
+	hydrateResellerSeedanceTaskListData(tasks)
 
 	return tasks
+}
+
+// hydrateResellerSeedanceTaskListData loads only the provider-neutral facts
+// needed by the native Seedance task-list projection. Ordinary plugin task
+// snapshots remain omitted from generic lists, and the controller clears this
+// data after deriving the public video facts.
+func hydrateResellerSeedanceTaskListData(tasks []*Task) {
+	ids := make([]int64, 0, len(tasks))
+	byID := make(map[int64]*Task, len(tasks))
+	seedancePlatform := constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeByteDanceSeedance))
+	for _, task := range tasks {
+		if task == nil || task.ID == 0 || task.Platform != seedancePlatform {
+			continue
+		}
+		ids = append(ids, task.ID)
+		byID[task.ID] = task
+	}
+	if len(ids) == 0 {
+		return
+	}
+	var rows []struct {
+		ID   int64
+		Data json.RawMessage
+	}
+	if err := DB.Model(&Task{}).
+		Select("id", "data").
+		Where("id IN ? AND platform = ?", ids, seedancePlatform).
+		Find(&rows).Error; err != nil {
+		return
+	}
+	for _, row := range rows {
+		if task := byID[row.ID]; task != nil {
+			task.Data = row.Data
+		}
+	}
 }
 
 func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
@@ -643,15 +701,22 @@ func (Task *Task) Insert() error {
 	return Task.InsertWithContext(context.Background())
 }
 
-func (Task *Task) InsertWithContext(ctx context.Context) error {
-	return DB.WithContext(ctx).Create(Task).Error
+// InsertWithContext creates the row. omitColumns are left out of the INSERT
+// (for example "data" when the submit route discards the upstream snapshot)
+// while the in-memory task keeps its values for presentation.
+func (Task *Task) InsertWithContext(ctx context.Context, omitColumns ...string) error {
+	tx := DB.WithContext(ctx)
+	if len(omitColumns) > 0 {
+		tx = tx.Omit(omitColumns...)
+	}
+	return tx.Create(Task).Error
 }
 
 // InsertWithBillingJobWithContext commits a newly-created terminal task and
 // its replayable billing intent as one durable unit. Callers may insert the
 // job already leased for inline application; an interrupted lease is later
 // reclaimed by the regular billing reconciler.
-func (task *Task) InsertWithBillingJobWithContext(ctx context.Context, job *TaskBillingJob) error {
+func (task *Task) InsertWithBillingJobWithContext(ctx context.Context, job *TaskBillingJob, omitColumns ...string) error {
 	if task == nil || job == nil {
 		return errors.New("task and billing job are required")
 	}
@@ -659,13 +724,47 @@ func (task *Task) InsertWithBillingJobWithContext(ctx context.Context, job *Task
 		ctx = context.Background()
 	}
 	return DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(task).Error; err != nil {
+		taskInsert := tx
+		if len(omitColumns) > 0 {
+			taskInsert = taskInsert.Omit(omitColumns...)
+		}
+		if err := taskInsert.Create(task).Error; err != nil {
 			return err
 		}
 		job.TaskID = task.ID
 		job.IdempotencyKey = taskBillingJobIdempotencyKey(task.ID)
 		return tx.Create(job).Error
 	})
+}
+
+// DiscardResultWithContext atomically clears a prepared synchronous result and
+// marks retrieval unavailable. The receiver changes only after the database
+// update succeeds, so a failed cleanup leaves a recoverable snapshot.
+func (task *Task) DiscardResultWithContext(ctx context.Context) error {
+	if task == nil || task.ID <= 0 {
+		return errors.New("persisted task is required")
+	}
+	if task.Status != TaskStatusSuccess && task.Status != TaskStatusFailure {
+		return errors.New("terminal task is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	privateData := task.PrivateData
+	privateData.ResultDiscarded = true
+	result := DB.WithContext(ctx).Model(&Task{}).Where("id = ?", task.ID).Updates(map[string]any{
+		"data":         nil,
+		"private_data": privateData,
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("task result cleanup did not update a row")
+	}
+	task.Data = nil
+	task.PrivateData = privateData
+	return nil
 }
 
 type taskSnapshot struct {

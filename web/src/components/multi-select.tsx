@@ -42,14 +42,17 @@ import { cn } from '@/lib/utils'
 export type Option = {
   label: string
   value: string
-  icon?: React.ReactNode
-  /** Show a selected legacy value without offering it as a new selection. */
-  selectable?: boolean
   /**
    * Secondary text shown beside the option in the dropdown. Chips for hinted
    * values also carry a marker icon whose tooltip repeats the hint.
    */
   hint?: string
+  /**
+   * Leading icon rendered before the label in the dropdown and on the chip.
+   * Decorative only: it never changes the accessible name.
+   */
+  icon?: React.ReactNode
+  selectable?: boolean
 }
 
 interface MultiSelectProps {
@@ -147,18 +150,19 @@ export function MultiSelect(props: MultiSelectProps) {
     }
     return map
   }, [props.options])
-  const iconMap = React.useMemo(() => {
-    const map = new Map<string, React.ReactNode>()
-    for (const option of props.options) {
-      map.set(option.value, option.icon)
-    }
-    return map
-  }, [props.options])
 
   const hintMap = React.useMemo(() => {
     const map = new Map<string, string>()
     for (const option of props.options) {
       if (option.hint) map.set(option.value, option.hint)
+    }
+    return map
+  }, [props.options])
+
+  const iconMap = React.useMemo(() => {
+    const map = new Map<string, React.ReactNode>()
+    for (const option of props.options) {
+      if (option.icon) map.set(option.value, option.icon)
     }
     return map
   }, [props.options])
@@ -177,9 +181,9 @@ export function MultiSelect(props: MultiSelectProps) {
     trimmedInput.length > 0 &&
     !inputMatchesExisting
 
-  // We expose selectable option values + selected values to Base UI's items
-  // list. Non-selectable options let callers render legacy selected chips
-  // without making unavailable values newly selectable.
+  // Keep non-selectable options available to the chip label/icon maps without
+  // exposing them in the dropdown. This lets callers preserve legacy selected
+  // values that are no longer available for new selections.
   const items = React.useMemo(() => {
     const nonSelectable = new Set(
       props.options
@@ -334,11 +338,18 @@ export function MultiSelect(props: MultiSelectProps) {
               <>
                 {visibleValues.map((value) => {
                   const label = labelMap.get(value) ?? value
-                  const icon = iconMap.get(value)
                   const hint = hintMap.get(value)
+                  const icon = iconMap.get(value)
                   return (
                     <ComboboxChip key={value}>
-                      {icon}
+                      {icon && (
+                        <span
+                          aria-hidden='true'
+                          className='inline-flex shrink-0'
+                        >
+                          {icon}
+                        </span>
+                      )}
                       {props.copyChipOnClick ? (
                         <button
                           type='button'
@@ -421,8 +432,8 @@ export function MultiSelect(props: MultiSelectProps) {
             {(item: string) => {
               const isCreate = canCreate && item === trimmedInput
               const label = labelMap.get(item) ?? item
-              const icon = iconMap.get(item)
               const hint = hintMap.get(item)
+              const icon = iconMap.get(item)
               return (
                 <ComboboxItem
                   key={item}
@@ -446,7 +457,14 @@ export function MultiSelect(props: MultiSelectProps) {
                     </>
                   ) : (
                     <>
-                      {icon}
+                      {icon && (
+                        <span
+                          aria-hidden='true'
+                          className='inline-flex shrink-0'
+                        >
+                          {icon}
+                        </span>
+                      )}
                       <span className='truncate'>{label}</span>
                       {hint && (
                         <span

@@ -172,7 +172,7 @@ func TestTaskBillingReconciliationEventPreservesRootTaskDiagnostics(t *testing.T
 }
 
 func TestTaskBillingReconciliationPublishesAsyncUsageStatistics(t *testing.T) {
-	t.Run("successful task records actual tokens and a successful performance sample", func(t *testing.T) {
+	t.Run("successful task records actual tokens without duplicating the terminal performance sample", func(t *testing.T) {
 		setupTaskBillingReconciliationTest(t)
 		resetReconciliationQuotaDataCache()
 		now := time.Now().Unix()
@@ -211,13 +211,10 @@ func TestTaskBillingReconciliationPublishesAsyncUsageStatistics(t *testing.T) {
 
 		metrics, err := perfmetrics.Query(perfmetrics.QueryParams{Model: "seedance-success-test", Hours: 24})
 		require.NoError(t, err)
-		require.Len(t, metrics.Groups, 1)
-		assert.Equal(t, "ByteDance-success-test", metrics.Groups[0].Group)
-		assert.Equal(t, int64(1), metrics.Groups[0].RequestCount)
-		assert.Equal(t, 100.0, metrics.Groups[0].SuccessRate)
+		assert.Empty(t, metrics.Groups, "terminal CAS, not billing reconciliation, owns performance sampling")
 	})
 
-	t.Run("failed task records a failed performance sample without token usage", func(t *testing.T) {
+	t.Run("failed task records no token usage and does not duplicate the terminal performance sample", func(t *testing.T) {
 		setupTaskBillingReconciliationTest(t)
 		resetReconciliationQuotaDataCache()
 		now := time.Now().Unix()
@@ -243,10 +240,7 @@ func TestTaskBillingReconciliationPublishesAsyncUsageStatistics(t *testing.T) {
 		assert.Empty(t, totals)
 		metrics, err := perfmetrics.Query(perfmetrics.QueryParams{Model: "seedance-failure-test", Hours: 24})
 		require.NoError(t, err)
-		require.Len(t, metrics.Groups, 1)
-		assert.Equal(t, "ByteDance-failure-test", metrics.Groups[0].Group)
-		assert.Equal(t, int64(1), metrics.Groups[0].RequestCount)
-		assert.Equal(t, 0.0, metrics.Groups[0].SuccessRate)
+		assert.Empty(t, metrics.Groups, "terminal CAS, not billing reconciliation, owns performance sampling")
 	})
 }
 

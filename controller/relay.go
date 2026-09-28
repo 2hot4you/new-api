@@ -493,11 +493,14 @@ func RelayTaskPluginEndpoint(c *gin.Context, fallback gin.HandlerFunc) {
 		})
 		return
 	}
-	if pinned.Protocol != "openai_responses" {
+	switch pinned.Protocol {
+	case "openai_responses":
+		serveTaskPluginProtocol(c, pinned, defaultPluginProtocolBridgeDeps())
+	case pluginruntime.ProtocolOpenAIImage:
+		serveTaskPluginImageProtocol(c, pinned, defaultPluginProtocolBridgeDeps())
+	default:
 		fallback(c)
-		return
 	}
-	serveTaskPluginProtocol(c, pinned, defaultPluginProtocolBridgeDeps())
 }
 
 func RelayTaskFetch(c *gin.Context) {
@@ -563,6 +566,18 @@ func executeTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*t
 
 type taskSubmitAttempt func(*gin.Context, *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *taskdto.TaskError)
 
+type taskSubmissionOption func(*taskSubmissionOptions)
+
+type taskSubmissionOptions struct {
+	recordTerminalTaskPerformance func(*model.Task, *relaycommon.TaskInfo)
+}
+
+func withTerminalTaskPerformanceRecorder(recorder func(*model.Task, *relaycommon.TaskInfo)) taskSubmissionOption {
+	return func(options *taskSubmissionOptions) {
+		options.recordTerminalTaskPerformance = recorder
+	}
+}
+
 const immediateTaskBillingLeaseSeconds = int64(60)
 
 func buildImmediateTaskBillingJob(task *model.Task, fromQuota int, targetQuota int) *model.TaskBillingJob {
@@ -594,7 +609,14 @@ func executeTaskSubmissionWith(
 	c *gin.Context,
 	relayInfo *relaycommon.RelayInfo,
 	submit taskSubmitAttempt,
+	optionFns ...taskSubmissionOption,
 ) (*taskSubmissionOutcome, *taskdto.TaskError) {
+	options := taskSubmissionOptions{recordTerminalTaskPerformance: perfmetrics.RecordTaskResult}
+	for _, apply := range optionFns {
+		if apply != nil {
+			apply(&options)
+		}
+	}
 	policy := service.RequestPolicy(c)
 	diagnostics := newTaskPluginSubmitDiagnostics(c)
 	diagnostics.start(relayInfo)
@@ -811,6 +833,36 @@ func executeTaskSubmissionWith(
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		}
 	}
+	// task_sync is a protocol contract: this request either already has a
+	// terminal answer or uses a synchronous host protocol whose caller never
+	// polls a task endpoint. Persist it so terminal billing logs do not depend
+	// on the transient Gin context or whether the client stayed connected.
+	immediateTerminal := result.Immediate != nil && (result.Immediate.Status == model.TaskStatusSuccess || result.Immediate.Status == model.TaskStatusFailure)
+	task.PrivateData.SynchronousProtocol = immediateTerminal
+	if pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedEndpoint); exists {
+		if pinned, ok := pinnedValue.(pluginruntime.PinnedEndpoint); ok && pinned.Protocol == pluginruntime.ProtocolOpenAIImage {
+			task.PrivateData.SynchronousProtocol = true
+		}
+	}
+
+	// A native submit route may declare retainResult: false. It applies only
+	// to immediate terminal results: the client receives the complete response
+	// once, the upstream snapshot is never persisted, and the task is not
+	// retrievable afterwards. An asynchronous result on such a route keeps its
+	// snapshot because polling and retrieval need it. OpenAI Images retains its
+	// snapshot until rendering and any requested Base64 conversion succeed.
+	var insertOmits []string
+	if pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedRoute); exists {
+		pinned, ok := pinnedValue.(pluginruntime.PinnedRoute)
+		if ok && pinned.Route.RetainResult != nil && !*pinned.Route.RetainResult {
+			if immediateTerminal {
+				task.PrivateData.ResultDiscarded = true
+				insertOmits = append(insertOmits, "data")
+			} else {
+				logger.LogWarn(c, fmt.Sprintf("task plugin route %s %s declares retainResult: false but returned an asynchronous result; retaining task %s", pinned.Route.Method, pinned.Route.Path, task.TaskID))
+			}
+		}
+	}
 	var billingJob *model.TaskBillingJob
 	if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
 		reservedQuota := relayInfo.FinalPreConsumedQuota
@@ -823,9 +875,9 @@ func executeTaskSubmissionWith(
 	diagnostics.insertStart(task)
 	var insertErr error
 	if billingJob != nil {
-		insertErr = task.InsertWithBillingJobWithContext(c.Request.Context(), billingJob)
+		insertErr = task.InsertWithBillingJobWithContext(c.Request.Context(), billingJob, insertOmits...)
 	} else {
-		insertErr = task.InsertWithContext(c.Request.Context())
+		insertErr = task.InsertWithContext(c.Request.Context(), insertOmits...)
 	}
 	if insertErr != nil {
 		common.SysError("insert task error: " + insertErr.Error())
@@ -834,6 +886,12 @@ func executeTaskSubmissionWith(
 		return nil, taskErr
 	}
 	durable = true
+	if billingJob != nil && options.recordTerminalTaskPerformance != nil {
+		// The immediate submit path owns its single sample after the terminal
+		// task and replayable billing intent commit together. Reconciliation
+		// never samples the already-durable terminal transition again.
+		options.recordTerminalTaskPerformance(task, result.Immediate)
+	}
 	stage = "settle"
 	diagnostics.durable(task)
 	diagnostics.settleStart(task, result.Quota)

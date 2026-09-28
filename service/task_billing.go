@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -48,6 +49,9 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 	other := model.NewLogOther()
 	other.SetPublic("is_task", true)
 	other.SetPublic("request_path", c.Request.URL.Path)
+	if taskUsesSynchronousProtocol(task) {
+		other.SetPublic("task_sync", true)
+	}
 	other.SetPublic("model_price", info.PriceData.ModelPrice)
 	if info.PriceData.ModelRatio > 0 {
 		other.SetPublic("model_ratio", info.PriceData.ModelRatio)
@@ -91,6 +95,9 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		if len(snap.UsageFacts) > 0 {
 			other.SetPublic("usage_facts", snap.UsageFacts)
 		}
+		setTaskImageCount(other, snap.UsageFacts["image_count"])
+	} else {
+		setTaskImageCount(other, info.PriceData.OtherRatios()["image_count"])
 	}
 	appendTaskLogInfo(task, other)
 	attachQuotaSaturation(c, info, other)
@@ -230,6 +237,9 @@ func taskBillingOther(task *model.Task) *model.LogOther {
 			if len(snap.UsageFacts) > 0 {
 				other.SetPublic("usage_facts", snap.UsageFacts)
 			}
+			setTaskImageCount(other, snap.UsageFacts["image_count"])
+		} else if priceData := taskBillingContextPriceData(bc); priceData != nil {
+			setTaskImageCount(other, priceData.OtherRatios()["image_count"])
 		}
 	}
 	props := task.Properties
@@ -241,12 +251,40 @@ func taskBillingOther(task *model.Task) *model.LogOther {
 	return other
 }
 
+// setTaskImageCount publishes the billed image quantity of an image task as
+// other.image_count, the same field the HTTP image relay writes, so the log
+// detail shows one "billable image count" regardless of the serving path. The
+// value is a host-validated count fact (at most dto.MaxImageN), never a quota.
+func setTaskImageCount(other *model.LogOther, value any) {
+	count, ok := value.(float64)
+	if !ok || count < 0 || count > float64(dto.MaxImageN) {
+		return
+	}
+	other.SetPublic("image_count", common.QuotaRound(count))
+}
+
+// taskUsesSynchronousProtocol reports the persisted caller contract: the
+// submitting protocol does not require polling. It deliberately says nothing
+// about whether a particular client remained connected long enough to receive
+// the terminal response.
+func taskUsesSynchronousProtocol(task *model.Task) bool {
+	return task != nil && task.PrivateData.SynchronousProtocol
+}
+
 func appendTaskLogInfo(task *model.Task, other *model.LogOther) {
 	if task == nil || other == nil {
 		return
 	}
 	if task.TaskID != "" {
 		other.SetPublic("task_id", task.TaskID)
+	}
+	if task.PrivateData.ResultDiscarded {
+		// The result was delivered inline and the upstream snapshot was not
+		// persisted, so no artifact can be retrieved for this task.
+		other.SetPublic("result_discarded", true)
+	}
+	if task.PrivateData.SynchronousProtocol {
+		other.SetPublic("task_sync", true)
 	}
 	if task.PrivateData.Execution != nil {
 		AppendTaskPluginAuditInfo(other, task.PrivateData.Execution.TaskPlugin)

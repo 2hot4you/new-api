@@ -17,6 +17,7 @@ import (
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
@@ -89,6 +90,10 @@ func privateTaskPollingAdaptor(adaptor TaskPollingAdaptor) (PrivateTaskPollingAd
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
 
+// recordTerminalTaskPerformance is replaceable by focused tests. Production
+// records only after the terminal status and billing intent commit succeeds.
+var recordTerminalTaskPerformance = perfmetrics.RecordTaskResult
+
 func pollingUpstreamTaskID(task *model.Task) string {
 	if task == nil {
 		return ""
@@ -127,7 +132,25 @@ func finalizePolledTaskWithBilling(ctx context.Context, task *model.Task, fromSt
 	if job == nil {
 		return false, errors.New("terminal task billing intent is required")
 	}
-	return model.FinalizeTaskAndEnqueueBillingWithContext(ctx, task, fromStatus, job)
+	won, err := model.FinalizeTaskAndEnqueueBillingWithContext(ctx, task, fromStatus, job)
+	if err != nil {
+		return false, err
+	}
+	if won {
+		// The CAS winner owns the only performance sample, after the terminal
+		// state and billing intent have committed together.
+		recordTerminalTaskPerformance(task, result)
+		return true, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var authoritative model.Task
+	if err := model.DB.WithContext(ctx).First(&authoritative, task.ID).Error; err != nil {
+		return false, fmt.Errorf("reload authoritative terminal task %d after CAS loss: %w", task.ID, err)
+	}
+	*task = authoritative
+	return false, nil
 }
 
 // sweepTimedOutTasks 在主轮询之前独立清理超时任务。
@@ -361,8 +384,10 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 			tasks = append(tasks, task)
 		}
 	}
+	// The channel type tells plugin adaptors whether the upstream is another
+	// New API gateway, the same signal submission derives from the request.
 	info := &relaycommon.RelayInfo{}
-	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelBaseUrl: baseURL}
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: ch.Type, ChannelId: ch.Id, ChannelBaseUrl: baseURL}
 	info.ApiKey = ch.Key
 	adaptor.Init(info)
 	resp, err := adaptor.FetchBatchTasks(baseURL, ch.Key, tasks, proxy)
@@ -477,14 +502,20 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 		if isDone && task.FinishTime == 0 {
 			task.FinishTime = time.Now().Unix()
 		}
+		terminalTransition := isDone && snap.Status != task.Status
+		won := false
 		var updateErr error
-		if isDone && snap.Status != task.Status {
-			_, updateErr = finalizePolledTaskWithBilling(ctx, task, snap.Status, adaptor, &responseItem.TaskInfo)
+		if terminalTransition {
+			won, updateErr = finalizePolledTaskWithBilling(ctx, task, snap.Status, adaptor, &responseItem.TaskInfo)
 		} else if !snap.Equal(task.Snapshot()) {
-			_, updateErr = task.UpdateWithStatus(snap.Status)
+			won, updateErr = task.UpdateWithStatus(snap.Status)
 		}
 		if updateErr != nil {
 			return updateErr
+		}
+		if terminalTransition && !won {
+			logger.LogWarn(ctx, fmt.Sprintf("Batch task %s already transitioned by another process, skip billing", task.TaskID))
+			continue
 		}
 	}
 	return nil
@@ -618,6 +649,8 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	}
 	info := &relaycommon.RelayInfo{}
 	info.ChannelMeta = &relaycommon.ChannelMeta{
+		ChannelType:    cacheGetChannel.Type,
+		ChannelId:      cacheGetChannel.Id,
 		ChannelBaseUrl: cacheGetChannel.GetBaseURL(),
 	}
 	info.ApiKey = cacheGetChannel.Key
@@ -1063,8 +1096,15 @@ func failTaskFromPoll(ctx context.Context, adaptor TaskPollingAdaptor, task *mod
 		task.FinishTime = now
 	}
 	task.FailReason = reason
-	_, err := finalizePolledTaskWithBilling(ctx, task, fromStatus, adaptor, relaycommon.FailTaskInfo(reason))
-	return err
+	taskResult := relaycommon.FailTaskInfo(reason)
+	won, err := finalizePolledTaskWithBilling(ctx, task, fromStatus, adaptor, taskResult)
+	if err != nil {
+		return err
+	}
+	if !won {
+		return nil
+	}
+	return nil
 }
 
 func failTasksFromPoll(ctx context.Context, adaptor TaskPollingAdaptor, tasks []*model.Task, reason string) error {

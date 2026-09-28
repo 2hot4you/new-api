@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1122,6 +1123,29 @@ func TestRetrieveTaskPluginResponseEchoesOriginModelName(t *testing.T) {
 	assert.Equal(t, "alias-model", response["model"])
 }
 
+func TestRetrieveTaskPluginResponseHidesDiscardedResult(t *testing.T) {
+	pinned := compilePluginProtocolRetrieveEndpoint(t, "retrieve-discarded", `
+		export const protocols = {openai_responses: {
+			renderEvents: function() { throw new Error("discarded retrieve called renderEvents"); },
+			renderFinal: function() { throw new Error("discarded retrieve called renderFinal"); }
+		}};
+	`, pluginruntime.Options{})
+	c, recorder := newPluginProtocolRetrieveContext("resp_retrieve_discarded")
+	deps := pluginProtocolRetrieveDeps(pinned, &model.Task{
+		TaskID:      "task_retrieve_discarded",
+		Platform:    constant.TaskPlatform(pinned.Plugin.Meta.Key),
+		UserId:      71,
+		Status:      model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{ResultDiscarded: true},
+		CreatedAt:   1_710_000_000,
+	}, true, nil)
+
+	retrieveTaskPluginResponse(c, deps)
+
+	assert.Equal(t, http.StatusNotFound, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"not_found"`)
+}
+
 func TestRetrieveTaskPluginResponseSuccessRendersFinal(t *testing.T) {
 	logs := make([]string, 0, 1)
 	pinned := compilePluginProtocolRetrieveEndpoint(t, "retrieve-success", `
@@ -1578,4 +1602,353 @@ func pluginProtocolRetrieveDeps(pinned pluginruntime.PinnedEndpoint, task *model
 		return pinned.Plugin, pinned.Generation, true
 	}
 	return deps
+}
+
+const imageProtocolTestPlugin = `
+export const meta = {apiVersion:1,key:"image-bridge",name:"Image Bridge",version:"1.0.0",author:{name:"Test"},models:["image-model"],fetchMode:"per_task",protocols:["openai_image"]};
+export function buildSubmitRequest(ctx){return {url:ctx.baseUrl+"/images"};}
+export function parseSubmitResponse(ctx,resp){return {taskId:"vendor"};}
+export function buildQueryRequest(){return {url:"https://provider.example"};}
+export function parseTaskResult(){return {status:"SUCCESS"};}
+export const protocols = {openai_image: {
+  decodeRequest: function(ctx) { return {kind:"submit", model: ctx.model, requestBody: ctx.body.value}; },
+  render: function(ctx, task) {
+    const data = (task.data && task.data.images || []).map(function(url) { return {url: url}; });
+    return {data: data, vendor: "test"};
+  },
+}};
+`
+
+func imageProtocolTestEndpoint(t *testing.T) pluginruntime.PinnedEndpoint {
+	t.Helper()
+	engine, err := pluginruntime.Compile(imageProtocolTestPlugin, pluginruntime.Options{Key: "image-bridge", Version: "1.0.0", Concurrency: 1})
+	require.NoError(t, err)
+	return pluginruntime.PinnedEndpoint{
+		Generation: &pluginruntime.RoutingGeneration{Number: 7},
+		Plugin:     &pluginruntime.LoadedPlugin{Meta: pluginruntime.Meta{Key: "image-bridge", Version: "1.0.0", Protocols: []pluginruntime.ProtocolClaim{{Name: pluginruntime.ProtocolOpenAIImage}}}, Engine: engine},
+		Protocol:   pluginruntime.ProtocolOpenAIImage,
+		Operation:  pluginruntime.HostProtocolOperation{Name: "generate", Methods: []string{http.MethodPost}, Path: "/v1/images/generations", BodyKinds: []pluginruntime.BodyKind{pluginruntime.BodyJSON}, ModelField: "model"},
+		Model:      "image-model",
+	}
+}
+
+func newImageProtocolTestContext(responseFormat string) (*gin.Context, *httptest.ResponseRecorder) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{}`))
+	common.SetContextKey(c, constant.ContextKeyUserId, 71)
+	common.SetContextKey(c, constant.ContextKeyTokenId, 81)
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+	c.Set("resolved_task_model", "image-model")
+	value := map[string]any{"model": "image-model", "prompt": "a cat", "n": 2}
+	if responseFormat != "" {
+		value["response_format"] = responseFormat
+	}
+	c.Set(pluginruntime.ContextKeyProtocolRequest, pluginruntime.ProtocolRequestContext{
+		RouteRequestContext: pluginruntime.RouteRequestContext{Path: "/v1/images/generations", Method: http.MethodPost, Params: map[string]string{}, Query: map[string][]string{}, Body: map[string]any{"kind": "json", "value": value}, RequestBody: value},
+		Protocol:            pluginruntime.ProtocolOpenAIImage,
+		Operation:           "generate",
+		Model:               "image-model",
+	})
+	return c, recorder
+}
+
+func imageProtocolTestOutcome(info *relaycommon.RelayInfo, status model.TaskStatus, images ...string) *taskSubmissionOutcome {
+	task := &model.Task{TaskID: "task_image", Platform: constant.TaskPlatform("image-bridge"), UserId: info.UserId, ChannelId: 3, Status: status, CreatedAt: 1_710_000_000}
+	task.PrivateData.UpstreamTaskID = "vendor"
+	if len(images) > 0 {
+		task.SetData(map[string]any{"images": images})
+	}
+	return &taskSubmissionOutcome{Result: &relay.TaskSubmitResult{}, Task: task, RelayInfo: info}
+}
+
+// The OpenAI Images protocol answers synchronously: an immediate result is
+// rendered by the plugin, `created` is host-filled, and response_format
+// b64_json inlines each URL while keeping the URL.
+func TestServeTaskPluginImageProtocolRendersImmediateResultAndInlinesBase64(t *testing.T) {
+	for _, tc := range []struct {
+		name, responseFormat string
+		downloadErr          error
+		wantStatus           int
+		wantCode             string
+		wantB64              []any
+	}{
+		{"url", "", nil, http.StatusOK, "", []any{nil, nil}},
+		{"b64_json", "b64_json", nil, http.StatusOK, "", []any{"QUFB", "QUFB"}},
+		{"b64_json download failure returns an OpenAI error", "b64_json", errors.New("blocked"), http.StatusBadGateway, "image_download_failed", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pinned := imageProtocolTestEndpoint(t)
+			c, recorder := newImageProtocolTestContext(tc.responseFormat)
+			deps := pluginProtocolTestDeps()
+			downloads := 0
+			deps.downloadImage = func(url string) (string, string, error) {
+				downloads++
+				if tc.downloadErr != nil {
+					return "", "", tc.downloadErr
+				}
+				return "image/png", "QUFB", nil
+			}
+			deps.submit = func(_ *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+				return imageProtocolTestOutcome(info, model.TaskStatusSuccess, "https://cdn.example/1.png", "https://cdn.example/2.png"), nil
+			}
+			serveTaskPluginImageProtocol(c, pinned, deps)
+			require.Equal(t, tc.wantStatus, recorder.Code, recorder.Body.String())
+			var response map[string]any
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			if tc.wantCode != "" {
+				errorBody, ok := response["error"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, tc.wantCode, errorBody["code"])
+				assert.NotContains(t, response, "data")
+				return
+			}
+			assert.Equal(t, float64(1_710_000_000), response["created"])
+			assert.Equal(t, "test", response["vendor"], "plugin fields are preserved")
+			data, ok := response["data"].([]any)
+			require.True(t, ok)
+			require.Len(t, data, 2)
+			for index, entry := range data {
+				item := entry.(map[string]any)
+				assert.Equal(t, fmt.Sprintf("https://cdn.example/%d.png", index+1), item["url"])
+				assert.Equal(t, tc.wantB64[index], item["b64_json"])
+			}
+			if tc.responseFormat == "b64_json" {
+				assert.Equal(t, 2, downloads)
+			} else {
+				assert.Zero(t, downloads)
+			}
+		})
+	}
+}
+
+func TestServeTaskPluginImageProtocolDiscardsSnapshotOnlyAfterResponsePreparation(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		downloadErr    error
+		cleanupFailure bool
+		wantStatus     int
+		wantDiscard    bool
+	}{
+		{"prepared response discards snapshot", nil, false, http.StatusOK, true},
+		{"base64 failure retains recoverable snapshot", errors.New("blocked"), false, http.StatusBadGateway, false},
+		{"cleanup failure retains snapshot and prepared response", nil, true, http.StatusOK, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			database, _ := openTaskDialectDatabase(t, &model.Task{})
+			previousDB := model.DB
+			model.DB = database
+			t.Cleanup(func() { model.DB = previousDB })
+			task := &model.Task{
+				TaskID: "task_image_snapshot", Platform: constant.TaskPlatform("image-bridge"), UserId: 71,
+				Status: model.TaskStatusSuccess, CreatedAt: 1_710_000_000, FinishTime: 1_710_000_001,
+			}
+			task.SetData(map[string]any{"images": []string{"https://cdn.example/1.png"}})
+			require.NoError(t, database.Create(task).Error)
+			if tc.cleanupFailure {
+				brokenDatabase, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+				require.NoError(t, err)
+				model.DB = brokenDatabase
+			}
+
+			pinned := imageProtocolTestEndpoint(t)
+			c, recorder := newImageProtocolTestContext("b64_json")
+			deps := pluginProtocolTestDeps()
+			deps.downloadImage = func(string) (string, string, error) {
+				return "image/png", "QUFB", tc.downloadErr
+			}
+			deps.submit = func(_ *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+				return &taskSubmissionOutcome{Result: &relay.TaskSubmitResult{}, Task: task, RelayInfo: info}, nil
+			}
+
+			serveTaskPluginImageProtocol(c, pinned, deps)
+
+			require.Equal(t, tc.wantStatus, recorder.Code, recorder.Body.String())
+			var stored model.Task
+			require.NoError(t, database.First(&stored, task.ID).Error)
+			assert.Equal(t, tc.wantDiscard, stored.PrivateData.ResultDiscarded)
+			if tc.wantDiscard {
+				assert.Empty(t, stored.Data)
+			} else {
+				assert.JSONEq(t, string(task.Data), string(stored.Data))
+				assert.True(t, stored.ResultRetrievable())
+			}
+		})
+	}
+}
+
+// An asynchronous vendor task is polled inside the request until it is
+// terminal; a failure and the protocol timeout become OpenAI error envelopes
+// while the durable task stays with the background poller.
+func TestServeTaskPluginImageProtocolWaitsForAsynchronousTask(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		terminal    model.TaskStatus
+		wantStatus  int
+		wantCode    string
+		wantMessage string
+	}{
+		{"success", model.TaskStatusSuccess, http.StatusOK, "", ""},
+		{"failure", model.TaskStatusFailure, http.StatusBadRequest, "image_generation_failed", "DataInspectionFailed"},
+		{"timeout", "", http.StatusGatewayTimeout, "task_timeout", "still running"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pinned := imageProtocolTestEndpoint(t)
+			c, recorder := newImageProtocolTestContext("")
+			deps := pluginProtocolTestDeps()
+			deps.imagePollInterval = time.Millisecond
+			deps.submissionTimeout = 50 * time.Millisecond
+			polls := 0
+			deps.pollTask = func(_ context.Context, task *model.Task) error {
+				polls++
+				if polls == 1 {
+					return errors.New("transient poll failure")
+				}
+				if polls < 3 || tc.terminal == "" {
+					return nil
+				}
+				task.Status = tc.terminal
+				task.FailReason = "DataInspectionFailed"
+				task.SetData(map[string]any{"images": []string{"https://cdn.example/polled.png"}})
+				return nil
+			}
+			deps.submit = func(_ *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+				return imageProtocolTestOutcome(info, model.TaskStatusSubmitted), nil
+			}
+			serveTaskPluginImageProtocol(c, pinned, deps)
+			require.Equal(t, tc.wantStatus, recorder.Code, recorder.Body.String())
+			var response map[string]any
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			if tc.wantStatus == http.StatusOK {
+				assert.GreaterOrEqual(t, polls, 3)
+				assert.Equal(t, []any{map[string]any{"url": "https://cdn.example/polled.png"}}, response["data"])
+				return
+			}
+			errorBody := response["error"].(map[string]any)
+			assert.Equal(t, tc.wantCode, errorBody["code"])
+			assert.Contains(t, errorBody["message"], tc.wantMessage)
+		})
+	}
+}
+
+// Submission failures use the OpenAI error envelope and surface a DashScope
+// {code, message} failure body as a readable vendor message.
+func TestServeTaskPluginImageProtocolSubmissionErrorUsesOpenAIEnvelope(t *testing.T) {
+	pinned := imageProtocolTestEndpoint(t)
+	c, recorder := newImageProtocolTestContext("")
+	deps := pluginProtocolTestDeps()
+	deps.submit = func(*gin.Context, *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+		return nil, service.TaskErrorWrapper(errors.New(`{"code":"InvalidParameter","message":"n must be 1","request_id":"r"}`), "fail_to_fetch_task", http.StatusBadRequest)
+	}
+	serveTaskPluginImageProtocol(c, pinned, deps)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	var response map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	errorBody := response["error"].(map[string]any)
+	assert.Equal(t, "InvalidParameter", errorBody["code"])
+	assert.Equal(t, "invalid_request_error", errorBody["type"])
+	assert.Contains(t, errorBody["message"], "n must be 1")
+	assert.NotContains(t, errorBody["message"], "request_id")
+}
+
+// A synchronous image submission is billable the moment DashScope accepts it.
+// A client that disconnects while the upstream call is in flight must not
+// cancel that call or refund a durable result: the task row, its settlement
+// and its consume log stay, and nothing is written to the closed connection.
+func TestServeTaskPluginImageProtocolDisconnectDuringSubmissionKeepsDurableSettlement(t *testing.T) {
+	events := make([]string, 0, 3)
+	database := setupTaskSubmissionDatabase(t, true, &events)
+	require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}))
+	require.NoError(t, database.Create(&model.User{Id: 71, Username: "image-disconnect", Quota: 93}).Error)
+	require.NoError(t, database.Create(&model.Token{Id: 81, UserId: 71, Name: "image-disconnect", Key: "image-disconnect", RemainQuota: 93}).Error)
+	require.NoError(t, database.Create(&model.Channel{Id: 1, Type: constant.ChannelTypeTaskPlugin, Name: "image-bridge"}).Error)
+	events = events[:0]
+	previousLogConsumeEnabled := common.LogConsumeEnabled
+	previousRedisEnabled := common.RedisEnabled
+	common.LogConsumeEnabled = false
+	common.RedisEnabled = false
+	t.Cleanup(func() {
+		common.LogConsumeEnabled = previousLogConsumeEnabled
+		common.RedisEnabled = previousRedisEnabled
+	})
+
+	pinned := imageProtocolTestEndpoint(t)
+	c, recorder := newImageProtocolTestContext("")
+	c.Set(pluginruntime.ContextKeyPinnedEndpoint, pinned)
+	requestContext, cancel := context.WithCancel(c.Request.Context())
+	c.Request = c.Request.WithContext(requestContext)
+	billing := &taskSubmissionTestBilling{events: &events}
+	submitStarted := make(chan struct{})
+	releaseSubmit := make(chan struct{})
+	done := make(chan struct{})
+	polls := 0
+
+	deps := pluginProtocolTestDeps()
+	deps.pollTask = func(context.Context, *model.Task) error {
+		polls++
+		return nil
+	}
+	deps.submit = func(c *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+		info.Billing = billing
+		info.TaskRelayInfo.PublicTaskID = "task_image_disconnect"
+		info.TaskRelayInfo.LockedChannel = &model.Channel{Id: 1, Type: constant.ChannelTypeTaskPlugin, Name: "image-bridge"}
+		info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: 1, ChannelType: constant.ChannelTypeTaskPlugin}
+		return executeTaskSubmissionWith(c, info, func(c *gin.Context, _ *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+			close(submitStarted)
+			<-releaseSubmit
+			// The upstream call runs on the request context: a context that
+			// followed the client would abort here and refund.
+			if requestErr := c.Request.Context().Err(); requestErr != nil {
+				return nil, service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
+			}
+			return &relay.TaskSubmitResult{
+				UpstreamTaskID: "task_image_disconnect",
+				Platform:       constant.TaskPlatform(pinned.Plugin.Meta.Key),
+				Quota:          7,
+				TaskData:       []byte(`{"images":["https://cdn.example/1.png"]}`),
+				Immediate:      &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%"},
+			}, nil
+		})
+	}
+
+	go func() {
+		defer close(done)
+		serveTaskPluginImageProtocol(c, pinned, deps)
+	}()
+	select {
+	case <-submitStarted:
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "submission did not start")
+	}
+	cancel()
+	close(releaseSubmit)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "detached submission did not finish")
+	}
+
+	assert.Equal(t, []string{"reserve", "insert", "insert"}, events, "task and billing intent are persisted before inline reconciliation")
+	assert.Zero(t, billing.refunds)
+	var persisted model.Task
+	require.NoError(t, database.Where("task_id = ?", "task_image_disconnect").First(&persisted).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), persisted.Status)
+	assert.Equal(t, 7, persisted.Quota)
+	assert.True(t, persisted.PrivateData.SynchronousProtocol, "protocol semantics survive the disconnected request context")
+	assert.False(t, persisted.PrivateData.ResultDiscarded, "a disconnected client leaves the terminal snapshot recoverable")
+	assert.JSONEq(t, `{"images":["https://cdn.example/1.png"]}`, string(persisted.Data))
+	var billingJob model.TaskBillingJob
+	require.NoError(t, database.Where("task_id = ?", persisted.ID).First(&billingJob).Error)
+	assert.Equal(t, model.TaskBillingJobStatusSucceeded, billingJob.Status)
+	assert.Equal(t, model.TaskBillingOperationSettle, billingJob.Operation)
+	var settledUser model.User
+	require.NoError(t, database.First(&settledUser, 71).Error)
+	assert.Equal(t, 7, settledUser.UsedQuota)
+	assert.Equal(t, 1, settledUser.RequestCount)
+	var settledChannel model.Channel
+	require.NoError(t, database.First(&settledChannel, 1).Error)
+	assert.Equal(t, int64(7), settledChannel.UsedQuota)
+	assert.Zero(t, polls, "an immediate result is never polled")
+	assert.False(t, c.Writer.Written())
+	assert.Empty(t, recorder.Body.String())
 }

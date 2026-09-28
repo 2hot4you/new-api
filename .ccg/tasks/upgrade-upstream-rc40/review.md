@@ -65,3 +65,40 @@ No open Critical or Warning findings after internal backend and frontend re-revi
 ## Review execution
 
 Review used local tests and two internal review agents only. No antigravity/Claude external executor was called.
+
+# rc.39 checkpoint review
+
+## Result
+
+No open Critical or Warning findings after independent internal backend and frontend review and backend re-review.
+
+## Resolved findings
+
+- Preserved Molii channel IDs 61–64, assigned vLLM/SGLang to 65/66, and guarded the Dummy sentinel at 67. Corrected the Task Plugin binding documentation to type 63.
+- Kept the trust quota opt-in default at zero and retained `ForcePreConsume`, subscription, wallet-only bypass, and multiplier behavior.
+- Preserved terminal task CAS plus billing-outbox atomicity. A CAS loser now reloads the authoritative database task before a synchronous caller can render it, while only the winner records the terminal performance sample.
+- Added the missing immediate-terminal performance sample after the task and billing intent commit; reconciliation does not duplicate it.
+- Defined `task_sync` consistently as the persisted synchronous-protocol contract, including immediate jobs, timeout/disconnect, and reconciliation logs.
+- OpenAI Images keeps the terminal snapshot until rendering and Base64 conversion succeed. Base64 download failure returns a 502 OpenAI error and retains recoverable data; successful preparation atomically clears the snapshot and marks it discarded.
+- Preserved safe Seedance/StarAI/Grok list facts while keeping raw task data private, and retained Molii task projections, CNY pricing, local metadata, branding, plugin marketplace behavior, and legacy model display semantics.
+- Removed the accidentally reintroduced official metadata-sync column, restored unavailable legacy-model icon behavior, corrected pricing filter counts and task quotation fallback semantics, and fixed Dialog/OAuth/i18n merge regressions.
+
+## Verification
+
+- `go test ./... -count=1`: passed.
+- `go vet ./...`: passed.
+- `go test -race ./service -count=1`: passed.
+- RelayKit tests and vet: passed.
+- Frontend typecheck: passed.
+- Frontend Vitest: 282 files, 2655 tests passed.
+- Frontend production build: passed.
+- i18n completeness: passed.
+- Staged diff and conflict-marker checks: passed.
+
+## Known environment limits
+
+MySQL/PostgreSQL DSN-backed integration tests were not available locally. SQLite coverage and dialect-aware unit tests passed; this is recorded as unavailable rather than as a database integration pass.
+
+## Review execution
+
+Review used local verification and independent internal review agents only. The user explicitly prohibited antigravity/Claude external executors, and none were used.
