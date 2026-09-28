@@ -202,7 +202,7 @@ function FrameSlot(props: {
             <img
               src={previewURL}
               alt={props.item?.name || title}
-              className='size-full object-cover'
+              className='size-full object-contain'
             />
           ) : (
             <div className='bg-background flex size-10 items-center justify-center rounded-full border'>

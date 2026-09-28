@@ -90,7 +90,7 @@ test('uses two explicit image slots for first and last frame mode', async () => 
   ])
 })
 
-test('shows frame details below a clear thumbnail instead of over the image', () => {
+test('shows the complete frame thumbnail with details below the image', () => {
   render(
     <VideoStudioMediaPicker
       mode='frames'
@@ -113,8 +113,8 @@ test('shows frame details below a clear thumbnail instead of over the image', ()
   const thumbnail = screen.getByRole('img', { name: '旧场景' })
   const details = screen.getByTestId('frame-slot-details-first_frame')
 
-  expect(thumbnail).toHaveClass('object-cover')
-  expect(thumbnail).not.toHaveClass('absolute', 'opacity-20')
+  expect(thumbnail).toHaveClass('object-contain')
+  expect(thumbnail).not.toHaveClass('absolute', 'object-cover', 'opacity-20')
   expect(
     thumbnail.compareDocumentPosition(details) &
       Node.DOCUMENT_POSITION_FOLLOWING

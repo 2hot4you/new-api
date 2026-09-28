@@ -1,0 +1,12 @@
+{
+  "id": "fix-seedance-frame-thumbnail-contain",
+  "title": "完整展示 Seedance 首尾帧缩略图",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交本地变更",
+  "createdAt": "2026-09-28T03:41:00Z",
+  "branch": "feat/seedance-video-studio-authoring"
+}
