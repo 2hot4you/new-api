@@ -1,0 +1,12 @@
+{
+  "id": "upgrade-upstream-rc40",
+  "title": "从 v1.0.0-rc.36 分阶段升级 Molii New API 至 rc.40",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "planning",
+  "nextAction": "等待设计与实施计划确认后开始 rc.37 测试驱动集成",
+  "createdAt": "2026-09-28T07:20:23Z",
+  "branch": "upgrade/rc40"
+}

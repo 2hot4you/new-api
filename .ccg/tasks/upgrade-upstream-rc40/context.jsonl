@@ -1,0 +1,16 @@
+{"kind":"baseline","command":"GOWORK=off go test ./... -count=1","cwd":"relaykit","status":"passed"}
+{"kind":"baseline","command":"bun run typecheck && bun run build","cwd":"web","status":"passed"}
+{"kind":"baseline","command":"bun run test","cwd":"web","status":"passed","summary":"230 files, 1593 tests"}
+{"kind":"baseline","command":"go test ./... -count=1","cwd":".","status":"invalid-first-run","reason":"main.go embeds web/dist; frontend had not been built yet; all packages reached after setup were green"}
+{"kind":"baseline","command":"go test ./... -count=1","cwd":".","status":"passed","reason":"fresh run after generating web/dist"}
+{"kind":"baseline","command":"bun test","cwd":"web","status":"not-project-command","reason":"invoked Bun's native runner, which lacks the Vitest vi helpers used by the suite; canonical command is bun run test"}
+{"kind":"audit","ref":"f3062d7fb:.ccg/tasks/archive/2026-09/audit-upstream-rc40/review.md","summary":"Prior rc.36-to-rc.40 release and conflict audit"}
+{"kind":"research","path":".ccg/tasks/upgrade-upstream-rc40/research/rc37-rc38-integration.md","summary":"Independent rc.37/rc.38 integration and compatibility analysis"}
+{"kind":"research","path":".ccg/tasks/upgrade-upstream-rc40/research/rc39-rc40-integration.md","summary":"Independent rc.39/rc.40 integration and compatibility analysis"}
+{"kind":"constraint","path":"constant/channel.go","summary":"Persisted Molii channel IDs 61 StarAI, 62 Molii Grok, 63 Task Plugin, 64 ByteDance Seedance"}
+{"kind":"constraint","summary":"rc.39 terminal-task reconciliation must preserve transaction CAS plus outbox; performance metrics attach only after the winning commit"}
+{"kind":"constraint","summary":"Terminal performance sampling must have one post-commit owner; fork reconciliation and rc.39 polling cannot both record it"}
+{"kind":"constraint","summary":"rc.39 task list data omission must not remove Molii Seedance display facts used by task history and video workbench"}
+{"kind":"constraint","summary":"rc.40 theme storage integration must retain Molii's locked system theme and default customization; setters remain no-ops"}
+{"kind":"constraint","summary":"Trust threshold 0 preserves bypass semantics but not rc.39's generic reservation formula; preserve Molii custom/fixed paths and test generic text explicitly"}
+{"kind":"constraint","summary":"MySQL image-only rollback is unsafe until old-binary AutoMigrate is proven not to narrow Task Plugin longtext fields"}
