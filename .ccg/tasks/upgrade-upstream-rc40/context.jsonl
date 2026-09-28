@@ -14,3 +14,6 @@
 {"kind":"constraint","summary":"rc.40 theme storage integration must retain Molii's locked system theme and default customization; setters remain no-ops"}
 {"kind":"constraint","summary":"Trust threshold 0 preserves bypass semantics but not rc.39's generic reservation formula; preserve Molii custom/fixed paths and test generic text explicitly"}
 {"kind":"constraint","summary":"MySQL image-only rollback is unsafe until old-binary AutoMigrate is proven not to narrow Task Plugin longtext fields"}
+{"kind":"decision","date":"2026-09-28","summary":"User explicitly confirmed the design and instructed that antigravity/Claude external executors must not be used; implementation and review use local tests and internal agents only"}
+{"kind":"plan-correction","date":"2026-09-28","summary":"Moved the vLLM/SGLang RED assertion from Task 1 to the start of rc.38 Task 3 so the intervening rc.37 checkpoint can be fully green"}
+{"kind":"merge-preflight","tag":"v1.0.0-rc.37","status":"simulated","summary":"git merge-tree reports 38 conflicts: 11 backend and 27 frontend; core resolution will be split by disjoint file ownership"}

@@ -27,7 +27,7 @@ Add tests that assert literal persisted values map to StarAI `61`, Molii Grok `6
 
 Run: `go test ./constant ./relay/... ./controller/... -run 'ChannelType|PersistedChannel|Adaptor' -count=1`
 
-Expected: existing Molii IDs pass; add a deliberately unsafe upstream vLLM/SGLang expectation so the test is red until their safe IDs are introduced during rc.38.
+Expected: existing Molii IDs pass. Do not add vLLM/SGLang expectations yet: their first RED run belongs immediately after the rc.38 merge in Task 3, so the rc.37 checkpoint can remain fully green.
 
 **Step 3: Capture baseline commands and results**
 
