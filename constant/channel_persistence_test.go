@@ -52,3 +52,33 @@ func TestPersistedChannelMoliiRegistryMeanings(t *testing.T) {
 		})
 	}
 }
+
+func TestUpstreamRc38ChannelsUseUnusedPersistedIDs(t *testing.T) {
+	tests := []struct {
+		name          string
+		persistedType int
+		declaredType  int
+		wantName      string
+	}{
+		{
+			name:          "vLLM uses the first ID after Molii channels",
+			persistedType: 65,
+			declaredType:  ChannelTypeVLLM,
+			wantName:      "vLLM",
+		},
+		{
+			name:          "SGLang follows vLLM without reusing Task Plugin",
+			persistedType: 66,
+			declaredType:  ChannelTypeSGLang,
+			wantName:      "SGLang",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.persistedType, test.declaredType)
+			assert.Equal(t, test.wantName, GetChannelTypeName(test.persistedType))
+			assert.Empty(t, GetChannelBaseURL(test.persistedType))
+		})
+	}
+}

@@ -56,7 +56,8 @@ export function PerformanceOverview() {
     () => metricsQuery.data?.data.models ?? [],
     [metricsQuery.data]
   )
-  const summary = useMemo(() => buildPerformanceSummary(models), [models])
+  const summary = metricsQuery.data?.data.summary
+  const aggregate = useMemo(() => buildPerformanceSummary(models), [models])
   const topModels = useMemo(() => models.slice(0, TOP_MODEL_LIMIT), [models])
   const loading = metricsQuery.isLoading
   const hasData = models.length > 0
@@ -100,23 +101,25 @@ export function PerformanceOverview() {
             <InlineMetric
               icon={HeartPulse}
               label={t('Success rate')}
-              value={formatUptimePct(summary.successRate)}
-              detail={`${summary.successCount} / ${t('{{count}} requests', {
-                count: summary.totalRequests,
+              value={formatUptimePct(summary?.success_rate ?? Number.NaN)}
+              detail={`${aggregate.successCount} / ${t('{{count}} requests', {
+                count: aggregate.totalRequests,
               })}`}
-              valueClassName={getSuccessRateTextClass(summary.successRate)}
+              valueClassName={getSuccessRateTextClass(
+                summary?.success_rate ?? Number.NaN
+              )}
               tone='success'
             />
             <InlineMetric
               icon={Timer}
               label={t('Average latency')}
-              value={formatLatency(summary.avgLatencyMs)}
+              value={formatLatency(summary?.avg_latency_ms ?? 0)}
               tone='warning'
             />
             <InlineMetric
               icon={Gauge}
               label={t('Throughput')}
-              value={formatThroughput(summary.avgTps)}
+              value={formatThroughput(summary?.avg_tps ?? 0)}
               tone='info'
             />
           </div>

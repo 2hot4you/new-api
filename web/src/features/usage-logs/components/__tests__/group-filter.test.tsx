@@ -227,7 +227,7 @@ it('keeps the compact input and masks the dropdown together with other sensitive
   const option = await screen.findByRole('option', { name: 'premium' })
   const maskedField = input.closest('.\\[-webkit-text-security\\:disc\\]')
   expect(maskedField).not.toBeNull()
-  expect(maskedField).toContainElement(option)
+  expect(option.closest('.\\[-webkit-text-security\\:disc\\]')).not.toBeNull()
   await userEvent.keyboard('{Escape}')
   expect(input).toHaveAttribute('aria-expanded', 'false')
   await userEvent.tab()
@@ -250,9 +250,20 @@ it('lets mobile users select a long group name inside the filter drawer and subm
   })
   const dialog = screen.getByRole('dialog')
   const input = within(dialog).getByRole('combobox', { name: 'Group' })
+  vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(50, 100, 320, 500)
+  )
+  vi.spyOn(input, 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(80, 120, 200, 32)
+  )
   await userEvent.click(input)
   const option = await within(dialog).findByRole('option', { name: longGroup })
   expect(option).toBeVisible()
+  expect(option.parentElement?.parentElement).toHaveStyle({
+    position: 'absolute',
+    top: '56px',
+    left: '30px',
+  })
   await userEvent.click(option)
   expect(input).toHaveValue(longGroup)
   expect(dialog).toBeVisible()

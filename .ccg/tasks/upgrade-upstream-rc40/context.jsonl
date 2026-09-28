@@ -23,3 +23,10 @@
 {"kind":"checkpoint-validation","tag":"v1.0.0-rc.37","command":"bun run i18n:check","cwd":"web","status":"passed"}
 {"kind":"checkpoint-validation","tag":"v1.0.0-rc.37","command":"targeted oxlint/oxfmt checks","cwd":"web","status":"passed","summary":"compatibility-fix files clean"}
 {"kind":"checkpoint-validation","tag":"v1.0.0-rc.37","command":"bun run lint / bun run format:check / bun run copyright:check","cwd":"web","status":"baseline-debt","summary":"whole-tree rc.37 rule/header debt spans numerous upstream and pre-existing files; not expanded into compatibility merge"}
+{"kind":"tdd-red","tag":"v1.0.0-rc.38","command":"go test ./constant -run TestUpstreamRc38ChannelsUseUnusedPersistedIDs -count=1","status":"failed-as-expected","summary":"ChannelTypeVLLM and ChannelTypeSGLang do not exist before the rc.38 merge; guard requires IDs 65 and 66"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.38","command":"go test ./... -count=1","cwd":".","status":"passed"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.38","command":"GOWORK=off go test ./... -count=1","cwd":"relaykit","status":"passed"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.38","command":"go vet ./... and GOWORK=off go vet ./...","status":"passed"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.38","command":"bun run typecheck && bun run test && bun run build","cwd":"web","status":"passed","summary":"268 files, 2513 tests; production build passed"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.38","command":"bun run i18n:check and targeted oxlint/oxfmt","cwd":"web","status":"passed"}
+{"kind":"checkpoint-review","tag":"v1.0.0-rc.38","status":"passed","summary":"Internal backend and frontend reviews ended with zero Critical and zero Warning after fixing portal positioning and local system-task mappings; no external executors used"}

@@ -62,10 +62,14 @@ const (
 	ChannelTypeMoliiGrokAIGC     = 62
 	ChannelTypeTaskPlugin        = 63
 	ChannelTypeByteDanceSeedance = 64
-	ChannelTypeDummy             = 65 // this one is only for count, do not add any channel after this
+	ChannelTypeVLLM              = 65
+	ChannelTypeSGLang            = 66
+	ChannelTypeDummy             = 67 // this one is only for count, do not add any channel after this
 
 )
 
+// ChannelBaseURLs 保存各渠道类型的内置默认 Base URL。
+// 非空值会通过 /api/channel/default_base_urls 下发到前端，作为渠道表单的 API 地址占位提示。
 var ChannelBaseURLs = []string{
 	"",                                    // 0
 	"https://api.openai.com",              // 1
@@ -132,6 +136,8 @@ var ChannelBaseURLs = []string{
 	"https://api.wxiai.com/xai",                 //62
 	"",                                          //63
 	"",                                          //64
+	"",                                          //65
+	"",                                          //66
 }
 
 func GetChannelBaseURL(channelType int) string {
@@ -203,6 +209,8 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeMoliiGrokAIGC:     "Molii Grok Imagine API",
 	ChannelTypeTaskPlugin:        "Task Plugin",
 	ChannelTypeByteDanceSeedance: "ByteDance Seedance",
+	ChannelTypeVLLM:              "vLLM",
+	ChannelTypeSGLang:            "SGLang",
 }
 
 func GetChannelTypeName(channelType int) string {
@@ -234,4 +242,14 @@ var ChannelSpecialBases = map[string]ChannelSpecialBase{
 		ClaudeBaseURL: "https://ark.cn-beijing.volces.com/api/coding",
 		OpenAIBaseURL: "https://ark.cn-beijing.volces.com/api/coding/v3",
 	},
+}
+
+// IsAdvancedCustomChannel includes named channels backed by route presets.
+func IsAdvancedCustomChannel(channelType int) bool {
+	switch channelType {
+	case ChannelTypeAdvancedCustom, ChannelTypeVLLM, ChannelTypeSGLang:
+		return true
+	default:
+		return false
+	}
 }

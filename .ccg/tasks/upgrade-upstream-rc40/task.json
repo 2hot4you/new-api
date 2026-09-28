@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "implementation",
-  "nextAction": "完成 rc.37 修复后复审并创建顺序升级检查点",
+  "nextAction": "集成 rc.39，并保持 trust quota 默认关闭及 Molii 任务结算语义",
   "createdAt": "2026-09-28T07:20:23Z",
   "branch": "upgrade/rc40"
 }

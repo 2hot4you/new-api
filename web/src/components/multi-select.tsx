@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Add01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { ArrowRightLeft } from 'lucide-react'
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -44,6 +45,11 @@ export type Option = {
   icon?: React.ReactNode
   /** Show a selected legacy value without offering it as a new selection. */
   selectable?: boolean
+  /**
+   * Secondary text shown beside the option in the dropdown. Chips for hinted
+   * values also carry a marker icon whose tooltip repeats the hint.
+   */
+  hint?: string
 }
 
 interface MultiSelectProps {
@@ -145,6 +151,14 @@ export function MultiSelect(props: MultiSelectProps) {
     const map = new Map<string, React.ReactNode>()
     for (const option of props.options) {
       map.set(option.value, option.icon)
+    }
+    return map
+  }, [props.options])
+
+  const hintMap = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const option of props.options) {
+      if (option.hint) map.set(option.value, option.hint)
     }
     return map
   }, [props.options])
@@ -321,6 +335,7 @@ export function MultiSelect(props: MultiSelectProps) {
                 {visibleValues.map((value) => {
                   const label = labelMap.get(value) ?? value
                   const icon = iconMap.get(value)
+                  const hint = hintMap.get(value)
                   return (
                     <ComboboxChip key={value}>
                       {icon}
@@ -338,6 +353,15 @@ export function MultiSelect(props: MultiSelectProps) {
                         </button>
                       ) : (
                         <span className='max-w-[16rem] truncate'>{label}</span>
+                      )}
+                      {hint && (
+                        <span
+                          title={hint}
+                          aria-hidden='true'
+                          className='text-muted-foreground inline-flex shrink-0'
+                        >
+                          <ArrowRightLeft className='size-3' />
+                        </span>
                       )}
                     </ComboboxChip>
                   )
@@ -398,11 +422,13 @@ export function MultiSelect(props: MultiSelectProps) {
               const isCreate = canCreate && item === trimmedInput
               const label = labelMap.get(item) ?? item
               const icon = iconMap.get(item)
+              const hint = hintMap.get(item)
               return (
                 <ComboboxItem
                   key={item}
                   value={item}
                   className={isCreate ? 'text-foreground' : undefined}
+                  aria-description={hint}
                 >
                   {isCreate ? (
                     <>
@@ -422,6 +448,14 @@ export function MultiSelect(props: MultiSelectProps) {
                     <>
                       {icon}
                       <span className='truncate'>{label}</span>
+                      {hint && (
+                        <span
+                          aria-hidden='true'
+                          className='text-muted-foreground ml-auto max-w-40 shrink-0 truncate text-xs'
+                        >
+                          {hint}
+                        </span>
+                      )}
                     </>
                   )}
                 </ComboboxItem>

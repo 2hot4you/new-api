@@ -62,6 +62,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { getPricing } from '@/features/pricing/api'
+import { RelatedPolicyLink } from '@/features/system-settings/request-policies/related-policy-link'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModelsByGroup, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
@@ -580,6 +581,7 @@ export function ApiKeysMutateDrawer({
                       {t(
                         'Select available access points. Requests are matched automatically by model, and unsupported access points are skipped. Ordering only applies when multiple access points support the same model.'
                       )}
+                      <RelatedPolicyLink section='routing' />
                     </FormDescription>
                     <FormControl>
                       <AutoGroupOrderEditor

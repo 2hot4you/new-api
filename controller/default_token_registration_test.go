@@ -63,8 +63,9 @@ func TestOAuthRegistrationCreatesDefaultToken(t *testing.T) {
 
 	provider := &authFlowTestOAuthProvider{}
 	context, _ := gin.CreateTestContext(httptest.NewRecorder())
-	user, err := findOrCreateOAuthUser(context, provider, &oauth.OAuthUser{ProviderUserID: "default-oauth-user", Username: "default-oauth-user"}, "")
+	user, migration, err := findOrCreateOAuthUser(context, provider, &oauth.OAuthUser{ProviderUserID: "default-oauth-user", Username: "default-oauth-user"}, &oauth.OAuthToken{}, "")
 	require.NoError(t, err)
+	require.Nil(t, migration)
 	require.NotZero(t, user.Id)
 	requireSingleDefaultToken(t, user.Id)
 }

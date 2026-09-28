@@ -21,6 +21,10 @@ For commercial licensing, please contact support@quantumnous.com
 // All label/name values are i18n keys; use t(value) when displaying.
 // ============================================================================
 
+export const CHANNEL_TYPE_OLLAMA = 4
+
+export const CHANNEL_TYPE_SUB2API = 59
+
 export const CHANNEL_TYPE_NEW_API = 60
 export const CHANNEL_TYPE_STARAI = 61
 export const CHANNEL_TYPE_MOLII_GROK_AIGC = 62
@@ -41,6 +45,10 @@ export const MOLII_GROK_AIGC_MODELS = [
   'grok-imagine-video',
   'grok-imagine-video-1.5',
 ] as const
+
+export const CHANNEL_TYPE_VLLM = 65
+
+export const CHANNEL_TYPE_SGLANG = 66
 
 export const CHANNEL_TYPES = {
   0: 'Unknown',
@@ -104,6 +112,8 @@ export const CHANNEL_TYPES = {
   62: 'Molii Grok Imagine API',
   63: 'Task Plugin',
   64: 'ByteDance Seedance',
+  65: 'vLLM',
+  66: 'SGLang',
 } as const
 
 export type ChannelProviderPresentation = {
@@ -186,6 +196,8 @@ export const CHANNEL_PROVIDER_PRESENTATION: Partial<
   61: { descriptionKey: 'Connect to Molii Volcengine image generation' },
   62: { descriptionKey: 'Connect to Molii Grok image and video generation' },
   64: { descriptionKey: 'Connect to ByteDance Seedance video generation' },
+  65: { descriptionKey: 'Connect to self-hosted models served by vLLM' },
+  66: { descriptionKey: 'Connect to self-hosted models served by SGLang' },
 } satisfies Record<
   Exclude<keyof typeof CHANNEL_TYPES, 0 | typeof CHANNEL_TYPE_TASK_PLUGIN>,
   ChannelProviderPresentation
@@ -194,7 +206,7 @@ export const CHANNEL_PROVIDER_PRESENTATION: Partial<
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 33, 24, 43, 3, 41, 48, 60, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15,
   46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 59, 22, 21, 44, 2,
-  5, 36, 50, 51, 52, 53, 54, 61, 64, 62, 63, 55, 56,
+  5, 36, 50, 51, 52, 53, 54, 61, 64, 62, 63, 65, 66, 55, 56,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
@@ -530,6 +542,8 @@ export const MODEL_FETCHABLE_TYPES = new Set([
   59,
   60,
   CHANNEL_TYPE_BYTEDANCE_SEEDANCE,
+  CHANNEL_TYPE_VLLM,
+  CHANNEL_TYPE_SGLANG,
 ])
 
 export const FIELD_PASSTHROUGH_TYPES = new Set([
@@ -539,6 +553,8 @@ export const FIELD_PASSTHROUGH_TYPES = new Set([
   58,
   59,
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_VLLM,
+  CHANNEL_TYPE_SGLANG,
 ])
 
 export const OPENAI_FIELD_PASSTHROUGH_TYPES = new Set([
@@ -547,6 +563,8 @@ export const OPENAI_FIELD_PASSTHROUGH_TYPES = new Set([
   58,
   59,
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_VLLM,
+  CHANNEL_TYPE_SGLANG,
 ])
 
 export const CLAUDE_FIELD_PASSTHROUGH_TYPES = new Set([
@@ -554,6 +572,8 @@ export const CLAUDE_FIELD_PASSTHROUGH_TYPES = new Set([
   58,
   59,
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_VLLM,
+  CHANNEL_TYPE_SGLANG,
 ])
 
 export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
@@ -571,6 +591,9 @@ export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   62: 'Enter API key for this channel',
   63: 'Enter API key for this channel',
   [CHANNEL_TYPE_BYTEDANCE_SEEDANCE]: 'Enter API key for this channel',
+  [CHANNEL_TYPE_VLLM]: 'vLLM API key, or EMPTY if authentication is disabled',
+  [CHANNEL_TYPE_SGLANG]:
+    'SGLang API key, or EMPTY if authentication is disabled',
 }
 
 export const CHANNEL_TYPE_WARNINGS: Record<number, string> = {

@@ -34,3 +34,34 @@ The whole-tree rc.37 frontend lint, format, and copyright checks report broad pr
 ## Review execution
 
 Review used local tests and internal review agents only. The user explicitly prohibited antigravity/Claude external executors.
+
+# rc.38 checkpoint review
+
+## Result
+
+No open Critical or Warning findings after internal backend and frontend re-review.
+
+## Resolved findings
+
+- Preserved persisted Molii channel IDs 61-64; assigned vLLM and SGLang to unused IDs 65 and 66, with `ChannelTypeDummy` moved to 67. Literal registry and database reload tests guard the mapping.
+- Integrated rc.38 Responses HTTP/WebSocket, request-policy, performance metrics, GPT Image 2, vLLM/SGLang, system-task, and channel-management changes while retaining Molii task billing, origin routing, COS previews, CNY usage, and local metadata behavior.
+- Updated test database fixtures for the fail-closed Option primary-key verifier and OAuth default-token creation.
+- Fixed the custom Combobox portal so dropdowns inside transformed dialogs/drawers use container-relative absolute coordinates; added a non-zero-offset geometry regression.
+- Added frontend labels, filters, tests, and translations for the local `async_task_billing_reconcile` and `starai_result_cleanup` system-task types.
+
+## Verification
+
+- `go test ./... -count=1`: passed.
+- `GOWORK=off go test ./... -count=1` in `relaykit`: passed.
+- Root and relaykit `go vet ./...`: passed.
+- Frontend typecheck: passed.
+- Frontend Vitest: 268 files, 2513 tests passed.
+- Frontend production build: passed.
+- i18n completeness: passed.
+- Staged frontend TypeScript/JavaScript files: targeted oxlint and oxfmt checks passed.
+- Plugin format check passed; plugin lint completed with existing non-blocking warnings.
+- `git diff --cached --check`: passed.
+
+## Review execution
+
+Review used local tests and two internal review agents only. No antigravity/Claude external executor was called.

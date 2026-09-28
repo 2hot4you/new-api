@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestPersistedChannelMoliiTypesSurviveDatabaseReload(t *testing.T) {
+func TestPersistedChannelTypesSurviveDatabaseReload(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "persisted-channels.db")
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
@@ -46,6 +46,8 @@ func TestPersistedChannelMoliiTypesSurviveDatabaseReload(t *testing.T) {
 	customGrokURL := "https://override.invalid"
 	pluginURL := "https://plugin.example.invalid"
 	seedanceURL := "https://seedance.example.invalid"
+	vllmURL := "https://vllm.example.invalid"
+	sglangURL := "https://sglang.example.invalid"
 	tests := []struct {
 		persistedType        int
 		name                 string
@@ -79,6 +81,20 @@ func TestPersistedChannelMoliiTypesSurviveDatabaseReload(t *testing.T) {
 			baseURL:              &seedanceURL,
 			wantRegistryName:     "ByteDance Seedance",
 			wantEffectiveBaseURL: seedanceURL,
+		},
+		{
+			persistedType:        65,
+			name:                 "persisted-vllm",
+			baseURL:              &vllmURL,
+			wantRegistryName:     "vLLM",
+			wantEffectiveBaseURL: vllmURL,
+		},
+		{
+			persistedType:        66,
+			name:                 "persisted-sglang",
+			baseURL:              &sglangURL,
+			wantRegistryName:     "SGLang",
+			wantEffectiveBaseURL: sglangURL,
 		},
 	}
 
