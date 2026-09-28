@@ -194,24 +194,30 @@ function FrameSlot(props: {
       <button
         type='button'
         aria-label={chooseLabel}
-        className='hover:bg-muted/50 relative flex min-h-32 flex-1 flex-col items-center justify-center gap-2 overflow-hidden p-4 text-center transition-colors'
+        className='hover:bg-muted/50 flex flex-1 flex-col overflow-hidden text-left transition-colors'
         onClick={props.onChoose}
       >
-        {previewURL ? (
-          <img
-            src={previewURL}
-            alt=''
-            className='absolute inset-0 size-full object-cover opacity-20'
-          />
-        ) : null}
-        <div className='bg-background relative flex size-10 items-center justify-center rounded-full border'>
-          {props.item ? (
-            <Image className='size-5' />
+        <div className='bg-muted/40 flex h-28 w-full shrink-0 items-center justify-center overflow-hidden'>
+          {previewURL ? (
+            <img
+              src={previewURL}
+              alt={props.item?.name || title}
+              className='size-full object-cover'
+            />
           ) : (
-            <Plus className='size-5' />
+            <div className='bg-background flex size-10 items-center justify-center rounded-full border'>
+              {props.item ? (
+                <Image className='size-5' />
+              ) : (
+                <Plus className='size-5' />
+              )}
+            </div>
           )}
         </div>
-        <div className='relative max-w-full min-w-0'>
+        <div
+          data-testid={`frame-slot-details-${props.role}`}
+          className='w-full min-w-0 px-3 py-2.5'
+        >
           <p className='text-sm font-medium'>
             {title} · {required ? t('Required') : t('Optional')}
           </p>

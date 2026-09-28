@@ -90,6 +90,39 @@ test('uses two explicit image slots for first and last frame mode', async () => 
   ])
 })
 
+test('shows frame details below a clear thumbnail instead of over the image', () => {
+  render(
+    <VideoStudioMediaPicker
+      mode='frames'
+      media={[
+        {
+          clientId: 'first-frame-client',
+          type: 'image',
+          source: 'asset',
+          role: 'first_frame',
+          value: 'asset-image-old',
+          name: '旧场景',
+        },
+      ]}
+      assets={assets}
+      onChange={vi.fn()}
+      onAssetsChanged={vi.fn()}
+    />
+  )
+
+  const thumbnail = screen.getByRole('img', { name: '旧场景' })
+  const details = screen.getByTestId('frame-slot-details-first_frame')
+
+  expect(thumbnail).toHaveClass('object-cover')
+  expect(thumbnail).not.toHaveClass('absolute', 'opacity-20')
+  expect(
+    thumbnail.compareDocumentPosition(details) &
+      Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy()
+  expect(within(details).getByText('First frame · Required')).toBeVisible()
+  expect(within(details).getByText('Available')).toBeVisible()
+})
+
 test('adds a public image URL directly to the active frame slot', async () => {
   const user = userEvent.setup()
   const onChange = vi.fn()
