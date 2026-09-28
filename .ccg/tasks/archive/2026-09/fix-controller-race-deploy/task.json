@@ -1,0 +1,12 @@
+{
+  "id": "fix-controller-race-deploy",
+  "title": "定位并修复 develop 自动部署的 controller 竞态失败",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交推送到 develop",
+  "createdAt": "2026-09-28T23:40:00+08:00",
+  "branch": "upgrade/rc40"
+}

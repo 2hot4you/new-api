@@ -144,6 +144,7 @@ func TestByteDanceSeedanceBillingSubmissionDoesNotCountFinalUsage(t *testing.T) 
 	events := []string{}
 	info := taskSubmissionRelayInfo(&taskSubmissionTestBilling{events: &events})
 	info.PriceData.Quota, info.PriceData.ModelRatio, info.PriceData.GroupRatioInfo.GroupRatio = 100, 2, 0.5
+	info.UserQuota = common.QuotaRemindThreshold + info.PriceData.Quota
 	outcome, taskErr := executeTaskSubmissionWith(taskSubmissionTestContext(), info, func(*gin.Context, *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
 		return &relay.TaskSubmitResult{Platform: constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeByteDanceSeedance)), UpstreamTaskID: "task_molii_public", Quota: 100, TaskData: []byte(`{"status":"queued"}`)}, nil
 	})
