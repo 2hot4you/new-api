@@ -341,7 +341,15 @@ it('consumes Passkey authorization at setup and activates using only the dedicat
   })
   const success = vi.spyOn(toast, 'success')
   const user = userEvent.setup()
-  render(<TwoFACard loading={false} />)
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  client.setQueryData(['status'], {})
+  render(
+    <QueryClientProvider client={client}>
+      <TwoFACard loading={false} />
+    </QueryClientProvider>
+  )
   await user.click(await screen.findByRole('button', { name: 'Enable' }))
   await screen.findByText(
     'We will prompt your device to confirm using biometrics or your hardware key.'

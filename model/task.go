@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"time"
 
@@ -644,6 +645,27 @@ func (Task *Task) Insert() error {
 
 func (Task *Task) InsertWithContext(ctx context.Context) error {
 	return DB.WithContext(ctx).Create(Task).Error
+}
+
+// InsertWithBillingJobWithContext commits a newly-created terminal task and
+// its replayable billing intent as one durable unit. Callers may insert the
+// job already leased for inline application; an interrupted lease is later
+// reclaimed by the regular billing reconciler.
+func (task *Task) InsertWithBillingJobWithContext(ctx context.Context, job *TaskBillingJob) error {
+	if task == nil || job == nil {
+		return errors.New("task and billing job are required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(task).Error; err != nil {
+			return err
+		}
+		job.TaskID = task.ID
+		job.IdempotencyKey = taskBillingJobIdempotencyKey(task.ID)
+		return tx.Create(job).Error
+	})
 }
 
 type taskSnapshot struct {

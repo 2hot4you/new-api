@@ -52,10 +52,15 @@ import {
   formatTaskUsageUnitPrice,
   getTaskUsagePriceUnitLabelKey,
 } from '@/features/pricing/lib/dynamic-price'
-import type { BillingUsageSchema } from '@/features/pricing/types'
+import { pluginUsageSchema } from '@/features/pricing/lib/plugin-pricing'
+import { taskUsageUnitLabel } from '@/features/pricing/lib/task-price-display'
+import type { BillingUsageSchema, PricingModel } from '@/features/pricing/types'
 import { getUserGroups } from '@/lib/api'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import {
+  formatBillingCurrencyFromUSD,
+  formatCatalogCurrencyAmount,
+} from '@/lib/currency'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
@@ -149,9 +154,18 @@ function buildDetailSegments(
   other: LogOtherData | null,
   t: (key: string, opts?: Record<string, unknown>) => string,
   isAdmin: boolean,
-  usageSchema?: BillingUsageSchema
+  language: string,
+  usageSchema?: BillingUsageSchema,
+  billingCurrency?: PricingModel['billing_currency']
 ): DetailSegment[] {
-  const segments = buildTypeDetailSegments(log, other, t, usageSchema)
+  const segments = buildTypeDetailSegments(
+    log,
+    other,
+    t,
+    language,
+    usageSchema,
+    billingCurrency
+  )
   const adminSegments: DetailSegment[] = []
   // Quota saturation is a rare, admin-only anomaly marker; surface it first
   // and in danger styling so it stands out on the related billing log. The
@@ -167,9 +181,20 @@ export function getCommonLogDetailPreviewText(
   log: UsageLog,
   other: LogOtherData | null,
   t: (key: string, opts?: Record<string, unknown>) => string,
-  isAdmin: boolean
+  isAdmin: boolean,
+  language = 'en',
+  usageSchema?: BillingUsageSchema,
+  billingCurrency?: PricingModel['billing_currency']
 ): string | null {
-  const segments = buildDetailSegments(log, other, t, isAdmin)
+  const segments = buildDetailSegments(
+    log,
+    other,
+    t,
+    isAdmin,
+    language,
+    usageSchema,
+    billingCurrency
+  )
   return segments[0]?.text ?? log.content ?? null
 }
 
@@ -177,7 +202,9 @@ function buildTypeDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
   t: (key: string, opts?: Record<string, unknown>) => string,
-  usageSchema?: BillingUsageSchema
+  language: string,
+  usageSchema?: BillingUsageSchema,
+  billingCurrency?: PricingModel['billing_currency']
 ): DetailSegment[] {
   // Top-up, audit, and login logs can carry a localized operation descriptor.
   if (log.type === 1 || log.type === 3 || log.type === 7) {
@@ -258,10 +285,11 @@ function buildTypeDetailSegments(
   const segments: DetailSegment[] = []
 
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
-  const formatPrice = (price: number) =>
-    `${formatBillingCurrencyFromUSD(price, priceOpts)}/M`
   const formatPriceCompact = (price: number) =>
-    formatBillingCurrencyFromUSD(price, priceOpts)
+    billingCurrency
+      ? formatCatalogCurrencyAmount(price, billingCurrency, priceOpts)
+      : formatBillingCurrencyFromUSD(price, priceOpts)
+  const formatPrice = (price: number) => `${formatPriceCompact(price)}/M`
   const formatPriceList = (prices: string[], showUnit: boolean) => {
     const text = prices.join(' / ')
     return showUnit ? `${text}/M` : text
@@ -282,13 +310,20 @@ function buildTypeDetailSegments(
     )
     if (tier) {
       const prices = Object.entries(tier.unitPrices).map(([field, price]) => {
-        const unit = usageSchema?.[field]?.unit
-        const unitKey = getTaskUsagePriceUnitLabelKey(unit)
-        return `${field} ${formatTaskUsageUnitPrice(price, { tokenUnit: 'M' })}/${t(unitKey)}`
+        const definition = usageSchema?.[field]
+        const unitKey = getTaskUsagePriceUnitLabelKey(definition?.unit)
+        const unitLabel = taskUsageUnitLabel(definition, language, t(unitKey))
+        return `${field} ${formatTaskUsageUnitPrice(price, {
+          tokenUnit: 'M',
+          billingCurrency,
+        })}/${unitLabel}`
       })
       if (tier.constant > 0) {
         prices.push(
-          `${t('Additional charge')} ${formatTaskUsageUnitPrice(tier.constant, { tokenUnit: 'M' })}/${t('request')}`
+          `${t('Additional charge')} ${formatTaskUsageUnitPrice(tier.constant, {
+            tokenUnit: 'M',
+            billingCurrency,
+          })}/${t('request')}`
         )
       }
       segments.push({
@@ -344,7 +379,11 @@ function buildTypeDetailSegments(
               'cacheCreate1hPrice',
             ].includes(entry.field)
         )
-        .map((entry) => `${t(entry.shortLabel)} ${formatPrice(entry.price)}`)
+        .map((entry) =>
+          entry.unit
+            ? `${tieredSummary.tier.label || t('Default')} · ${t(entry.shortLabel)} ${formatPriceCompact(entry.price)}/${t(entry.unit)}`
+            : `${t(entry.shortLabel)} ${formatPrice(entry.price)}`
+        )
       if (otherEntries.length > 0) {
         segments.push({
           text: otherEntries.join(' · '),
@@ -957,32 +996,39 @@ export function useCommonLogsColumns(
       accessorKey: 'content',
       header: t('Details'),
       cell: function DetailsCell({ row }) {
-        const { t } = useTranslation()
+        const { t, i18n } = useTranslation()
         const [dialogOpen, setDialogOpen] = useState(false)
         const log = row.original
         const other = parseLogOther(log.other)
 
         const pricingData = usePricingData(
-          log.type === 2 &&
-            other?.is_task === true &&
-            other.billing_mode === 'tiered_expr'
+          log.type === 2 && other?.billing_mode === 'tiered_expr'
         )
-        const usageSchema = pricingData.models.find(
+        const matchedPricingModel = pricingData.models.find(
           (model) => model.model_name === log.model_name
-        )?.billing_usage_schema
+        )
+        const usageSchema = pluginUsageSchema(
+          matchedPricingModel,
+          other?.admin_info?.task_plugin?.key
+        )
         const segments = buildDetailSegments(
           log,
           other,
           t,
           isAdmin,
-          usageSchema
+          i18n.language,
+          usageSchema,
+          matchedPricingModel?.billing_currency
         )
         const primary = segments[0]
         const previewText = getCommonLogDetailPreviewText(
           log,
           other,
           t,
-          isAdmin
+          isAdmin,
+          i18n.language,
+          usageSchema,
+          matchedPricingModel?.billing_currency
         )
         const hasMore = segments.length > 1
         let primaryTextClass = 'text-foreground'

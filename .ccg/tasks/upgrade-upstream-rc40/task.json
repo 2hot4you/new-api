@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "implementation",
-  "nextAction": "添加持久化渠道编号兼容测试并开始 rc.37 顺序集成",
+  "nextAction": "完成 rc.37 修复后复审并创建顺序升级检查点",
   "createdAt": "2026-09-28T07:20:23Z",
   "branch": "upgrade/rc40"
 }

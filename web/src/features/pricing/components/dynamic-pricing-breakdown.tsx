@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 
 import { StaticDataTable } from '@/components/data-table'
 import { Badge } from '@/components/ui/badge'
+import { formatCatalogCurrencyAmount } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -45,8 +46,11 @@ import {
   type RequestRuleTrace,
   type TierCondition,
 } from '../lib/billing-expr'
+import { formatBillingCondition } from '../lib/billing-expression/condition-display'
+import { compileBillingExpression } from '../lib/billing-expression/parser'
 import { isBreakdownTierMatched } from '../lib/breakdown-tier-match'
 import {
+  formatTaskUsageUnitPrice,
   formatDynamicPricingTierLabel,
   getDynamicPricingStrategy,
   getDynamicPricingTierPresentation,
@@ -56,6 +60,7 @@ import {
 import { getTaskPricingDisplayTiers } from '../lib/task-matrix-display'
 import {
   taskPriceLabel,
+  taskUsageUnitLabel,
   taskPricingConditions,
 } from '../lib/task-price-display'
 import type { BillingUsageSchema, BillingUsageUnit } from '../types'
@@ -68,6 +73,8 @@ type DynamicPricingBreakdownProps = {
    * the usage-log details dialog to show which tier the engine selected.
    */
   matchedTierLabel?: string | null
+  matchedBillingUnit?: 'token' | 'request'
+  matchedFixedPrice?: number
   /** Request-rule traces emitted by the settlement run. */
   requestRules?: RequestRuleTrace[] | null
   /**
@@ -89,6 +96,8 @@ type DynamicPricingBreakdownProps = {
    * any synthesized combination label.
    */
   usageFacts?: Record<string, string | number>
+  /** Currency of the matched model's catalog coefficients. */
+  billingCurrency?: 'USD' | 'CNY'
   /** Public-catalog conversion settings shared with cards and tables. */
   taskPriceOptions?: {
     showRechargePrice?: boolean
@@ -103,7 +112,9 @@ type BreakdownPriceField = {
   id: string
   label: string
   labelKind: DynamicPriceLabelKind
-  unit: BillingUsageUnit | 'request' | 'token'
+  unit: BillingUsageUnit | 'request' | 'token' | 'image'
+  unitLabel?: string | Record<string, string>
+  showTokenUnit?: boolean
   value: (tier: BreakdownTier) => number
 }
 
@@ -120,7 +131,9 @@ function breakdownPriceFieldLabel(
       language ?? 'en'
     )
   }
-  return t(field.label)
+  return field.showTokenUnit
+    ? `${t(field.label)} / ${t('1M token')}`
+    : t(field.label)
 }
 
 const VAR_LABELS: Record<string, string> = {
@@ -174,14 +187,24 @@ function isTaskBreakdownTier(tier: BreakdownTier): tier is ParsedTaskTier {
 
 function formatBreakdownConditionSummary(
   tier: BreakdownTier,
-  t: (key: string) => string
+  t: (key: string) => string,
+  schema: BillingUsageSchema | undefined,
+  language: string,
+  tierCount: number
 ): string {
   if (!isTaskBreakdownTier(tier)) {
+    if (tier.conditionText) {
+      return (
+        formatBillingCondition(tier.conditionText, t, language) ??
+        t(tier.conditionText)
+      )
+    }
     return formatConditionSummary(tier.conditions, t)
   }
-  return tier.conditions
-    .map((condition) => `${condition.field} = ${condition.value}`)
-    .join(' && ')
+  return (
+    taskPricingConditions(tier.conditions, schema, language, t) ||
+    t(tierCount > 1 ? 'Other cases' : 'All requests')
+  )
 }
 
 function formatBreakdownPrice(
@@ -189,11 +212,35 @@ function formatBreakdownPrice(
   field: BreakdownPriceField,
   symbol: string,
   rate: number,
-  t: (key: string) => string
+  t: (key: string) => string,
+  taskPriceOptions: DynamicPricingBreakdownProps['taskPriceOptions'],
+  language: string,
+  billingCurrency: DynamicPricingBreakdownProps['billingCurrency']
 ): string {
-  const amount = `${symbol}${Number((value * rate).toFixed(4))}`
+  let amount: string
+  if (
+    field.labelKind === 'schema' ||
+    field.unit === 'request' ||
+    field.unit === 'image'
+  ) {
+    amount = formatTaskUsageUnitPrice(value, {
+      tokenUnit: 'M',
+      ...taskPriceOptions,
+      billingCurrency,
+    })
+  } else if (billingCurrency) {
+    amount = formatCatalogCurrencyAmount(value, billingCurrency, {
+      digitsLarge: 4,
+      digitsSmall: 6,
+      abbreviate: false,
+    })
+  } else {
+    amount = `${symbol}${(value * rate).toFixed(4)}`
+  }
   if (field.unit === 'second') return `${amount}/${t('s')}`
-  if (field.unit === 'count') return `${amount}/${t('unit')}`
+  if (field.unit === 'count') {
+    return `${amount}/${taskUsageUnitLabel(field, language, t('unit'))}`
+  }
   if (field.unit === 'credit') return `${amount}/${t('credit')}`
   if (
     field.unit === 'token' &&
@@ -202,6 +249,7 @@ function formatBreakdownPrice(
     return `${amount}/${t('1M token')}`
   }
   if (field.unit === 'request') return `${amount}/${t('request')}`
+  if (field.unit === 'image') return `${amount}/${t('image')}`
   return amount
 }
 
@@ -240,8 +288,13 @@ function describeCondition(
 
 function describeGroup(
   group: RequestRuleGroup,
-  t: (key: string) => string
+  t: (key: string) => string,
+  locale: string
 ): string {
+  if (group.conditionText) {
+    const formatted = formatBillingCondition(group.conditionText, t, locale)
+    if (formatted) return formatted
+  }
   const description = (group.conditions || [])
     .map((condition) => describeCondition(condition, t))
     .join(' && ')
@@ -303,11 +356,14 @@ function usesReadableTimeRules(
 export function DynamicPricingBreakdown({
   billingExpr,
   matchedTierLabel,
+  matchedBillingUnit,
+  matchedFixedPrice,
   requestRules,
   hideCacheColumns = false,
   compact = false,
   usageSchema,
   usageFacts,
+  billingCurrency,
   taskPriceOptions,
 }: DynamicPricingBreakdownProps) {
   const { t, i18n } = useTranslation()
@@ -326,23 +382,27 @@ export function DynamicPricingBreakdown({
     }
     return { symbol: '$', rate: 1 }
   }, [currency])
-  const taskPriceRate = taskPriceOptions?.showRechargePrice
-    ? (taskPriceOptions.priceRate ?? 1) /
-      (taskPriceOptions.usdExchangeRate || 1)
-    : 1
-
   const { tiers, ruleGroups } = useMemo(() => {
     const split = splitBillingExprAndRequestRules(expr)
-    let parsedTiers
-    if (usageSchema) {
-      parsedTiers = getTaskPricingDisplayTiers(split.billingExpr, usageSchema)
-    } else {
-      parsedTiers = parseTiersFromExpr(split.billingExpr)
-    }
-    const parsedRules =
+    const parsedTiers = usageSchema
+      ? getTaskPricingDisplayTiers(split.billingExpr, usageSchema)
+      : parseTiersFromExpr(split.billingExpr)
+    let parsedRules =
       requestRules != null
         ? requestRuleGroupsFromTrace(requestRules)
         : tryParseRequestRuleExpr(split.requestRuleExpr || '')
+    if (!parsedRules && requestRules == null) {
+      const compiled = compileBillingExpression(expr)
+      if (compiled.status === 'ready') {
+        parsedRules = requestRuleGroupsFromTrace(
+          compiled.requestRules.map((rule) => ({
+            cond: expr.slice(rule.condition.start, rule.condition.end),
+            multiplier: rule.multiplier,
+            matched: false,
+          }))
+        )
+      }
+    }
     return {
       tiers: parsedTiers,
       ruleGroups: parsedRules || [],
@@ -409,6 +469,7 @@ export function DynamicPricingBreakdown({
           label: field,
           labelKind: 'schema' as const,
           unit: definition.unit as BillingUsageUnit,
+          unitLabel: definition.unitLabel,
           value: (tier: BreakdownTier) =>
             isTaskBreakdownTier(tier) ? Number(tier.unitPrices[field] || 0) : 0,
         }))
@@ -426,14 +487,16 @@ export function DynamicPricingBreakdown({
       }
       return fields
     }
-    return BILLING_PRICING_VARS.filter((variable) => {
-      if (hideCacheColumns && variable.group === 'cache') return false
-      return tiers.some(
-        (tier) =>
-          !isTaskBreakdownTier(tier) &&
-          Number(tier[variable.field as string as keyof ParsedTier] || 0) > 0
-      )
-    }).map((variable, index) => ({
+    const fields: BreakdownPriceField[] = BILLING_PRICING_VARS.filter(
+      (variable) => {
+        if (hideCacheColumns && variable.group === 'cache') return false
+        return tiers.some(
+          (tier) =>
+            !isTaskBreakdownTier(tier) &&
+            Number(tier[variable.field as string as keyof ParsedTier] || 0) > 0
+        )
+      }
+    ).map((variable, index) => ({
       id: variable.field ?? `price-${index}`,
       label: variable.shortLabel,
       labelKind: 'i18n' as const,
@@ -443,6 +506,32 @@ export function DynamicPricingBreakdown({
           ? 0
           : Number(tier[variable.field as string as keyof ParsedTier] || 0),
     }))
+    if (
+      tiers.some(
+        (tier) => !isTaskBreakdownTier(tier) && tier.billingUnit === 'request'
+      )
+    ) {
+      for (const field of fields) field.showTokenUnit = true
+      fields.push({
+        id: 'fixedPrice',
+        label: tiers.some(
+          (tier) => !isTaskBreakdownTier(tier) && tier.imageCount
+        )
+          ? 'Price per image'
+          : 'Price per request',
+        labelKind: 'i18n',
+        unit: tiers.some(
+          (tier) => !isTaskBreakdownTier(tier) && tier.imageCount
+        )
+          ? 'image'
+          : 'request',
+        value: (tier) =>
+          !isTaskBreakdownTier(tier) && tier.billingUnit === 'request'
+            ? Number(tier.fixedPrice)
+            : Number.NaN,
+      })
+    }
+    return fields
   })()
   const mobileTierKeyOccurrences = new Map<string, number>()
   const requestRuleKeyOccurrences = new Map<string, number>()
@@ -512,14 +601,23 @@ export function DynamicPricingBreakdown({
                   : null
               const displayLabel = displayTierLabel(tier, index)
               const condSummary =
-                presentation?.kind === 'input_length'
+                presentation?.kind === 'input_length' ||
+                isTaskBreakdownTier(tier)
                   ? ''
-                  : formatBreakdownConditionSummary(tier, t)
+                  : formatBreakdownConditionSummary(
+                      tier,
+                      t,
+                      usageSchema,
+                      i18n.language,
+                      tiers.length
+                    )
               const isMatched = isBreakdownTierMatched(
                 tier,
                 tiers,
                 matchedTierLabel,
-                usageFacts
+                usageFacts,
+                matchedBillingUnit,
+                matchedFixedPrice
               )
               const rowKey = nextOccurrenceKey(
                 JSON.stringify(tier),
@@ -580,13 +678,19 @@ export function DynamicPricingBreakdown({
                               compact ? 'text-xs' : 'text-sm font-semibold'
                             )}
                           >
-                            {value > 0
+                            {value > 0 ||
+                            ((field.unit === 'request' ||
+                              field.unit === 'image') &&
+                              Number.isFinite(value))
                               ? formatBreakdownPrice(
                                   value,
                                   field,
                                   symbol,
-                                  rate * taskPriceRate,
-                                  t
+                                  rate,
+                                  t,
+                                  taskPriceOptions,
+                                  i18n.language,
+                                  billingCurrency
                                 )
                               : '-'}
                           </div>
@@ -613,7 +717,9 @@ export function DynamicPricingBreakdown({
                 tier,
                 tiers,
                 matchedTierLabel,
-                usageFacts
+                usageFacts,
+                matchedBillingUnit,
+                matchedFixedPrice
               )
               return cn(
                 isMatched &&
@@ -636,14 +742,23 @@ export function DynamicPricingBreakdown({
                       : null
                   const displayLabel = displayTierLabel(tier, index)
                   const condSummary =
-                    presentation?.kind === 'input_length'
+                    presentation?.kind === 'input_length' ||
+                    isTaskBreakdownTier(tier)
                       ? ''
-                      : formatBreakdownConditionSummary(tier, t)
+                      : formatBreakdownConditionSummary(
+                          tier,
+                          t,
+                          usageSchema,
+                          i18n.language,
+                          tiers.length
+                        )
                   const isMatched = isBreakdownTierMatched(
                     tier,
                     tiers,
                     matchedTierLabel,
-                    usageFacts
+                    usageFacts,
+                    matchedBillingUnit,
+                    matchedFixedPrice
                   )
                   return (
                     <>
@@ -690,14 +805,19 @@ export function DynamicPricingBreakdown({
                 ),
                 cell: (tier: BreakdownTier) => {
                   const value = field.value(tier)
-                  return value > 0 ? (
+                  return value > 0 ||
+                    ((field.unit === 'request' || field.unit === 'image') &&
+                      Number.isFinite(value)) ? (
                     <span className={cn(!compact && 'font-semibold')}>
                       {formatBreakdownPrice(
                         value,
                         field,
                         symbol,
-                        rate * taskPriceRate,
-                        t
+                        rate,
+                        t,
+                        taskPriceOptions,
+                        i18n.language,
+                        billingCurrency
                       )}
                     </span>
                   ) : (
@@ -748,7 +868,7 @@ export function DynamicPricingBreakdown({
                   >
                     {hasReadableTimeRules && legacyStrategy
                       ? `${legacyStrategy.timeRules[index].label} (${legacyStrategy.timeRules[index].timezone})`
-                      : describeGroup(group, t)}
+                      : describeGroup(group, t, i18n.language)}
                   </span>
                   <Badge
                     variant='secondary'

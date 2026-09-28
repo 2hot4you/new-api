@@ -25,7 +25,8 @@ func TestGetOpenAIVideoRouteRendersJimengTask(t *testing.T) {
 	previousMasterNode := common.IsMasterNode
 	previousRedisEnabled := common.RedisEnabled
 	common.SQLitePath = t.TempDir() + "/router-video.db"
-	common.IsMasterNode = false
+	// This test owns a fresh database and therefore acts as its migration master.
+	common.IsMasterNode = true
 	common.RedisEnabled = false
 	t.Setenv("SQL_DSN", "")
 	require.NoError(t, model.InitDB())

@@ -20,13 +20,13 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { ModelDetails } from '@/features/pricing/components/model-details'
 import { pricingSearchSchema } from '@/features/pricing/lib/pricing-search'
-import { getFreshModuleAccess } from '@/lib/nav-modules'
+import { getModuleAccessForGuard } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/pricing/$modelId/')({
   validateSearch: pricingSearchSchema,
-  beforeLoad: async ({ location }) => {
-    const access = await getFreshModuleAccess('pricing')
+  beforeLoad: async ({ context, location }) => {
+    const access = await getModuleAccessForGuard(context.queryClient, 'pricing')
     if (!access.enabled) {
       throw redirect({ to: '/' })
     }

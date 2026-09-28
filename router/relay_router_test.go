@@ -100,7 +100,9 @@ func setupRelayRouterTestDB(t *testing.T) {
 	originalLogDatabaseType := common.LogDatabaseType()
 	originalSQLDSN, hadSQLDSN := os.LookupEnv("SQL_DSN")
 
-	common.IsMasterNode = false
+	// This test owns a fresh database and must install migrations before routing
+	// assertions; non-master startup now verifies the options-key invariant.
+	common.IsMasterNode = true
 	common.RedisEnabled = false
 	common.SQLitePath = fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)

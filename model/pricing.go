@@ -2,10 +2,8 @@ package model
 
 import (
 	"fmt"
-	"maps"
 	"sort"
 	"strings"
-
 	"sync"
 	"time"
 
@@ -18,7 +16,18 @@ import (
 	"github.com/QuantumNous/new-api/types"
 )
 
+type PricingPluginVariant struct {
+	PluginKey            string                               `json:"plugin_key"`
+	PluginName           string                               `json:"plugin_name"`
+	Icon                 string                               `json:"icon,omitempty"`
+	BillingExpr          string                               `json:"billing_expr"`
+	BillingMode          string                               `json:"billing_mode"`
+	BillingUsageSchema   map[string]jsplugin.UsageFieldSchema `json:"billing_usage_schema"`
+	BillingUsageExamples []jsplugin.UsageExample              `json:"billing_usage_examples,omitempty"`
+}
+
 type Pricing struct {
+	BillingPluginVariants  []PricingPluginVariant                 `json:"billing_plugin_variants,omitempty"`
 	ModelName              string                                 `json:"model_name"`
 	DisplayName            string                                 `json:"display_name,omitempty"`
 	Description            string                                 `json:"description,omitempty"`
@@ -351,12 +360,22 @@ func updatePricing() {
 	referencedVendorIDs := make(map[int]struct{})
 	pluginGeneration := jsplugin.DefaultRegistry.Generation()
 	for model, groups := range modelGroupsMap {
+		_, hasTaskPlugin := pluginGeneration.GetByModel(model)
+		if !hasTaskPlugin {
+			_, hasTaskPlugin = ResolveTaskModelAlias(pluginGeneration, model)
+		}
 		meta, ok := metaMap[model]
-		if !ok || meta.Status != 1 || !meta.MarketplaceEnabled || !meta.EvaluateMarketplaceReadiness().Complete {
+		if !ok && !hasTaskPlugin {
 			continue
 		}
+		if ok && !hasTaskPlugin && (meta.Status != 1 || !meta.MarketplaceEnabled || !meta.EvaluateMarketplaceReadiness().Complete) {
+			continue
+		}
+		if meta == nil {
+			meta = &Model{ModelName: model}
+		}
 		vendor, exists := vendorMap[meta.VendorID]
-		if !exists || vendor.Status != 1 {
+		if !hasTaskPlugin && (!exists || vendor.Status != 1) {
 			continue
 		}
 
@@ -364,7 +383,7 @@ func updatePricing() {
 		modelRatio, hasModelRatio, _ := ratio_setting.GetModelRatio(model)
 		billingExpr, hasBillingExpr := billing_setting.GetBillingExpr(model)
 		hasBillingExpr = hasBillingExpr && strings.TrimSpace(billingExpr) != ""
-		if !IsModelPricingConfigured(model) || len(groups.Items()) == 0 || len(modelSupportEndpointTypes[model]) == 0 {
+		if (!IsModelPricingConfigured(model) && !hasTaskPlugin) || len(groups.Items()) == 0 || len(modelSupportEndpointTypes[model]) == 0 {
 			continue
 		}
 
@@ -373,7 +392,9 @@ func updatePricing() {
 			EnableGroup:            groups.Items(),
 			SupportedEndpointTypes: modelSupportEndpointTypes[model],
 		}
-		referencedVendorIDs[meta.VendorID] = struct{}{}
+		if exists && vendor.Status == 1 {
+			referencedVendorIDs[meta.VendorID] = struct{}{}
+		}
 		pricing.DisplayName = meta.DisplayName
 		pricing.Description = meta.Description
 		pricing.DescriptionEN = meta.DescriptionEN
@@ -439,36 +460,46 @@ func updatePricing() {
 				}
 			}
 		}
+		usageModel := model
 		plugin, ok := pluginGeneration.GetByModel(model)
 		if !ok {
 			if target, resolved := ResolveTaskModelAlias(pluginGeneration, model); resolved {
 				plugin, ok = pluginGeneration.Get(target.PluginKey)
+				usageModel = target.Declared
 			}
 		}
-		if ok && plugin != nil && len(plugin.Meta.UsageSchema) > 0 {
-			pricing.BillingUsageSchema = make(map[string]jsplugin.UsageFieldSchema, len(plugin.Meta.UsageSchema))
-			for key, field := range plugin.Meta.UsageSchema {
-				field.Enum = append([]string(nil), field.Enum...)
-				field.Description = maps.Clone(field.Description)
-				if field.EnumLabels != nil {
-					labels := make(map[string]jsplugin.LocalizedText, len(field.EnumLabels))
-					for value, label := range field.EnumLabels {
-						labels[value] = maps.Clone(label)
-					}
-					field.EnumLabels = labels
-				}
-				pricing.BillingUsageSchema[key] = field
+		if ok && plugin != nil {
+			usageSchema, usageExamples := plugin.Meta.UsageForModel(usageModel)
+			pricing.BillingUsageSchema = jsplugin.CloneUsageSchema(usageSchema)
+			pricing.BillingUsageExamples = jsplugin.CloneUsageExamples(usageExamples)
+		}
+		providers := pluginGeneration.PluginsByModel(model)
+		hasProviderOverride := false
+		for _, provider := range providers {
+			if _, configured := billing_setting.GetPluginBillingExpr(provider.Meta.Key, model); configured {
+				hasProviderOverride = true
+				break
 			}
-			if len(plugin.Meta.UsageExamples) > 0 {
-				pricing.BillingUsageExamples = make([]jsplugin.UsageExample, len(plugin.Meta.UsageExamples))
-				for index, example := range plugin.Meta.UsageExamples {
-					facts := make(map[string]any, len(example.Facts))
-					maps.Copy(facts, example.Facts)
-					pricing.BillingUsageExamples[index] = jsplugin.UsageExample{
-						Label: example.Label,
-						Facts: maps.Clone(example.Facts),
-					}
+		}
+		if hasProviderOverride || (len(providers) >= 2 && pricing.BillingMode == billing_setting.BillingModeTieredExpr) {
+			for _, provider := range providers {
+				schema, examples := provider.Meta.UsageForModel(model)
+				if schema == nil {
+					schema = map[string]jsplugin.UsageFieldSchema{}
 				}
+				expression, hasExpression := billing_setting.ResolveTaskBillingExpr(provider.Meta.Key, model, "")
+				mode := billing_setting.BillingModeRatio
+				if hasExpression || billing_setting.GetBillingMode(model) == billing_setting.BillingModeTieredExpr {
+					mode = billing_setting.BillingModeTieredExpr
+				}
+				if mode == billing_setting.BillingModeTieredExpr && !billing_setting.TaskExprCompatible(expression, schema) {
+					expression = ""
+				}
+				pricing.BillingPluginVariants = append(pricing.BillingPluginVariants, PricingPluginVariant{
+					PluginKey: provider.Meta.Key, PluginName: provider.Meta.Name, Icon: provider.Meta.Icon,
+					BillingExpr: expression, BillingMode: mode,
+					BillingUsageSchema: jsplugin.CloneUsageSchema(schema), BillingUsageExamples: jsplugin.CloneUsageExamples(examples),
+				})
 			}
 		}
 		if videoPricing, ok := ratio_setting.GetStarAIVideoPricing(model); ok {

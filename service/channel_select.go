@@ -28,17 +28,28 @@ func AppendTaskPluginIdentityFilter(c *gin.Context, pluginKey string) {
 	if c == nil {
 		return
 	}
+	channelTypes, pluginKeys := pinnedTaskPluginIdentities(c, pluginKey)
 	GetChannelConstraints(c).AddFilter(dto.ChannelFilter{
 		Kind:                   dto.FilterTaskPluginIdentity,
 		TaskPluginKey:          pluginKey,
-		TaskPluginChannelTypes: TaskPluginChannelTypesForRequest(c, pluginKey),
+		TaskPluginChannelTypes: channelTypes,
+		TaskPluginKeys:         pluginKeys,
 	})
 }
 
 // TaskPluginChannelTypesForRequest returns the legacy and explicitly bridged
 // native channel types accepted by the pinned task endpoint for this request.
 func TaskPluginChannelTypesForRequest(c *gin.Context, expected string) []int {
-	return pinnedTaskPluginChannelTypes(c, expected)
+	channelTypes, _ := pinnedTaskPluginIdentities(c, expected)
+	return channelTypes
+}
+
+// pinnedTaskPluginChannelTypes preserves the legacy helper contract for
+// callers that only need channel types while identity-aware routing also keeps
+// the full set of acceptable plugin keys.
+func pinnedTaskPluginChannelTypes(c *gin.Context, expected string) []int {
+	channelTypes, _ := pinnedTaskPluginIdentities(c, expected)
+	return channelTypes
 }
 
 type RetryParam struct {
@@ -203,15 +214,17 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	return channel, selectGroup, nil
 }
 
-func pinnedTaskPluginChannelTypes(c *gin.Context, expected string) []int {
+func pinnedTaskPluginIdentities(c *gin.Context, expected string) ([]int, []string) {
 	if c == nil || expected == "" {
-		return nil
+		return nil, nil
 	}
 	if value, exists := c.Get(jsplugin.ContextKeyPinnedEndpoint); exists {
 		pinned, ok := value.(jsplugin.PinnedEndpoint)
 		if ok && pinned.Generation != nil && len(pinned.Candidates) > 1 {
 			expectedFound := false
+			unifiedNativePluginKey := expected
 			channelTypes := make([]int, 0, len(pinned.Candidates))
+			pluginKeys := make([]string, 0, len(pinned.Candidates))
 			seen := make(map[int]struct{}, len(pinned.Candidates))
 			for _, candidate := range pinned.Candidates {
 				if candidate.Plugin == nil {
@@ -220,6 +233,10 @@ func pinnedTaskPluginChannelTypes(c *gin.Context, expected string) []int {
 				if candidate.Plugin.Meta.Key == expected {
 					expectedFound = true
 				}
+				if candidate.Plugin.Meta.Key == "doubao" {
+					unifiedNativePluginKey = candidate.Plugin.Meta.Key
+				}
+				pluginKeys = append(pluginKeys, candidate.Plugin.Meta.Key)
 				for _, channelType := range candidate.Plugin.Meta.ChannelTypes {
 					if channelType == 0 || channelType == constant.ChannelTypeTaskPlugin {
 						continue
@@ -234,14 +251,14 @@ func pinnedTaskPluginChannelTypes(c *gin.Context, expected string) []int {
 				}
 			}
 			if expectedFound {
-				return appendUnifiedNativeTaskChannelTypes(c, expected, channelTypes)
+				return appendUnifiedNativeTaskChannelTypes(c, unifiedNativePluginKey, channelTypes), pluginKeys
 			}
 		}
 	}
 	value, exists := c.Get(jsplugin.ContextKeyPinnedPlugin)
 	pinned, ok := value.(jsplugin.PinnedPlugin)
 	if !exists || !ok || pinned.Generation == nil || pinned.Plugin == nil || pinned.Plugin.Meta.Key != expected {
-		return nil
+		return nil, nil
 	}
 	channelTypes := make([]int, 0, len(pinned.Plugin.Meta.ChannelTypes))
 	for _, channelType := range pinned.Plugin.Meta.ChannelTypes {
@@ -251,9 +268,9 @@ func pinnedTaskPluginChannelTypes(c *gin.Context, expected string) []int {
 		channelTypes = append(channelTypes, channelType)
 	}
 	if len(channelTypes) == 0 {
-		return nil
+		return nil, []string{expected}
 	}
-	return appendUnifiedNativeTaskChannelTypes(c, expected, channelTypes)
+	return appendUnifiedNativeTaskChannelTypes(c, expected, channelTypes), []string{expected}
 }
 
 // appendUnifiedNativeTaskChannelTypes keeps endpoint routing compatible with

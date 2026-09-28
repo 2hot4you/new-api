@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import type { PricingModel, TokenUnit } from '../types'
@@ -41,7 +42,7 @@ export function ModelCardGrid(props: ModelCardGridProps) {
 
   const perfQuery = useQuery({
     queryKey: ['perf-metrics-summary', 24],
-    queryFn: () => getPerfMetricsSummary(24),
+    queryFn: async () => requireServerSuccess(await getPerfMetricsSummary(24)),
     staleTime: 60 * 1000,
     retry: false,
   })

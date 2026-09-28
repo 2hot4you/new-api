@@ -27,7 +27,7 @@ import {
 import { SITE_BRAND } from '@/config/site-brand'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
-import { DEFAULT_LOGO } from '@/lib/constants'
+import { DEFAULT_LOGO, resolveSystemName } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 import { ClaudeyeWordmark } from './claudeye-wordmark'
@@ -105,7 +105,7 @@ export function SystemBrand(props: SystemBrandProps) {
   const { logo } = useSystemConfig()
 
   const variant = props.variant ?? 'sidebar'
-  const name = status?.system_name || props.defaultName || 'New API'
+  const name = resolveSystemName(status?.system_name || props.defaultName)
   const version =
     status?.version || props.defaultVersion || t('Unknown version')
 
@@ -115,7 +115,7 @@ export function SystemBrand(props: SystemBrandProps) {
         to='/'
         aria-label={t('Go to home')}
         className={cn(
-          'text-foreground inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-sm font-medium transition-colors outline-none select-none',
+          'text-foreground inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-sm font-medium transition-colors outline-none select-none',
           'hover:bg-accent focus-visible:ring-ring/40 focus-visible:ring-2'
         )}
       >

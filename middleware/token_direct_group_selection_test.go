@@ -30,7 +30,11 @@ func setupDirectTokenGroupSelectionTest(t *testing.T) {
 	previousUsableGroups := setting.UserUsableGroups2JSONString()
 	previousGroupRatios := ratio_setting.GroupRatio2JSONString()
 
-	common.IsMasterNode = false
+	// InitDB now fails closed on non-master nodes until the master has installed
+	// the options-key uniqueness invariant. This fixture owns a fresh database,
+	// so initialize it as the migration-capable master before exercising token
+	// middleware behavior.
+	common.IsMasterNode = true
 	common.SQLitePath = filepath.Join(t.TempDir(), "token-groups.db")
 	require.NoError(t, os.Setenv("SQL_DSN", "local"))
 	require.NoError(t, model.InitDB())

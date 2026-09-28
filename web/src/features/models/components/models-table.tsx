@@ -26,6 +26,7 @@ import { ErrorState } from '@/components/error-state'
 import { useModelPricing } from '@/features/model-pricing/api'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { getModels, searchModels, getVendors } from '../api'
 import { DEFAULT_PAGE_SIZE } from '../constants'
@@ -76,11 +77,11 @@ export function ModelsTable() {
   )?.[0]
   const vendorFilter =
     (columnFilters.find((f) => f.id === 'vendor_id')?.value as string[]) || []
-
   // Fetch vendors for filter
   const { data: vendorsData } = useQuery({
     queryKey: vendorsQueryKeys.list(),
-    queryFn: () => getVendors({ page_size: 1000 }),
+    queryFn: async () =>
+      requireServerSuccess(await getVendors({ page_size: 1000 })),
   })
 
   const vendors = useMemo(
@@ -106,8 +107,7 @@ export function ModelsTable() {
     statusFilter.length > 0 && !statusFilter.includes('all')
       ? statusFilter[0]
       : undefined
-
-  // Use search API whenever any filter is active so status/sync are applied server-side
+  // Use search API whenever any local metadata filter is active.
   const shouldSearch = Boolean(
     globalFilter?.trim() ||
     activeVendorFilter ||
@@ -129,21 +129,25 @@ export function ModelsTable() {
     }),
     queryFn: async () => {
       if (shouldSearch) {
-        return searchModels({
+        return requireServerSuccess(
+          await searchModels({
+            include_channel_models: true,
+            keyword: globalFilter,
+            vendor: activeVendorFilter,
+            status: statusFilterValue,
+            square_state: squareState,
+            p: pagination.pageIndex + 1,
+            page_size: pagination.pageSize,
+          })
+        )
+      }
+      return requireServerSuccess(
+        await getModels({
           include_channel_models: true,
-          keyword: globalFilter,
-          vendor: activeVendorFilter,
-          status: statusFilterValue,
-          square_state: squareState,
           p: pagination.pageIndex + 1,
           page_size: pagination.pageSize,
         })
-      }
-      return getModels({
-        include_channel_models: true,
-        p: pagination.pageIndex + 1,
-        page_size: pagination.pageSize,
-      })
+      )
     },
   })
 

@@ -17,9 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test } from 'vitest'
 
 import type { UsageLog } from '../../data/schema'
 
@@ -50,6 +50,8 @@ for (const key of [
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { GrokVideoBillingCard } =
@@ -108,19 +110,25 @@ async function renderDetails(log: UsageLog) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  queryClient.setQueryData(['status'], {})
   await act(async () => {
     root.render(
-      <I18nextProvider i18n={i18n}>
-        <DetailsDialog
-          log={log}
-          isAdmin={false}
-          open
-          onOpenChange={() => undefined}
-        />
-      </I18nextProvider>
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <DetailsDialog
+            log={log}
+            isAdmin={false}
+            open
+            onOpenChange={() => undefined}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
     )
   })
-  return { container, root }
+  return { container, queryClient, root }
 }
 
 describe('Grok video billing display', () => {
@@ -303,6 +311,7 @@ describe('Grok video billing display', () => {
     }
 
     await act(async () => details.root.unmount())
+    details.queryClient.clear()
     details.container.remove()
   })
 
@@ -334,6 +343,7 @@ describe('Grok video billing display', () => {
     )
 
     await act(async () => rendered.root.unmount())
+    rendered.queryClient.clear()
     rendered.container.remove()
   })
 })

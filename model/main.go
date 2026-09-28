@@ -213,7 +213,7 @@ func InitDB() (err error) {
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 
 		if !common.IsMasterNode {
-			return nil
+			return verifyOptionPrimaryKey(DB)
 		}
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 			//_, _ = sqlDB.Exec("ALTER TABLE channels MODIFY model_mapping TEXT;") // TODO: delete this line when most users have upgraded
@@ -329,6 +329,9 @@ func migrateDB() error {
 	// Migrate model_limits column from varchar to text for existing tables
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
+	}
+	if err := migrateOptionPrimaryKey(DB); err != nil {
+		return fmt.Errorf("failed to migrate options primary key: %w", err)
 	}
 
 	err := DB.AutoMigrate(

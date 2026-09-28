@@ -42,9 +42,14 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
+import { BILLING_PRICING_VARS } from '@/features/pricing/lib/billing-expr'
 import { formatDynamicPricingTierLabel } from '@/features/pricing/lib/dynamic-price'
+import { pluginUsageSchema } from '@/features/pricing/lib/plugin-pricing'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import {
+  formatBillingCurrencyFromUSD,
+  formatCatalogCurrencyAmount,
+} from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
@@ -273,6 +278,7 @@ function BillingBreakdown(props: {
   log: UsageLog
   other: LogOtherData
   isAdmin: boolean
+  billingCurrency?: 'USD' | 'CNY'
 }) {
   const { t } = useTranslation()
   const { log, other, isAdmin } = props
@@ -283,7 +289,10 @@ function BillingBreakdown(props: {
 
   const rows: Array<{ label: string; value: string }> = []
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
-  const fmtPrice = (usd: number) => formatBillingCurrencyFromUSD(usd, priceOpts)
+  const fmtPrice = (price: number) =>
+    props.billingCurrency
+      ? formatCatalogCurrencyAmount(price, props.billingCurrency, priceOpts)
+      : formatBillingCurrencyFromUSD(price, priceOpts)
   const baseInputUSD = other.model_ratio != null ? other.model_ratio * 2.0 : 0
 
   if (isTieredExpr) {
@@ -306,7 +315,7 @@ function BillingBreakdown(props: {
       for (const entry of tieredSummary.priceEntries) {
         rows.push({
           label: t(entry.shortLabel),
-          value: `${fmtPrice(entry.price)}/M`,
+          value: `${fmtPrice(entry.price)}/${entry.unit ? t(entry.unit) : 'M'}`,
         })
       }
     } else {
@@ -484,35 +493,6 @@ function BillingBreakdown(props: {
   )
 }
 
-function TieredPricingDetails(props: {
-  modelName: string
-  expression: string
-  matchedTierLabel?: string
-  requestRules?: LogOtherData['request_rules']
-  hideCacheColumns: boolean
-  usageFacts?: Record<string, string | number>
-}) {
-  const { t } = useTranslation()
-  const pricingData = usePricingData(true)
-  const usageSchema = pricingData.models.find(
-    (model) => model.model_name === props.modelName
-  )?.billing_usage_schema
-
-  return (
-    <DetailSection label={t('Dynamic Pricing')}>
-      <DynamicPricingBreakdown
-        compact
-        billingExpr={props.expression}
-        matchedTierLabel={props.matchedTierLabel}
-        requestRules={props.requestRules}
-        hideCacheColumns={props.hideCacheColumns}
-        usageSchema={usageSchema}
-        usageFacts={props.usageFacts}
-      />
-    </DetailSection>
-  )
-}
-
 function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   const { t } = useTranslation()
   const { log, other } = props
@@ -539,6 +519,13 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
     rows.push({
       label: t('Cache Read'),
       value: cacheRead.toLocaleString(),
+    })
+  }
+
+  if (other.image_cache_tokens !== undefined) {
+    rows.push({
+      label: t('Image Cache'),
+      value: other.image_cache_tokens.toLocaleString(),
     })
   }
 
@@ -575,6 +562,29 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
       {rows.map((row) => (
         <DetailRow key={row.label} label={row.label} value={row.value} mono />
       ))}
+      {other.billing_tokens && (
+        <div
+          role='group'
+          aria-label={t('Billable token breakdown')}
+          className='space-y-2'
+        >
+          <Label className='text-xs font-semibold'>
+            {t('Billable token breakdown')}
+          </Label>
+          {BILLING_PRICING_VARS.map((variable) => {
+            const count = other.billing_tokens?.[variable.key]
+            if (count === undefined || !Number.isFinite(count)) return null
+            return (
+              <DetailRow
+                key={variable.key}
+                label={t(variable.shortLabel)}
+                value={count.toLocaleString()}
+                mono
+              />
+            )
+          })}
+        </div>
+      )}
     </DetailSection>
   )
 }
@@ -610,6 +620,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
     !isViolation &&
     other?.billing_mode === 'tiered_expr' &&
     !!other?.expr_b64
+  const pricingData = usePricingData(props.open && isTieredBilling)
+  const matchedPricingModel = pricingData.models.find(
+    (model) => model.model_name === props.log.model_name
+  )
+  const billingUsageSchema = pluginUsageSchema(
+    matchedPricingModel,
+    other?.admin_info?.task_plugin?.key
+  )
   const hasAudioTokens = other?.ws || other?.audio
   const showTiming = isTimingLogType(props.log.type)
   const showAdminIp =
@@ -1300,19 +1318,32 @@ export function DetailsDialog(props: DetailsDialogProps) {
               log={props.log}
               other={other}
               isAdmin={props.isAdmin}
+              billingCurrency={matchedPricingModel?.billing_currency}
             />
           )}
 
         {/* Tiered pricing breakdown (when billing_mode is tiered_expr) */}
         {isTieredBilling && other?.expr_b64 && (
-          <TieredPricingDetails
-            modelName={props.log.model_name}
-            expression={decodeBillingExprB64(other.expr_b64)}
-            matchedTierLabel={other.matched_tier}
-            requestRules={other.request_rules}
-            hideCacheColumns={!hasAnyCacheTokens(other)}
-            usageFacts={other.usage_facts}
-          />
+          <DetailSection label={t('Dynamic Pricing')}>
+            {other.image_count !== undefined && (
+              <DetailRow
+                label={t('Billable image count')}
+                value={other.image_count}
+              />
+            )}
+            <DynamicPricingBreakdown
+              compact
+              billingExpr={decodeBillingExprB64(other.expr_b64)}
+              matchedTierLabel={other.matched_tier}
+              matchedBillingUnit={other.billing_unit}
+              matchedFixedPrice={other.fixed_price}
+              requestRules={other.request_rules}
+              hideCacheColumns={!hasAnyCacheTokens(other)}
+              usageSchema={billingUsageSchema}
+              usageFacts={other.usage_facts}
+              billingCurrency={matchedPricingModel?.billing_currency}
+            />
+          </DetailSection>
         )}
 
         {/* Admin billing mode indicator for non-consume */}

@@ -17,3 +17,9 @@
 {"kind":"decision","date":"2026-09-28","summary":"User explicitly confirmed the design and instructed that antigravity/Claude external executors must not be used; implementation and review use local tests and internal agents only"}
 {"kind":"plan-correction","date":"2026-09-28","summary":"Moved the vLLM/SGLang RED assertion from Task 1 to the start of rc.38 Task 3 so the intervening rc.37 checkpoint can be fully green"}
 {"kind":"merge-preflight","tag":"v1.0.0-rc.37","status":"simulated","summary":"git merge-tree reports 38 conflicts: 11 backend and 27 frontend; core resolution will be split by disjoint file ownership"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.37","command":"go test ./... -count=1","cwd":".","status":"passed"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.37","command":"GOWORK=off go test ./... -count=1","cwd":"relaykit","status":"passed"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.37","command":"bun run typecheck && bun run test && bun run build","cwd":"web","status":"passed","summary":"latest run: 249 files, 2068 tests; production build passed"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.37","command":"bun run i18n:check","cwd":"web","status":"passed"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.37","command":"targeted oxlint/oxfmt checks","cwd":"web","status":"passed","summary":"compatibility-fix files clean"}
+{"kind":"checkpoint-validation","tag":"v1.0.0-rc.37","command":"bun run lint / bun run format:check / bun run copyright:check","cwd":"web","status":"baseline-debt","summary":"whole-tree rc.37 rule/header debt spans numerous upstream and pre-existing files; not expanded into compatibility merge"}

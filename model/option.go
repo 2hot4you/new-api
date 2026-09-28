@@ -205,7 +205,10 @@ func InitOptionMap() {
 }
 
 func loadOptionsFromDatabase() {
+	passkeyOptionMutex.Lock()
+	defer passkeyOptionMutex.Unlock()
 	options, _ := AllOption()
+	passkeyOptions := make(map[string]string)
 	for _, option := range options {
 		value, err := normalizeOptionValue(option.Key, option.Value)
 		if err != nil {
@@ -217,11 +220,16 @@ func loadOptionsFromDatabase() {
 				common.SysLog("failed to persist normalized option value: " + err.Error())
 			}
 		}
+		if IsPasskeyDomainOption(option.Key) {
+			passkeyOptions[option.Key] = value
+			continue
+		}
 		err = updateOptionMap(option.Key, value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
 	}
+	applyPasskeyDomainOptions(passkeyOptions)
 }
 
 func SyncOptions(frequency int) {
@@ -264,6 +272,10 @@ func UpdateOption(key string, value string) error {
 		return err
 	}
 	value = normalizedValue
+	if IsPasskeyDomainOption(key) {
+		_, err := UpdatePasskeyDomainOptions(map[string]string{key: value}, false, "")
+		return err
+	}
 	if IsModelPricingOption(key) {
 		return UpdateModelPricingOptions(map[string]string{key: value})
 	}
@@ -302,6 +314,12 @@ func UpdateOptionsBulk(values map[string]string) error {
 		}
 		normalizedValues[key] = normalizedValue
 		if err := validateOptionValue(key, normalizedValue); err != nil {
+			return err
+		}
+	}
+	for key := range normalizedValues {
+		if IsPasskeyDomainOption(key) {
+			_, err := UpdatePasskeyDomainOptions(normalizedValues, false, "")
 			return err
 		}
 	}

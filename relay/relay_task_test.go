@@ -3,6 +3,7 @@ package relay
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -154,6 +155,7 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 	const mapping = `{"alias-model":"declared-model"}`
 	const aliasExpr = `tier("alias", 2)`
 	const tailExpr = `tier("tail", 3)`
+	const legacyExpr = `tier("legacy", u("old_units") * 2)`
 
 	tests := []struct {
 		name       string
@@ -164,6 +166,7 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 		origin     string
 		billing    string
 		wantModel  string
+		source     string
 	}{
 		{
 			name:       "alias own tiered wins",
@@ -194,6 +197,17 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 			modes:      map[string]string{"alias-model": "tiered_expr", "declared-model": "tiered_expr"},
 			exprs:      map[string]string{"alias-model": aliasExpr, "declared-model": tailExpr},
 			wantTiered: true, wantExpr: tailExpr, wantModel: "declared-model",
+		},
+		{
+			name:       "stored expression keeps running after schema narrows",
+			modes:      map[string]string{"declared-model": "tiered_expr"},
+			exprs:      map[string]string{"declared-model": legacyExpr},
+			wantTiered: true,
+			wantExpr:   legacyExpr,
+			wantModel:  "declared-model",
+			source: strings.Replace(billingFallbackPlugin, `fetchMode:"per_task"`, `fetchMode:"per_task", usageSchema:{old_units:{type:"number",unit:"count"}}, usageProfiles:[{models:["declared-model"],schema:{seconds:{type:"number",unit:"second"}}}]`, 1) + `
+export function extractUsage(){return {old_units:2};}
+`,
 		},
 		{
 			name:       "neither tiered uses ordinary pricing",
@@ -228,7 +242,11 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 			c.Set("group", "default")
 			info.UserGroup = "default"
 			info.UsingGroup = "default"
-			pinMappingOrderPlugin(t, c, billingFallbackPlugin)
+			source := testCase.source
+			if source == "" {
+				source = billingFallbackPlugin
+			}
+			pinMappingOrderPlugin(t, c, source)
 			info.OriginModelName = origin
 			info.BillingModelName = testCase.billing
 
@@ -243,12 +261,15 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 			assert.Equal(t, "declared-model", task.Properties.UpstreamModelName)
 
 			if testCase.wantTiered {
-				require.NotNil(t, info.TieredBillingSnapshot)
+				require.NotNil(t, info.TieredBillingSnapshot, "submission error: %+v", taskErr)
 				assert.Equal(t, testCase.wantModel, info.TieredBillingSnapshot.ModelName)
 				assert.Equal(t, testCase.wantModel, info.GetBillingModelName())
 				assert.Equal(t, testCase.wantExpr, info.TieredBillingSnapshot.ExprString)
 				assert.Equal(t, billingexpr.ExprHashString(testCase.wantExpr), info.TieredBillingSnapshot.ExprHash)
 				assert.NotEqual(t, "model_price_error", taskErr.Code)
+				if testCase.wantExpr == legacyExpr {
+					assert.Equal(t, 4*common.QuotaPerUnit, info.TieredBillingSnapshot.EstimatedQuotaBeforeGroup)
+				}
 			} else {
 				assert.Nil(t, info.TieredBillingSnapshot)
 				assert.Equal(t, "model_price_error", taskErr.Code)
@@ -310,4 +331,80 @@ func TestEstimateTaskSubmitReusesBillingWithoutPreconsumingOrCallingUpstream(t *
 	assert.Equal(t, info.PriceData.Quota, estimate.Quota)
 	assert.Greater(t, estimate.Quota, 0)
 	assert.Nil(t, info.Billing, "an estimate must never reserve user quota")
+}
+
+func TestSharedTaskBillingExpressionSelectionAndFrozenSettlement(t *testing.T) {
+	const baseExpr = `tier("base", u("seconds") * 2)`
+	const alphaExpr = `tier("alpha", u("seconds") * 3)`
+	const betaExpr = `tier("beta", u("credits") * 5)`
+	const aliasExpr = `tier("alias", u("credits") * 7)`
+	for _, tc := range []struct {
+		name, plugin, model, mapping, modelExpr, mode, wantExpr string
+		variants                                                map[string]string
+		wantPriceError                                          bool
+	}{
+		{name: "executing plugin override", plugin: "billing-beta", model: "declared-model", modelExpr: baseExpr, mode: "tiered_expr", variants: map[string]string{"billing-alpha::declared-model": alphaExpr, "billing-beta::declared-model": betaExpr}, wantExpr: betaExpr},
+		{name: "override ignores model mode", plugin: "billing-beta", model: "declared-model", modelExpr: baseExpr, mode: "ratio", variants: map[string]string{"billing-beta::declared-model": betaExpr}, wantExpr: betaExpr},
+		{name: "model expression fallback", plugin: "billing-alpha", model: "declared-model", modelExpr: baseExpr, mode: "tiered_expr", wantExpr: baseExpr},
+		{name: "alias override precedes mapped override", plugin: "billing-beta", model: "alias-model", mapping: `{"alias-model":"declared-model"}`, modelExpr: baseExpr, mode: "tiered_expr", variants: map[string]string{"billing-beta::declared-model": betaExpr, "billing-beta::alias-model": aliasExpr}, wantExpr: aliasExpr},
+		{name: "mapped override precedes model fallback", plugin: "billing-beta", model: "alias-model", mapping: `{"alias-model":"declared-model"}`, modelExpr: baseExpr, mode: "tiered_expr", variants: map[string]string{"billing-beta::declared-model": betaExpr}, wantExpr: betaExpr},
+		{name: "unconfigured plugin cannot use another schema", plugin: "billing-beta", model: "declared-model", modelExpr: baseExpr, mode: "tiered_expr", wantPriceError: true},
+		{name: "missing usage in skipped branch remains incompatible", plugin: "billing-beta", model: "declared-model", modelExpr: `true ? tier("free", 0) : tier("missing", u("seconds"))`, mode: "tiered_expr", wantPriceError: true},
+		{name: "fixed pricing is still rejected", plugin: "billing-beta", model: "declared-model", variants: map[string]string{"billing-beta::declared-model": `tier("fixed", fixed(1))`}, wantPriceError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saveBillingConfig(t)
+			registry := pluginruntime.NewRegistry()
+			for _, spec := range []struct{ key, field, unit string }{{"billing-alpha", "seconds", "second"}, {"billing-beta", "credits", "credit"}} {
+				source := strings.ReplaceAll(billingFallbackPlugin, "bill-fallback", spec.key)
+				source = strings.Replace(source, `fetchMode:"per_task"`, `fetchMode:"per_task",usageSchema:{`+spec.field+`:{type:"number",unit:"`+spec.unit+`"}}`, 1)
+				source += `export function extractUsage(){return {` + spec.field + `:2};}`
+				_, err := registry.Register(source, pluginruntime.Options{})
+				require.NoError(t, err)
+			}
+			variants := tc.variants
+			if variants == nil {
+				variants = map[string]string{}
+			}
+			rawVariants, err := common.Marshal(variants)
+			require.NoError(t, err)
+			modes, err := common.Marshal(map[string]string{"declared-model": tc.mode})
+			require.NoError(t, err)
+			expressions, err := common.Marshal(map[string]string{"declared-model": tc.modelExpr})
+			require.NoError(t, err)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				billing_setting.PluginBillingExprOption: string(rawVariants), "billing_setting.billing_mode": string(modes), "billing_setting.billing_expr": string(expressions),
+			}))
+			c, info := newTaskSubmitContext(t, tc.model, tc.mapping)
+			c.Set("group", "default")
+			c.Set("task_plugin_key", tc.plugin)
+			info.UserGroup = "default"
+			info.UsingGroup = "default"
+			info.OriginModelName = tc.model
+			plugin, ok := registry.Generation().Get(tc.plugin)
+			require.True(t, ok)
+			c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Generation: registry.Generation(), Plugin: plugin})
+			_, taskErr := RelayTaskSubmit(c, info)
+			require.NotNil(t, taskErr) // This fixture stops at reservation, before upstream submission.
+			if tc.wantPriceError {
+				assert.Equal(t, "model_price_error", taskErr.Code)
+				assert.Nil(t, info.TieredBillingSnapshot)
+				return
+			}
+			require.NotNil(t, info.TieredBillingSnapshot, "submission error: %+v", taskErr)
+			assert.Equal(t, tc.wantExpr, info.TieredBillingSnapshot.ExprString)
+			assert.NotEqual(t, "model_price_error", taskErr.Code)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{billing_setting.PluginBillingExprOption: `{}`, "billing_setting.billing_expr": `{}`}))
+			field := "seconds"
+			if tc.plugin == "billing-beta" {
+				field = "credits"
+			}
+			result, usage, err := service.EvaluateTaskCompletionUsage(info.TieredBillingSnapshot, map[string]any{field: float64(4)})
+			require.NoError(t, err)
+			assert.Equal(t, float64(4), usage[field])
+			assert.Equal(t, float64(2), info.TieredBillingSnapshot.UsageFacts[field])
+			assert.Equal(t, 2*info.TieredBillingSnapshot.EstimatedQuotaAfterGroup, result.ActualQuotaAfterGroup)
+			assert.Equal(t, tc.wantExpr, info.TieredBillingSnapshot.ExprString)
+		})
+	}
 }

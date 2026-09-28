@@ -167,6 +167,7 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 60,
     name: CHANNEL_TYPES[60],
     icon: 'NewAPI',
+    requiresBaseUrl: true,
     hints: {
       baseUrl: 'Base URL is required for this channel type',
       key: 'Enter API key for this channel',

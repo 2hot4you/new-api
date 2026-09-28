@@ -25,27 +25,36 @@ import {
   MessageSquareText,
   Video,
 } from 'lucide-react'
-import { memo } from 'react'
+import { memo, useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { useBillingTime } from '../hooks/use-billing-time'
+import {
+  getCardExamplePrice,
+  getDynamicDisplayGroupRatio,
+  getDynamicPriceUnitLabelKey,
+  getDynamicPricingSummary,
+} from '../lib/dynamic-price'
 import {
   getCompactPricingSummary,
   type CompactPricingSummary,
 } from '../lib/model-card-summary'
 import { getPricingModelDescription } from '../lib/model-description'
 import { getModelInputModalities } from '../lib/model-directory'
-import { taskPriceLabel } from '../lib/task-price-display'
+import { taskPriceLabel, taskUsageUnitLabel } from '../lib/task-price-display'
 import type {
   Modality,
   ModelCapability,
   PricingModel,
   TokenUnit,
 } from '../types'
+import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
 export interface ModelCardProps {
@@ -258,6 +267,46 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const { t, i18n } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
+  const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
+  const priceRate = props.priceRate ?? 1
+  const usdExchangeRate = props.usdExchangeRate ?? 1
+  const showRechargePrice = props.showRechargePrice ?? false
+  const billingTime = useBillingTime(props.model.billing_expr)
+  const currency = useSystemConfigStore((state) => state.config.currency)
+  const dynamicPriceOptions = useMemo(
+    () => ({
+      now: billingTime === undefined ? undefined : new Date(billingTime),
+      tokenUnit,
+      showRechargePrice,
+      priceRate,
+      usdExchangeRate,
+      groupRatioMultiplier: getDynamicDisplayGroupRatio(
+        props.model,
+        props.selectedGroup
+      ),
+    }),
+    [
+      props.model,
+      props.selectedGroup,
+      billingTime,
+      tokenUnit,
+      showRechargePrice,
+      priceRate,
+      usdExchangeRate,
+    ]
+  )
+  const dynamicSummary = useMemo(
+    () => getDynamicPricingSummary(props.model, dynamicPriceOptions),
+    // Currency is read indirectly by the price formatter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.model, dynamicPriceOptions, currency]
+  )
+  const cardExamplePrice = useMemo(
+    () => getCardExamplePrice(props.model, dynamicPriceOptions),
+    // Currency is read indirectly by the price formatter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.model, dynamicPriceOptions, currency]
+  )
   const modelIconKey = props.model.icon || props.model.vendor_icon
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 24) : null
   const inputModalities = getModelInputModalities(props.model)
@@ -284,6 +333,98 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     .split(',')
     .map((tag) => tag.trim())
     .filter(Boolean)
+  let dynamicPriceSummary: ReactNode = null
+  if (dynamicSummary) {
+    if (dynamicSummary.isSpecialExpression) {
+      dynamicPriceSummary = (
+        <div className='col-span-full min-w-0'>
+          <span className='text-warning'>
+            {t('Special billing expression')}
+          </span>
+          <code className='text-muted-foreground mt-1 line-clamp-2 block font-mono text-xs break-all'>
+            {dynamicSummary.rawExpression}
+          </code>
+        </div>
+      )
+    } else if (dynamicSummary.primaryEntries.length > 0) {
+      dynamicPriceSummary = (
+        <>
+          {dynamicSummary.primaryEntries
+            .slice(0, dynamicSummary.providerCount ? 2 : undefined)
+            .map((entry) => {
+              const unitLabelKey = getDynamicPriceUnitLabelKey(entry)
+              const unitLabel = taskUsageUnitLabel(
+                entry,
+                i18n.resolvedLanguage ?? i18n.language,
+                unitLabelKey ? t(unitLabelKey) : tokenUnitLabel
+              )
+              const label =
+                entry.labelKind === 'schema'
+                  ? taskPriceLabel(
+                      entry.description,
+                      entry.shortLabel,
+                      i18n.resolvedLanguage ?? i18n.language
+                    )
+                  : t(entry.shortLabel)
+              return (
+                <div
+                  key={entry.key}
+                  className={cn(
+                    'flex min-w-0 flex-col gap-1',
+                    dynamicSummary.isTaskUsage && 'col-span-full'
+                  )}
+                >
+                  {label && (
+                    <span className='text-muted-foreground text-xs break-words whitespace-normal'>
+                      {label}
+                    </span>
+                  )}
+                  <span className='flex flex-wrap items-baseline gap-x-1 font-mono text-sm font-semibold tabular-nums'>
+                    <span>{entry.formattedRange ?? entry.formatted}</span>
+                    <span className='text-muted-foreground text-xs font-normal whitespace-nowrap'>
+                      {' '}
+                      / {unitLabel}
+                    </span>
+                  </span>
+                </div>
+              )
+            })}
+          {dynamicSummary.isTimePricing && (
+            <span className='text-muted-foreground col-span-full text-xs'>
+              {t('Current period price')}
+            </span>
+          )}
+          {dynamicSummary.isMixedBilling && (
+            <span className='text-muted-foreground col-span-full text-xs'>
+              {t('Token or per-call pricing')}
+            </span>
+          )}
+          {cardExamplePrice && (
+            <span className='text-muted-foreground col-span-full text-xs break-words'>
+              {cardExamplePrice.label} ≈ {cardExamplePrice.formatted}
+            </span>
+          )}
+          {dynamicSummary.isTaskUsage &&
+            dynamicSummary.tier?.label &&
+            !dynamicSummary.primaryEntries.some(
+              (entry) => entry.formattedRange
+            ) && (
+              <span className='text-muted-foreground col-span-full text-xs break-words'>
+                ({dynamicSummary.tier.label})
+              </span>
+            )}
+        </>
+      )
+    } else {
+      dynamicPriceSummary = (
+        <span className='text-muted-foreground col-span-full text-xs'>
+          {dynamicSummary.hasUnconfiguredProviders
+            ? t('Usage-based billing · price not configured')
+            : t('Dynamic Pricing')}
+        </span>
+      )
+    }
+  }
 
   const handleCopy = (event: React.MouseEvent) => {
     event.stopPropagation()
@@ -401,13 +542,33 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       )}
 
       <div
-        className='mt-3'
+        className='mt-3 flex min-w-0 flex-col gap-1.5'
         data-model-card-pricing='true'
         role='group'
         aria-label={t('Pricing')}
       >
-        <span className='sr-only'>{t('Token-based')}</span>
-        <CompactPricing summary={summary} />
+        {dynamicSummary && (
+          <ModelBillingModeBadge model={props.model} appearance='caption' />
+        )}
+        {!dynamicSummary && summary.kind === 'token' && (
+          <span className='sr-only'>{t('Token-based')}</span>
+        )}
+        {dynamicSummary?.providerCount && (
+          <span className='text-muted-foreground text-xs break-words'>
+            {t('{{count}} providers', {
+              count: dynamicSummary.providerCount,
+            })}
+            {dynamicSummary.hasUnconfiguredProviders &&
+              ` · ${t('Not configured for some providers')}`}
+          </span>
+        )}
+        {dynamicSummary ? (
+          <div className='grid grid-cols-[repeat(auto-fit,minmax(88px,1fr))] gap-x-3 gap-y-2'>
+            {dynamicPriceSummary}
+          </div>
+        ) : (
+          <CompactPricing summary={summary} />
+        )}
       </div>
 
       <div className='mt-3 grid grid-cols-2 gap-2' data-model-card-specs='true'>

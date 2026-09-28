@@ -616,6 +616,33 @@ func executeTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*t
 
 type taskSubmitAttempt func(*gin.Context, *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *taskdto.TaskError)
 
+const immediateTaskBillingLeaseSeconds = int64(60)
+
+func buildImmediateTaskBillingJob(task *model.Task, fromQuota int, targetQuota int) *model.TaskBillingJob {
+	if task == nil || (task.Status != model.TaskStatusSuccess && task.Status != model.TaskStatusFailure) {
+		return nil
+	}
+	lockedBy := "immediate-submit:" + task.TaskID
+	if len(lockedBy) > 128 {
+		lockedBy = lockedBy[:128]
+	}
+	job := &model.TaskBillingJob{
+		FromQuota:     fromQuota,
+		Status:        model.TaskBillingJobStatusProcessing,
+		Attempts:      1,
+		LockedBy:      lockedBy,
+		LockedUntil:   common.GetTimestamp() + immediateTaskBillingLeaseSeconds,
+		NextAttemptAt: common.GetTimestamp(),
+	}
+	if task.Status == model.TaskStatusFailure {
+		job.Operation = model.TaskBillingOperationRefund
+		return job
+	}
+	job.Operation = model.TaskBillingOperationSettle
+	job.TargetQuota = common.GetPointer(targetQuota)
+	return job
+}
+
 func executeTaskSubmissionWith(
 	c *gin.Context,
 	relayInfo *relaycommon.RelayInfo,
@@ -828,8 +855,23 @@ func executeTaskSubmissionWith(
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		}
 	}
+	var billingJob *model.TaskBillingJob
+	if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
+		reservedQuota := relayInfo.FinalPreConsumedQuota
+		if relayInfo.Billing != nil {
+			reservedQuota = relayInfo.Billing.GetPreConsumedQuota()
+		}
+		task.Quota = reservedQuota
+		billingJob = buildImmediateTaskBillingJob(task, reservedQuota, result.Quota)
+	}
 	diagnostics.insertStart(task)
-	if insertErr := task.InsertWithContext(c.Request.Context()); insertErr != nil {
+	var insertErr error
+	if billingJob != nil {
+		insertErr = task.InsertWithBillingJobWithContext(c.Request.Context(), billingJob)
+	} else {
+		insertErr = task.InsertWithContext(c.Request.Context())
+	}
+	if insertErr != nil {
 		common.SysError("insert task error: " + insertErr.Error())
 		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to persist task"), "task_insert_failed", http.StatusInternalServerError)
 		diagnostics.failed("insert", "database_error", taskErr, false)
@@ -839,6 +881,17 @@ func executeTaskSubmissionWith(
 	stage = "settle"
 	diagnostics.durable(task)
 	diagnostics.settleStart(task, result.Quota)
+	if billingJob != nil {
+		if settleErr := service.ApplyTaskBillingJob(c.Request.Context(), billingJob); settleErr != nil {
+			common.SysError("settle task billing error: " + settleErr.Error())
+			taskErr = service.TaskErrorWrapperLocal(errors.New("failed to settle task billing"), "task_billing_settlement_failed", http.StatusInternalServerError)
+			diagnostics.failed("settle", "billing_error", taskErr, true)
+			return nil, taskErr
+		}
+		task.Quota = result.Quota
+		diagnostics.complete(task, result.Quota)
+		return &taskSubmissionOutcome{Result: result, Task: task, RelayInfo: relayInfo}, nil
+	}
 
 	if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
 		common.SysError("settle task billing error: " + settleErr.Error())
@@ -924,7 +977,7 @@ func respondTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
 }
 
 func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskError, retryTimes int) bool {
-	if taskErr == nil {
+	if taskErr == nil || taskErr.NoRetry {
 		return false
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {

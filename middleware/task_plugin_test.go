@@ -19,6 +19,8 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
+	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -1697,4 +1699,137 @@ func setupTaskPluginRouteDB(t *testing.T) {
 func insertTaskPluginRouteTask(t *testing.T, task *model.Task) {
 	t.Helper()
 	require.NoError(t, model.DB.Create(task).Error)
+}
+
+func TestPrepareTaskPluginEndpointFiltersEachSharedCandidate(t *testing.T) {
+	for _, tc := range []struct {
+		name, alpha, beta string
+		wantKeys          []string
+		wantError         string
+	}{
+		{name: "first decoder rejects", alpha: `throw new Error("alpha only accepts 720p")`, beta: `return {model:ctx.model,action:"beta",requestBody:{resolution:"1080p"}}`, wantKeys: []string{"decode-beta"}},
+		{name: "second decoder rejects", alpha: `return {model:ctx.model,action:"alpha"}`, beta: `throw new Error("beta rejects")`, wantKeys: []string{"decode-alpha"}},
+		{name: "both decoders accept", alpha: `return {model:ctx.model,action:"alpha"}`, beta: `return {model:ctx.model,action:"beta"}`, wantKeys: []string{"decode-alpha", "decode-beta"}},
+		{name: "all decoders reject", alpha: `throw new Error("alpha rejects first")`, beta: `throw new Error("beta rejects second")`, wantError: "decode-alpha: alpha rejects first; decode-beta: beta rejects second"},
+		{name: "duplicate failures are grouped", alpha: `throw new Error("unsupported resolution")`, beta: `throw new Error("unsupported resolution")`, wantError: "decode-alpha, decode-beta: unsupported resolution"},
+		{name: "invalid result is excluded", alpha: `return {kind:"query",model:ctx.model}`, beta: `return {model:ctx.model,action:"beta"}`, wantKeys: []string{"decode-beta"}},
+		{name: "rewritten model is excluded", alpha: `return {model:"another-model"}`, beta: `return {model:ctx.model,action:"beta"}`, wantKeys: []string{"decode-beta"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, spec := range []struct{ key, decode string }{{"decode-alpha", tc.alpha}, {"decode-beta", tc.beta}} {
+				_, err := jsplugin.DefaultRegistry.Register(taskResponsesPluginSource(spec.key, 0, `["decode-shared-model"]`, `["sync"]`, `renderFinal:function(){return {};}`, spec.decode), jsplugin.Options{})
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(spec.key)) })
+			}
+			var gotKeys []string
+			router := gin.New()
+			router.POST("/v1/responses", PinTaskPluginEndpoint(), PrepareTaskPluginEndpoint(), func(c *gin.Context) {
+				pinned := c.MustGet(jsplugin.ContextKeyPinnedEndpoint).(jsplugin.PinnedEndpoint)
+				for _, candidate := range pinned.Candidates {
+					gotKeys = append(gotKeys, candidate.Plugin.Meta.Key)
+				}
+				assert.Equal(t, tc.wantKeys[0], pinned.Plugin.Meta.Key)
+				assert.Equal(t, tc.wantKeys[0], c.GetString("task_plugin_key"))
+				assert.Same(t, pinned.Plugin, c.MustGet(jsplugin.ContextKeyPinnedPlugin).(jsplugin.PinnedPlugin).Plugin)
+				assert.Equal(t, tc.wantKeys, service.GetChannelConstraints(c).Filters[0].TaskPluginKeys)
+				c.Status(http.StatusNoContent)
+			})
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"decode-shared-model","resolution":"1080p"}`))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if tc.wantError != "" {
+				assert.Equal(t, http.StatusBadRequest, recorder.Code)
+				assert.Contains(t, recorder.Body.String(), tc.wantError)
+				assert.Empty(t, gotKeys)
+			} else {
+				assert.Equal(t, http.StatusNoContent, recorder.Code, recorder.Body.String())
+				assert.Equal(t, tc.wantKeys, gotKeys)
+			}
+		})
+	}
+}
+
+func TestPrepareTaskPluginEndpointEnforcesSelectedCandidateOriginIntent(t *testing.T) {
+	setupOriginTaskDB(t)
+	channel := &model.Channel{Name: "origin-channel", Key: "sk-origin", Status: common.ChannelStatusEnabled, Type: constant.ChannelTypeTaskPlugin}
+	channel.SetSetting(relaykitdto.ChannelSettings{TaskPluginKey: "intent-beta"})
+	require.NoError(t, model.DB.Create(channel).Error)
+	insertOriginOwnedTask(t, "foreign-origin", 8, channel.Id, "intent-beta")
+
+	for _, spec := range []struct {
+		key         string
+		channelType int
+		decode      string
+	}{
+		{key: "intent-alpha", channelType: 0, decode: `return {model:ctx.model,requestBody:ctx.body.value}`},
+		{key: "intent-beta", channelType: 0, decode: `return {model:ctx.model,originTaskIds:["foreign-origin"],requestBody:ctx.body.value}`},
+	} {
+		_, err := jsplugin.DefaultRegistry.Register(taskResponsesPluginSource(spec.key, spec.channelType, `["origin-intent-model"]`, `["sync"]`, `renderFinal:function(){return {};}`, spec.decode), jsplugin.Options{})
+		require.NoError(t, err)
+		key := spec.key
+		t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(key)) })
+	}
+
+	var setupErrText string
+	router := gin.New()
+	router.POST("/v1/responses", func(c *gin.Context) {
+		common.SetContextKey(c, constant.ContextKeyUserId, 7)
+		c.Next()
+	}, PinTaskPluginEndpoint(), PrepareTaskPluginEndpoint(), func(c *gin.Context) {
+		_, pinned := resolvedOriginPin(c)
+		assert.False(t, pinned, "the first candidate has no origin-task intent")
+		if setupErr := SetupContextForSelectedChannel(c, channel, "origin-intent-model"); setupErr != nil {
+			setupErrText = setupErr.Error()
+		}
+		c.Status(http.StatusNoContent)
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"origin-intent-model"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	require.NotEmpty(t, setupErrText)
+	assert.Contains(t, setupErrText, "not owned")
+}
+
+func TestPrepareTaskPluginEndpointIgnoresUnselectedCandidateOriginIntent(t *testing.T) {
+	setupOriginTaskDB(t)
+	channel := &model.Channel{Name: "beta-channel", Key: "sk-beta", Status: common.ChannelStatusEnabled, Type: constant.ChannelTypeTaskPlugin}
+	channel.SetSetting(relaykitdto.ChannelSettings{TaskPluginKey: "intent-ignore-beta"})
+	require.NoError(t, model.DB.Create(channel).Error)
+	insertOriginOwnedTask(t, "alpha-origin", 8, channel.Id, "intent-ignore-alpha")
+
+	for _, spec := range []struct {
+		key    string
+		decode string
+	}{
+		{key: "intent-ignore-alpha", decode: `return {model:ctx.model,originTaskIds:["alpha-origin"],requestBody:ctx.body.value}`},
+		{key: "intent-ignore-beta", decode: `return {model:ctx.model,requestBody:ctx.body.value}`},
+	} {
+		_, err := jsplugin.DefaultRegistry.Register(taskResponsesPluginSource(spec.key, 0, `["origin-intent-ignore-model"]`, `["sync"]`, `renderFinal:function(){return {};}`, spec.decode), jsplugin.Options{})
+		require.NoError(t, err)
+		key := spec.key
+		t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(key)) })
+	}
+
+	router := gin.New()
+	router.POST("/v1/responses", func(c *gin.Context) {
+		common.SetContextKey(c, constant.ContextKeyUserId, 7)
+		c.Next()
+	}, PinTaskPluginEndpoint(), PrepareTaskPluginEndpoint(), func(c *gin.Context) {
+		_, pinned := resolvedOriginPin(c)
+		assert.False(t, pinned, "an unselected candidate must not pin channel selection")
+		require.Nil(t, SetupContextForSelectedChannel(c, channel, "origin-intent-ignore-model"))
+		_, pinned = resolvedOriginPin(c)
+		assert.False(t, pinned, "the selected candidate declared no origin-task intent")
+		assert.Equal(t, "intent-ignore-beta", c.GetString("task_plugin_key"))
+		c.Status(http.StatusNoContent)
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"origin-intent-ignore-model"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusNoContent, recorder.Code, recorder.Body.String())
 }

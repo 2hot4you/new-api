@@ -80,7 +80,10 @@ func initModelListColumnNames(t *testing.T) {
 		}
 	}()
 
-	common.IsMasterNode = false
+	// This fixture owns a fresh database. Initialize it as the migration-capable
+	// master because non-master startup now correctly requires the options-key
+	// uniqueness invariant to have been installed already.
+	common.IsMasterNode = true
 	common.SQLitePath = fmt.Sprintf("file:%s_init?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	require.NoError(t, os.Setenv("SQL_DSN", "local"))
