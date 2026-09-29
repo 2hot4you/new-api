@@ -1,0 +1,12 @@
+{
+  "id": "fix-pricing-vendor-release-order",
+  "title": "修复公开模型定价页的供应商与发布日期排序",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交变更",
+  "createdAt": "2026-09-29T23:30:00+08:00",
+  "branch": "upgrade/rc40"
+}
