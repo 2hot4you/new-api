@@ -66,6 +66,59 @@ func TestReconcileEnabledModelMetadataCreatesUnpublishedDraftOnce(t *testing.T) 
 	}
 }
 
+func TestReconcileEnabledModelMetadataBackfillsKnownOfficialModel(t *testing.T) {
+	setupModelCatalogReconcileTestDB(t)
+	openAI := Vendor{Name: "OpenAI", Icon: "OpenAI.Color", Status: 1}
+	if err := DB.Create(&openAI).Error; err != nil {
+		t.Fatalf("create OpenAI vendor: %v", err)
+	}
+	addEnabledCatalogAbility(t, "gpt-6-sol")
+
+	summary, err := ReconcileEnabledModelMetadata()
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if summary.CreatedModels != 1 {
+		t.Fatalf("expected one created model, got %+v", summary)
+	}
+
+	var entry Model
+	if err := DB.Where("model_name = ?", "gpt-6-sol").First(&entry).Error; err != nil {
+		t.Fatalf("read reconciled model: %v", err)
+	}
+	if entry.VendorID != openAI.Id || entry.DisplayName != "GPT-6 Sol" || entry.ContextLength != 1_050_000 || !entry.MarketplaceEnabled {
+		t.Fatalf("known official model was not fully backfilled: %+v", entry)
+	}
+	if readiness := entry.EvaluateMarketplaceReadiness(); !readiness.Complete {
+		t.Fatalf("known official model metadata is incomplete: %v", readiness.Missing)
+	}
+}
+
+func TestReconcileEnabledModelMetadataDoesNotRunLegacySeedanceCorrection(t *testing.T) {
+	setupModelCatalogReconcileTestDB(t)
+	openAI := Vendor{Name: "OpenAI", Icon: "OpenAI.Color", Status: 1}
+	if err := DB.Create(&openAI).Error; err != nil {
+		t.Fatalf("create OpenAI vendor: %v", err)
+	}
+	seedance := Model{ModelName: "doubao-seedance-2-5-260628", MaxInputImages: 9, Status: 1, SyncOfficial: 1}
+	if err := DB.Create(&seedance).Error; err != nil {
+		t.Fatalf("create Seedance metadata: %v", err)
+	}
+	addEnabledCatalogAbility(t, "gpt-6-sol")
+
+	if _, err := ReconcileEnabledModelMetadata(); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var stored Model
+	if err := DB.First(&stored, seedance.Id).Error; err != nil {
+		t.Fatalf("read Seedance metadata: %v", err)
+	}
+	if stored.MaxInputImages != 9 {
+		t.Fatalf("channel reconciliation changed unrelated Seedance metadata: %d", stored.MaxInputImages)
+	}
+}
+
 func TestReconcileEnabledModelMetadataDoesNotBackfillExistingDraft(t *testing.T) {
 	setupModelCatalogReconcileTestDB(t)
 	addEnabledCatalogAbility(t, "qwen3.5-plus")

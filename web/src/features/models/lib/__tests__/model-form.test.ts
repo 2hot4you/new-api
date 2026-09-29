@@ -96,6 +96,26 @@ describe('model catalog metadata form mapping', () => {
     assert.equal(defaults.max_duration, 0)
     assert.equal(defaults.billing_currency, 'USD')
   })
+
+  test('preserves the image quality parameter during an edit round-trip', () => {
+    const defaults = transformModelToFormDefaults({
+      id: 9,
+      model_name: 'gpt-image-2.5-sunburst',
+      status: 1,
+      created_time: 1,
+      updated_time: 2,
+      name_rule: 0,
+      capabilities: ['image_generation', 'image_editing'],
+      input_modalities: ['text', 'image'],
+      output_modalities: ['image'],
+      supported_parameters: ['quality'],
+    })
+
+    const payload = transformFormDataToModelPayload(defaults)
+
+    assert.deepEqual(defaults.supported_parameters, ['quality'])
+    assert.deepEqual(payload.supported_parameters, ['quality'])
+  })
 })
 
 describe('model catalog metadata validation', () => {

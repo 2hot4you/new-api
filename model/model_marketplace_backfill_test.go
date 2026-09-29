@@ -15,8 +15,18 @@ import (
 )
 
 var currentMarketplaceCatalogModelNames = []string{
+	"deepseek-flash",
 	"deepseek-v4-flash-202605",
 	"deepseek-v4-pro-202606",
+	"gemini-3.8-flash",
+	"claude-sonnet-5-5",
+	"claude-opus-5-5",
+	"claude-fable-5-1",
+	"gpt-6-sol",
+	"gpt-6-luna",
+	"gpt-6-astra",
+	"gpt-image-2.5-sunburst",
+	"gpt-image-2.5-flare",
 	"glm-5.2",
 	"kimi-k3",
 	"minimax-m3",
@@ -33,11 +43,24 @@ var currentMarketplaceCatalogModelNames = []string{
 	"grok-imagine-video-1.5",
 }
 
+var officialMarketplaceCatalogVendorNames = map[string]string{
+	"deepseek-flash":         "DeepSeek",
+	"gemini-3.8-flash":       "Google",
+	"claude-sonnet-5-5":      "Anthropic",
+	"claude-opus-5-5":        "Anthropic",
+	"claude-fable-5-1":       "Anthropic",
+	"gpt-6-sol":              "OpenAI",
+	"gpt-6-luna":             "OpenAI",
+	"gpt-6-astra":            "OpenAI",
+	"gpt-image-2.5-sunburst": "OpenAI",
+	"gpt-image-2.5-flare":    "OpenAI",
+}
+
 func newMarketplaceMigrationTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "marketplace-backfill.db")), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&Model{}))
+	require.NoError(t, db.AutoMigrate(&Vendor{}, &Model{}))
 	return db
 }
 
@@ -229,10 +252,15 @@ func TestBackfillLocalMarketplaceMetadataCoversCurrentCatalog(t *testing.T) {
 		readiness := row.EvaluateMarketplaceReadiness()
 		require.Truef(t, readiness.Complete, "%s missing metadata: %v", row.ModelName, readiness.Missing)
 		require.Truef(t, row.MarketplaceEnabled, "%s was not published", row.ModelName)
-		require.Equal(t, row.ModelName, row.DisplayName)
+		require.NotEmpty(t, row.DisplayName)
 		require.Equal(t, "existing catalog description", row.Description)
-		require.Empty(t, row.MetadataSource)
-		require.Empty(t, row.MetadataVerifiedAt)
+		if officialMarketplaceCatalogVendorNames[row.ModelName] != "" {
+			require.NotEmpty(t, row.MetadataSource)
+			require.Equal(t, "2026-09-29", row.MetadataVerifiedAt)
+		} else {
+			require.Empty(t, row.MetadataSource)
+			require.Empty(t, row.MetadataVerifiedAt)
+		}
 	}
 }
 
@@ -280,6 +308,154 @@ func TestBackfillLocalMarketplaceMetadataUsesValidatedLocalCapabilities(t *testi
 	video15 := loadMarketplaceRow(t, db, "grok-imagine-video-1.5")
 	require.Equal(t, []string{"480p", "720p", "1080p"}, video15.SupportedResolutions)
 	require.Equal(t, []string{"image"}, video15.ReferenceModalities)
+}
+
+func TestBackfillLocalMarketplaceMetadataAddsCurrentOfficialModels(t *testing.T) {
+	db := newMarketplaceMigrationTestDB(t)
+	vendorIDs := make(map[string]int)
+	for _, vendorName := range []string{"Anthropic", "DeepSeek", "Google", "OpenAI"} {
+		vendor := Vendor{Name: vendorName, Status: 1}
+		require.NoError(t, db.Create(&vendor).Error)
+		vendorIDs[vendorName] = vendor.Id
+	}
+	for modelName := range officialMarketplaceCatalogVendorNames {
+		require.NoError(t, db.Create(&Model{ModelName: modelName, Status: 1}).Error)
+	}
+
+	require.NoError(t, BackfillLocalMarketplaceMetadata(db))
+
+	for modelName, vendorName := range officialMarketplaceCatalogVendorNames {
+		entry := loadMarketplaceRow(t, db, modelName)
+		require.Equalf(t, vendorIDs[vendorName], entry.VendorID, "%s vendor", modelName)
+		require.Truef(t, entry.EvaluateMarketplaceReadiness().Complete, "%s missing metadata: %v", modelName, entry.EvaluateMarketplaceReadiness().Missing)
+		require.Truef(t, entry.MarketplaceEnabled, "%s was not published", modelName)
+		require.NotEmptyf(t, entry.DescriptionEN, "%s English description", modelName)
+		require.NotEmptyf(t, entry.Icon, "%s icon", modelName)
+		require.NotEmptyf(t, entry.MetadataSource, "%s metadata source", modelName)
+		require.Equalf(t, "2026-09-29", entry.MetadataVerifiedAt, "%s verification date", modelName)
+	}
+
+	deepseek := loadMarketplaceRow(t, db, "deepseek-flash")
+	require.Equal(t, "DeepSeek V4.1 Flash", deepseek.DisplayName)
+	require.Equal(t, 1_000_000, deepseek.ContextLength)
+	require.Equal(t, 384_000, deepseek.MaxOutputTokens)
+	require.Equal(t, "2026-09-10", deepseek.ReleaseDate)
+	require.Equal(t, []string{"text", "image"}, deepseek.InputModalities)
+
+	gemini := loadMarketplaceRow(t, db, "gemini-3.8-flash")
+	require.Equal(t, 1_048_576, gemini.ContextLength)
+	require.Equal(t, 65_536, gemini.MaxOutputTokens)
+	require.Equal(t, "2026-09-02", gemini.ReleaseDate)
+	require.Equal(t, []string{"text", "image", "video", "audio", "file"}, gemini.InputModalities)
+
+	sonnet := loadMarketplaceRow(t, db, "claude-sonnet-5-5")
+	require.Equal(t, 1_000_000, sonnet.ContextLength)
+	require.Equal(t, 128_000, sonnet.MaxOutputTokens)
+	require.Equal(t, "2026-06", sonnet.KnowledgeCutoff)
+	require.Equal(t, "2026-09-28", sonnet.ReleaseDate)
+
+	sol := loadMarketplaceRow(t, db, "gpt-6-sol")
+	require.Equal(t, 1_050_000, sol.ContextLength)
+	require.Equal(t, 128_000, sol.MaxOutputTokens)
+	require.Equal(t, "2026-04-20", sol.KnowledgeCutoff)
+	require.Equal(t, "2026-09-22", sol.ReleaseDate)
+
+	sunburst := loadMarketplaceRow(t, db, "gpt-image-2.5-sunburst")
+	require.Equal(t, []string{"auto", "1024x1024", "1536x1024", "1024x1536", "2048x2048", "2048x1152", "3840x2160", "2160x3840", "custom"}, sunburst.SupportedResolutions)
+	require.Equal(t, []string{"auto", "1:1", "3:2", "2:3", "16:9", "9:16", "custom ≤3:1"}, sunburst.SupportedAspectRatios)
+	require.Equal(t, 16, sunburst.MaxInputImages)
+	require.Equal(t, []string{"b64_json"}, sunburst.OutputFormats)
+}
+
+func TestBackfillLocalMarketplaceMetadataPreservesOfficialAdministratorValues(t *testing.T) {
+	db := newMarketplaceMigrationTestDB(t)
+	customVendor := Vendor{Name: "Administrator Vendor", Status: 1}
+	require.NoError(t, db.Create(&customVendor).Error)
+	admin := Model{
+		ModelName:          "gpt-6-sol",
+		DisplayName:        "gpt-6-sol",
+		Description:        "administrator description",
+		DescriptionEN:      "administrator English description",
+		VendorID:           customVendor.Id,
+		MetadataSource:     "administrator",
+		MetadataVerifiedAt: "2026-09-01",
+		Status:             1,
+	}
+	require.NoError(t, db.Create(&admin).Error)
+
+	require.NoError(t, BackfillLocalMarketplaceMetadata(db))
+
+	stored := loadMarketplaceRow(t, db, admin.ModelName)
+	require.Equal(t, admin.DisplayName, stored.DisplayName)
+	require.Equal(t, admin.Description, stored.Description)
+	require.Equal(t, admin.DescriptionEN, stored.DescriptionEN)
+	require.Equal(t, admin.VendorID, stored.VendorID)
+	require.Equal(t, admin.MetadataSource, stored.MetadataSource)
+	require.Equal(t, admin.MetadataVerifiedAt, stored.MetadataVerifiedAt)
+}
+
+func TestBackfillLocalMarketplaceMetadataSkipsOfficialSyncDisabledModel(t *testing.T) {
+	db := newMarketplaceMigrationTestDB(t)
+	openAI := Vendor{Name: "OpenAI", Status: 1}
+	require.NoError(t, db.Create(&openAI).Error)
+	entry := Model{
+		ModelName:    "gpt-6-luna",
+		DisplayName:  "administrator draft",
+		Description:  "administrator description",
+		VendorID:     openAI.Id,
+		Status:       1,
+		SyncOfficial: 0,
+	}
+	require.NoError(t, db.Create(&entry).Error)
+	require.NoError(t, db.Model(&Model{}).Where("id = ?", entry.Id).UpdateColumn("sync_official", 0).Error)
+
+	require.NoError(t, BackfillLocalMarketplaceMetadata(db))
+
+	stored := loadMarketplaceRow(t, db, entry.ModelName)
+	require.Zero(t, stored.SyncOfficial)
+	require.Zero(t, stored.ContextLength)
+	require.Empty(t, stored.DescriptionEN)
+	require.Empty(t, stored.Icon)
+	require.False(t, stored.MarketplaceEnabled)
+}
+
+func TestBackfillLocalMarketplaceMetadataStopsWhenOfficialSyncIsDisabledDuringBackfill(t *testing.T) {
+	db := newMarketplaceMigrationTestDB(t)
+	openAI := Vendor{Name: "OpenAI", Status: 1}
+	require.NoError(t, db.Create(&openAI).Error)
+	entry := Model{ModelName: "gpt-6-astra", Status: 1, SyncOfficial: 1}
+	require.NoError(t, db.Create(&entry).Error)
+
+	initialReadDone := false
+	var disableOnce sync.Once
+	require.NoError(t, db.Callback().Query().After("gorm:query").Register("test:observe_official_backfill_read", func(tx *gorm.DB) {
+		if tx.Statement.Table == "models" {
+			if _, ok := tx.Statement.Dest.(*[]Model); ok {
+				initialReadDone = true
+			}
+		}
+	}))
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register("test:disable_official_sync_during_backfill", func(tx *gorm.DB) {
+		if !initialReadDone || tx.Statement.Table != "models" {
+			return
+		}
+		disableOnce.Do(func() {
+			require.NoError(t, tx.Exec("UPDATE models SET sync_official = 0 WHERE id = ?", entry.Id).Error)
+		})
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, db.Callback().Query().Remove("test:observe_official_backfill_read"))
+		require.NoError(t, db.Callback().Update().Remove("test:disable_official_sync_during_backfill"))
+	})
+
+	require.NoError(t, BackfillLocalMarketplaceMetadata(db))
+
+	stored := loadMarketplaceRow(t, db, entry.ModelName)
+	require.Zero(t, stored.SyncOfficial)
+	require.Empty(t, stored.DisplayName)
+	require.Zero(t, stored.ContextLength)
+	require.Empty(t, stored.Capabilities)
+	require.False(t, stored.MarketplaceEnabled)
 }
 
 func TestBackfillLocalMarketplaceMetadataCorrectsOnlyLegacySeedance25ImageLimit(t *testing.T) {

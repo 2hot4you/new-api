@@ -9,10 +9,93 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// localMarketplaceMetadataSeeds20260815 is migration-only source data. It is
+// localMarketplaceMetadataSeeds is migration-only source data. It is
 // intentionally independent from runtime catalog profiles so persisted rows
 // remain authoritative after the local compatibility backfill has run.
-var localMarketplaceMetadataSeeds20260815 = []Model{
+var localMarketplaceMetadataSeeds = []Model{
+	{
+		ModelName:           "deepseek-flash",
+		DisplayName:         "DeepSeek V4.1 Flash",
+		Description:         "DeepSeek V4.1 Flash 高效多模态模型，面向对话、推理、编程和 Agent 工作流，支持文本与图像输入、思考模式及工具调用。",
+		DescriptionEN:       "DeepSeek V4.1 Flash is an efficient multimodal model for chat, reasoning, coding, and agent workflows with text and image input, thinking, and tool use.",
+		Icon:                "DeepSeek.Color",
+		Tags:                "text,chat,reasoning,vision,tools",
+		ContextLength:       1_000_000,
+		MaxOutputTokens:     384_000,
+		ReleaseDate:         "2026-09-10",
+		InputModalities:     []string{"text", "image"},
+		OutputModalities:    []string{"text"},
+		Capabilities:        []string{"function_calling", "streaming", "vision", "json_mode", "reasoning", "tools", "system_prompt", "caching"},
+		SupportedParameters: []string{"stream", "max_tokens", "tools", "tool_choice", "reasoning_effort", "response_format"},
+		MetadataSource:      "https://api-docs.deepseek.com/zh-cn/news/news260910/",
+		MetadataVerifiedAt:  "2026-09-29",
+	},
+	{
+		ModelName:           "gemini-3.8-flash",
+		DisplayName:         "Gemini 3.8 Flash",
+		Description:         "Google 面向长程软件工程、自主 Agent 和复杂企业工作流的高效多模态模型，支持百万级上下文与内置工具。",
+		DescriptionEN:       "Google's efficient multimodal model for long-horizon software engineering, autonomous agents, and complex enterprise workflows with a one-million-token context and built-in tools.",
+		Icon:                "Gemini.Color",
+		Tags:                "text,chat,reasoning,multimodal,tools",
+		ContextLength:       1_048_576,
+		MaxOutputTokens:     65_536,
+		KnowledgeCutoff:     "2025-01",
+		ReleaseDate:         "2026-09-02",
+		InputModalities:     []string{"text", "image", "video", "audio", "file"},
+		OutputModalities:    []string{"text"},
+		Capabilities:        []string{"function_calling", "streaming", "vision", "structured_output", "reasoning", "tools", "system_prompt", "web_search", "code_interpreter", "caching"},
+		SupportedParameters: []string{"stream", "max_tokens", "tools", "tool_choice", "reasoning_effort", "response_format"},
+		MetadataSource:      "https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash",
+		MetadataVerifiedAt:  "2026-09-29",
+	},
+	newAnthropic55MarketplaceSeed(
+		"claude-sonnet-5-5", "Claude Sonnet 5.5",
+		"Anthropic 兼顾智能、速度与成本的先进模型，适合复杂编码、Agent 和知识工作，并支持自适应思考。",
+		"Anthropic's advanced balance of intelligence, speed, and cost for complex coding, agentic, and knowledge work with adaptive thinking.",
+		"2026-09-28", "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+	),
+	newAnthropic55MarketplaceSeed(
+		"claude-opus-5-5", "Claude Opus 5.5",
+		"Anthropic 面向长时间运行的 Agent、复杂编码和高难度知识工作的旗舰模型，默认采用自适应思考。",
+		"Anthropic's flagship model for long-running agents, complex coding, and demanding knowledge work with adaptive thinking enabled by default.",
+		"2026-09-22", "https://platform.claude.com/docs/en/models/opus-5-5/overview",
+	),
+	newAnthropic55MarketplaceSeed(
+		"claude-fable-5-1", "Claude Fable 5.1",
+		"Anthropic 面向高难度推理与长程 Agent 工作流的模型，支持百万级上下文、视觉和工具调用。",
+		"Anthropic model for demanding reasoning and long-horizon agent workflows with a one-million-token context, vision, and tool use.",
+		"2026-09-01", "https://platform.claude.com/docs/en/models/fable-5-1/overview",
+	),
+	newGPT6MarketplaceSeed(
+		"gpt-6-sol", "GPT-6 Sol",
+		"OpenAI 面向复杂编码、推理和 Agent 工作流的高能力模型，支持百万级上下文、视觉和丰富工具。",
+		"OpenAI high-capability model for complex coding, reasoning, and agent workflows with a one-million-token context, vision, and rich tool support.",
+		"2026-04-20", "2026-09-22", "https://developers.openai.com/api/docs/models/gpt-6-sol",
+	),
+	newGPT6MarketplaceSeed(
+		"gpt-6-luna", "GPT-6 Luna",
+		"OpenAI 面向高吞吐、聚焦任务的高效模型，在速度和成本之间取得平衡，并支持视觉与工具调用。",
+		"OpenAI efficient model for high-volume focused tasks, balancing speed and cost with vision and tool support.",
+		"2026-05-18", "2026-09-22", "https://developers.openai.com/api/docs/models/gpt-6-luna",
+	),
+	newGPT6MarketplaceSeed(
+		"gpt-6-astra", "GPT-6 Astra",
+		"OpenAI 面向最困难端到端工作的旗舰模型，适合深度推理、编码、计算机操作、研究和文档任务。",
+		"OpenAI flagship model for the hardest end-to-end work across deep reasoning, coding, computer use, research, and documents.",
+		"2026-04-30", "2026-09-03", "https://developers.openai.com/api/docs/models/gpt-6-astra",
+	),
+	newGPTImage25MarketplaceSeed(
+		"gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst",
+		"OpenAI 最高能力的图像生成与精细编辑模型，支持多图参考、透明背景、灵活分辨率及最高 4K 输出。",
+		"OpenAI's most capable image generation and precision editing model with multi-image references, transparent backgrounds, flexible resolutions, and output up to 4K.",
+		"https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst",
+	),
+	newGPTImage25MarketplaceSeed(
+		"gpt-image-2.5-flare", "GPT Image 2.5 Flare",
+		"OpenAI 面向日常创意工作的高速高质量图像生成与编辑模型，支持多图参考、透明背景和最高 4K 输出。",
+		"OpenAI's fast, high-quality image generation and editing model for everyday creative work with multi-image references, transparent backgrounds, and output up to 4K.",
+		"https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
+	),
 	newLocalLLMMarketplaceSeed(
 		"deepseek-v4-flash-202605",
 		"面向高效对话、推理、编程与 Agent 工作流的长上下文模型；支持通过 OpenAI 兼容 Chat Completions API 调用。",
@@ -155,6 +238,56 @@ var localMarketplaceMetadataSeeds20260815 = []Model{
 	},
 }
 
+var localMarketplaceSeedVendorNames = map[string]string{
+	"deepseek-flash":         "DeepSeek",
+	"gemini-3.8-flash":       "Google",
+	"claude-sonnet-5-5":      "Anthropic",
+	"claude-opus-5-5":        "Anthropic",
+	"claude-fable-5-1":       "Anthropic",
+	"gpt-6-sol":              "OpenAI",
+	"gpt-6-luna":             "OpenAI",
+	"gpt-6-astra":            "OpenAI",
+	"gpt-image-2.5-sunburst": "OpenAI",
+	"gpt-image-2.5-flare":    "OpenAI",
+}
+
+func newAnthropic55MarketplaceSeed(modelName, displayName, description, descriptionEN, releaseDate, source string) Model {
+	return Model{
+		ModelName: modelName, DisplayName: displayName, Description: description, DescriptionEN: descriptionEN,
+		Icon: "Claude.Color", Tags: "text,chat,reasoning,multimodal,tools",
+		ContextLength: 1_000_000, MaxOutputTokens: 128_000, KnowledgeCutoff: "2026-06", ReleaseDate: releaseDate,
+		InputModalities: []string{"text", "image"}, OutputModalities: []string{"text"},
+		Capabilities:        []string{"function_calling", "streaming", "vision", "structured_output", "reasoning", "tools", "system_prompt", "web_search", "caching"},
+		SupportedParameters: []string{"stream", "max_tokens", "tools", "tool_choice", "reasoning_effort", "response_format"},
+		MetadataSource:      source, MetadataVerifiedAt: "2026-09-29",
+	}
+}
+
+func newGPT6MarketplaceSeed(modelName, displayName, description, descriptionEN, knowledgeCutoff, releaseDate, source string) Model {
+	return Model{
+		ModelName: modelName, DisplayName: displayName, Description: description, DescriptionEN: descriptionEN,
+		Icon: "OpenAI.Color", Tags: "text,chat,reasoning,multimodal,tools",
+		ContextLength: 1_050_000, MaxOutputTokens: 128_000, KnowledgeCutoff: knowledgeCutoff, ReleaseDate: releaseDate,
+		InputModalities: []string{"text", "image"}, OutputModalities: []string{"text"},
+		Capabilities:        []string{"function_calling", "streaming", "vision", "structured_output", "reasoning", "tools", "system_prompt", "web_search", "code_interpreter", "caching"},
+		SupportedParameters: []string{"stream", "max_tokens", "tools", "tool_choice", "reasoning_effort", "response_format"},
+		MetadataSource:      source, MetadataVerifiedAt: "2026-09-29",
+	}
+}
+
+func newGPTImage25MarketplaceSeed(modelName, displayName, description, descriptionEN, source string) Model {
+	return Model{
+		ModelName: modelName, DisplayName: displayName, Description: description, DescriptionEN: descriptionEN,
+		Icon: "OpenAI.Color", Tags: "image,generation,editing,4k,transparent", ReleaseDate: "2026-09-08",
+		InputModalities: []string{"text", "image"}, OutputModalities: []string{"image"},
+		Capabilities: []string{"image_generation", "image_editing"}, SupportedParameters: []string{"quality"},
+		SupportedResolutions:  []string{"auto", "1024x1024", "1536x1024", "1024x1536", "2048x2048", "2048x1152", "3840x2160", "2160x3840", "custom"},
+		SupportedAspectRatios: []string{"auto", "1:1", "3:2", "2:3", "16:9", "9:16", "custom ≤3:1"},
+		MaxInputImages:        16, OutputFormats: []string{"b64_json"}, ReferenceModalities: []string{"image"},
+		MetadataSource: source, MetadataVerifiedAt: "2026-09-29",
+	}
+}
+
 func newLocalLLMMarketplaceSeed(modelName, description string, contextLength, maxOutputTokens int, knowledgeCutoff, releaseDate string, structuredOutput bool) Model {
 	capabilities := []string{"streaming", "system_prompt", "reasoning", "tools"}
 	supportedParameters := []string{"stream", "tools", "tool_choice", "reasoning_effort"}
@@ -285,8 +418,8 @@ func BackfillLocalMarketplaceMetadata(db *gorm.DB) error {
 		return fmt.Errorf("backfill local marketplace metadata: database is nil")
 	}
 
-	modelNames := make([]string, 0, len(localMarketplaceMetadataSeeds20260815))
-	for _, seed := range localMarketplaceMetadataSeeds20260815 {
+	modelNames := make([]string, 0, len(localMarketplaceMetadataSeeds))
+	for _, seed := range localMarketplaceMetadataSeeds {
 		modelNames = append(modelNames, seed.ModelName)
 	}
 
@@ -296,43 +429,79 @@ func BackfillLocalMarketplaceMetadata(db *gorm.DB) error {
 			UpdateColumn("max_input_images", 30).Error; err != nil {
 			return fmt.Errorf("correct Seedance 2.5 legacy image limit: %w", err)
 		}
-
-		var rows []Model
-		if err := tx.Where("model_name IN ?", modelNames).Find(&rows).Error; err != nil {
-			return fmt.Errorf("load local marketplace models: %w", err)
-		}
-		rowsByName := make(map[string]*Model, len(rows))
-		for index := range rows {
-			rowsByName[rows[index].ModelName] = &rows[index]
-		}
-
-		for _, sourceSeed := range localMarketplaceMetadataSeeds20260815 {
-			row := rowsByName[sourceSeed.ModelName]
-			if row == nil {
-				continue
-			}
-			seed := sourceSeed
-			if err := seed.NormalizeCatalogMetadata(); err != nil {
-				return fmt.Errorf("normalize local marketplace metadata for %s: %w", seed.ModelName, err)
-			}
-			if err := updateLocalMarketplaceFieldsIfEmpty(tx, row.Id, &seed); err != nil {
-				return fmt.Errorf("backfill local marketplace metadata for %s: %w", row.ModelName, err)
-			}
-
-			var persisted Model
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", row.Id).First(&persisted).Error; err != nil {
-				return fmt.Errorf("reload local marketplace metadata for %s: %w", row.ModelName, err)
-			}
-			if persisted.Status == 1 && !persisted.MarketplaceEnabled && persisted.EvaluateMarketplaceReadiness().Complete {
-				if err := tx.Model(&Model{}).
-					Where("id = ? AND status = ? AND marketplace_enabled = ?", persisted.Id, 1, false).
-					UpdateColumn("marketplace_enabled", true).Error; err != nil {
-					return fmt.Errorf("publish local marketplace metadata for %s: %w", row.ModelName, err)
-				}
-			}
-		}
-		return nil
+		return backfillLocalMarketplaceMetadata(tx, modelNames)
 	})
+}
+
+func backfillLocalMarketplaceMetadata(tx *gorm.DB, modelNames []string) error {
+	var rows []Model
+	if err := tx.Where("model_name IN ?", modelNames).Find(&rows).Error; err != nil {
+		return fmt.Errorf("load local marketplace models: %w", err)
+	}
+	rowsByName := make(map[string]*Model, len(rows))
+	for index := range rows {
+		rowsByName[rows[index].ModelName] = &rows[index]
+	}
+
+	for _, sourceSeed := range localMarketplaceMetadataSeeds {
+		row := rowsByName[sourceSeed.ModelName]
+		if row == nil {
+			continue
+		}
+		if localMarketplaceSeedVendorNames[row.ModelName] != "" && row.SyncOfficial == 0 {
+			continue
+		}
+		seed := sourceSeed
+		if err := seed.NormalizeCatalogMetadata(); err != nil {
+			return fmt.Errorf("normalize local marketplace metadata for %s: %w", seed.ModelName, err)
+		}
+		if err := updateLocalMarketplaceFieldsIfEmpty(tx, row.Id, &seed); err != nil {
+			return fmt.Errorf("backfill local marketplace metadata for %s: %w", row.ModelName, err)
+		}
+		if err := assignLocalMarketplaceVendorIfEmpty(tx, row.Id, row.ModelName); err != nil {
+			return fmt.Errorf("assign local marketplace vendor for %s: %w", row.ModelName, err)
+		}
+
+		var persisted Model
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", row.Id).First(&persisted).Error; err != nil {
+			return fmt.Errorf("reload local marketplace metadata for %s: %w", row.ModelName, err)
+		}
+		officialSyncEnabled := localMarketplaceSeedVendorNames[row.ModelName] == "" || persisted.SyncOfficial != 0
+		if persisted.Status == 1 && officialSyncEnabled && !persisted.MarketplaceEnabled && persisted.EvaluateMarketplaceReadiness().Complete {
+			if err := localMarketplaceModelUpdate(tx, persisted.Id, row.ModelName).
+				Where("status = ? AND marketplace_enabled = ?", 1, false).
+				UpdateColumn("marketplace_enabled", true).Error; err != nil {
+				return fmt.Errorf("publish local marketplace metadata for %s: %w", row.ModelName, err)
+			}
+		}
+	}
+	return nil
+}
+
+func assignLocalMarketplaceVendorIfEmpty(tx *gorm.DB, modelID int, modelName string) error {
+	vendorName := localMarketplaceSeedVendorNames[modelName]
+	if vendorName == "" {
+		return nil
+	}
+	var vendor Vendor
+	result := tx.Where("LOWER(TRIM(name)) = LOWER(?)", vendorName).Limit(1).Find(&vendor)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil
+	}
+	return tx.Model(&Model{}).
+		Where("id = ? AND COALESCE(vendor_id, 0) = 0 AND sync_official <> ?", modelID, 0).
+		UpdateColumn("vendor_id", vendor.Id).Error
+}
+
+func localMarketplaceModelUpdate(tx *gorm.DB, modelID int, modelName string) *gorm.DB {
+	query := tx.Model(&Model{}).Where("id = ?", modelID)
+	if localMarketplaceSeedVendorNames[modelName] != "" {
+		query = query.Where("sync_official <> ?", 0)
+	}
+	return query
 }
 
 func updateLocalMarketplaceFieldsIfEmpty(tx *gorm.DB, id int, seed *Model) error {
@@ -347,13 +516,18 @@ func updateLocalMarketplaceFieldsIfEmpty(tx *gorm.DB, id int, seed *Model) error
 		{"tags", seed.Tags},
 		{"knowledge_cutoff", seed.KnowledgeCutoff},
 		{"release_date", seed.ReleaseDate},
+		{"metadata_source", seed.MetadataSource},
+		{"metadata_verified_at", seed.MetadataVerifiedAt},
 	}
 	for _, field := range stringFields {
 		if strings.TrimSpace(field.value) == "" {
 			continue
 		}
 		emptyCondition := fmt.Sprintf("TRIM(COALESCE(%s, '')) = ''", field.column)
-		if err := tx.Model(&Model{}).Where("id = ?", id).Where(emptyCondition).UpdateColumn(field.column, field.value).Error; err != nil {
+		if field.column == "display_name" && localMarketplaceSeedVendorNames[seed.ModelName] != "" {
+			emptyCondition = "(" + emptyCondition + " OR (TRIM(COALESCE(display_name, '')) = model_name AND TRIM(COALESCE(description, '')) = '' AND COALESCE(vendor_id, 0) = 0))"
+		}
+		if err := localMarketplaceModelUpdate(tx, id, seed.ModelName).Where(emptyCondition).UpdateColumn(field.column, field.value).Error; err != nil {
 			return fmt.Errorf("fill %s: %w", field.column, err)
 		}
 	}
@@ -373,7 +547,7 @@ func updateLocalMarketplaceFieldsIfEmpty(tx *gorm.DB, id int, seed *Model) error
 			continue
 		}
 		emptyCondition := fmt.Sprintf("COALESCE(%s, 0) = 0", field.column)
-		if err := tx.Model(&Model{}).Where("id = ?", id).Where(emptyCondition).UpdateColumn(field.column, field.value).Error; err != nil {
+		if err := localMarketplaceModelUpdate(tx, id, seed.ModelName).Where(emptyCondition).UpdateColumn(field.column, field.value).Error; err != nil {
 			return fmt.Errorf("fill %s: %w", field.column, err)
 		}
 	}
@@ -400,7 +574,7 @@ func updateLocalMarketplaceFieldsIfEmpty(tx *gorm.DB, id int, seed *Model) error
 			return fmt.Errorf("encode %s: %w", field.column, err)
 		}
 		emptyCondition := fmt.Sprintf("%s IS NULL OR TRIM(%s) IN ('', '[]', 'null')", field.column, field.column)
-		if err := tx.Model(&Model{}).Where("id = ?", id).Where(emptyCondition).UpdateColumn(field.column, string(encoded)).Error; err != nil {
+		if err := localMarketplaceModelUpdate(tx, id, seed.ModelName).Where(emptyCondition).UpdateColumn(field.column, string(encoded)).Error; err != nil {
 			return fmt.Errorf("fill %s: %w", field.column, err)
 		}
 	}

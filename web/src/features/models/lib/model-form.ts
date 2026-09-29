@@ -62,6 +62,7 @@ export const MODEL_PARAMETER_OPTIONS = [
   'tool_choice',
   'reasoning_effort',
   'response_format',
+  'quality',
 ] as const
 
 export const MODEL_OUTPUT_FORMAT_OPTIONS = ['url', 'b64_json'] as const

@@ -66,7 +66,16 @@ func ReconcileEnabledModelMetadata() (CatalogReconcileSummary, error) {
 				continue
 			}
 		}
-		return nil
+		officialModelNames := make([]string, 0, len(modelNames))
+		for _, modelName := range modelNames {
+			if localMarketplaceSeedVendorNames[modelName] != "" {
+				officialModelNames = append(officialModelNames, modelName)
+			}
+		}
+		if len(officialModelNames) == 0 {
+			return nil
+		}
+		return backfillLocalMarketplaceMetadata(tx, officialModelNames)
 	})
 	return summary, err
 }
