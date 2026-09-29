@@ -54,6 +54,7 @@ type PricingNodeProps = {
   source: string
   currency: PricingCurrency
   issues: VisualBillingIssue[]
+  completionOutputIsImage: boolean
   onChange: (node: VisualPricingNode) => void
 }
 
@@ -108,6 +109,7 @@ function PricingTierFields(
       </div>
       <TierPriceFields
         currency={props.currency}
+        completionOutputIsImage={props.completionOutputIsImage}
         billingUnit={node.billingUnit}
         fixedPrice={node.fixedPrice}
         onBillingUnitChange={(billingUnit) =>
@@ -260,9 +262,12 @@ function PricingRuleCard(
                     {tier.prices.map((price) => (
                       <span key={price.variable}>
                         {t(
-                          BILLING_VARS.find(
-                            (variable) => variable.key === price.variable
-                          )?.shortLabel ?? price.variable
+                          price.variable === 'c' &&
+                            props.completionOutputIsImage
+                            ? 'Image output'
+                            : (BILLING_VARS.find(
+                                (variable) => variable.key === price.variable
+                              )?.shortLabel ?? price.variable)
                         )}
                         :{' '}
                         {formatPricingAmount(price.value, props.currency) ||
@@ -377,6 +382,7 @@ export function VisualBillingDocumentEditor(props: {
   document: VisualBillingDocument
   currency: PricingCurrency
   issues: VisualBillingIssue[]
+  completionOutputIsImage: boolean
   onChange: (document: VisualBillingDocument) => void
 }) {
   const { t } = useTranslation()
@@ -395,6 +401,7 @@ export function VisualBillingDocumentEditor(props: {
         source={props.document.source}
         currency={props.currency}
         issues={props.issues}
+        completionOutputIsImage={props.completionOutputIsImage}
         onChange={(root) => props.onChange({ ...props.document, root })}
       />
     </div>

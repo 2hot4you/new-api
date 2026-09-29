@@ -1050,6 +1050,20 @@ export type TieredPricingEditorProps = {
 
 type EditorMode = 'visual' | 'raw'
 
+const COMPLETION_IMAGE_OUTPUT_MODELS = [
+  'gpt-image-2',
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2.5-flare',
+]
+
+function completionOutputIsImage(modelName?: string): boolean {
+  const normalized = modelName?.toLowerCase()
+  if (!normalized) return false
+  return COMPLETION_IMAGE_OUTPUT_MODELS.some(
+    (name) => normalized === name || normalized.startsWith(`${name}-`)
+  )
+}
+
 function parseTierEditorDocument(source: string): VisualBillingDocument | null {
   return parseVisualBillingDocument(
     source || generateExprFromVisualConfig(createDefaultVisualConfig())
@@ -1228,6 +1242,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
             document={visualDocument}
             currency={currency}
             issues={serialized && !serialized.ok ? serialized.issues : []}
+            completionOutputIsImage={completionOutputIsImage(modelName)}
             onChange={handleDocumentChange}
           />
         )}

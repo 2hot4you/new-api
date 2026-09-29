@@ -274,6 +274,38 @@ test.each([
   }
 )
 
+test('labels completion tokens as image output for GPT Image 2 without offering a redundant detail field', async () => {
+  const onBillingExprChange = vi.fn()
+  render(
+    <TieredPricingEditor
+      modelName='gpt-image-2'
+      billingExpr='tier("base", p * 5 + img * 8 + cr * 1.25 + img_cr * 2 + c * 30)'
+      requestRuleExpr=''
+      onBillingExprChange={onBillingExprChange}
+      onRequestRuleExprChange={vi.fn()}
+    />
+  )
+
+  const imageOutputPrice = screen.getByRole('textbox', {
+    name: 'Image output price',
+  })
+  expect(imageOutputPrice).toHaveValue('30')
+  expect(
+    screen.queryByRole('textbox', { name: 'Output price' })
+  ).not.toBeInTheDocument()
+  expect(screen.getByText('Image output: $30')).toBeVisible()
+
+  fireEvent.change(imageOutputPrice, { target: { value: '31' } })
+  expect(onBillingExprChange).toHaveBeenLastCalledWith(
+    'tier("base", p * 5 + img * 8 + cr * 1.25 + img_cr * 2 + c * 31)'
+  )
+
+  await userEvent.click(screen.getByRole('button', { name: 'Media pricing' }))
+  expect(
+    screen.getAllByRole('textbox', { name: 'Image output price' })
+  ).toHaveLength(1)
+})
+
 test('keeps the condition tree as the default after switching models and applying presets', async () => {
   const props = {
     requestRuleExpr: '',

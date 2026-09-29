@@ -121,10 +121,15 @@ type TierPriceFieldsProps = {
   cacheMode?: CacheMode
   onCacheModeChange?: (mode: CacheMode) => void
   invalidVariables?: string[]
+  completionOutputIsImage?: boolean
 }
 export function TierPriceFields(props: TierPriceFieldsProps) {
   const { t } = useTranslation()
-  const hasMediaPricing = MEDIA_PRICE_VARS.some((variable) =>
+  const mediaPriceVariables =
+    props.completionOutputIsImage && props.prices.img_o === undefined
+      ? MEDIA_PRICE_VARS.filter((variable) => variable.key !== 'img_o')
+      : MEDIA_PRICE_VARS
+  const hasMediaPricing = mediaPriceVariables.some((variable) =>
     props.onInclude
       ? props.prices[variable.key] !== undefined
       : Number(props.prices[variable.key] ?? 0) > 0
@@ -215,7 +220,12 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
         <div className='space-y-3'>
           <div className='flex flex-wrap gap-x-4 gap-y-2'>
             {renderPriceVariable({ key: 'p', label: 'Input price' })}
-            {renderPriceVariable({ key: 'c', label: 'Output price' })}
+            {renderPriceVariable({
+              key: 'c',
+              label: props.completionOutputIsImage
+                ? 'Image output price'
+                : 'Output price',
+            })}
           </div>
 
           <div className='space-y-2'>
@@ -280,7 +290,7 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
         </Button>
         {mediaOpen && (
           <div className='flex flex-wrap gap-x-4 gap-y-2'>
-            {MEDIA_PRICE_VARS.map(renderPriceVariable)}
+            {mediaPriceVariables.map(renderPriceVariable)}
           </div>
         )}
       </div>

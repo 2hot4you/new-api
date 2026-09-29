@@ -1,0 +1,12 @@
+{
+  "id": "clarify-gpt-image-output-label",
+  "title": "明确 GPT Image 纯图片模型的输出价格标签",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交到远端 develop",
+  "createdAt": "2026-09-29T03:26:42Z",
+  "branch": "upgrade/rc40"
+}
