@@ -256,45 +256,48 @@ func TestPricingUsesPersistedMetadataAndReferencedVendorsOnly(t *testing.T) {
 	assert.Equal(t, "Published introduction", vendors[0].Description)
 }
 
-func TestPricingModelsDisplayOrder(t *testing.T) {
+func TestPricingModelsFollowVendorThenReleaseDateOrder(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 	require.NoError(t, DB.AutoMigrate(&marketplaceOrderLock{}))
 	insertPricingEndpointChannel(t, 806, constant.ChannelTypeOpenAI, dtoChannelSettingsEmpty())
 
-	vendorA := Vendor{Name: "Vendor A", Status: 1}
-	require.NoError(t, vendorA.Insert())
-	vendorB := Vendor{Name: "Vendor B", Status: 1}
-	require.NoError(t, vendorB.Insert())
-	require.NoError(t, ReorderVendors([]int{vendorB.Id, vendorA.Id}))
+	openAI := Vendor{Name: "OpenAI", Status: 1}
+	require.NoError(t, openAI.Insert())
+	anthropic := Vendor{Name: "Anthropic", Status: 1}
+	require.NoError(t, anthropic.Insert())
+	require.NoError(t, ReorderVendors([]int{anthropic.Id, openAI.Id}))
 
-	manualFirst := completePublishedLLM()
-	manualFirst.ModelName = "manual-first"
-	manualFirst.VendorID = vendorB.Id
-	manualFirst.ReleaseDate = "2026-01-01"
-
-	manualSecond := completePublishedLLM()
-	manualSecond.ModelName = "manual-second"
-	manualSecond.VendorID = vendorA.Id
-	manualSecond.ReleaseDate = "2026-12-31"
-	require.NoError(t, manualSecond.Insert())
-	configureMarketplaceModelPrice(t, manualSecond.ModelName)
-	insertPricingEndpointAbility(t, 806, manualSecond.ModelName)
-	require.NoError(t, manualFirst.Insert())
-	configureMarketplaceModelPrice(t, manualFirst.ModelName)
-	insertPricingEndpointAbility(t, 806, manualFirst.ModelName)
-	require.NoError(t, ReorderModels([]int{manualFirst.Id, manualSecond.Id}))
+	fixtures := []struct {
+		modelName   string
+		vendorID    int
+		releaseDate string
+	}{
+		{modelName: "claude-sonnet-5", vendorID: anthropic.Id, releaseDate: "2026-06-30"},
+		{modelName: "gpt-6-sol", vendorID: openAI.Id, releaseDate: "2026-09-22"},
+		{modelName: "claude-fable-5-1", vendorID: anthropic.Id, releaseDate: "2026-09-01"},
+		{modelName: "claude-sonnet-5-5", vendorID: anthropic.Id, releaseDate: "2026-09-28"},
+	}
+	for _, fixture := range fixtures {
+		entry := completePublishedLLM()
+		entry.ModelName = fixture.modelName
+		entry.VendorID = fixture.vendorID
+		entry.ReleaseDate = fixture.releaseDate
+		require.NoError(t, entry.Insert())
+		configureMarketplaceModelPrice(t, entry.ModelName)
+		insertPricingEndpointAbility(t, 806, entry.ModelName)
+	}
 
 	RefreshPricing()
 	assert.Equal(t,
-		[]string{"manual-first", "manual-second"},
+		[]string{"claude-sonnet-5-5", "claude-fable-5-1", "claude-sonnet-5", "gpt-6-sol"},
 		pricingModelNames(GetPricing()),
 	)
 	assert.Equal(t,
-		[]string{"Vendor B", "Vendor A"},
+		[]string{"Anthropic", "OpenAI"},
 		pricingVendorNames(GetVendors()),
 	)
 
-	first := findPricingModel(GetPricing(), manualFirst.ModelName)
+	first := findPricingModel(GetPricing(), "claude-sonnet-5")
 	require.NotNil(t, first)
 	assert.Equal(t, 1, first.DisplayOrder)
 	assert.Equal(t, 1, GetVendors()[0].DisplayOrder)

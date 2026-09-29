@@ -236,6 +236,48 @@ func appendPricingEndpoint(endpoints []string, endpoint string) []string {
 	return append(endpoints, endpoint)
 }
 
+func pricingReleaseDate(releaseDate string) (time.Time, bool) {
+	parsed, err := time.Parse("2006-01-02", strings.TrimSpace(releaseDate))
+	return parsed, err == nil
+}
+
+func sortPricingByVendorAndReleaseDate(pricing []Pricing, vendorMap map[int]*Vendor) {
+	sort.Slice(pricing, func(i, j int) bool {
+		left := pricing[i]
+		right := pricing[j]
+
+		if left.VendorID != right.VendorID {
+			leftVendor, leftExists := vendorMap[left.VendorID]
+			rightVendor, rightExists := vendorMap[right.VendorID]
+			if leftExists != rightExists {
+				return leftExists
+			}
+			if leftExists {
+				if leftVendor.DisplayOrder != rightVendor.DisplayOrder {
+					return leftVendor.DisplayOrder < rightVendor.DisplayOrder
+				}
+				if leftVendor.Name != rightVendor.Name {
+					return leftVendor.Name < rightVendor.Name
+				}
+			}
+			return left.VendorID < right.VendorID
+		}
+
+		leftDate, leftDated := pricingReleaseDate(left.ReleaseDate)
+		rightDate, rightDated := pricingReleaseDate(right.ReleaseDate)
+		if leftDated != rightDated {
+			return leftDated
+		}
+		if leftDated && !leftDate.Equal(rightDate) {
+			return leftDate.After(rightDate)
+		}
+		if left.DisplayOrder != right.DisplayOrder {
+			return left.DisplayOrder < right.DisplayOrder
+		}
+		return left.ModelName < right.ModelName
+	})
+}
+
 func updatePricing() {
 	//modelRatios := common.GetModelRatios()
 	enableAbilities, err := GetAllEnableAbilityWithChannels()
@@ -510,12 +552,7 @@ func updatePricing() {
 		}
 		pricingMap = append(pricingMap, pricing)
 	}
-	sort.Slice(pricingMap, func(i, j int) bool {
-		if pricingMap[i].DisplayOrder != pricingMap[j].DisplayOrder {
-			return pricingMap[i].DisplayOrder < pricingMap[j].DisplayOrder
-		}
-		return pricingMap[i].ModelName < pricingMap[j].ModelName
-	})
+	sortPricingByVendorAndReleaseDate(pricingMap, vendorMap)
 
 	vendorsList = make([]PricingVendor, 0, len(referencedVendorIDs))
 	for vendorID := range referencedVendorIDs {
