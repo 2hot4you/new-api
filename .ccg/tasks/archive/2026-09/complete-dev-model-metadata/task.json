@@ -1,0 +1,12 @@
+{
+  "id": "complete-dev-model-metadata",
+  "title": "补全 dev.molii.co 模型元数据页面中的缺失资料",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交变更",
+  "createdAt": "2026-09-29T19:45:00+08:00",
+  "branch": "upgrade/rc40"
+}
