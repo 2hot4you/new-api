@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-seedance-task-pricing",
+  "title": "排查 dev 环境 Seedance 尚未配置任务定价提示",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "待用户确认是否实施通用列表的专用矩阵识别与 dev 配置校正",
+  "createdAt": "2026-09-29T05:33:25Z",
+  "branch": "upgrade/rc40"
+}
