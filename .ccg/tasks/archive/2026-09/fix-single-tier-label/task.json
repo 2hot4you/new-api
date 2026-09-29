@@ -1,0 +1,12 @@
+{
+  "id": "fix-single-tier-label",
+  "title": "修复单个 tier 表达式被误标为阶梯计费",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交到 develop",
+  "createdAt": "2026-09-29T00:00:00+08:00",
+  "branch": "upgrade/rc40"
+}
