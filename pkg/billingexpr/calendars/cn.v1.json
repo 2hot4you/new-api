@@ -1,0 +1,29 @@
+{
+  "schema": "billingexpr.calendar",
+  "version": 1,
+  "country": "CN",
+  "source": {
+    "title": "国务院办公厅关于2026年部分节假日安排的通知",
+    "document": "国办发明电〔2025〕7号",
+    "url": "https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm"
+  },
+  "supportedYears": [2026],
+  "coverageStart": "2026-10-01",
+  "coverageEnd": "2026-12-31",
+  "years": {
+    "2026": {
+      "holidays": [
+        "2026-10-01",
+        "2026-10-02",
+        "2026-10-03",
+        "2026-10-04",
+        "2026-10-05",
+        "2026-10-06",
+        "2026-10-07"
+      ],
+      "makeupWorkdays": [
+        "2026-10-10"
+      ]
+    }
+  }
+}

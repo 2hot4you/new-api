@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   Box,
+  CalendarDays,
   ClipboardList,
   CreditCard,
   FileText,
@@ -155,6 +156,12 @@ export function useSidebarData(): SidebarData {
             title: t('Models'),
             url: '/models/metadata',
             icon: Box,
+          },
+          {
+            title: t('Billing calendar'),
+            url: '/billing-calendar',
+            icon: CalendarDays,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Users'),

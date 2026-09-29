@@ -140,10 +140,29 @@ function describeBillingCondition(
     if (!description) return null
     return {
       ...description,
-      text: t('Outside these times: {{condition}}', {
-        condition: description.text,
-      }),
+      text:
+        node.operand.kind === 'call' && node.operand.name === 'is_holiday'
+          ? t('Not {{condition}}', { condition: description.text })
+          : t('Outside these times: {{condition}}', {
+              condition: description.text,
+            }),
       kind: 'combined',
+    }
+  }
+  if (
+    node.kind === 'call' &&
+    node.name === 'is_holiday' &&
+    node.args[0].kind === 'literal' &&
+    typeof node.args[0].value === 'string' &&
+    node.args[1].kind === 'literal' &&
+    typeof node.args[1].value === 'string'
+  ) {
+    const country = node.args[0].value.trim().toUpperCase()
+    if (!country) return null
+    return {
+      text: t('{{country}} statutory holiday', { country }),
+      kind: 'calendar',
+      timezone: node.args[1].value.trim() || 'UTC',
     }
   }
   if (

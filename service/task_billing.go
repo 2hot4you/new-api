@@ -506,7 +506,7 @@ func BuildTerminalTaskBillingJob(ctx context.Context, adaptor TaskPollingAdaptor
 		result, err := billingexpr.ComputeTieredQuotaWithRequest(
 			snapshot,
 			billingexpr.TokenParams{},
-			billingexpr.RequestInput{Usage: usageFacts},
+			taskBillingRequestInput(snapshot, usageFacts),
 		)
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("task %s tiered billing settlement failed; keeping reserved quota: %v", task.TaskID, err))
@@ -809,9 +809,18 @@ func EvaluateTaskCompletionUsage(snap *billingexpr.BillingSnapshot, facts map[st
 	usage := make(map[string]any, len(snap.UsageFacts)+len(facts))
 	maps.Copy(usage, snap.UsageFacts)
 	maps.Copy(usage, facts)
-	result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, billingexpr.TokenParams{}, billingexpr.RequestInput{Usage: usage})
+	result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, billingexpr.TokenParams{}, taskBillingRequestInput(snap, usage))
 	if err == nil && (result.ActualQuotaBeforeGroup < 0 || math.IsNaN(result.ActualQuotaBeforeGroup)) {
 		err = fmt.Errorf("task completion expression produced an invalid cost")
 	}
 	return result, usage, err
+}
+
+func taskBillingRequestInput(snap *billingexpr.BillingSnapshot, usage map[string]any) billingexpr.RequestInput {
+	request := billingexpr.RequestInput{Usage: usage}
+	if !snap.EvaluationTime.IsZero() {
+		evaluationTime := snap.EvaluationTime
+		request.Now = &evaluationTime
+	}
+	return request
 }

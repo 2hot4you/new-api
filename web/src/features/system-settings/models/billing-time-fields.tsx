@@ -46,26 +46,58 @@ const PROBE_LABELS = {
   p: 'Billable input tokens',
   c: 'Billable output tokens',
   len: 'Full input length',
+  is_holiday: 'Statutory holiday',
 } as const
 
-export function BillingTimeProbeFields(props: {
-  probe: VisualComparison['probe']
+export type BillingConditionProbe = VisualComparison['probe'] | 'is_holiday'
+
+export function BillingTimezoneField(props: {
   timezone: string
-  includeTokens?: boolean
-  invalidTimezone?: boolean
-  onChange: (probe: VisualComparison['probe'], timezone: string) => void
+  invalid?: boolean
+  onChange: (timezone: string) => void
 }) {
   const { t } = useTranslation()
-  const probes: VisualComparison['probe'][] = [...TIME_FUNCS]
-  if (props.includeTokens) probes.push('len', 'p', 'c')
-  const isTime = (TIME_FUNCS as readonly string[]).includes(props.probe)
   const zones = COMMON_TIMEZONES.map((zone) => ({
     value: zone.value,
     label: zone.value,
   }))
   if (!zones.some((zone) => zone.value === props.timezone)) {
-    zones.push({ value: props.timezone, label: props.timezone || 'UTC' })
+    zones.push({
+      value: props.timezone,
+      label: props.timezone || 'UTC',
+    })
   }
+  return (
+    <div className='w-56 max-w-full min-w-0'>
+      <Combobox
+        aria-label={t('Timezone')}
+        aria-invalid={props.invalid || undefined}
+        options={zones}
+        value={props.timezone}
+        allowCustomValue
+        onValueChange={(timezone) =>
+          timezone !== null && props.onChange(timezone)
+        }
+        className='w-full'
+      />
+    </div>
+  )
+}
+
+export function BillingTimeProbeFields(props: {
+  probe: BillingConditionProbe
+  timezone: string
+  includeTokens?: boolean
+  includeHoliday?: boolean
+  invalidTimezone?: boolean
+  onChange: (probe: BillingConditionProbe, timezone: string) => void
+}) {
+  const { t } = useTranslation()
+  const probes: BillingConditionProbe[] = [...TIME_FUNCS]
+  if (props.includeHoliday) probes.push('is_holiday')
+  if (props.includeTokens) probes.push('len', 'p', 'c')
+  const isTime = (TIME_FUNCS as readonly string[]).includes(props.probe)
+  const usesTimezone = isTime || props.probe === 'is_holiday'
   return (
     <>
       <Select
@@ -93,22 +125,32 @@ export function BillingTimeProbeFields(props: {
           ))}
         </SelectContent>
       </Select>
-      {isTime && (
-        <div className='w-56 max-w-full min-w-0'>
-          <Combobox
-            aria-label={t('Timezone')}
-            aria-invalid={props.invalidTimezone || undefined}
-            options={zones}
-            value={props.timezone}
-            allowCustomValue
-            onValueChange={(timezone) =>
-              timezone !== null && props.onChange(props.probe, timezone)
-            }
-            className='w-full'
-          />
-        </div>
+      {usesTimezone && (
+        <BillingTimezoneField
+          timezone={props.timezone}
+          invalid={props.invalidTimezone}
+          onChange={(timezone) => props.onChange(props.probe, timezone)}
+        />
       )}
     </>
+  )
+}
+
+export function BillingHolidayCountryField(props: {
+  country: string
+  invalid?: boolean
+  onChange: (country: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <Input
+      type='text'
+      aria-label={t('Holiday country')}
+      aria-invalid={props.invalid || undefined}
+      value={props.country}
+      onChange={(event) => props.onChange(event.target.value)}
+      className='w-24 uppercase'
+    />
   )
 }
 

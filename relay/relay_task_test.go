@@ -336,6 +336,7 @@ export function extractUsage(){return {old_units:2};}
 
 			if testCase.wantTiered {
 				require.NotNil(t, info.TieredBillingSnapshot, "submission error: %+v", taskErr)
+				assert.False(t, info.TieredBillingSnapshot.EvaluationTime.IsZero())
 				assert.Equal(t, testCase.wantModel, info.TieredBillingSnapshot.ModelName)
 				assert.Equal(t, testCase.wantModel, info.GetBillingModelName())
 				assert.Equal(t, testCase.wantExpr, info.TieredBillingSnapshot.ExprString)

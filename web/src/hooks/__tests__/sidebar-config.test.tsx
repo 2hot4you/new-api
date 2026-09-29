@@ -180,3 +180,16 @@ describe('audit log sidebar entry', () => {
     expect(titles).toContain('Audit Logs')
   })
 })
+
+describe('billing calendar sidebar entry', () => {
+  it('keeps the independent admin calendar visible in legacy sidebar configurations', () => {
+    const { result } = sidebarFor({ admin: { enabled: true, models: true } })
+    const item = result.current
+      .find((group) => group.id === 'admin')
+      ?.items.find((entry) => entry.title === 'Billing calendar')
+    expect(item).toMatchObject({
+      url: '/billing-calendar',
+      requiredRole: 10,
+    })
+  })
+})

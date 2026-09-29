@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { isHolidayAt } from './calendar'
 import { compileBillingExpression } from './parser'
 import {
   BillingExpressionError,
@@ -479,6 +480,11 @@ class BillingRuntime {
             substring !== '' &&
             billingString(source).includes(substring),
         }
+      }
+      case 'is_holiday': {
+        const country = this.string(args[0])
+        const zone = this.string(args[1])
+        return { value: isHolidayAt(country, zone, this.now) }
       }
       case 'min':
         return {

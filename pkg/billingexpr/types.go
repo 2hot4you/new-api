@@ -3,6 +3,7 @@ package billingexpr
 import (
 	"crypto/sha256"
 	"fmt"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 )
@@ -11,6 +12,9 @@ type RequestInput struct {
 	Headers map[string]string
 	Body    []byte
 	Usage   map[string]any
+	// Now freezes the request clock across pre-consume and settlement. A nil
+	// value captures the current instant once at the beginning of each run.
+	Now *time.Time
 	// ImageCount is a validated billing quantity, separate from the frozen
 	// request's n. Settlement can replace it with the actual returned count.
 	ImageCount *int
@@ -62,7 +66,10 @@ type TraceResult struct {
 // auto-group retry and settlement. It is fully serializable and contains no
 // compiled program pointers.
 type BillingSnapshot struct {
-	EstimatedImageCount       *int           `json:"estimated_image_count,omitempty"`
+	EstimatedImageCount *int `json:"estimated_image_count,omitempty"`
+	// EvaluationTime freezes clock-dependent expressions for durable settlement.
+	// The zero value preserves the legacy behavior of evaluating at settlement time.
+	EvaluationTime            time.Time      `json:"evaluation_time,omitempty"`
 	BillingMode               string         `json:"billing_mode"`
 	ModelName                 string         `json:"model_name"`
 	ExprString                string         `json:"expr_string"`

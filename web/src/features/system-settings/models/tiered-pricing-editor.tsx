@@ -66,17 +66,20 @@ import {
   MATCH_LTE,
   MATCH_RANGE,
   SOURCE_HEADER,
+  SOURCE_HOLIDAY,
   SOURCE_PARAM,
   SOURCE_TIME,
   buildRequestRuleExpr,
   combineBillingExpr,
   createEmptyCondition,
+  createEmptyHolidayCondition,
   createEmptyRuleGroup,
   createEmptyTimeCondition,
   getRequestRuleMatchOptions,
   splitBillingExprAndRequestRules,
   tryParseRequestRuleExpr,
   type ParamHeaderCondition,
+  type HolidayCondition,
   type RequestCondition,
   type RequestRuleGroup,
   type TimeCondition,
@@ -98,6 +101,8 @@ import {
 import { cn } from '@/lib/utils'
 
 import {
+  BillingHolidayCountryField,
+  BillingTimezoneField,
   BillingTimeProbeFields,
   BillingTimeRangeFields,
 } from './billing-time-fields'
@@ -324,7 +329,8 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
             <code>fixed(amount)</code>, <code>max</code>, <code>min</code>,{' '}
             <code>ceil</code>, <code>floor</code>, <code>abs</code>,{' '}
             <code>header(name)</code>, <code>param(path)</code>,{' '}
-            <code>has(source, text)</code>
+            <code>has(source, text)</code>,{' '}
+            <code>is_holiday(country, timezone)</code>
           </div>
           <div>
             {t(
@@ -388,10 +394,15 @@ function RuleConditionRow({
   let sourceLabel = t('Time')
   if (condition.source === SOURCE_PARAM) sourceLabel = t('Body param')
   else if (condition.source === SOURCE_HEADER) sourceLabel = t('Header')
+  else if (condition.source === SOURCE_HOLIDAY) {
+    sourceLabel = t('Statutory holiday')
+  }
 
   const handleSourceChange = (source: string) => {
     if (source === SOURCE_TIME) {
       onChange(createEmptyTimeCondition())
+    } else if (source === SOURCE_HOLIDAY) {
+      onChange(createEmptyHolidayCondition())
     } else if (source === SOURCE_HEADER || source === SOURCE_PARAM) {
       onChange({
         ...createEmptyCondition(),
@@ -500,6 +511,30 @@ function RuleConditionRow({
     </>
   )
 
+  const renderHolidayCondition = (holiday: HolidayCondition) => (
+    <>
+      <BillingHolidayCountryField
+        country={holiday.country}
+        onChange={(country) => onChange({ ...holiday, country })}
+      />
+      <BillingTimezoneField
+        timezone={holiday.timezone}
+        onChange={(timezone) => onChange({ ...holiday, timezone })}
+      />
+    </>
+  )
+
+  let conditionFields
+  if (condition.source === SOURCE_TIME) {
+    conditionFields = renderTimeCondition(condition as TimeCondition)
+  } else if (condition.source === SOURCE_HOLIDAY) {
+    conditionFields = renderHolidayCondition(condition as HolidayCondition)
+  } else {
+    conditionFields = renderParamHeaderCondition(
+      condition as ParamHeaderCondition
+    )
+  }
+
   return (
     <div className='flex flex-wrap items-center gap-2'>
       <Select
@@ -507,6 +542,7 @@ function RuleConditionRow({
           { value: SOURCE_PARAM, label: t('Body param') },
           { value: SOURCE_HEADER, label: t('Header') },
           { value: SOURCE_TIME, label: t('Time') },
+          { value: SOURCE_HOLIDAY, label: t('Statutory holiday') },
         ]}
         value={condition.source}
         onValueChange={(v) => v !== null && handleSourceChange(v)}
@@ -519,12 +555,13 @@ function RuleConditionRow({
             <SelectItem value={SOURCE_PARAM}>{t('Body param')}</SelectItem>
             <SelectItem value={SOURCE_HEADER}>{t('Header')}</SelectItem>
             <SelectItem value={SOURCE_TIME}>{t('Time')}</SelectItem>
+            <SelectItem value={SOURCE_HOLIDAY}>
+              {t('Statutory holiday')}
+            </SelectItem>
           </SelectGroup>
         </SelectContent>
       </Select>
-      {condition.source === SOURCE_TIME
-        ? renderTimeCondition(condition as TimeCondition)
-        : renderParamHeaderCondition(condition as ParamHeaderCondition)}
+      {conditionFields}
       <Button
         variant='ghost'
         size='icon'

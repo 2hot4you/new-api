@@ -204,6 +204,14 @@ export const STATIC_I18N_KEYS = [
   'Routing Reliability',
   'Maintenance',
 
+  // Billing calendar classifications are selected dynamically.
+  'Workday',
+  'Weekend',
+  'Statutory holiday',
+  'Makeup workday',
+  'Unavailable',
+  'Export Apple Calendar (.ics)',
+
   // System info
   'online',
   'stale',

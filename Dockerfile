@@ -19,6 +19,7 @@ ARG VITE_SITE_BANNER_BRAND
 ARG VITE_SITE_DEFAULT_FONT
 
 COPY ./web ./
+COPY pkg/billingexpr/calendars/cn.v1.json /build/pkg/billingexpr/calendars/cn.v1.json
 RUN DISABLE_ESLINT_PLUGIN='true' \
     VITE_REACT_APP_VERSION="${APP_VERSION}" \
     VITE_SITE_PROFILE="${VITE_SITE_PROFILE}" \

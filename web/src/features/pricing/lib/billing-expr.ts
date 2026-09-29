@@ -188,6 +188,7 @@ export const BILLING_CACHE_VAR_MAP = BILLING_EXTRA_VARS.map((v) => ({
 export const SOURCE_PARAM = 'param'
 export const SOURCE_HEADER = 'header'
 export const SOURCE_TIME = 'time'
+export const SOURCE_HOLIDAY = 'holiday'
 
 export const MATCH_EQ = 'eq'
 export const MATCH_CONTAINS = 'contains'
@@ -237,7 +238,20 @@ export type TimeCondition = {
   rangeEnd: string
 }
 
-export type RequestCondition = TimeCondition | ParamHeaderCondition
+export type HolidayCondition = {
+  source: 'holiday'
+  country: string
+  timezone: string
+  /** Compatibility fields for generic condition summaries. */
+  path: string
+  mode: string
+  value: string
+}
+
+export type RequestCondition =
+  | TimeCondition
+  | HolidayCondition
+  | ParamHeaderCondition
 
 export type RequestRuleGroup = {
   conditions: RequestCondition[]
@@ -367,6 +381,23 @@ function parseExprLiteral(raw: string): string | null {
   }
 }
 
+function parseExprStringLiteral(raw: string): string | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return typeof parsed === 'string' ? parsed : null
+  } catch {
+    const compiled = compileBillingExpression(raw)
+    if (
+      compiled.status === 'ready' &&
+      compiled.ast.kind === 'literal' &&
+      typeof compiled.ast.value === 'string'
+    ) {
+      return compiled.ast.value
+    }
+    return null
+  }
+}
+
 // Time function value domains. Values outside these ranges are invalid for
 // the corresponding time function (e.g. hour() is 0-23) and would otherwise
 // produce always-true conditions like hour >= -1 || hour < -5.
@@ -439,6 +470,22 @@ function tryParseTimeCondition(expr: string): RequestCondition | null {
 }
 
 function tryParseRequestCondition(expr: string): RequestCondition | null {
+  const holiday = expr.match(
+    /^is_holiday\(((?:"(?:[^"\\]|\\.)*")),\s*((?:"(?:[^"\\]|\\.)*"))\)$/
+  )
+  if (holiday) {
+    const country = parseExprStringLiteral(holiday[1])
+    const timezone = parseExprStringLiteral(holiday[2])
+    if (country === null || timezone === null) return null
+    return {
+      source: 'holiday',
+      country,
+      timezone,
+      path: country,
+      mode: MATCH_EQ,
+      value: 'true',
+    }
+  }
   const tc = tryParseTimeCondition(expr)
   if (tc) return tc
 
@@ -666,6 +713,17 @@ export function createEmptyTimeCondition(): TimeCondition {
   }
 }
 
+export function createEmptyHolidayCondition(): HolidayCondition {
+  return {
+    source: 'holiday',
+    country: 'CN',
+    timezone: 'Asia/Shanghai',
+    path: 'CN',
+    mode: MATCH_EQ,
+    value: 'true',
+  }
+}
+
 export function createEmptyRuleGroup(): RequestRuleGroup {
   return { conditions: [createEmptyCondition()], multiplier: '' }
 }
@@ -681,6 +739,7 @@ export function createEmptyTimeRuleGroup(): RequestRuleGroup {
 export type MatchOption = { value: string; labelKey: string }
 
 export function getRequestRuleMatchOptions(source: string): MatchOption[] {
+  if (source === SOURCE_HOLIDAY) return []
   if (source === SOURCE_TIME) {
     return [
       { value: MATCH_EQ, labelKey: 'Equals' },
@@ -718,6 +777,8 @@ export function normalizeCondition(
   let source: RequestCondition['source'] = 'param'
   if (cond?.source === 'time') {
     source = 'time'
+  } else if (cond?.source === 'holiday') {
+    source = 'holiday'
   } else if (cond?.source === 'header') {
     source = 'header'
   }
@@ -740,6 +801,19 @@ export function normalizeCondition(
       rangeStart:
         timeCond?.rangeStart == null ? '' : String(timeCond.rangeStart),
       rangeEnd: timeCond?.rangeEnd == null ? '' : String(timeCond.rangeEnd),
+    }
+  }
+
+  if (source === 'holiday') {
+    const holiday = cond as Partial<HolidayCondition> | null | undefined
+    return {
+      source: 'holiday',
+      country: holiday?.country == null ? 'CN' : String(holiday.country),
+      timezone:
+        holiday?.timezone == null ? 'Asia/Shanghai' : String(holiday.timezone),
+      path: holiday?.country == null ? 'CN' : String(holiday.country),
+      mode: MATCH_EQ,
+      value: 'true',
     }
   }
 
@@ -801,6 +875,11 @@ function buildTimeConditionExpr(cond: TimeCondition): string {
 }
 
 function buildRequestConditionExpr(cond: RequestCondition): string {
+  if (cond.source === 'holiday') {
+    const normalized = normalizeCondition(cond) as HolidayCondition
+    if (!normalized.country.trim()) return ''
+    return `is_holiday(${JSON.stringify(normalized.country)}, ${JSON.stringify(normalized.timezone)})`
+  }
   if (cond.source === 'time') return buildTimeConditionExpr(cond)
   const normalized = normalizeCondition(cond) as ParamHeaderCondition
   const path = normalized.path.trim()

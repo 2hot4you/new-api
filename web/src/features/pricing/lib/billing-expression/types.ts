@@ -40,6 +40,11 @@ export const TIME_FUNCTIONS = [
   'day',
 ] as const
 export type TimeFunction = (typeof TIME_FUNCTIONS)[number]
+/** Functions whose result can change as the captured evaluation instant changes. */
+export const TIME_DEPENDENT_FUNCTIONS = [
+  ...TIME_FUNCTIONS,
+  'is_holiday',
+] as const
 export const BILLING_FUNCTIONS: Readonly<Record<string, number>> = {
   tier: 2,
   fixed: 1,
@@ -52,6 +57,7 @@ export const BILLING_FUNCTIONS: Readonly<Record<string, number>> = {
   weekday: 1,
   month: 1,
   day: 1,
+  is_holiday: 2,
   min: 2,
   max: 2,
   abs: 1,

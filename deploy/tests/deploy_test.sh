@@ -538,6 +538,10 @@ test_workflow_delivery_contract() {
   ci_content=$(<"$ci_workflow")
   dockerfile="$PROJECT_ROOT/Dockerfile"
   dockerfile_content=$(<"$dockerfile")
+  assert_contains \
+    "$dockerfile_content" \
+    'COPY pkg/billingexpr/calendars/cn.v1.json /build/pkg/billingexpr/calendars/cn.v1.json' \
+    'frontend image stage includes the shared billing calendar at its import path'
   assert_contains "$content" '- main' 'workflow deploys main pushes'
   assert_contains "$content" '- develop' 'workflow deploys develop pushes'
   assert_contains "$content" 'packages: write' 'workflow can publish GHCR images'

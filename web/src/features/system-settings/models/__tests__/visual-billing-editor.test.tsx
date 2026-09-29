@@ -483,6 +483,60 @@ test('edits image cache pricing and preserves an explicitly free cache lane', ()
 })
 
 describe('visual time billing editor', () => {
+  test('edits a holiday pricing condition without exposing numeric controls', () => {
+    const source =
+      'is_holiday("CN", "Asia/Shanghai") ? tier("holiday", p * 1) : tier("regular", p * 2)'
+    const onBillingExprChange = vi.fn()
+    render(
+      <TieredPricingEditor
+        billingExpr={source}
+        requestRuleExpr=''
+        onBillingExprChange={onBillingExprChange}
+        onRequestRuleExprChange={vi.fn()}
+      />
+    )
+    expect(
+      screen.getByRole('combobox', { name: 'Condition input' })
+    ).toHaveTextContent('Statutory holiday')
+    const country = screen.getByRole('textbox', { name: 'Holiday country' })
+    expect(country).toHaveValue('CN')
+    expect(
+      screen.queryByRole('combobox', { name: 'Comparison operator' })
+    ).not.toBeInTheDocument()
+    fireEvent.change(country, { target: { value: ' cn ' } })
+    expect(onBillingExprChange).toHaveBeenLastCalledWith(
+      source.replace('"CN"', '" cn "')
+    )
+    fireEvent.change(screen.getByRole('combobox', { name: 'Timezone' }), {
+      target: { value: 'UTC' },
+    })
+    expect(onBillingExprChange.mock.lastCall?.[0]).toContain(
+      'is_holiday(" cn ", "UTC")'
+    )
+  })
+
+  test('keeps a holiday request multiplier in the visual rule editor', () => {
+    const rule = '(is_holiday("CN", "Asia/Shanghai") ? 0.5 : 1)'
+    const onRequestRuleExprChange = vi.fn()
+    render(
+      <TieredPricingEditor
+        billingExpr='tier("base", p * 2)'
+        requestRuleExpr={rule}
+        onBillingExprChange={vi.fn()}
+        onRequestRuleExprChange={onRequestRuleExprChange}
+      />
+    )
+    expect(
+      screen.getByRole('textbox', { name: 'Holiday country' })
+    ).toHaveValue('CN')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Timezone' }), {
+      target: { value: 'UTC' },
+    })
+    expect(onRequestRuleExprChange).toHaveBeenLastCalledWith(
+      '(is_holiday("CN", "UTC") ? 0.5 : 1)'
+    )
+  })
+
   test.each([
     ['simple tiers', 'tier("base", p * 2 + c * 8)', '2'],
     ['condition tree', expression, '3'],
@@ -760,6 +814,21 @@ test('keeps exact source and independent request rules through mode and currency
     expression.replace('p * 3', 'p * 4')
   )
   expect(onRequestRuleExprChange).not.toHaveBeenCalled()
+})
+
+test('documents is_holiday in the expression editor function list', async () => {
+  render(
+    <TieredPricingEditor
+      billingExpr='tier("base", p * 2)'
+      requestRuleExpr=''
+      onBillingExprChange={vi.fn()}
+      onRequestRuleExprChange={vi.fn()}
+    />
+  )
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('combobox', { name: 'Editor mode' }))
+  await user.click(screen.getByRole('option', { name: 'Expression editor' }))
+  expect(screen.getByText('is_holiday(country, timezone)')).toBeVisible()
 })
 
 test('updates weekday, hour and timezone conditions while preserving the other branches', async () => {

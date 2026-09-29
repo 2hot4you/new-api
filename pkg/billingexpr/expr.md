@@ -172,6 +172,7 @@ OpenAI 已于 2026-05-12 下线 DALL·E 2/3；其校验、默认值和倍率保�
 | `weekday` | `weekday(tz) → int` | Day of week (0=Sunday, 6=Saturday) |
 | `month` | `month(tz) → int` | Month (1-12) |
 | `day` | `day(tz) → int` | Day of month (1-31) |
+| `is_holiday` | `is_holiday(country, tz) → bool` | True for an explicitly listed statutory rest day in a supported country/year |
 | `max` | `max(a, b) → float64` | Math max |
 | `min` | `min(a, b) → float64` | Math min |
 | `abs` | `abs(x) → float64` | Absolute value |
@@ -199,7 +200,25 @@ tier("base", p * 2 + c * 8 + img * 2.5)
 
 # Multimodal with audio
 tier("base", p * 0.43 + c * 3.06 + img * 0.78 + ai * 3.81 + ao * 15.11)
+
+# China statutory-holiday discount (ordinary weekends remain controlled by weekday())
+tier("base", p * 2.5 + c * 15) * (is_holiday("CN", "Asia/Shanghai") ? 0.5 : 1)
 ```
+
+### Holiday Calendar
+
+`is_holiday(country, timezone)` normalizes the country with trim and uppercase.
+It returns `true` only when the local date is an explicitly listed statutory
+rest day. Ordinary weekends and makeup workdays return `false`. Unsupported
+countries and years also return `false`, so missing calendar coverage never
+silently selects a holiday discount. Empty or invalid timezones use UTC, the
+same fallback as the other time functions.
+
+The versioned source data is embedded from `calendars/cn.v1.json`. The initial
+calendar covers China in 2026 and cites the State Council notice
+`国办发明电〔2025〕7号`. Calendar updates are reviewed data changes rather than
+runtime network lookups. Every expression evaluation captures one instant;
+all time functions and holiday checks in that run observe that same instant.
 
 ### Fixed Request Prices
 
@@ -253,7 +272,7 @@ At compile time, the engine instruments ternary factors with this exact shape:
 <request-probe condition> ? <numeric literal> : 1
 ```
 
-The condition must reference at least one request probe (`param`, `header`, `hour`, `minute`, `weekday`, `month`, or `day`). Both branches must be numeric literals and the fallback must equal `1`. Other conditionals, including `(condition ? 2 : 1.5)`, are evaluated normally but are not traced. Integer-only factors use an integer-preserving trace callback, so instrumentation does not change expressions that require an integer operand (for example, `%`). The internal trace callback names are reserved and cannot be used in stored expressions.
+The condition must reference at least one request probe (`param`, `header`, `hour`, `minute`, `weekday`, `month`, `day`, or `is_holiday`). Both branches must be numeric literals and the fallback must equal `1`. Other conditionals, including `(condition ? 2 : 1.5)`, are evaluated normally but are not traced. Integer-only factors use an integer-preserving trace callback, so instrumentation does not change expressions that require an integer operand (for example, `%`). The internal trace callback names are reserved and cannot be used in stored expressions.
 
 The compiled cache stores the canonical condition and multiplier for every instrumented node. Each run starts with the full detected rule list marked as unmatched; callbacks mark rules that actually evaluate true. Rules skipped by normal expression short-circuiting remain unmatched. This keeps the expression's numeric result unchanged and avoids reparsing it on each request.
 

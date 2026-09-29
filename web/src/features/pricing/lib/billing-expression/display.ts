@@ -17,9 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { BillingUsageSchema } from '../../types'
+import {
+  billingDateInZone,
+  isHolidayAt,
+  isValidBillingTimezone,
+} from './calendar'
 import { compileBillingExpression } from './parser'
 import { evaluateBillingCondition } from './runtime'
 import {
+  TIME_DEPENDENT_FUNCTIONS,
   TIME_FUNCTIONS,
   expressionDependencies,
   type ExpressionNode,
@@ -44,6 +50,13 @@ export type TokenTier = {
 export type TimeTokenTier = TokenTier & {
   conditionText: string
   timeConditions: { condition: ExpressionNode; matches: boolean }[]
+}
+export type DailyTimePricingPeriod = {
+  /** Inclusive minute of the local day, from 0 through 1439. */
+  startMinute: number
+  /** Exclusive minute of the local day, from 1 through 1440. */
+  endMinute: number
+  tiers: TokenTier[]
 }
 
 export function flattenBinary(
@@ -248,10 +261,17 @@ export function isTimeCondition(node: ExpressionNode): boolean {
   return (
     dependencies.variables.size === 0 &&
     [...dependencies.functions].some((name) =>
-      (TIME_FUNCTIONS as readonly string[]).includes(name)
+      (TIME_DEPENDENT_FUNCTIONS as readonly string[]).includes(name)
     ) &&
     [...dependencies.functions].every((name) =>
-      [...TIME_FUNCTIONS, 'min', 'max', 'abs', 'ceil', 'floor'].includes(name)
+      [
+        ...TIME_DEPENDENT_FUNCTIONS,
+        'min',
+        'max',
+        'abs',
+        'ceil',
+        'floor',
+      ].includes(name)
     )
   )
 }
@@ -310,6 +330,435 @@ export function readTimeTokenPricing(
       )
     : []
   return { tiers, currentTiers }
+}
+
+function localMinuteInstant(
+  day: string,
+  minute: number,
+  timezone: string,
+  formatter: Intl.DateTimeFormat
+): Date | null {
+  const match = day.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match || minute < 0 || minute >= 1440) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const date = Number(match[3])
+  const hour = Math.floor(minute / 60)
+  const minuteOfHour = minute % 60
+  const calendarCheck = new Date(Date.UTC(year, month - 1, date))
+  if (
+    calendarCheck.getUTCFullYear() !== year ||
+    calendarCheck.getUTCMonth() !== month - 1 ||
+    calendarCheck.getUTCDate() !== date
+  ) {
+    return null
+  }
+  let timestamp = Date.UTC(year, month - 1, date, hour, minuteOfHour)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const parts = Object.fromEntries(
+      formatter
+        .formatToParts(new Date(timestamp))
+        .map((part) => [part.type, part.value])
+    )
+    const represented = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute)
+    )
+    const desired = Date.UTC(year, month - 1, date, hour, minuteOfHour)
+    if (represented === desired) break
+    timestamp += desired - represented
+  }
+  const instant = new Date(timestamp)
+  const parts = Object.fromEntries(
+    formatter.formatToParts(instant).map((part) => [part.type, part.value])
+  )
+  if (
+    billingDateInZone(instant, timezone) !== day ||
+    Number(parts.hour) !== hour ||
+    Number(parts.minute) !== minuteOfHour
+  ) {
+    return null
+  }
+  return instant
+}
+
+function publicTimeTier(tier: TimeTokenTier): TokenTier {
+  return {
+    label: tier.label,
+    conditions: tier.conditions,
+    prices: tier.prices,
+    ...(tier.imageCount ? { imageCount: true } : {}),
+    ...(tier.billingUnit ? { billingUnit: tier.billingUnit } : {}),
+    ...(tier.fixedPrice !== undefined ? { fixedPrice: tier.fixedPrice } : {}),
+  }
+}
+
+type DailyTierPlan = {
+  tier: TokenTier
+  timeConditions: TimeTokenTier['timeConditions']
+}
+
+type DailyPricingPlan = {
+  tiers: DailyTierPlan[]
+  rules: CompiledBillingExpression['requestRules']
+}
+
+function dailyPricingPlan(
+  compiled: CompiledBillingExpression
+): DailyPricingPlan | null {
+  const ruleByNode = new Map(
+    compiled.requestRules.map((rule) => [rule.node, rule] as const)
+  )
+  const rules: CompiledBillingExpression['requestRules'] = []
+  const baseParts: ExpressionNode[] = []
+  for (const part of flattenBinary(compiled.ast, '*')) {
+    const rule = ruleByNode.get(part)
+    if (!rule) {
+      baseParts.push(part)
+      continue
+    }
+    if (!isTimeCondition(rule.condition)) return null
+    rules.push(rule)
+  }
+  if (baseParts.length !== 1) return null
+
+  const timeTiers = timeTierBranches(compiled, baseParts[0], [])
+  if (timeTiers) {
+    return {
+      rules,
+      tiers: timeTiers.map((tier) => ({
+        tier: publicTimeTier(tier),
+        timeConditions: tier.timeConditions,
+      })),
+    }
+  }
+  const tiers = readTokenTierChain(baseParts[0])
+  if (!tiers) return null
+  return {
+    rules,
+    tiers: tiers.map((tier) => ({ tier, timeConditions: [] })),
+  }
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const normalizedTimezoneCache = new Map<string, string | null>()
+
+function normalizedTimezone(zone: string): string | null {
+  const timezone = zone.trim() || 'UTC'
+  if (normalizedTimezoneCache.has(timezone)) {
+    return normalizedTimezoneCache.get(timezone) ?? null
+  }
+  if (timezone === 'Local') return null
+  try {
+    if (!/^[A-Z][A-Za-z0-9_+-]*(?:\/[A-Z][A-Za-z0-9_+-]*)*$/.test(timezone)) {
+      throw new RangeError('timezone')
+    }
+    const resolved = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+    }).resolvedOptions().timeZone
+    if (
+      resolved.toLowerCase() === timezone.toLowerCase() &&
+      resolved !== timezone
+    ) {
+      throw new RangeError('timezone')
+    }
+    normalizedTimezoneCache.set(timezone, timezone)
+    return timezone
+  } catch {
+    normalizedTimezoneCache.set(timezone, 'UTC')
+    return 'UTC'
+  }
+}
+
+type TimeEvaluationContext = {
+  now: Date
+  timeFormatters: Map<string, Intl.DateTimeFormat>
+  dateFormatters: Map<string, Intl.DateTimeFormat>
+  timeValues: Map<string, Record<(typeof TIME_FUNCTIONS)[number], number>>
+  dates: Map<string, string>
+  holidays: Map<string, boolean>
+}
+
+function timeValues(
+  zone: string,
+  context: TimeEvaluationContext
+): Record<(typeof TIME_FUNCTIONS)[number], number> {
+  const timezone = normalizedTimezone(zone)
+  if (!timezone) throw new Error('server Local timezone')
+  const cached = context.timeValues.get(timezone)
+  if (cached) return cached
+  let formatter = context.timeFormatters.get(timezone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      calendar: 'gregory',
+      numberingSystem: 'latn',
+      hourCycle: 'h23',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      weekday: 'short',
+      month: 'numeric',
+      day: 'numeric',
+    })
+    context.timeFormatters.set(timezone, formatter)
+  }
+  const parts = Object.fromEntries(
+    formatter.formatToParts(context.now).map((part) => [part.type, part.value])
+  )
+  const values = {
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    weekday: WEEKDAYS.indexOf(parts.weekday),
+    month: Number(parts.month),
+    day: Number(parts.day),
+  }
+  context.timeValues.set(timezone, values)
+  return values
+}
+
+function dateInZone(zone: string, context: TimeEvaluationContext): string {
+  const timezone = normalizedTimezone(zone)
+  if (!timezone) throw new Error('server Local timezone')
+  const cached = context.dates.get(timezone)
+  if (cached) return cached
+  let formatter = context.dateFormatters.get(timezone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      calendar: 'gregory',
+      numberingSystem: 'latn',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    context.dateFormatters.set(timezone, formatter)
+  }
+  const parts = Object.fromEntries(
+    formatter.formatToParts(context.now).map((part) => [part.type, part.value])
+  )
+  const date = `${parts.year}-${parts.month}-${parts.day}`
+  context.dates.set(timezone, date)
+  return date
+}
+
+function evaluateTimeNode(
+  node: ExpressionNode,
+  context: TimeEvaluationContext
+): unknown {
+  if (node.kind === 'literal') return node.value
+  if (node.kind === 'variable') throw new Error('unexpected variable')
+  if (node.kind === 'conditional') {
+    const condition = evaluateTimeNode(node.condition, context)
+    if (typeof condition !== 'boolean') throw new Error('boolean condition')
+    return evaluateTimeNode(condition ? node.yes : node.no, context)
+  }
+  if (node.kind === 'unary') {
+    const value = evaluateTimeNode(node.operand, context)
+    if (node.operator === '!') {
+      if (typeof value !== 'boolean') throw new Error('boolean operand')
+      return !value
+    }
+    if (typeof value !== 'number') throw new Error('numeric operand')
+    return node.operator === '-' ? -value : value
+  }
+  if (node.kind === 'binary') {
+    const left = evaluateTimeNode(node.left, context)
+    if (node.operator === '&&') {
+      if (typeof left !== 'boolean') throw new Error('boolean operand')
+      return left && Boolean(evaluateTimeNode(node.right, context))
+    }
+    if (node.operator === '||') {
+      if (typeof left !== 'boolean') throw new Error('boolean operand')
+      return left || Boolean(evaluateTimeNode(node.right, context))
+    }
+    const right = evaluateTimeNode(node.right, context)
+    if (node.operator === '==') return left === right
+    if (node.operator === '!=') return left !== right
+    if (
+      (typeof left === 'number' && typeof right === 'number') ||
+      (typeof left === 'string' && typeof right === 'string')
+    ) {
+      if (node.operator === '<') return left < right
+      if (node.operator === '<=') return left <= right
+      if (node.operator === '>') return left > right
+      if (node.operator === '>=') return left >= right
+    }
+    if (typeof left !== 'number' || typeof right !== 'number') {
+      throw new Error('numeric operands')
+    }
+    if (node.operator === '+') return left + right
+    if (node.operator === '-') return left - right
+    if (node.operator === '*') return left * right
+    if (node.operator === '/') return left / right
+    if (node.operator === '%') return left % right
+    throw new Error('unsupported operator')
+  }
+
+  const args = node.args.map((arg) => evaluateTimeNode(arg, context))
+  if ((TIME_FUNCTIONS as readonly string[]).includes(node.name)) {
+    if (typeof args[0] !== 'string') throw new Error('timezone')
+    return timeValues(args[0], context)[
+      node.name as (typeof TIME_FUNCTIONS)[number]
+    ]
+  }
+  if (node.name === 'is_holiday') {
+    if (typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+      throw new Error('holiday arguments')
+    }
+    const date = dateInZone(args[1], context)
+    const key = `${args[0].trim().toUpperCase()}\u0000${args[1]}\u0000${date}`
+    const cached = context.holidays.get(key)
+    if (cached !== undefined) return cached
+    const holiday = isHolidayAt(args[0], args[1], context.now)
+    context.holidays.set(key, holiday)
+    return holiday
+  }
+  if (node.name === 'min') return Math.min(Number(args[0]), Number(args[1]))
+  if (node.name === 'max') return Math.max(Number(args[0]), Number(args[1]))
+  if (node.name === 'abs') return Math.abs(Number(args[0]))
+  if (node.name === 'ceil') return Math.ceil(Number(args[0]))
+  if (node.name === 'floor') return Math.floor(Number(args[0]))
+  throw new Error('unsupported call')
+}
+
+function scaledTier(tier: TokenTier, multiplier: number): TokenTier {
+  return {
+    ...tier,
+    prices: Object.fromEntries(
+      Object.entries(tier.prices).map(([name, price]) => [
+        name,
+        price === undefined ? undefined : price * multiplier,
+      ])
+    ),
+    ...(tier.fixedPrice === undefined
+      ? {}
+      : { fixedPrice: tier.fixedPrice * multiplier }),
+  }
+}
+
+/**
+ * Evaluate one local calendar day at minute precision and merge adjacent,
+ * identical tier/price results. Unsafe dates, zones or expressions return null.
+ */
+export function mergeDailyTimePricing(
+  source: string,
+  day: string,
+  timezone: string
+): DailyTimePricingPeriod[] | null {
+  if (!isValidBillingTimezone(timezone)) return null
+  const compiled = compileBillingExpression(source)
+  if (compiled.status !== 'ready') return null
+  const plan = dailyPricingPlan(compiled)
+  if (!plan) return null
+  const instantFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    calendar: 'gregory',
+    numberingSystem: 'latn',
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const dayStart = localMinuteInstant(day, 0, timezone, instantFormatter)
+  if (!dayStart) return null
+  const dayEnd = new Date(dayStart.getTime() + 1439 * 60_000)
+  const endParts = Object.fromEntries(
+    instantFormatter
+      .formatToParts(dayEnd)
+      .map((part) => [part.type, part.value])
+  )
+  if (
+    billingDateInZone(dayEnd, timezone) !== day ||
+    Number(endParts.hour) !== 23 ||
+    Number(endParts.minute) !== 59
+  ) {
+    return null
+  }
+  const sharedContext = {
+    timeFormatters: new Map<string, Intl.DateTimeFormat>(),
+    dateFormatters: new Map<string, Intl.DateTimeFormat>(),
+    holidays: new Map<string, boolean>(),
+  }
+  const [yearText, monthText, dayText] = day.split('-')
+  const localDate = new Date(`${day}T12:00:00Z`)
+  const localDayValues = {
+    hour: 0,
+    minute: 0,
+    weekday: localDate.getUTCDay(),
+    month: Number(monthText),
+    day: Number(dayText),
+  }
+  if (
+    localDate.getUTCFullYear() !== Number(yearText) ||
+    localDate.getUTCMonth() + 1 !== localDayValues.month ||
+    localDate.getUTCDate() !== localDayValues.day
+  ) {
+    return null
+  }
+  const periods: DailyTimePricingPeriod[] = []
+  let previousKey = ''
+  for (let minute = 0; minute < 1440; minute++) {
+    const now = new Date(dayStart.getTime() + minute * 60_000)
+    const context: TimeEvaluationContext = {
+      ...sharedContext,
+      now,
+      timeValues: new Map([
+        [
+          timezone,
+          {
+            ...localDayValues,
+            hour: Math.floor(minute / 60),
+            minute: minute % 60,
+          },
+        ],
+      ]),
+      dates: new Map([[timezone, day]]),
+    }
+    const conditions = new Map<ExpressionNode, boolean>()
+    const matches = (condition: ExpressionNode): boolean => {
+      const cached = conditions.get(condition)
+      if (cached !== undefined) return cached
+      const value = evaluateTimeNode(condition, context)
+      if (typeof value !== 'boolean') throw new Error('boolean condition')
+      conditions.set(condition, value)
+      return value
+    }
+    let multiplier = 1
+    try {
+      for (const rule of plan.rules) {
+        if (matches(rule.condition)) multiplier *= rule.multiplier
+      }
+    } catch {
+      return null
+    }
+    const current = plan.tiers
+      .filter(({ timeConditions }) =>
+        timeConditions.every(
+          ({ condition, matches: expected }) => matches(condition) === expected
+        )
+      )
+      .map(({ tier }) => scaledTier(tier, multiplier))
+    if (current.length === 0) return null
+    const key = JSON.stringify(current)
+    const previous = periods.at(-1)
+    if (previous && key === previousKey) {
+      previous.endMinute = minute + 1
+    } else {
+      periods.push({
+        startMinute: minute,
+        endMinute: minute + 1,
+        tiers: current,
+      })
+      previousKey = key
+    }
+  }
+  return periods
 }
 
 export type TaskTier = {

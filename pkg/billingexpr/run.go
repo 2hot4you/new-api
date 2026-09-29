@@ -51,6 +51,10 @@ func RunExprByHashWithRequest(exprStr, hash string, params TokenParams, request 
 }
 
 func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[string]bool, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+	now := time.Now()
+	if request.Now != nil {
+		now = *request.Now
+	}
 	trace := TraceResult{
 		BillingUnit:  BillingUnitToken,
 		RequestRules: append([]RequestRuleTrace(nil), requestRules...),
@@ -134,16 +138,20 @@ func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[
 			}
 			return strings.Contains(fmt.Sprint(source), substr)
 		},
-		"hour":    func(tz string) int { return timeInZone(tz).Hour() },
-		"minute":  func(tz string) int { return timeInZone(tz).Minute() },
-		"weekday": func(tz string) int { return int(timeInZone(tz).Weekday()) },
-		"month":   func(tz string) int { return int(timeInZone(tz).Month()) },
-		"day":     func(tz string) int { return timeInZone(tz).Day() },
-		"max":     math.Max,
-		"min":     math.Min,
-		"abs":     math.Abs,
-		"ceil":    math.Ceil,
-		"floor":   math.Floor,
+		"hour":    func(tz string) int { return timeInZone(now, tz).Hour() },
+		"minute":  func(tz string) int { return timeInZone(now, tz).Minute() },
+		"weekday": func(tz string) int { return int(timeInZone(now, tz).Weekday()) },
+		"month":   func(tz string) int { return int(timeInZone(now, tz).Month()) },
+		"day":     func(tz string) int { return timeInZone(now, tz).Day() },
+		"is_holiday": func(country, tz string) bool {
+			dayType, available := ClassifyCalendarDay(country, timeInZone(now, tz))
+			return available && dayType == CalendarDayHoliday
+		},
+		"max":   math.Max,
+		"min":   math.Min,
+		"abs":   math.Abs,
+		"ceil":  math.Ceil,
+		"floor": math.Floor,
 	}
 
 	out, err := expr.Run(prog, env)
@@ -157,16 +165,16 @@ func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[
 	return f, trace, nil
 }
 
-func timeInZone(tz string) time.Time {
+func timeInZone(now time.Time, tz string) time.Time {
 	tz = strings.TrimSpace(tz)
-	if tz == "" {
-		return time.Now().UTC()
+	if tz == "" || strings.EqualFold(tz, "Local") {
+		return now.UTC()
 	}
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
-		return time.Now().UTC()
+		return now.UTC()
 	}
-	return time.Now().In(loc)
+	return now.In(loc)
 }
 
 func normalizeHeaders(headers map[string]string) map[string]string {

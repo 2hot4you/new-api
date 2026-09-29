@@ -3,6 +3,7 @@ package helper
 import (
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -17,10 +18,10 @@ func ResolveIncomingBillingExprRequestInput(c *gin.Context, info *relaycommon.Re
 		merged := cloneStringMap(info.RequestHeaders)
 		maps.Copy(merged, input.Headers)
 		input.Headers = merged
-		return input, nil
+		return freezeRequestInputClock(input), nil
 	}
 
-	input := billingexpr.RequestInput{}
+	input := freezeRequestInputClock(billingexpr.RequestInput{})
 	if info != nil {
 		input.Headers = cloneStringMap(info.RequestHeaders)
 	}
@@ -59,9 +60,9 @@ func ResolveImageBillingRequestInput(c *gin.Context, info *relaycommon.RelayInfo
 }
 
 func BuildBillingExprRequestInputFromRequest(request dto.Request, headers map[string]string) (billingexpr.RequestInput, error) {
-	input := billingexpr.RequestInput{
+	input := freezeRequestInputClock(billingexpr.RequestInput{
 		Headers: cloneStringMap(headers),
-	}
+	})
 	if request == nil {
 		return input, nil
 	}
@@ -93,8 +94,20 @@ func cloneRequestInput(src billingexpr.RequestInput) billingexpr.RequestInput {
 		count := *src.ImageCount
 		input.ImageCount = &count
 	}
+	if src.Now != nil {
+		now := *src.Now
+		input.Now = &now
+	}
 	if len(src.Body) > 0 {
 		input.Body = append([]byte(nil), src.Body...)
+	}
+	return input
+}
+
+func freezeRequestInputClock(input billingexpr.RequestInput) billingexpr.RequestInput {
+	if input.Now == nil {
+		now := time.Now()
+		input.Now = &now
 	}
 	return input
 }

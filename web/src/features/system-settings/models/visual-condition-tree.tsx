@@ -46,6 +46,7 @@ import {
 
 import {
   BillingConditionValueInput,
+  BillingHolidayCountryField,
   BillingTimeProbeFields,
   BillingTimeRangeFields,
 } from './billing-time-fields'
@@ -244,20 +245,47 @@ function ConditionFields(props: ConditionProps) {
   const node = props.node
   const range = conditionRange(node)
   const comparison = node.kind === 'comparison' ? node : range?.[0]
-  if (!comparison) return null
-  const ids = range ? range.map((bound) => bound.id) : [comparison.id]
+  const holiday = node.kind === 'holiday' ? node : null
+  if (!comparison && !holiday) return null
+  const ids = range
+    ? range.map((bound) => bound.id)
+    : [comparison?.id ?? holiday?.id ?? node.id]
   const errors = props.issues.filter((issue) => ids.includes(issue.id))
+  const probe = holiday ? 'is_holiday' : (comparison?.probe ?? 'hour')
+  const timezone = holiday?.timezone ?? comparison?.timezone ?? 'UTC'
   return (
     <>
       <div className='flex min-w-0 flex-1 flex-wrap items-center gap-2'>
         <BillingTimeProbeFields
           includeTokens
-          probe={comparison.probe}
-          timezone={comparison.timezone}
+          includeHoliday
+          probe={probe}
+          timezone={timezone}
           invalidTimezone={errors.some(
             (issue) => issue.message === 'Choose a valid IANA timezone.'
           )}
           onChange={(probe, timezone) => {
+            if (probe === 'is_holiday') {
+              props.onChange({
+                id: node.id,
+                kind: 'holiday',
+                country: holiday?.country || 'CN',
+                timezone,
+                ...(holiday?.origin ? { origin: holiday.origin } : {}),
+              })
+              return
+            }
+            if (node.kind === 'holiday') {
+              props.onChange({
+                id: node.id,
+                kind: 'comparison',
+                probe,
+                timezone,
+                operator: '>=',
+                value: '',
+              })
+              return
+            }
             if (node.kind === 'comparison') {
               props.onChange({ ...node, probe, timezone })
             } else if (range && (node.kind === 'all' || node.kind === 'any')) {
@@ -268,6 +296,15 @@ function ConditionFields(props: ConditionProps) {
             }
           }}
         />
+        {holiday && (
+          <BillingHolidayCountryField
+            country={holiday.country}
+            invalid={errors.some(
+              (issue) => issue.message === 'Choose a holiday country.'
+            )}
+            onChange={(country) => props.onChange({ ...holiday, country })}
+          />
+        )}
         {node.kind === 'comparison' && (
           <>
             <ComparisonOperator
@@ -286,7 +323,7 @@ function ConditionFields(props: ConditionProps) {
         )}
         {range && (node.kind === 'all' || node.kind === 'any') && (
           <BillingTimeRangeFields
-            probe={comparison.probe}
+            probe={range[0].probe}
             start={range[0].value}
             end={range[1].value}
             invalidStart={errors.some(
@@ -352,7 +389,10 @@ export function VisualConditionTree(props: ConditionProps) {
   const { t } = useTranslation()
   const node = props.node
   const range = conditionRange(node)
-  const group = node.kind !== 'comparison' && !props.implicitRange
+  const group =
+    node.kind !== 'comparison' &&
+    node.kind !== 'holiday' &&
+    !props.implicitRange
   if (!group) {
     return (
       <div

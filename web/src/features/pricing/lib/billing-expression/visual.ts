@@ -33,8 +33,14 @@ export type VisualComparison = Origin & {
   operator: '<' | '<=' | '>' | '>=' | '==' | '!='
   value: string
 }
+export type VisualHolidayCondition = Origin & {
+  kind: 'holiday'
+  country: string
+  timezone: string
+}
 export type VisualCondition =
   | VisualComparison
+  | VisualHolidayCondition
   | (Origin & { kind: 'all'; children: VisualCondition[] })
   | (Origin & { kind: 'any'; children: VisualCondition[] })
   | (Origin & { kind: 'not'; child: VisualCondition })
@@ -100,6 +106,21 @@ function readVisualCondition(node: ExpressionNode): VisualCondition | null {
       ...identity,
       kind: node.operator === '&&' ? 'all' : 'any',
       children: children as VisualCondition[],
+    }
+  }
+  if (
+    node.kind === 'call' &&
+    node.name === 'is_holiday' &&
+    node.args[0].kind === 'literal' &&
+    typeof node.args[0].value === 'string' &&
+    node.args[1].kind === 'literal' &&
+    typeof node.args[1].value === 'string'
+  ) {
+    return {
+      ...identity,
+      kind: 'holiday',
+      country: node.args[0].value,
+      timezone: node.args[1].value,
     }
   }
   if (
@@ -280,6 +301,49 @@ function writeVisualCondition(
       }
     }
     return `(${children.map((child) => `(${child})`).join(` ${operator} `)})`
+  }
+  if (node.kind === 'holiday') {
+    if (!node.country.trim()) {
+      issues.push({ id: node.id, message: 'Choose a holiday country.' })
+    }
+    const origin = node.origin
+    const originalCountry =
+      origin?.kind === 'call' && origin.args[0].kind === 'literal'
+        ? origin.args[0].value
+        : null
+    const originalZone =
+      origin?.kind === 'call' && origin.args[1].kind === 'literal'
+        ? origin.args[1].value
+        : null
+    if (node.timezone !== originalZone) {
+      try {
+        if (!node.timezone.trim()) throw new Error('Empty timezone')
+        new Intl.DateTimeFormat('en', {
+          timeZone: node.timezone.trim(),
+        }).format(0)
+      } catch {
+        issues.push({ id: node.id, message: 'Choose a valid IANA timezone.' })
+      }
+    }
+    if (origin?.kind === 'call' && origin.name === 'is_holiday') {
+      return patchSource(source, origin, [
+        {
+          node: origin.args[0],
+          text:
+            node.country === originalCountry
+              ? source.slice(origin.args[0].start, origin.args[0].end)
+              : JSON.stringify(node.country),
+        },
+        {
+          node: origin.args[1],
+          text:
+            node.timezone === originalZone
+              ? source.slice(origin.args[1].start, origin.args[1].end)
+              : JSON.stringify(node.timezone),
+        },
+      ])
+    }
+    return `is_holiday(${JSON.stringify(node.country)}, ${JSON.stringify(node.timezone)})`
   }
   const value = parseNonNegativeNumber(node.value)
   let valid = value !== null

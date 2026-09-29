@@ -1786,6 +1786,52 @@ func TestSettle_TieredSuccessStillRecomputes(t *testing.T) {
 	assert.Equal(t, map[string]any{"seconds": float64(8), "clips": float64(2)}, facts)
 }
 
+func TestEvaluateTaskCompletionUsageUsesSnapshotEvaluationTime(t *testing.T) {
+	evaluationTime := time.Date(2026, time.January, 2, 3, 4, 0, 0, time.UTC)
+	expression := `hour("UTC") == 3 && minute("UTC") == 4 ? tier("captured", u("units")) : tier("later", u("units") * 10)`
+	snapshot := &billingexpr.BillingSnapshot{
+		ExprString:       expression,
+		ExprHash:         billingexpr.ExprHashString(expression),
+		GroupRatio:       1,
+		QuotaPerUnit:     1,
+		ExprVersion:      1,
+		TaskUsageBilling: true,
+		EvaluationTime:   evaluationTime,
+	}
+
+	result, facts, err := EvaluateTaskCompletionUsage(snapshot, map[string]any{"units": float64(2)})
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"units": float64(2)}, facts)
+	assert.Equal(t, "captured", result.MatchedTier)
+	assert.Equal(t, 2, result.ActualQuotaAfterGroup)
+}
+
+func TestBuildTerminalTaskBillingJobUsesSnapshotEvaluationTime(t *testing.T) {
+	evaluationTime := time.Date(2026, time.January, 2, 3, 4, 0, 0, time.UTC)
+	expression := `hour("UTC") == 3 && minute("UTC") == 4 ? tier("captured", u("units")) : tier("later", u("units") * 10)`
+	task := makeTask(1, 1, 50, 0, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusSuccess
+	task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+		ExprString:       expression,
+		ExprHash:         billingexpr.ExprHashString(expression),
+		GroupRatio:       1,
+		QuotaPerUnit:     1,
+		ExprVersion:      1,
+		TaskUsageBilling: true,
+		EvaluationTime:   evaluationTime,
+	}
+
+	job := BuildTerminalTaskBillingJob(context.Background(), &mockAdaptor{}, task, &relaycommon.TaskInfo{
+		UsageFacts: map[string]any{"units": float64(2)},
+	})
+
+	require.NotNil(t, job)
+	require.NotNil(t, job.TargetQuota)
+	assert.Equal(t, 2, *job.TargetQuota)
+	assert.Equal(t, "captured", task.PrivateData.BillingContext.TieredSnapshot.EstimatedTier)
+}
+
 func TestSettle_TieredUsageFactsMergeCompletionOverSubmission(t *testing.T) {
 	tests := []struct {
 		name            string
