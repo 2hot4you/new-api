@@ -1,0 +1,12 @@
+{
+  "id": "seedance-expression-pricing",
+  "title": "让 Seedance 专项价格矩阵生成并驱动模型计费表达式",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交到远端 develop",
+  "createdAt": "2026-09-29T00:00:00+08:00",
+  "branch": "upgrade/rc40"
+}
