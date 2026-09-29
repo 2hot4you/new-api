@@ -475,6 +475,78 @@ func TestModelPricingConversionDatabaseMatrix(t *testing.T) {
 	}
 }
 
+func TestUpdateOptionSavesSeedanceMatrixAndGeneratedExpressionsTogether(t *testing.T) {
+	db := modelManagementDB(t, "sqlite", "")
+	prices := ratio_setting.StarAIVideoPriceSetting{
+		Standard720p: 46, Standard720pVideo: 28,
+		Standard1080p: 51, Standard1080pVideo: 31,
+		Standard4K: 26, Standard4KVideo: 16,
+		Fast720p: 37, Fast720pVideo: 22,
+		Mini720p: 23, Mini720pVideo: 14,
+		Seedance25720p: 70, Seedance25720pVideo: 42,
+		Seedance251080p: 77, Seedance251080pVideo: 46,
+	}
+	encoded, err := common.Marshal(prices)
+	require.NoError(t, err)
+	recorder := modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{
+		Key: "starai_video_price", Value: string(encoded),
+	}, nil)
+	assert.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	models := []string{
+		"doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128",
+		"doubao-seedance-2-0-mini-260615", "doubao-seedance-2-5-260628",
+	}
+	snapshot, err := model.GetModelPricingSnapshot(models)
+	require.NoError(t, err)
+	require.Len(t, snapshot.Entries, 4)
+	for _, entry := range snapshot.Entries {
+		assert.Equal(t, billing_setting.BillingModeTieredExpr, entry.Configured["billing_setting.billing_mode"])
+		assert.NotEmpty(t, entry.Configured["billing_setting.billing_expr"])
+	}
+	price, ok := ratio_setting.GetStarAIVideoPrice("doubao-seedance-2-5-260628", "1080p", false)
+	require.True(t, ok)
+	assert.Equal(t, float64(77), price)
+
+	var stored model.Option
+	require.NoError(t, db.Where("key = ?", "starai_video_price.seedance_25_1080p").First(&stored).Error)
+	assert.Equal(t, "77", stored.Value)
+
+	err = model.UpdateModelPricing([]model.ModelPricingChange{{
+		ModelName:       "doubao-seedance-2-0-260128",
+		ExpectedVersion: snapshot.Entries[0].Version,
+		Pricing:         model.PricingValues{"ModelRatio": float64(1)},
+	}})
+	require.ErrorContains(t, err, "Seedance 2.0")
+
+	err = model.UpdateModelPricingOptions(map[string]string{
+		"billing_setting.billing_expr": `{"doubao-seedance-2-0-260128":"tier(\"manual\", fixed(0))"}`,
+	})
+	require.NoError(t, err)
+	afterLegacySave, err := model.GetModelPricingSnapshot([]string{"doubao-seedance-2-0-260128"})
+	require.NoError(t, err)
+	require.Len(t, afterLegacySave.Entries, 1)
+	assert.NotEqual(t, `tier("manual", fixed(0))`, afterLegacySave.Entries[0].Configured["billing_setting.billing_expr"])
+}
+
+func TestUpdateOptionRejectsIncompleteSeedancePriceMatrix(t *testing.T) {
+	db := modelManagementDB(t, "sqlite", "")
+	var response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	recorder := modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{
+		Key: "starai_video_price", Value: `{"standard_720p":47}`,
+	}, &response)
+	assert.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "全部 14 个价格")
+
+	var count int64
+	require.NoError(t, db.Model(&model.Option{}).Where("key LIKE ?", "starai_video_price.%").Count(&count).Error)
+	assert.Zero(t, count)
+}
+
 func TestModelManagementDatabaseMatrix(t *testing.T) {
 	_, err := jsplugin.DefaultRegistry.Register(`
 export const meta = {apiVersion: 1, key: "model-management-task", name: "Management task fixture", version: "1.0.0", author: {name: "Test"}, models: ["matrix-task"], fetchMode: "per_task", usageSchema: {seconds: {type: "number", unit: "second"}}};

@@ -17,9 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test } from 'vitest'
 
 const domWindow = new Window()
 const domGlobals = [
@@ -50,6 +50,7 @@ for (const key of domGlobals) {
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
+const { fireEvent, waitFor } = await import('@testing-library/react')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { createMemoryHistory, createRootRoute, createRouter, RouterProvider } =
@@ -62,6 +63,7 @@ const { MoliiGrokPricingSection } =
 const { PricingUnitInput } = await import('../pricing-unit-input')
 const { StarAIVideoPricingSection } =
   await import('../starai-video-pricing-section')
+const { api } = await import('@/lib/api')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'zh', resources: { zh } })
@@ -320,5 +322,80 @@ describe('PricingUnitInput', () => {
     await act(async () => root.unmount())
     queryClient.clear()
     container.remove()
+  })
+
+  test('saves the complete Seedance matrix in one request', async () => {
+    const requests: Array<{ key: string; value: string }> = []
+    const originalAdapter = api.defaults.adapter
+    api.defaults.adapter = async (config) => {
+      requests.push(JSON.parse(String(config.data)))
+      return {
+        data: { success: true, message: '' },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      }
+    }
+    const values = {
+      standard_720p: 46,
+      standard_720p_video: 28,
+      standard_1080p: 51,
+      standard_1080p_video: 31,
+      standard_4k: 26,
+      standard_4k_video: 16,
+      fast_720p: 37,
+      fast_720p_video: 22,
+      mini_720p: 23,
+      mini_720p_video: 14,
+      seedance_25_720p: 70,
+      seedance_25_720p_video: 42,
+      seedance_25_1080p: 77,
+      seedance_25_1080p_video: 46,
+    }
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const queryClient = new QueryClient()
+    const rootRoute = createRootRoute({
+      component: () => <StarAIVideoPricingSection defaultValues={values} />,
+    })
+    const router = createRouter({
+      routeTree: rootRoute,
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+    await router.load()
+
+    try {
+      await act(async () => {
+        root.render(
+          <I18nextProvider i18n={i18n}>
+            <QueryClientProvider client={queryClient}>
+              <RouterProvider router={router} />
+            </QueryClientProvider>
+          </I18nextProvider>
+        )
+      })
+      const input = container.querySelector<HTMLInputElement>(
+        'input[name="standard_720p"]'
+      )
+      const form = container.querySelector('form')
+      assert.ok(input)
+      assert.ok(form)
+      fireEvent.change(input, { target: { value: '47' } })
+      fireEvent.submit(form)
+
+      await waitFor(() => assert.equal(requests.length, 1))
+      assert.equal(requests[0].key, 'starai_video_price')
+      assert.deepEqual(JSON.parse(requests[0].value), {
+        ...values,
+        standard_720p: 47,
+      })
+    } finally {
+      api.defaults.adapter = originalAdapter
+      await act(async () => root.unmount())
+      queryClient.clear()
+      container.remove()
+    }
   })
 })

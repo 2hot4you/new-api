@@ -471,6 +471,7 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 			}
 			return nil, service.TaskErrorWrapper(runErr, "model_price_error", http.StatusBadRequest)
 		}
+		recordEstimatedTaskExpressionPrice(info, facts, cost)
 		groupRatioInfo := helper.HandleGroupRatio(c, info)
 		quota, clamp := common.QuotaRoundChecked(cost * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
 		noteTaskQuotaClamp(info, clamp)
@@ -519,6 +520,18 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 	}
 
 	return &preparedTaskBilling{Platform: platform, Adaptor: adaptor, BillingModelName: billingModelName}, nil
+}
+
+func recordEstimatedTaskExpressionPrice(info *relaycommon.RelayInfo, facts map[string]any, cost float64) {
+	if info == nil || info.EstimatedVideoTokens <= 0 || cost < 0 {
+		return
+	}
+	tokens, ok := facts["tokens"].(float64)
+	if !ok || tokens <= 0 {
+		return
+	}
+	info.EstimatedVideoPrice = cost
+	info.EstimatedVideoUnitPrice = cost * 1_000_000 / tokens
 }
 
 // applyEstimatedVideoQuota replaces the generic half-million-token task

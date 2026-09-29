@@ -86,6 +86,17 @@ export type ModelPricingConversion = Partial<ModelPricingDescription> & {
   unsupported_reason?: string
 }
 
+const seedanceManagedPricingModels = new Set([
+  'doubao-seedance-2-0-260128',
+  'doubao-seedance-2-0-fast-260128',
+  'doubao-seedance-2-0-mini-260615',
+  'doubao-seedance-2-5-260628',
+])
+
+export function isSeedanceManagedPricingModel(modelName: string) {
+  return seedanceManagedPricingModels.has(modelName)
+}
+
 export async function previewModelPricingConversion(request: {
   model_name: string
   pricing: PricingValues

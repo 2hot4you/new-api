@@ -385,6 +385,13 @@ func TestRelayTaskSubmitPerCallBillingIdentity(t *testing.T) {
 	}
 }
 
+func TestRecordEstimatedTaskExpressionPriceUsesExpressionCost(t *testing.T) {
+	info := &relaycommon.RelayInfo{EstimatedVideoTokens: 2_000_000}
+	recordEstimatedTaskExpressionPrice(info, map[string]any{"tokens": float64(2_000_000)}, 92)
+	assert.Equal(t, float64(92), info.EstimatedVideoPrice)
+	assert.Equal(t, float64(46), info.EstimatedVideoUnitPrice)
+}
+
 func TestEstimateTaskSubmitReusesBillingWithoutPreconsumingOrCallingUpstream(t *testing.T) {
 	saveBillingConfig(t)
 	previousPrices := ratio_setting.ModelPrice2JSONString()

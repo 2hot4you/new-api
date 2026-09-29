@@ -41,6 +41,7 @@ import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
   useCanEditModelPricing,
+  isSeedanceManagedPricingModel,
   useModelPricing,
   useSaveModelPricing,
   type ModelPricingEntry,
@@ -63,7 +64,11 @@ export function ModelPricingPanel(props: {
     (state) => state.currency
   )
   const canEdit = useCanEditModelPricing()
-  const query = useModelPricing([props.modelName], Boolean(props.modelName))
+  const isSeedanceManaged = isSeedanceManagedPricingModel(props.modelName)
+  const query = useModelPricing(
+    [props.modelName],
+    Boolean(props.modelName) && !isSeedanceManaged
+  )
   const save = useSaveModelPricing()
   const [entry, setEntry] = useState<ModelPricingEntry | null>(null)
   const [resetOpen, setResetOpen] = useState(false)
@@ -118,6 +123,15 @@ export function ModelPricingPanel(props: {
     return (
       <div className='text-muted-foreground p-6 text-sm'>
         {t('Model pricing is managed by a super administrator.')}
+      </div>
+    )
+  }
+  if (isSeedanceManaged) {
+    return (
+      <div className='text-muted-foreground p-6 text-sm'>
+        {t(
+          'This model is priced in the Seedance 2.0 tab. Update its price matrix there; the billing expression is generated automatically.'
+        )}
       </div>
     )
   }

@@ -464,6 +464,9 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 	}
 	seen := make(map[string]bool)
 	for _, change := range changes {
+		if ratio_setting.IsStarAIVideoPricingModel(change.ModelName) {
+			return seedancePricingManagedError(change.ModelName)
+		}
 		if seen[change.ModelName] {
 			return errors.New("duplicate model pricing change")
 		}
@@ -496,7 +499,7 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 // locking, validation and transaction path as the model-level API.
 func UpdateModelPricingOptions(updates map[string]string) error {
 	return mutateModelPricingOptions(func(_ *gorm.DB, values map[string]map[string]any) error {
-		previous := maps.Clone(values)
+		previous := cloneModelPricingMaps(values)
 		names := make(map[string]bool)
 		for key, raw := range updates {
 			if !IsModelPricingOption(key) {
@@ -509,6 +512,7 @@ func UpdateModelPricingOptions(updates map[string]string) error {
 			if entries == nil {
 				return fmt.Errorf("%s must be a JSON object", key)
 			}
+			preserveStarAIVideoPricingForOption(key, values[key], entries)
 			for _, entriesForKey := range []map[string]any{values[key], entries} {
 				for name := range entriesForKey {
 					if key == billing_setting.PluginBillingExprOption {
@@ -524,6 +528,9 @@ func UpdateModelPricingOptions(updates map[string]string) error {
 			values[key] = entries
 		}
 		for name := range names {
+			if ratio_setting.IsStarAIVideoPricingModel(name) {
+				continue
+			}
 			if err := validateModelPricing(name, modelPricingValues(values, name), modelPricingValues(previous, name)); err != nil {
 				return err
 			}
@@ -532,7 +539,79 @@ func UpdateModelPricingOptions(updates map[string]string) error {
 	})
 }
 
+func preserveStarAIVideoPricingForOption(key string, previous, incoming map[string]any) {
+	if key != billing_setting.PluginBillingExprOption {
+		for _, name := range ratio_setting.StarAIVideoPricingModels() {
+			if value, ok := previous[name]; ok {
+				incoming[name] = value
+			} else {
+				delete(incoming, name)
+			}
+		}
+		return
+	}
+	for variant := range incoming {
+		if _, name, ok := billing_setting.SplitPluginBillingExprKey(variant); ok && ratio_setting.IsStarAIVideoPricingModel(name) {
+			delete(incoming, variant)
+		}
+	}
+	for variant, value := range previous {
+		if _, name, ok := billing_setting.SplitPluginBillingExprKey(variant); ok && ratio_setting.IsStarAIVideoPricingModel(name) {
+			incoming[variant] = value
+		}
+	}
+}
+
+func cloneModelPricingMaps(values map[string]map[string]any) map[string]map[string]any {
+	cloned := make(map[string]map[string]any, len(values))
+	for key, entries := range values {
+		cloned[key] = maps.Clone(entries)
+	}
+	return cloned
+}
+
+func seedancePricingManagedError(name string) error {
+	return fmt.Errorf("model %s pricing is managed in the Seedance 2.0 tab", name)
+}
+
+// UpdateStarAIVideoPricing atomically persists the editable Seedance matrix
+// and replaces the four affected models with the expressions generated from
+// that matrix. Provider overrides are removed; legacy ratios remain as an
+// inactive fallback while the generated expression is published, avoiding a
+// transient unpriced state for concurrent requests.
+func UpdateStarAIVideoPricing(prices ratio_setting.StarAIVideoPriceSetting) error {
+	expressions, err := ratio_setting.BuildStarAIVideoBillingExpressions(prices)
+	if err != nil {
+		return err
+	}
+	publishOrder := []string{
+		"billing_setting.billing_expr",
+		billing_setting.PluginBillingExprOption,
+		"billing_setting.billing_mode",
+		"AudioCompletionRatio", "AudioRatio", "CacheRatio", "CompletionRatio",
+		"CreateCacheRatio", "ImageRatio", "ModelPrice", "ModelRatio",
+	}
+	return mutateModelPricingOptionsWithExtra(prices.OptionValues(), publishOrder, func(_ *gorm.DB, values map[string]map[string]any) error {
+		for name, expression := range expressions {
+			previous := modelPricingValues(values, name)
+			next := maps.Clone(previous)
+			next["billing_setting.billing_mode"] = billing_setting.BillingModeTieredExpr
+			next["billing_setting.billing_expr"] = expression
+			next[billing_setting.PluginBillingExprOption] = map[string]any{}
+			if err := validateModelPricing(name, next, previous); err != nil {
+				return err
+			}
+			replaceModelPricing(values, name, next)
+		}
+		return nil
+	})
+}
+
 func mutateModelPricingOptions(mutate func(*gorm.DB, map[string]map[string]any) error) error {
+	return mutateModelPricingOptionsWithExtra(nil, modelPricingOptionKeys, mutate)
+}
+
+func mutateModelPricingOptionsWithExtra(extraOptions map[string]string, publishOrder []string, mutate func(*gorm.DB, map[string]map[string]any) error) error {
 	modelPricingMutationMu.Lock()
 	defer modelPricingMutationMu.Unlock()
 	var committed map[string]map[string]any
@@ -570,15 +649,30 @@ func mutateModelPricingOptions(mutate func(*gorm.DB, map[string]map[string]any) 
 				return err
 			}
 		}
+		for key, value := range extraOptions {
+			row := Option{Key: key}
+			if err := tx.FirstOrCreate(&row, Option{Key: key}).Error; err != nil {
+				return err
+			}
+			row.Value = value
+			if err := tx.Save(&row).Error; err != nil {
+				return err
+			}
+		}
 		committed = values
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	for _, key := range modelPricingOptionKeys {
+	for _, key := range publishOrder {
 		encoded, _ := common.Marshal(committed[key])
 		if err := updateOptionMap(key, string(encoded)); err != nil {
+			return err
+		}
+	}
+	for key, value := range extraOptions {
+		if err := updateOptionMap(key, value); err != nil {
 			return err
 		}
 	}

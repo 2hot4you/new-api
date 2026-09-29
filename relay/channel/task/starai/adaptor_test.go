@@ -442,6 +442,45 @@ func TestEstimateBillingRecordsSeedanceTokenAndPriceEstimate(t *testing.T) {
 	assert.InDelta(t, 5.0094, info.EstimatedVideoPrice, 1e-9)
 }
 
+func TestExtractUsageFactsValidatedProvidesSeedanceExpressionMeter(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{Model: ModelSeedance20})
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(
+		`{"model":"doubao-seedance-2-0-260128","content":[{"type":"text","text":"prompt"},{"type":"video_url","video_url":{"url":"https://example.com/reference.mp4"},"role":"reference_video"}],"resolution":"720p","ratio":"16:9","duration":5}`,
+	))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	info.OriginModelName = ModelSeedance20
+	info.UpstreamModelName = ModelSeedance20
+	adaptor.Init(info)
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	facts, err := adaptor.ExtractUsageFactsValidated(ctx, info)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"tokens": float64(108900), "resolution": "720p", "video_input": "video",
+	}, facts)
+	assert.Equal(t, 108900, info.EstimatedVideoTokens)
+}
+
+func TestParseTaskResultProvidesActualSeedanceExpressionFacts(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	body := []byte(`{"code":"success","data":{"task_id":"task_upstream","status":"SUCCESS","data":{"status":"succeeded","resolution":"1080p","usage":{"completion_tokens":765432}}}}`)
+	task := &model.Task{Properties: model.Properties{UpstreamModelName: ModelSeedance20}}
+	result, err := adaptor.ParseTaskResult(task, nil, body)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"tokens": float64(765432), "resolution": "1080p"}, result.UsageFacts)
+}
+
+func TestParseTaskResultIgnoresUnsupportedResolutionForExpressionSettlement(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	task := &model.Task{Properties: model.Properties{UpstreamModelName: ModelSeedance20Fast}}
+	body := []byte(`{"code":"success","data":{"task_id":"task_upstream","status":"SUCCESS","data":{"status":"succeeded","resolution":"1080p","usage":{"completion_tokens":765432}}}}`)
+
+	result, err := adaptor.ParseTaskResult(task, nil, body)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"tokens": float64(765432)}, result.UsageFacts)
+}
+
 func TestEstimateBillingUsesModelMaximumForSmartDurationUpperBound(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 	ctx, info := newTaskContext(t, relaycommon.TaskSubmitReq{Model: "doubao-seedance-2-5-260628"})

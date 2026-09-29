@@ -201,7 +201,7 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, task *model.Task, proxy str
 	return client.Do(req)
 }
 
-func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, respBody []byte) (*relaycommon.TaskInfo, error) {
+func (a *TaskAdaptor) ParseTaskResult(task *model.Task, _ *http.Response, respBody []byte) (*relaycommon.TaskInfo, error) {
 	var starResp responseEnvelope
 	if err := common.Unmarshal(respBody, &starResp); err != nil {
 		return nil, fmt.Errorf("unmarshal Molii Volcengine Imagine API task result failed: %w", err)
@@ -222,6 +222,20 @@ func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, respBody 
 		resultUsage = *starResp.Usage
 	}
 
+	usageFacts := make(map[string]any, 2)
+	actualTokens := resultUsage.CompletionTokens
+	if actualTokens <= 0 {
+		actualTokens = resultUsage.TotalTokens
+	}
+	if actualTokens > 0 {
+		usageFacts["tokens"] = float64(actualTokens)
+	}
+	if resolution := strings.ToLower(strings.TrimSpace(starResp.Data.Data.Resolution)); seedanceResultResolutionAllowed(task, resolution) {
+		usageFacts["resolution"] = resolution
+	}
+	if len(usageFacts) == 0 {
+		usageFacts = nil
+	}
 	result := &relaycommon.TaskInfo{
 		Code:                  0,
 		TaskID:                firstNonEmpty(starResp.Data.TaskID, stringValue(starResp.Data.ID), starResp.TaskID, stringValue(starResp.ID)),
@@ -233,8 +247,36 @@ func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, respBody 
 		TotalTokens:           resultUsage.TotalTokens,
 		ActualDurationSeconds: starResp.Data.Data.Duration,
 		ActualResolution:      starResp.Data.Data.Resolution,
+		UsageFacts:            usageFacts,
 	}
 	return result, nil
+}
+
+func seedanceResultResolutionAllowed(task *model.Task, resolution string) bool {
+	if resolution == "" {
+		return false
+	}
+	modelName := ""
+	if task != nil {
+		modelName = strings.TrimSpace(task.Properties.UpstreamModelName)
+		if modelName == "" {
+			modelName = strings.TrimSpace(task.Properties.OriginModelName)
+		}
+	}
+	if capabilities, found := seedanceprotocol.CapabilitiesForModel(modelName); found {
+		for _, allowed := range capabilities.Resolutions {
+			if resolution == allowed {
+				return true
+			}
+		}
+		return false
+	}
+	switch resolution {
+	case "480p", "720p", "1080p", "4k":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error) {
@@ -288,13 +330,51 @@ func (a *TaskAdaptor) GetChannelName() string {
 // Duration is intentionally not multiplied here: StarAI's returned
 // total_tokens already reflects the generated video quantity.
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
-	req, err := relaycommon.GetTaskRequest(c)
+	estimate, err := a.seedanceBillingEstimate(c, info)
 	if err != nil {
 		return nil
 	}
+	price, ok := ratio_setting.GetStarAIVideoPrice(estimate.model, estimate.payload.Resolution, estimate.hasVideo)
+	if !ok {
+		return nil
+	}
+	modelRatio, ok, _ := ratio_setting.GetModelRatio(estimate.model)
+	if !ok {
+		modelRatio, ok = ratio_setting.GetDefaultModelRatioMap()[estimate.model]
+	}
+	if !ok || modelRatio <= 0 {
+		return nil
+	}
+	// A model ratio of 1 represents 2 platform-currency units per 1M tokens.
+	// Reverse the configured absolute price into an OtherRatio so the value in
+	// the StarAI form remains authoritative even if the generic ratio changes.
+	priceRatio := price / (2 * modelRatio)
+	info.EstimatedVideoPrice = float64(estimate.tokens) * price / 1_000_000
+	info.EstimatedVideoUnitPrice = price
+	inputTier := "no-video-input"
+	if estimate.hasVideo {
+		inputTier = "video-input"
+	}
+	return map[string]float64{
+		fmt.Sprintf("seedance-%s-%s", strings.ToLower(estimate.payload.Resolution), inputTier): priceRatio,
+	}
+}
+
+type seedanceBillingEstimate struct {
+	payload  *requestPayload
+	model    string
+	hasVideo bool
+	tokens   int
+}
+
+func (a *TaskAdaptor) seedanceBillingEstimate(c *gin.Context, info *relaycommon.RelayInfo) (*seedanceBillingEstimate, error) {
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil, err
+	}
 	payload, err := a.convertToRequestPayload(c, &req, info)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	hasVideo := false
 	for _, item := range payload.Content {
@@ -307,21 +387,6 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	if billedModel == "" {
 		billedModel = info.OriginModelName
 	}
-	price, ok := ratio_setting.GetStarAIVideoPrice(billedModel, payload.Resolution, hasVideo)
-	if !ok {
-		return nil
-	}
-	modelRatio, ok, _ := ratio_setting.GetModelRatio(billedModel)
-	if !ok {
-		modelRatio, ok = ratio_setting.GetDefaultModelRatioMap()[billedModel]
-	}
-	if !ok || modelRatio <= 0 {
-		return nil
-	}
-	// A model ratio of 1 represents 2 platform-currency units per 1M tokens.
-	// Reverse the configured absolute price into an OtherRatio so the value in
-	// the StarAI form remains authoritative even if the generic ratio changes.
-	priceRatio := price / (2 * modelRatio)
 	width, height := seedanceDimensions(billedModel, payload.Resolution, payload.Ratio)
 	seconds := 5
 	if payload.Duration != nil {
@@ -336,7 +401,6 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	const fps = 24
 	estimatedTokens := int(math.Ceil(float64(width*height*(fps*seconds+1)) / 1024.0))
 	info.EstimatedVideoTokens = estimatedTokens
-	info.EstimatedVideoPrice = float64(estimatedTokens) * price / 1_000_000
 	info.EstimatedVideoWidth = width
 	info.EstimatedVideoHeight = height
 	info.EstimatedVideoFPS = fps
@@ -344,14 +408,28 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	info.EstimatedVideoResolution = payload.Resolution
 	info.EstimatedVideoRatio = payload.Ratio
 	info.EstimatedVideoHasInput = hasVideo
-	info.EstimatedVideoUnitPrice = price
-	inputTier := "no-video-input"
-	if hasVideo {
-		inputTier = "video-input"
+	return &seedanceBillingEstimate{payload: payload, model: billedModel, hasVideo: hasVideo, tokens: estimatedTokens}, nil
+}
+
+func (a *TaskAdaptor) ExtractUsageFacts(c *gin.Context, info *relaycommon.RelayInfo) map[string]any {
+	facts, _ := a.ExtractUsageFactsValidated(c, info)
+	return facts
+}
+
+func (a *TaskAdaptor) ExtractUsageFactsValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]any, error) {
+	estimate, err := a.seedanceBillingEstimate(c, info)
+	if err != nil {
+		return nil, err
 	}
-	return map[string]float64{
-		fmt.Sprintf("seedance-%s-%s", strings.ToLower(payload.Resolution), inputTier): priceRatio,
+	videoInput := "none"
+	if estimate.hasVideo {
+		videoInput = "video"
 	}
+	return map[string]any{
+		"tokens":      float64(estimate.tokens),
+		"resolution":  strings.ToLower(strings.TrimSpace(estimate.payload.Resolution)),
+		"video_input": videoInput,
+	}, nil
 }
 
 func seedanceDimensions(model, resolution, ratio string) (int, int) {

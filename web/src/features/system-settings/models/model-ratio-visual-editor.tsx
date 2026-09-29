@@ -47,7 +47,10 @@ import {
   useDataTable,
 } from '@/components/data-table'
 import { Button } from '@/components/ui/button'
-import { useModelPricing } from '@/features/model-pricing/api'
+import {
+  isSeedanceManagedPricingModel,
+  useModelPricing,
+} from '@/features/model-pricing/api'
 import {
   applyPricingDraft,
   pricingOptions,
@@ -256,6 +259,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         : new Set([...savedByName.keys(), ...draftByName.keys()])
 
     return [...modelNames]
+      .filter((name) => !isSeedanceManagedPricingModel(name))
       .map((name) => {
         const saved = savedByName.get(name)
         const draft = draftByName.get(name)

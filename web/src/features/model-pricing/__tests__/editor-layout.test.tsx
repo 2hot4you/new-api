@@ -59,6 +59,31 @@ afterEach(() => {
   }
 })
 
+it('routes Seedance model pricing to the dedicated pricing tab', async () => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 1, username: 'administrator', role: 100 })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  clients.push(client)
+
+  render(
+    <QueryClientProvider client={client}>
+      <ModelPricingPanel modelName='doubao-seedance-2-0-260128' />
+    </QueryClientProvider>
+  )
+
+  expect(
+    await screen.findByText(
+      'This model is priced in the Seedance 2.0 tab. Update its price matrix there; the billing expression is generated automatically.'
+    )
+  ).toBeVisible()
+  expect(
+    screen.queryByRole('button', { name: 'Save model prices' })
+  ).not.toBeInTheDocument()
+})
+
 it.each(['none', 'standard', 'claude_ttl'] as const)(
   'uses the %s cache profile consistently in current billing and draft previews',
   async (mode) => {

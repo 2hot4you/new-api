@@ -130,13 +130,11 @@ export function StarAIVideoPricingSection({
     {
       resolver: zodResolver(schema) as Resolver<Values, unknown, Values>,
       defaultValues,
-      onSubmit: async (_data, changedFields) => {
-        for (const [key, value] of Object.entries(changedFields)) {
-          await updateOption.mutateAsync({
-            key: `starai_video_price.${key}`,
-            value: value as number,
-          })
-        }
+      onSubmit: async (data) => {
+        await updateOption.mutateAsync({
+          key: 'starai_video_price',
+          value: JSON.stringify(data),
+        })
       },
     }
   )

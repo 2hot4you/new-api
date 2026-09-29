@@ -223,6 +223,22 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
+	if option.Key == "starai_video_price" {
+		prices, err := ratio_setting.ParseStarAIVideoPriceSetting(option.Value.(string))
+		if err != nil {
+			common.ApiErrorMsg(c, "Seedance 价格矩阵必须包含全部 14 个价格且不能有多余字段: "+err.Error())
+			return
+		}
+		if err := model.UpdateStarAIVideoPricing(prices); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAudit(c, "model.pricing.seedance.update", map[string]any{
+			"models": []string{"doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128", "doubao-seedance-2-0-mini-260615", "doubao-seedance-2-5-260628"},
+		})
+		common.ApiSuccess(c, nil)
+		return
+	}
 	switch option.Key {
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {
