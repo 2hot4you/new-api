@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { splitBillingExprAndRequestRules } from '@/features/pricing/lib/billing-expr'
+import {
+  parseTiersFromExpr,
+  splitBillingExprAndRequestRules,
+} from '@/features/pricing/lib/billing-expr'
 import { splitPluginBillingExprKey } from '@/features/pricing/lib/plugin-pricing'
 
 import { safeJsonParse } from '../utils/json-parser'
@@ -97,12 +100,17 @@ export const getModeVariant = (
   return 'success'
 }
 
+export const getExpressionPricingKind = (
+  billingExpr: string
+): 'expression' | 'tiered' =>
+  parseTiersFromExpr(billingExpr).length > 1 ? 'tiered' : 'expression'
+
 const getExpressionSummary = (
   row: ModelPricingSnapshot,
   t: (key: string) => string
 ) => {
-  const tierCount = (row.billingExpr?.match(/tier\(/g) || []).length
-  if (tierCount > 0) {
+  const tierCount = parseTiersFromExpr(row.billingExpr ?? '').length
+  if (tierCount > 1) {
     return `${t('Tiered pricing')} · ${tierCount} ${t('tiers')}`
   }
   return t('Expression pricing')

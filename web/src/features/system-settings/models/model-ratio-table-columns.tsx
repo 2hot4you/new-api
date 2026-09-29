@@ -24,6 +24,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { Checkbox } from '@/components/ui/checkbox'
 
 import {
+  getExpressionPricingKind,
   getModeLabel,
   getModeVariant,
   getPriceDetail,
@@ -91,16 +92,20 @@ export function buildModelRatioColumns({
           row.original.billingMode === 'tiered_expr' &&
           Boolean(row.original.billingExpr)
         const showTaskPricingBadge = isTaskModel && hasConfiguredTaskPricing
-        const showTieredBadge =
+        const showExpressionBadge =
           row.original.billingMode === 'tiered_expr' && !isTaskModel
-        const showUnconfiguredTaskBadge = isTaskModel && !hasConfiguredTaskPricing
+        const expressionKind = getExpressionPricingKind(
+          row.original.billingExpr ?? ''
+        )
+        const showUnconfiguredTaskBadge =
+          isTaskModel && !hasConfiguredTaskPricing
 
         return (
           <div className='flex min-w-0 items-center gap-2 font-medium'>
             <span className='min-w-0 truncate'>{row.getValue('name')}</span>
-            {showTieredBadge ? (
+            {showExpressionBadge ? (
               <StatusBadge
-                label={t('Tiered')}
+                label={t(expressionKind === 'tiered' ? 'Tiered' : 'Expression')}
                 variant='info'
                 copyable={false}
                 className='shrink-0'
@@ -151,7 +156,10 @@ export function buildModelRatioColumns({
       ),
       filterFn: (row, id, value) => {
         if (filterBySelectedValues(row.getValue(id), value)) return true
-        if (!Array.isArray(value) || !value.includes(TASK_PRICING_MODE_FILTER)) {
+        if (
+          !Array.isArray(value) ||
+          !value.includes(TASK_PRICING_MODE_FILTER)
+        ) {
           return false
         }
         return (
