@@ -1,0 +1,12 @@
+{
+  "id": "fix-unpriced-model-version-conflict",
+  "title": "修复未配置模型保存定价时的版本冲突误报",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交到 develop",
+  "createdAt": "2026-09-30T11:23:22Z",
+  "branch": "upgrade/rc40"
+}
