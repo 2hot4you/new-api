@@ -52,4 +52,8 @@ None introduced by this change.
 
 ## Deployment acceptance
 
-Pending the first push to `develop`. After CI/CD deploys the change, verify the public DeepSeek pricing display and the deployed configuration before archiving this task.
+- Pushed application commit `fec86ccd12a3` to remote `develop`.
+- GitHub Actions run `36672131980` completed successfully, including backend/frontend verification, immutable image build, SSH connectivity, deployment, and release summary.
+- `https://dev.molii.co/api/status` reports `development-fec86ccd12a3`.
+- `https://dev.molii.co/api/pricing` reports both `deepseek-flash` and `deepseek-v4-pro-202606` with `billing_currency: CNY`.
+- The public pricing payload retains the configured peak/off-peak billing expressions and their CNY-denominated prices for both DeepSeek models.

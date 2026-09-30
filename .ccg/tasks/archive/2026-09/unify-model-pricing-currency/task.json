@@ -1,12 +1,12 @@
 {
   "id": "unify-model-pricing-currency",
   "title": "统一模型定价展示币种与真实计费币种",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "planning",
-  "nextAction": "等待用户审阅实施计划，通过后由 Codex 原生逐任务实施",
+  "currentPhase": "completed",
+  "nextAction": "已通过开发环境验收并归档",
   "createdAt": "2026-09-30T10:35:00+08:00",
   "branch": "upgrade/rc40"
 }
