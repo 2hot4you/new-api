@@ -6,7 +6,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const modelBillingCurrencyMigrationKey = "migration.model_billing_currency.v1"
+const (
+	modelBillingCurrencyMigrationKeyV1 = "migration.model_billing_currency.v1"
+	modelBillingCurrencyMigrationKeyV2 = "migration.model_billing_currency.v2"
+)
 
 var legacyCNYCatalogModels = []string{
 	"minimax-m3",
@@ -23,24 +26,37 @@ var legacyCNYCatalogModels = []string{
 	"grok-imagine-video-1.5",
 }
 
+var confirmedCNYCatalogModelsV2 = []string{
+	"deepseek-flash",
+	"deepseek-v4-flash-202605",
+	"deepseek-v4-pro-202606",
+}
+
 // migrateModelBillingCurrency preserves the currency previously implied by
 // hard-coded catalog rules. After this one-time backfill, model metadata is the
 // only source of truth and administrators may freely change the value.
 func migrateModelBillingCurrency(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		var marker Option
-		err := tx.Where("key = ?", modelBillingCurrencyMigrationKey).First(&marker).Error
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if err := migrateConfirmedCNYModels(tx, modelBillingCurrencyMigrationKeyV1, legacyCNYCatalogModels); err != nil {
 			return err
 		}
-		if err := tx.Model(&Model{}).
-			Where("model_name IN ?", legacyCNYCatalogModels).
-			Update("billing_currency", "CNY").Error; err != nil {
-			return err
-		}
-		return tx.Create(&Option{Key: modelBillingCurrencyMigrationKey, Value: "completed"}).Error
+		return migrateConfirmedCNYModels(tx, modelBillingCurrencyMigrationKeyV2, confirmedCNYCatalogModelsV2)
 	})
+}
+
+func migrateConfirmedCNYModels(tx *gorm.DB, markerKey string, modelNames []string) error {
+	var marker Option
+	err := tx.Where("key = ?", markerKey).First(&marker).Error
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if err := tx.Model(&Model{}).
+		Where("model_name IN ?", modelNames).
+		Update("billing_currency", "CNY").Error; err != nil {
+		return err
+	}
+	return tx.Create(&Option{Key: markerKey, Value: "completed"}).Error
 }
