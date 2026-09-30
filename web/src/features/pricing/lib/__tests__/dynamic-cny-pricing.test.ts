@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 
-import { describe, test } from 'vitest'
+import { afterEach, describe, test } from 'vitest'
+
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 import type { PricingModel } from '../../types'
 import { getCardExamplePrice, getDynamicPricingSummary } from '../dynamic-price'
@@ -19,12 +24,23 @@ const model: PricingModel = {
 }
 
 describe('CNY dynamic pricing', () => {
-  test('keeps provider-published CNY tier prices out of USD display conversion', () => {
+  afterEach(() => {
+    useSystemConfigStore.getState().setConfig({
+      currency: { ...DEFAULT_CURRENCY_CONFIG },
+    })
+  })
+
+  test('renders provider-published CNY tiers in the site CNY currency', () => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        quotaDisplayType: 'CNY',
+        usdExchangeRate: 7,
+      },
+    })
     const summary = getDynamicPricingSummary(model, {
       tokenUnit: 'M',
-      priceRate: 3,
       usdExchangeRate: 7,
-      showRechargePrice: true,
     })
 
     assert.equal(summary?.primaryEntries[0]?.formatted, '¥0.2')
@@ -37,6 +53,13 @@ describe('CNY dynamic pricing', () => {
   })
 
   test('propagates backend CNY through task ranges and evaluated examples', () => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        quotaDisplayType: 'CNY',
+        usdExchangeRate: 7,
+      },
+    })
     const taskModel: PricingModel = {
       ...model,
       model_name: 'task-cny',
@@ -52,9 +75,7 @@ describe('CNY dynamic pricing', () => {
     }
     const options = {
       tokenUnit: 'M' as const,
-      priceRate: 3,
       usdExchangeRate: 7,
-      showRechargePrice: true,
     }
 
     const summary = getDynamicPricingSummary(taskModel, options)
@@ -66,9 +87,17 @@ describe('CNY dynamic pricing', () => {
   })
 
   test('omits the CNY symbol when the caller supplies a separate caption', () => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        quotaDisplayType: 'CNY',
+        usdExchangeRate: 7,
+      },
+    })
     const summary = getDynamicPricingSummary(model, {
       tokenUnit: 'M',
       showCurrencySymbol: false,
+      usdExchangeRate: 7,
     })
 
     assert.equal(summary?.primaryEntries[0]?.formatted, '0.2')

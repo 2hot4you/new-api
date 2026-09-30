@@ -71,9 +71,13 @@ export type CompactPricingSummary =
       unit: '1M' | '1K' | 'image' | 'second'
     }
 
-function formatDirectCNY(value: number): string {
-  const digits = Math.abs(value) >= 1 ? 4 : 6
-  return `¥${Number(value.toFixed(digits))}`
+function formatDirectCNY(value: number, cnyPerUSD: number): string {
+  return formatSourceBillingAmount(value, 'CNY', {
+    cnyPerUSD,
+    digitsLarge: 4,
+    digitsSmall: 6,
+    abbreviate: false,
+  })
 }
 
 function pricingStrategyLabel(
@@ -122,7 +126,9 @@ export function getCompactPricingSummary(
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const showRechargePrice = options.showRechargePrice ?? false
   const priceRate = options.priceRate ?? 1
-  const usdExchangeRate = options.usdExchangeRate ?? 1
+  const usdExchangeRate =
+    options.usdExchangeRate ??
+    useSystemConfigStore.getState().config.currency.usdExchangeRate
 
   if (model.molii_grok_pricing) {
     const prices = Object.values(model.molii_grok_pricing.output_prices).filter(
@@ -132,7 +138,9 @@ export function getCompactPricingSummary(
     return {
       kind: 'tiered',
       label: 'Tiered pricing',
-      ...(minimum == null ? {} : { from: formatDirectCNY(minimum) }),
+      ...(minimum == null
+        ? {}
+        : { from: formatDirectCNY(minimum, usdExchangeRate) }),
       unit: model.molii_grok_pricing.output_unit,
     }
   }
@@ -148,7 +156,7 @@ export function getCompactPricingSummary(
       label: 'Tiered pricing',
       ...(minimum == null
         ? {}
-        : { from: formatVideoPrice(minimum, tokenUnit) }),
+        : { from: formatVideoPrice(minimum, tokenUnit, usdExchangeRate) }),
       unit: tokenUnitLabel,
     }
   }
@@ -292,3 +300,5 @@ export function getCompactPricingSummary(
 
   return { kind: 'token', items, unit: tokenUnitLabel }
 }
+import { formatSourceBillingAmount } from '@/lib/currency'
+import { useSystemConfigStore } from '@/stores/system-config-store'

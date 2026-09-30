@@ -21,6 +21,11 @@ import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
 
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
+
 import type { MoliiGrokPricing } from '../../types'
 
 const domWindow = new Window()
@@ -77,6 +82,14 @@ async function renderPricing(pricing: MoliiGrokPricing) {
 
 describe('Grok marketplace pricing matrix', () => {
   after(() => domWindow.close())
+
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      quotaDisplayType: 'CNY',
+      usdExchangeRate: 7,
+    },
+  })
 
   test('shows image output and input prices in a three-column table', async () => {
     const { container, root } = await renderPricing({

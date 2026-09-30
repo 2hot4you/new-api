@@ -22,6 +22,10 @@ import { afterAll as after, describe, test } from 'vitest'
 import { Window } from 'happy-dom'
 
 import type { PricingModel } from '../../types'
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 const domWindow = new Window()
 domWindow.document.write('<!doctype html><html><body></body></html>')
@@ -68,6 +72,14 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 describe('Grok marketplace model card pricing', () => {
   after(() => domWindow.close())
+
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      quotaDisplayType: 'CNY',
+      usdExchangeRate: 7,
+    },
+  })
 
   test('uses a compact lowest-tier summary instead of the full matrix', async () => {
     const model: PricingModel = {

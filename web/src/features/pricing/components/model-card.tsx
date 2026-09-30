@@ -266,13 +266,14 @@ function CompactPricing(props: { summary: CompactPricingSummary }) {
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const { t, i18n } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
+  const currency = useSystemConfigStore((state) => state.config.currency)
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const priceRate = props.priceRate ?? 1
-  const usdExchangeRate = props.usdExchangeRate ?? 1
+  const usdExchangeRate =
+    props.usdExchangeRate ?? currency.usdExchangeRate
   const showRechargePrice = props.showRechargePrice ?? false
   const billingTime = useBillingTime(props.model.billing_expr)
-  const currency = useSystemConfigStore((state) => state.config.currency)
   const dynamicPriceOptions = useMemo(
     () => ({
       now: billingTime === undefined ? undefined : new Date(billingTime),

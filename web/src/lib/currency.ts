@@ -105,6 +105,13 @@ export interface CurrencyFormatOptions {
   locale?: Intl.LocalesArgument | undefined
 }
 
+export type BillingSourceCurrency = 'USD' | 'CNY'
+
+export type SourceBillingFormatOptions = CurrencyFormatOptions & {
+  /** CNY paid for one USD; required to normalize CNY source prices. */
+  cnyPerUSD?: number
+}
+
 type ResolvedCurrencyFormatOptions = Omit<
   Required<CurrencyFormatOptions>,
   'locale'
@@ -485,6 +492,40 @@ export function formatBillingCurrencyFromUSD(
   return formatCurrencyValue(value, merged, meta)
 }
 
+/** Normalize a model coefficient from its configured source currency to USD. */
+export function sourceAmountToUSD(
+  amount: number,
+  sourceCurrency: BillingSourceCurrency,
+  cnyPerUSD: number
+): number {
+  if (!Number.isFinite(amount)) return Number.NaN
+  if (sourceCurrency === 'USD') return amount
+  if (!Number.isFinite(cnyPerUSD) || cnyPerUSD <= 0) return Number.NaN
+  return amount / cnyPerUSD
+}
+
+/**
+ * Format a model coefficient in the platform billing display currency.
+ * Conversion always follows source currency -> USD -> site currency.
+ */
+export function formatSourceBillingAmount(
+  amount: number | null | undefined,
+  sourceCurrency: BillingSourceCurrency,
+  options?: SourceBillingFormatOptions
+): string {
+  if (amount == null || !Number.isFinite(amount)) return '-'
+  const { cnyPerUSD, ...formatOptions } = options ?? {}
+  const configuredRate =
+    cnyPerUSD ?? useSystemConfigStore.getState().config.currency.usdExchangeRate
+  const amountUSD = sourceAmountToUSD(
+    amount,
+    sourceCurrency,
+    configuredRate
+  )
+  if (!Number.isFinite(amountUSD)) return '-'
+  return formatBillingCurrencyFromUSD(amountUSD, formatOptions)
+}
+
 /** Format a catalog amount already denominated in its model-level currency. */
 export function formatCatalogCurrencyAmount(
   amount: number | null | undefined,
@@ -575,6 +616,12 @@ export function getCurrencyLabel(): string {
     default:
       return 'USD'
   }
+}
+
+/** Currency label used by monetary billing UIs; token mode falls back to USD. */
+export function getBillingCurrencyLabel(): string {
+  const { config } = getCurrencyDisplay()
+  return config.quotaDisplayType === 'TOKENS' ? 'USD' : getCurrencyLabel()
 }
 
 /**

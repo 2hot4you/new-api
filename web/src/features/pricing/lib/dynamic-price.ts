@@ -18,8 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   formatBillingCurrencyFromUSD,
-  formatCatalogCurrencyAmount,
+  sourceAmountToUSD,
 } from '@/lib/currency'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { TOKEN_UNIT_DIVISORS } from '../constants'
 import type {
@@ -271,6 +272,20 @@ function applyRechargeRate(
   return (price * priceRate) / usdExchangeRate
 }
 
+function normalizeDynamicSourcePrice(
+  sourcePrice: number,
+  options: DynamicPriceOptions
+): number {
+  const configuredRate =
+    options.usdExchangeRate ??
+    useSystemConfigStore.getState().config.currency.usdExchangeRate
+  return sourceAmountToUSD(
+    sourcePrice,
+    options.billingCurrency ?? 'USD',
+    configuredRate
+  )
+}
+
 export function formatDynamicUnitPrice(
   valuePerMillionTokens: number,
   options: DynamicPriceOptions
@@ -278,17 +293,11 @@ export function formatDynamicUnitPrice(
   const groupRatio = options.groupRatioMultiplier ?? 1
   const priceRate = options.priceRate ?? 1
   const usdExchangeRate = options.usdExchangeRate ?? 1
-  const priceUSD =
+  const sourcePrice =
     (valuePerMillionTokens * groupRatio) /
     TOKEN_UNIT_DIVISORS[options.tokenUnit]
-  if (options.billingCurrency) {
-    return formatCatalogCurrencyAmount(priceUSD, options.billingCurrency, {
-      showSymbol: options.showCurrencySymbol ?? true,
-      digitsLarge: 4,
-      digitsSmall: 6,
-      abbreviate: false,
-    })
-  }
+  const priceUSD = normalizeDynamicSourcePrice(sourcePrice, options)
+  if (!Number.isFinite(priceUSD)) return '-'
   const displayPrice = applyRechargeRate(
     priceUSD,
     options.showRechargePrice ?? false,
@@ -311,15 +320,9 @@ export function formatTaskUsageUnitPrice(
   const groupRatio = options.groupRatioMultiplier ?? 1
   const priceRate = options.priceRate ?? 1
   const usdExchangeRate = options.usdExchangeRate ?? 1
-  const priceUSD = valuePerUnit * groupRatio
-  if (options.billingCurrency) {
-    return formatCatalogCurrencyAmount(priceUSD, options.billingCurrency, {
-      showSymbol: options.showCurrencySymbol ?? true,
-      digitsLarge: 4,
-      digitsSmall: 6,
-      abbreviate: false,
-    })
-  }
+  const sourcePrice = valuePerUnit * groupRatio
+  const priceUSD = normalizeDynamicSourcePrice(sourcePrice, options)
+  if (!Number.isFinite(priceUSD)) return '-'
   const displayPrice = applyRechargeRate(
     priceUSD,
     options.showRechargePrice ?? false,

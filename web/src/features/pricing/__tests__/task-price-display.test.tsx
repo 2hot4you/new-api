@@ -56,7 +56,7 @@ it('shows an explicit free request price alongside token prices with distinct un
   expect(screen.getAllByText('Price per request').length).toBeGreaterThan(0)
 })
 
-it('formats dynamic prices directly in the model billing currency', () => {
+it('normalizes model source prices into the site billing currency', () => {
   useSystemConfigStore.getState().setConfig({
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
@@ -258,7 +258,7 @@ it.each([false, true])(
   }
 )
 
-it('keeps CNY dynamic coefficients direct across model details and group prices', async () => {
+it('shows CNY dynamic coefficients unchanged on a CNY site after normalization', async () => {
   const previous = useSystemConfigStore.getState().config.currency
   vi.spyOn(api, 'get').mockResolvedValue({ data: { data: { groups: [] } } })
   const client = new QueryClient({

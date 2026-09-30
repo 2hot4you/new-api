@@ -3,6 +3,11 @@ import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
 import { afterAll as after, describe, test } from 'vitest'
 
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
+
 import type { PricingModel } from '../../types'
 
 const domWindow = new Window()
@@ -110,6 +115,13 @@ describe('selected text-model marketplace card pricing', () => {
   })
 
   test('renders the input-length strategy and only the starting dynamic price', async () => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        quotaDisplayType: 'CNY',
+        usdExchangeRate: 7,
+      },
+    })
     const model = baseModel('qwen3.5-flash')
     model.billing_mode = 'tiered_expr'
     model.billing_currency = 'CNY'
@@ -128,6 +140,9 @@ describe('selected text-model marketplace card pricing', () => {
 
     await act(async () => root.unmount())
     container.remove()
+    useSystemConfigStore.getState().setConfig({
+      currency: { ...DEFAULT_CURRENCY_CONFIG },
+    })
   })
 
   test('shows a compact effective-capability summary without crowding the card', async () => {

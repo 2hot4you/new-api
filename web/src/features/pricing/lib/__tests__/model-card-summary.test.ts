@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 
-import { describe, test } from 'vitest'
+import { afterEach, beforeEach, describe, test } from 'vitest'
+
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 import type { PricingModel } from '../../types'
 import { getCompactPricingSummary } from '../model-card-summary'
@@ -22,19 +27,35 @@ const options = {
   tokenUnit: 'M' as const,
   showRechargePrice: false,
   priceRate: 1,
-  usdExchangeRate: 1,
+  usdExchangeRate: 7,
 }
 
 describe('compact model directory pricing summary', () => {
+  beforeEach(() => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        quotaDisplayType: 'CNY',
+        usdExchangeRate: 7,
+      },
+    })
+  })
+
+  afterEach(() => {
+    useSystemConfigStore.getState().setConfig({
+      currency: { ...DEFAULT_CURRENCY_CONFIG },
+    })
+  })
+
   test('summarizes fixed token prices without a full table', () => {
     const summary = getCompactPricingSummary(model(), options)
 
     assert.deepEqual(summary, {
       kind: 'token',
       items: [
-        { label: 'Input', value: '$2' },
-        { label: 'Output', value: '$4' },
-        { label: 'Cached', value: '$0.2' },
+        { label: 'Input', value: '¥14' },
+        { label: 'Output', value: '¥28' },
+        { label: 'Cached', value: '¥1.4' },
       ],
       unit: '1M',
     })
@@ -101,8 +122,8 @@ describe('compact model directory pricing summary', () => {
     assert.deepEqual(summary, {
       kind: 'token',
       items: [
-        { label: 'Input', value: '$1.5' },
-        { label: 'Output', value: '$4.5' },
+        { label: 'Input', value: '¥10.5' },
+        { label: 'Output', value: '¥31.5' },
       ],
       unit: '1M',
     })
@@ -158,7 +179,7 @@ describe('compact model directory pricing summary', () => {
     assert.deepEqual(summary, {
       kind: 'tiered',
       label: 'Tiered pricing',
-      from: '¥28.00',
+      from: '¥28',
       unit: '1M',
     })
   })

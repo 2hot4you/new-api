@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { formatSourceBillingAmount } from '@/lib/currency'
+
 import type { TokenUnit } from '../types'
 
 export function getVideoPriceTokenCount(tokenUnit: TokenUnit): number {
@@ -24,9 +26,15 @@ export function getVideoPriceTokenCount(tokenUnit: TokenUnit): number {
 
 export function formatVideoPrice(
   pricePerMillionTokens: number,
-  tokenUnit: TokenUnit = 'M'
+  tokenUnit: TokenUnit = 'M',
+  cnyPerUSD?: number
 ): string {
   const displayedPrice =
     tokenUnit === 'K' ? pricePerMillionTokens / 1_000 : pricePerMillionTokens
-  return `¥${displayedPrice.toFixed(tokenUnit === 'K' ? 3 : 2)}`
+  return formatSourceBillingAmount(displayedPrice, 'CNY', {
+    cnyPerUSD,
+    digitsLarge: tokenUnit === 'K' ? 3 : 2,
+    digitsSmall: tokenUnit === 'K' ? 3 : 2,
+    abbreviate: false,
+  })
 }

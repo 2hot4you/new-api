@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 describe('model price cell billing currency', () => {
-  test('keeps an explicit USD model in dollars when the site currency is CNY', () => {
+  test('converts an explicit USD model into the site CNY currency', () => {
     useSystemConfigStore.getState().setConfig({
       currency: {
         ...DEFAULT_CURRENCY_CONFIG,
@@ -37,17 +37,17 @@ describe('model price cell billing currency', () => {
 
     render(<ModelPriceCell model={model} />)
 
-    expect(screen.getByText('USD / 1M tokens')).toBeVisible()
-    expect(screen.getByText('2')).toBeVisible()
-    expect(screen.getByText('4')).toBeVisible()
-    expect(screen.queryByText(/¥|CNY/)).not.toBeInTheDocument()
+    expect(screen.getByText('CNY / 1M tokens')).toBeVisible()
+    expect(screen.getByText('14')).toBeVisible()
+    expect(screen.getByText('28')).toBeVisible()
   })
 
-  test('uses one CNY caption without mixing in site currency or a second symbol', () => {
+  test('uses billing USD when the site display mode is tokens', () => {
     useSystemConfigStore.getState().setConfig({
       currency: {
         ...DEFAULT_CURRENCY_CONFIG,
         quotaDisplayType: 'TOKENS',
+        usdExchangeRate: 7,
       },
     })
     const model: PricingModel = {
@@ -64,13 +64,12 @@ describe('model price cell billing currency', () => {
 
     render(<ModelPriceCell model={model} />)
 
-    expect(screen.getByText('CNY / 1M tokens')).toBeVisible()
-    expect(screen.getByText('0.2')).toBeVisible()
-    expect(screen.getByText('2')).toBeVisible()
-    expect(screen.queryByText(/¥|USD/)).not.toBeInTheDocument()
+    expect(screen.getByText('USD / 1M tokens')).toBeVisible()
+    expect(screen.getByText('0.028571')).toBeVisible()
+    expect(screen.getByText('0.285714')).toBeVisible()
   })
 
-  test('keeps an explicit CNY token price in its stored currency without exchange conversion', () => {
+  test('keeps legacy ratio prices in USD semantics before site conversion', () => {
     useSystemConfigStore.getState().setConfig({
       currency: {
         ...DEFAULT_CURRENCY_CONFIG,
@@ -91,8 +90,7 @@ describe('model price cell billing currency', () => {
     render(<ModelPriceCell model={model} />)
 
     expect(screen.getByText('CNY / 1M tokens')).toBeVisible()
-    expect(screen.getByText('2')).toBeVisible()
-    expect(screen.getByText('4')).toBeVisible()
-    expect(screen.queryByText('14')).not.toBeInTheDocument()
+    expect(screen.getByText('14')).toBeVisible()
+    expect(screen.getByText('28')).toBeVisible()
   })
 })

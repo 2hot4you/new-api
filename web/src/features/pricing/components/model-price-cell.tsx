@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getCurrencyLabel } from '@/lib/currency'
+import { getBillingCurrencyLabel } from '@/lib/currency'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
@@ -50,9 +50,7 @@ export function ModelPriceCell(props: {
 }) {
   const { t, i18n } = useTranslation()
   const currency = useSystemConfigStore((state) => state.config.currency)
-  const currencyLabel =
-    props.model.billing_currency ??
-    (currency.quotaDisplayType === 'TOKENS' ? 'USD' : getCurrencyLabel())
+  const currencyLabel = getBillingCurrencyLabel()
   const options = props.options ?? {}
   const tokenUnit = options.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
@@ -61,7 +59,8 @@ export function ModelPriceCell(props: {
     () =>
       getDynamicPricingSummary(props.model, {
         priceRate: options.priceRate,
-        usdExchangeRate: options.usdExchangeRate,
+        usdExchangeRate:
+          options.usdExchangeRate ?? currency.usdExchangeRate,
         showRechargePrice: options.showRechargePrice,
         now: billingTime === undefined ? undefined : new Date(billingTime),
         tokenUnit,

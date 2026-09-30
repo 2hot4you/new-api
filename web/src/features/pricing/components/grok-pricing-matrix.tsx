@@ -18,23 +18,39 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
+import { formatSourceBillingAmount } from '@/lib/currency'
+import { useSystemConfigStore } from '@/stores/system-config-store'
+
 import { buildGrokPricingRows } from '../lib/grok-pricing-table'
 import type { MoliiGrokPricing } from '../types'
 
-function DirectPrice(props: { value?: number; unit: string }) {
+function DirectPrice(props: {
+  value?: number
+  unit: string
+  cnyPerUSD: number
+}) {
   const { t } = useTranslation()
   if (props.value == null) {
     return <span className='text-muted-foreground/60'>—</span>
   }
   return (
     <span className='font-mono font-semibold whitespace-nowrap tabular-nums'>
-      ¥{props.value} / {t(props.unit)}
+      {formatSourceBillingAmount(props.value, 'CNY', {
+        cnyPerUSD: props.cnyPerUSD,
+        digitsLarge: 4,
+        digitsSmall: 6,
+        abbreviate: false,
+      })}{' '}
+      / {t(props.unit)}
     </span>
   )
 }
 
 export function GrokPricingMatrix(props: { pricing: MoliiGrokPricing }) {
   const { t } = useTranslation()
+  const cnyPerUSD = useSystemConfigStore(
+    (state) => state.config.currency.usdExchangeRate
+  )
   const rows = buildGrokPricingRows(props.pricing)
   if (rows.length === 0) {
     return (
@@ -91,7 +107,11 @@ export function GrokPricingMatrix(props: { pricing: MoliiGrokPricing }) {
                 {row.resolution}
               </th>
               <td className='px-2 py-1.5 text-right text-xs'>
-                <DirectPrice value={row.outputPrice} unit={outputUnit} />
+                <DirectPrice
+                  value={row.outputPrice}
+                  unit={outputUnit}
+                  cnyPerUSD={cnyPerUSD}
+                />
               </td>
               <td className='px-2 py-1.5 text-right text-[11px]'>
                 {hasVideoInput ? (
@@ -103,6 +123,7 @@ export function GrokPricingMatrix(props: { pricing: MoliiGrokPricing }) {
                       <DirectPrice
                         value={row.imageInputPrice}
                         unit={imageInputUnit}
+                        cnyPerUSD={cnyPerUSD}
                       />
                     </div>
                     <div className='flex items-center justify-end gap-1.5'>
@@ -112,6 +133,7 @@ export function GrokPricingMatrix(props: { pricing: MoliiGrokPricing }) {
                       <DirectPrice
                         value={row.videoInputPrice}
                         unit={videoInputUnit}
+                        cnyPerUSD={cnyPerUSD}
                       />
                     </div>
                   </div>
@@ -119,6 +141,7 @@ export function GrokPricingMatrix(props: { pricing: MoliiGrokPricing }) {
                   <DirectPrice
                     value={row.imageInputPrice}
                     unit={imageInputUnit}
+                    cnyPerUSD={cnyPerUSD}
                   />
                 )}
               </td>

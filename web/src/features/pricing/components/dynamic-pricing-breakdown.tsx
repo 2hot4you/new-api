@@ -22,7 +22,6 @@ import { useTranslation } from 'react-i18next'
 
 import { StaticDataTable } from '@/components/data-table'
 import { Badge } from '@/components/ui/badge'
-import { formatCatalogCurrencyAmount } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -50,6 +49,7 @@ import { formatBillingCondition } from '../lib/billing-expression/condition-disp
 import { compileBillingExpression } from '../lib/billing-expression/parser'
 import { isBreakdownTierMatched } from '../lib/breakdown-tier-match'
 import {
+  formatDynamicUnitPrice,
   formatTaskUsageUnitPrice,
   formatDynamicPricingTierLabel,
   getDynamicPricingStrategy,
@@ -212,8 +212,6 @@ function formatBreakdownConditionSummary(
 function formatBreakdownPrice(
   value: number,
   field: BreakdownPriceField,
-  symbol: string,
-  rate: number,
   t: (key: string) => string,
   taskPriceOptions: DynamicPricingBreakdownProps['taskPriceOptions'],
   language: string,
@@ -230,14 +228,12 @@ function formatBreakdownPrice(
       ...taskPriceOptions,
       billingCurrency,
     })
-  } else if (billingCurrency) {
-    amount = formatCatalogCurrencyAmount(value, billingCurrency, {
-      digitsLarge: 4,
-      digitsSmall: 6,
-      abbreviate: false,
-    })
   } else {
-    amount = `${symbol}${(value * rate).toFixed(4)}`
+    amount = formatDynamicUnitPrice(value, {
+      tokenUnit: 'M',
+      ...taskPriceOptions,
+      billingCurrency,
+    })
   }
   if (field.unit === 'second') return `${amount}/${t('s')}`
   if (field.unit === 'count') {
@@ -371,19 +367,11 @@ export function DynamicPricingBreakdown({
   const { t, i18n } = useTranslation()
   const expr = billingExpr || ''
   const currency = useSystemConfigStore((s) => s.config.currency)
-
-  const { symbol, rate } = useMemo(() => {
-    if (currency.quotaDisplayType === 'CNY') {
-      return { symbol: '¥', rate: currency.usdExchangeRate || 7 }
-    }
-    if (currency.quotaDisplayType === 'CUSTOM') {
-      return {
-        symbol: currency.customCurrencySymbol || '¤',
-        rate: currency.customCurrencyExchangeRate || 1,
-      }
-    }
-    return { symbol: '$', rate: 1 }
-  }, [currency])
+  const resolvedTaskPriceOptions = {
+    ...taskPriceOptions,
+    usdExchangeRate:
+      taskPriceOptions?.usdExchangeRate ?? currency.usdExchangeRate,
+  }
   const { tiers, ruleGroups } = useMemo(() => {
     const split = splitBillingExprAndRequestRules(expr)
     const parsedTiers = usageSchema
@@ -687,10 +675,8 @@ export function DynamicPricingBreakdown({
                               ? formatBreakdownPrice(
                                   value,
                                   field,
-                                  symbol,
-                                  rate,
                                   t,
-                                  taskPriceOptions,
+                                  resolvedTaskPriceOptions,
                                   i18n.language,
                                   billingCurrency
                                 )
@@ -814,10 +800,8 @@ export function DynamicPricingBreakdown({
                       {formatBreakdownPrice(
                         value,
                         field,
-                        symbol,
-                        rate,
                         t,
-                        taskPriceOptions,
+                        resolvedTaskPriceOptions,
                         i18n.language,
                         billingCurrency
                       )}

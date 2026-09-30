@@ -21,6 +21,11 @@ import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
 
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
+
 import type { VideoPricing } from '../../types'
 
 const domWindow = new Window()
@@ -73,6 +78,14 @@ const pricing: VideoPricing = {
 describe('Seedance video pricing matrix', () => {
   after(() => domWindow.close())
 
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      quotaDisplayType: 'CNY',
+      usdExchangeRate: 7,
+    },
+  })
+
   test('shows every resolution and video-input price without generic input/output pricing', async () => {
     const container = document.createElement('div')
     document.body.append(container)
@@ -88,9 +101,9 @@ describe('Seedance video pricing matrix', () => {
 
     const rows = container.querySelectorAll('tbody tr')
     assert.equal(rows.length, 3)
-    assert.match(rows[0].textContent ?? '', /480p \/ 720p.*¥46\.00.*¥28\.00/)
-    assert.match(rows[1].textContent ?? '', /1080p.*¥51\.00.*¥31\.00/)
-    assert.match(rows[2].textContent ?? '', /4K.*¥26\.00.*¥16\.00/)
+    assert.match(rows[0].textContent ?? '', /480p \/ 720p.*¥46.*¥28/)
+    assert.match(rows[1].textContent ?? '', /1080p.*¥51.*¥31/)
+    assert.match(rows[2].textContent ?? '', /4K.*¥26.*¥16/)
     assert.match(container.textContent ?? '', /1,000,000 Token/)
     assert.match(container.textContent ?? '', /24.*\+ 1.*1024/)
 
@@ -144,7 +157,7 @@ describe('Seedance video pricing matrix', () => {
     const rows = container.querySelectorAll('tbody tr')
     assert.match(rows[0].textContent ?? '', /¥0\.046.*¥0\.028/)
     assert.match(rows[1].textContent ?? '', /¥0\.051.*¥0\.031/)
-    assert.match(container.textContent ?? '', /¥ \/ 1,000 Token/)
+    assert.match(container.textContent ?? '', /CNY \/ 1,000 Token/)
     assert.match(container.textContent ?? '', /对应档位单价|tier price/)
     assert.doesNotMatch(container.textContent ?? '', /1,000,000 Token/)
 

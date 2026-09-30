@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { Info } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { getBillingCurrencyLabel } from '@/lib/currency'
 import { cn } from '@/lib/utils'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { formatVideoPrice, getVideoPriceTokenCount } from '../lib/video-pricing'
 import type { TokenUnit, VideoPricing } from '../types'
@@ -32,6 +34,7 @@ export function VideoPricingMatrix(props: {
   className?: string
 }) {
   const { t } = useTranslation()
+  const currency = useSystemConfigStore((state) => state.config.currency)
   const compact = props.compact ?? false
   const showFormula = props.showFormula ?? !compact
   const tokenUnit = props.tokenUnit ?? 'M'
@@ -99,7 +102,11 @@ export function VideoPricingMatrix(props: {
                     compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2.5 text-sm'
                   )}
                 >
-                  {formatVideoPrice(row.without_video, tokenUnit)}
+                  {formatVideoPrice(
+                    row.without_video,
+                    tokenUnit,
+                    currency.usdExchangeRate
+                  )}
                 </td>
                 <td
                   className={cn(
@@ -107,7 +114,11 @@ export function VideoPricingMatrix(props: {
                     compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2.5 text-sm'
                   )}
                 >
-                  {formatVideoPrice(row.with_video, tokenUnit)}
+                  {formatVideoPrice(
+                    row.with_video,
+                    tokenUnit,
+                    currency.usdExchangeRate
+                  )}
                 </td>
               </tr>
             ))}
@@ -141,7 +152,8 @@ export function VideoPricingMatrix(props: {
             compact ? 'px-2 py-1 text-[10px]' : 'px-3 py-2 text-xs'
           )}
         >
-          {t('Online inference')} · ¥ / {priceTokenCountLabel} Token
+          {t('Online inference')} · {getBillingCurrencyLabel()} /{' '}
+          {priceTokenCountLabel} Token
         </div>
       </div>
 

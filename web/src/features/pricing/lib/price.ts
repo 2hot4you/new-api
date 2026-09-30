@@ -16,10 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  formatBillingCurrencyFromUSD,
-  formatCatalogCurrencyAmount,
-} from '@/lib/currency'
+import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 
 import { QUOTA_TYPE_VALUES, TOKEN_UNIT_DIVISORS } from '../constants'
 import type { PricingModel, TokenUnit, PriceType } from '../types'
@@ -141,14 +138,10 @@ function applyRechargeRate(
   return (price * priceRate) / usdExchangeRate
 }
 
-function formatModelCatalogPrice(
-  model: PricingModel,
+function formatLegacyPrice(
   price: number,
   options: Parameters<typeof formatBillingCurrencyFromUSD>[1]
 ): string {
-  if (model.billing_currency) {
-    return formatCatalogCurrencyAmount(price, model.billing_currency, options)
-  }
   return formatBillingCurrencyFromUSD(price, options)
 }
 
@@ -180,7 +173,7 @@ export function formatPrice(
   )
 
   const price = priceInUSD / TOKEN_UNIT_DIVISORS[tokenUnit]
-  return formatModelCatalogPrice(model, price, {
+  return formatLegacyPrice(price, {
     showSymbol: showCurrencySymbol,
     digitsLarge: 4,
     digitsSmall: 6,
@@ -216,7 +209,7 @@ export function formatGroupPrice(
   )
 
   const price = priceInUSD / TOKEN_UNIT_DIVISORS[tokenUnit]
-  return formatModelCatalogPrice(model, price, {
+  return formatLegacyPrice(price, {
     digitsLarge: 4,
     digitsSmall: 6,
     abbreviate: false,
@@ -248,7 +241,7 @@ export function formatFixedPrice(
     usdExchangeRate
   )
 
-  return formatModelCatalogPrice(model, priceInUSD, {
+  return formatLegacyPrice(priceInUSD, {
     digitsLarge: 4,
     digitsSmall: 4,
     abbreviate: false,
@@ -281,7 +274,7 @@ export function formatRequestPrice(
     usdExchangeRate
   )
 
-  return formatModelCatalogPrice(model, priceInUSD, {
+  return formatLegacyPrice(priceInUSD, {
     showSymbol: showCurrencySymbol,
     digitsLarge: 4,
     digitsSmall: 4,
