@@ -96,6 +96,30 @@ var localMarketplaceMetadataSeeds = []Model{
 		"OpenAI's fast, high-quality image generation and editing model for everyday creative work with multi-image references, transparent backgrounds, and output up to 4K.",
 		"https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
 	),
+	{
+		ModelName:       "grok-4.7",
+		DisplayName:     "Grok 4.7",
+		Description:     "xAI 新一代旗舰推理模型，面向编码、Agent 与专业知识工作，强化长任务执行、自检和长上下文管理。",
+		DescriptionEN:   "xAI's frontier reasoning model for coding, agentic tasks, and knowledge work, with stronger long-horizon execution, self-verification, and long-context management.",
+		Icon:            "Grok.Color",
+		Tags:            "text,chat,reasoning,multimodal,tools",
+		ContextLength:   500_000,
+		MaxOutputTokens: 499_996,
+		ReleaseDate:     "2026-09-21",
+		InputModalities: []string{"text", "image"},
+		OutputModalities: []string{
+			"text",
+		},
+		Capabilities: []string{
+			"function_calling", "streaming", "vision", "json_mode", "structured_output",
+			"reasoning", "tools", "system_prompt", "web_search", "code_interpreter", "caching",
+		},
+		SupportedParameters: []string{
+			"stream", "temperature", "top_p", "max_tokens", "tools", "tool_choice", "reasoning_effort", "response_format",
+		},
+		MetadataSource:     "https://docs.x.ai/developers/models/grok-4.7",
+		MetadataVerifiedAt: "2026-10-01",
+	},
 	newLocalLLMMarketplaceSeed(
 		"deepseek-v4-flash-202605",
 		"面向高效对话、推理、编程与 Agent 工作流的长上下文模型；支持通过 OpenAI 兼容 Chat Completions API 调用。",
@@ -249,6 +273,7 @@ var localMarketplaceSeedVendorNames = map[string]string{
 	"gpt-6-astra":            "OpenAI",
 	"gpt-image-2.5-sunburst": "OpenAI",
 	"gpt-image-2.5-flare":    "OpenAI",
+	"grok-4.7":               "xAI",
 }
 
 func newAnthropic55MarketplaceSeed(modelName, displayName, description, descriptionEN, releaseDate, source string) Model {

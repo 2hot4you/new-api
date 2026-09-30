@@ -27,6 +27,7 @@ var currentMarketplaceCatalogModelNames = []string{
 	"gpt-6-astra",
 	"gpt-image-2.5-sunburst",
 	"gpt-image-2.5-flare",
+	"grok-4.7",
 	"glm-5.2",
 	"kimi-k3",
 	"minimax-m3",
@@ -54,6 +55,7 @@ var officialMarketplaceCatalogVendorNames = map[string]string{
 	"gpt-6-astra":            "OpenAI",
 	"gpt-image-2.5-sunburst": "OpenAI",
 	"gpt-image-2.5-flare":    "OpenAI",
+	"grok-4.7":               "xAI",
 }
 
 func newMarketplaceMigrationTestDB(t *testing.T) *gorm.DB {
@@ -256,7 +258,7 @@ func TestBackfillLocalMarketplaceMetadataCoversCurrentCatalog(t *testing.T) {
 		require.Equal(t, "existing catalog description", row.Description)
 		if officialMarketplaceCatalogVendorNames[row.ModelName] != "" {
 			require.NotEmpty(t, row.MetadataSource)
-			require.Equal(t, "2026-09-29", row.MetadataVerifiedAt)
+			require.NotEmpty(t, row.MetadataVerifiedAt)
 		} else {
 			require.Empty(t, row.MetadataSource)
 			require.Empty(t, row.MetadataVerifiedAt)
@@ -313,7 +315,7 @@ func TestBackfillLocalMarketplaceMetadataUsesValidatedLocalCapabilities(t *testi
 func TestBackfillLocalMarketplaceMetadataAddsCurrentOfficialModels(t *testing.T) {
 	db := newMarketplaceMigrationTestDB(t)
 	vendorIDs := make(map[string]int)
-	for _, vendorName := range []string{"Anthropic", "DeepSeek", "Google", "OpenAI"} {
+	for _, vendorName := range []string{"Anthropic", "DeepSeek", "Google", "OpenAI", "xAI"} {
 		vendor := Vendor{Name: vendorName, Status: 1}
 		require.NoError(t, db.Create(&vendor).Error)
 		vendorIDs[vendorName] = vendor.Id
@@ -332,7 +334,7 @@ func TestBackfillLocalMarketplaceMetadataAddsCurrentOfficialModels(t *testing.T)
 		require.NotEmptyf(t, entry.DescriptionEN, "%s English description", modelName)
 		require.NotEmptyf(t, entry.Icon, "%s icon", modelName)
 		require.NotEmptyf(t, entry.MetadataSource, "%s metadata source", modelName)
-		require.Equalf(t, "2026-09-29", entry.MetadataVerifiedAt, "%s verification date", modelName)
+		require.NotEmptyf(t, entry.MetadataVerifiedAt, "%s verification date", modelName)
 	}
 
 	deepseek := loadMarketplaceRow(t, db, "deepseek-flash")
@@ -365,6 +367,21 @@ func TestBackfillLocalMarketplaceMetadataAddsCurrentOfficialModels(t *testing.T)
 	require.Equal(t, []string{"auto", "1:1", "3:2", "2:3", "16:9", "9:16", "custom ≤3:1"}, sunburst.SupportedAspectRatios)
 	require.Equal(t, 16, sunburst.MaxInputImages)
 	require.Equal(t, []string{"b64_json"}, sunburst.OutputFormats)
+
+	grok47 := loadMarketplaceRow(t, db, "grok-4.7")
+	require.Equal(t, "Grok 4.7", grok47.DisplayName)
+	require.Equal(t, "Grok.Color", grok47.Icon)
+	require.Equal(t, 500_000, grok47.ContextLength)
+	require.Equal(t, 499_996, grok47.MaxOutputTokens)
+	require.Empty(t, grok47.KnowledgeCutoff)
+	require.Equal(t, "2026-09-21", grok47.ReleaseDate)
+	require.Equal(t, []string{"text", "image"}, grok47.InputModalities)
+	require.Equal(t, []string{"text"}, grok47.OutputModalities)
+	require.Contains(t, grok47.Capabilities, "reasoning")
+	require.Contains(t, grok47.Capabilities, "structured_output")
+	require.Contains(t, grok47.SupportedParameters, "reasoning_effort")
+	require.Equal(t, "https://docs.x.ai/developers/models/grok-4.7", grok47.MetadataSource)
+	require.Equal(t, "2026-10-01", grok47.MetadataVerifiedAt)
 }
 
 func TestBackfillLocalMarketplaceMetadataPreservesOfficialAdministratorValues(t *testing.T) {
