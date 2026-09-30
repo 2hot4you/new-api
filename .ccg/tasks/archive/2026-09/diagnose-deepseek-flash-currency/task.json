@@ -1,0 +1,13 @@
+{
+  "id": "diagnose-deepseek-flash-currency",
+  "title": "诊断 pricing 页面 DeepSeek Flash 货币显示为美元",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "用户在模型元数据中将 deepseek-flash 的计费币种保存为 CNY",
+  "createdAt": "2026-09-30T10:10:00+08:00",
+  "completedAt": "2026-09-30T10:16:32+08:00",
+  "branch": "upgrade/rc40"
+}
