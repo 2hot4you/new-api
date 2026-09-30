@@ -112,6 +112,7 @@ describe('shared model pricing', () => {
         model_name: 'edited',
         expected_version: 'v1',
         pricing: { ModelPrice: 2, 'billing_setting.billing_mode': 'ratio' },
+        billing_currency: 'USD',
       },
     ])
   })
@@ -138,7 +139,11 @@ describe('shared model pricing', () => {
   it('rejects invalid prices instead of silently coercing them', () => {
     for (const price of ['-1', 'NaN', 'Infinity', 'invalid']) {
       expect(() =>
-        pricingFromDraft({ name: 'example', billingMode: 'per-request', price })
+        pricingFromDraft({
+          name: 'example',
+          billingMode: 'per-request',
+          price,
+        })
       ).toThrow()
     }
   })
@@ -186,6 +191,7 @@ it('tracks nested provider prices by model, preserves :: in model names, and ign
       model_name: 'shared::model',
       expected_version: 'v1',
       pricing: { [key]: { beta: 'u("credits") * 2' } },
+      billing_currency: 'USD',
     },
   ])
   const draft = pricingRow('shared::model', snapshot.entries[0].configured)
@@ -202,6 +208,41 @@ it('tracks nested provider prices by model, preserves :: in model names, and ign
     price: '0.25',
     billingMode: 'per-request',
   })
+})
+
+it('builds a currency-only change without rewriting pricing coefficients', () => {
+  const options = pricingOptions({
+    BillingMode: '{"example":"tiered_expr"}',
+    BillingExpr: '{"example":"tier(\\"base\\", p * 5 + c * 30)"}',
+  })
+  const snapshot: ModelPricingConfig = {
+    options,
+    empty_version: 'empty',
+    entries: [
+      {
+        model_name: 'example',
+        version: 'usd-version',
+        configured: {
+          'billing_setting.billing_mode': 'tiered_expr',
+          'billing_setting.billing_expr': 'tier("base", p * 5 + c * 30)',
+        },
+        effective: {},
+        billing_currency: 'USD',
+        has_metadata: true,
+      },
+    ],
+  }
+
+  expect(
+    buildPricingChanges(snapshot, options, options, { example: 'CNY' })
+  ).toEqual([
+    {
+      model_name: 'example',
+      expected_version: 'usd-version',
+      pricing: snapshot.entries[0].configured,
+      billing_currency: 'CNY',
+    },
+  ])
 })
 
 it('retains provider overrides during model-only price synchronization', () => {

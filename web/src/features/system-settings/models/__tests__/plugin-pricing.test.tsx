@@ -31,7 +31,6 @@ import { ModelPricingPanel } from '@/features/model-pricing/model-pricing-panel'
 import { pricingOptions } from '@/features/model-pricing/pricing'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
-import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 
 import {
   ModelPricingEditorPanel,
@@ -53,7 +52,6 @@ it('keeps provider drafts across tabs and saves nested expressions with the mode
   useAuthStore
     .getState()
     .auth.setUser({ id: 1, username: 'administrator', role: 100 })
-  usePricingPreferencesStore.setState({ currency: 'USD' })
   const expression = 'tier("base", u("seconds") * 0.4)'
   const values = {
     'billing_setting.billing_mode': 'tiered_expr',
@@ -303,7 +301,6 @@ function renderEditor(
   variants: ModelPricingPluginVariant[],
   dirty = vi.fn()
 ) {
-  usePricingPreferencesStore.setState({ currency: 'USD' })
   vi.spyOn(api, 'get').mockResolvedValue({
     data: { success: true, data: [], vendors: [] },
   })

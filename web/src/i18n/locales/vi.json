@@ -7809,6 +7809,13 @@
     "Time-of-use pricing": "Định giá theo khung giờ",
     "Unable to load billing calendar": "Không thể tải lịch tính phí",
     "Weekend": "Cuối tuần thông thường",
-    "Workday": "Ngày làm việc thông thường"
+    "Workday": "Ngày làm việc thông thường",
+    "Source pricing currency": "Tiền tệ định giá gốc",
+    "About source pricing currency": "Về tiền tệ định giá gốc",
+    "Chinese yuan (CNY)": "Nhân dân tệ (CNY)",
+    "Expression coefficients are stored exactly in this source currency. User-facing prices still follow the site display currency.": "Hệ số biểu thức được lưu nguyên giá trị theo tiền tệ gốc; giá hiển thị cho người dùng vẫn theo tiền tệ của trang.",
+    "Legacy ratio and fixed-price billing remains USD-compatible.": "Tính phí tỷ lệ và giá cố định cũ vẫn tương thích với USD.",
+    "Changing currency does not rewrite expression coefficients.": "Đổi tiền tệ không ghi lại hệ số biểu thức.",
+    "Create exact model metadata before saving pricing or source currency.": "Hãy tạo metadata khớp chính xác trước khi lưu giá hoặc tiền tệ gốc."
   }
 }

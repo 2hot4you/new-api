@@ -34,7 +34,6 @@ import { ModelPricingEditorPanel } from '@/features/system-settings/models/model
 import { ModelRatioForm } from '@/features/system-settings/models/model-ratio-form'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
-import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 
 import { ModelPricingPanel } from '../model-pricing-panel'
 import type { PricingValues } from '../pricing'
@@ -99,7 +98,6 @@ it.each(['none', 'standard', 'claude_ttl'] as const)(
     useAuthStore
       .getState()
       .auth.setUser({ id: 1, username: 'administrator', role: 100 })
-    usePricingPreferencesStore.setState({ currency: 'USD' })
     vi.spyOn(api, 'get').mockImplementation(async (url) => ({
       data: {
         success: true,

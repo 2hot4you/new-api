@@ -7816,6 +7816,13 @@
     "Time-of-use pricing": "Tarification selon les heures",
     "Unable to load billing calendar": "Impossible de charger le calendrier de facturation",
     "Weekend": "Week-end",
-    "Workday": "Jour ouvré"
+    "Workday": "Jour ouvré",
+    "Source pricing currency": "Devise de tarification source",
+    "About source pricing currency": "À propos de la devise source",
+    "Chinese yuan (CNY)": "Yuan chinois (CNY)",
+    "Expression coefficients are stored exactly in this source currency. User-facing prices still follow the site display currency.": "Les coefficients sont stockés tels quels dans cette devise source. Les prix affichés suivent toujours la devise du site.",
+    "Legacy ratio and fixed-price billing remains USD-compatible.": "La facturation historique par ratio ou prix fixe reste compatible USD.",
+    "Changing currency does not rewrite expression coefficients.": "Changer de devise ne réécrit pas les coefficients.",
+    "Create exact model metadata before saving pricing or source currency.": "Créez les métadonnées exactes du modèle avant d’enregistrer le prix ou la devise source."
   }
 }

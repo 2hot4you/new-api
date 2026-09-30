@@ -7809,6 +7809,13 @@
     "Time-of-use pricing": "Time-of-use pricing",
     "Unable to load billing calendar": "Unable to load billing calendar",
     "Weekend": "Weekend",
-    "Workday": "Workday"
+    "Workday": "Workday",
+    "Source pricing currency": "Source pricing currency",
+    "About source pricing currency": "About source pricing currency",
+    "Chinese yuan (CNY)": "Chinese yuan (CNY)",
+    "Expression coefficients are stored exactly in this source currency. User-facing prices still follow the site display currency.": "Expression coefficients are stored exactly in this source currency. User-facing prices still follow the site display currency.",
+    "Legacy ratio and fixed-price billing remains USD-compatible.": "Legacy ratio and fixed-price billing remains USD-compatible.",
+    "Changing currency does not rewrite expression coefficients.": "Changing currency does not rewrite expression coefficients.",
+    "Create exact model metadata before saving pricing or source currency.": "Create exact model metadata before saving pricing or source currency."
   }
 }

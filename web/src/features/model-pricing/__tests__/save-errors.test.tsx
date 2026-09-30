@@ -26,7 +26,6 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/http-client'
 import { createAppQueryClient } from '@/lib/query-client'
 import { useAuthStore } from '@/stores/auth-store'
-import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 
 import type { ModelPricingConfig } from '../api'
 import { ModelPricingPanel } from '../model-pricing-panel'
@@ -49,7 +48,6 @@ it.each([200, 400])(
     useAuthStore
       .getState()
       .auth.setUser({ id: 1, username: 'administrator', role: 100 })
-    usePricingPreferencesStore.setState({ currency: 'USD' })
     const values = {
       'billing_setting.billing_mode': 'tiered_expr',
       'billing_setting.billing_expr': 'tier("standard", p * 1 + c * 2)',
@@ -61,6 +59,8 @@ it.each([200, 400])(
           version: 'v1',
           configured: values,
           effective: values,
+          billing_currency: 'USD',
+          has_metadata: true,
         },
       ],
       options: pricingOptions({}),

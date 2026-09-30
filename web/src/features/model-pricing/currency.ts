@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { formatPricingNumber } from '@/features/system-settings/models/pricing-format'
 import type { CurrencyConfig } from '@/stores/system-config-store'
 
+import type { SourcePricingCurrency } from './api'
+
 export type PricingCurrency = {
   label: string
   symbol: string
@@ -29,6 +31,33 @@ export const USD_PRICING_CURRENCY: PricingCurrency = {
   label: 'USD',
   symbol: '$',
   exchangeRate: 1,
+}
+
+export const CNY_PRICING_CURRENCY: PricingCurrency = {
+  label: 'CNY',
+  symbol: '¥',
+  exchangeRate: 1,
+}
+
+export function getSourcePricingCurrency(
+  sourceCurrency: SourcePricingCurrency
+): PricingCurrency {
+  return sourceCurrency === 'CNY' ? CNY_PRICING_CURRENCY : USD_PRICING_CURRENCY
+}
+
+export function getSourcePreviewCurrency(
+  sourceCurrency: SourcePricingCurrency,
+  config: CurrencyConfig
+): PricingCurrency {
+  const display = getSitePricingCurrency(config) ?? USD_PRICING_CURRENCY
+  if (sourceCurrency === 'USD') return display
+  if (!Number.isFinite(config.usdExchangeRate) || config.usdExchangeRate <= 0) {
+    return { ...display, exchangeRate: Number.NaN }
+  }
+  return {
+    ...display,
+    exchangeRate: display.exchangeRate / config.usdExchangeRate,
+  }
 }
 
 export function getSitePricingCurrency(

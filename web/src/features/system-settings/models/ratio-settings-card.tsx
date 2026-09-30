@@ -239,6 +239,9 @@ export function RatioSettingsCard({
   const savePricing = useSaveModelPricing()
   const [pricingBaseline, setPricingBaseline] =
     useState<ModelPricingConfig | null>(null)
+  const [currencyOverrides, setCurrencyOverrides] = useState<
+    Partial<Record<string, 'USD' | 'CNY'>>
+  >({})
   useEffect(() => {
     if (!pricingBaseline && pricingQuery.data) {
       setPricingBaseline(pricingQuery.data)
@@ -268,6 +271,7 @@ export function RatioSettingsCard({
           model_name: entry.model_name,
           expected_version: entry.version,
           pricing: {},
+          billing_currency: entry.billing_currency,
           reset: true,
         }))
       )
@@ -451,7 +455,8 @@ export function RatioSettingsCard({
         const changes = buildPricingChanges(
           pricingBaseline,
           pricingOptions(modelNormalizedDefaults.current),
-          pricingOptions(normalized)
+          pricingOptions(normalized),
+          currencyOverrides
         )
         const visibilityChanged =
           normalized.ExposeRatioEnabled !==
@@ -471,12 +476,20 @@ export function RatioSettingsCard({
         setPricingBaseline(refreshed.data ?? null)
         modelNormalizedDefaults.current = normalized
         setSavedModelValues(normalized)
+        setCurrencyOverrides({})
         toast.success(t('Model pricing saved'))
       } catch (error) {
         handleServerError(error)
       }
     },
-    [t, updateOption, pricingBaseline, savePricing, pricingQuery]
+    [
+      t,
+      updateOption,
+      pricingBaseline,
+      savePricing,
+      pricingQuery,
+      currencyOverrides,
+    ]
   )
 
   const saveGroupRatios = useCallback(
@@ -578,6 +591,13 @@ export function RatioSettingsCard({
             isSaving={updateOption.isPending || savePricing.isPending}
             isResetting={resetMutation.isPending}
             variant={tab === 'unset-models' ? 'unset' : 'default'}
+            currencyOverrides={currencyOverrides}
+            onBillingCurrencyChange={(modelName, currency) =>
+              setCurrencyOverrides((current) => ({
+                ...current,
+                [modelName]: currency,
+              }))
+            }
           />
         </>
       )

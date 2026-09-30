@@ -67,8 +67,8 @@ import {
   type ModelPricingPluginVariant,
 } from '@/features/model-pricing/api'
 import {
-  getSitePricingCurrency,
-  isValidPricingCurrency,
+  getSourcePreviewCurrency,
+  getSourcePricingCurrency,
   USD_PRICING_CURRENCY,
 } from '@/features/model-pricing/currency'
 import { pricingFromDraft, pricingRow } from '@/features/model-pricing/pricing'
@@ -77,7 +77,7 @@ import {
   PricingConversionDialog,
   type PricingConversionPreview,
 } from '@/features/model-pricing/pricing-conversion-dialog'
-import { PricingCurrencySelector } from '@/features/model-pricing/pricing-currency-selector'
+import { SourceCurrencySelector } from '@/features/model-pricing/source-currency-selector'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
 import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
 import { pluginExpressionsEqual } from '@/features/pricing/lib/plugin-pricing'
@@ -89,7 +89,6 @@ import type { BillingUsageSchema } from '@/features/pricing/types'
 import { useDebounce } from '@/hooks/use-debounce'
 import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
-import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
@@ -207,15 +206,9 @@ export const ModelPricingEditorPanel = forwardRef<
   const promptPriceId = useId()
   const formElementRef = useRef<HTMLFormElement>(null)
   const currencyConfig = useSystemConfigStore((state) => state.config.currency)
-  const preference = usePricingPreferencesStore((state) => state.currency)
-  const siteCurrency = useMemo(
-    () => getSitePricingCurrency(currencyConfig),
-    [currencyConfig]
+  const [sourceCurrency, setSourceCurrency] = useState<'USD' | 'CNY'>(
+    editData?.billingCurrency ?? 'USD'
   )
-  const currency =
-    preference === 'site' && isValidPricingCurrency(siteCurrency)
-      ? siteCurrency
-      : USD_PRICING_CURRENCY
   const [pricingMode, setPricingMode] = useState<PricingMode>('tiered_expr')
   const [promptPrice, setPromptPrice] = useState('')
   const [lanePrices, setLanePrices] = useState<Record<LaneKey, string>>({
@@ -260,6 +253,14 @@ export const ModelPricingEditorPanel = forwardRef<
   const initialBillingExpr =
     editData?.billingExpr ||
     (initialPricingMode === 'tiered_expr' ? DEFAULT_TOKEN_BILLING_EXPR : '')
+  const currency =
+    pricingMode === 'tiered_expr'
+      ? getSourcePricingCurrency(sourceCurrency)
+      : USD_PRICING_CURRENCY
+  const previewCurrency = getSourcePreviewCurrency(
+    pricingMode === 'tiered_expr' ? sourceCurrency : 'USD',
+    currencyConfig
+  )
   const { models: pricingModels } = usePricingData()
 
   const form = useForm<ModelPricingFormValues>({
@@ -351,6 +352,7 @@ export const ModelPricingEditorPanel = forwardRef<
     conversionGeneration.current += 1
     setConversionReason('')
     setPluginExpressions(editData?.pluginBillingExpr ?? {})
+    setSourceCurrency(editData?.billingCurrency ?? 'USD')
     setWasConverted(false)
     setConversionPreview(null)
     const nextLaneState = createInitialLaneState(editData)
@@ -413,7 +415,11 @@ export const ModelPricingEditorPanel = forwardRef<
         pricingMode !== initialPricingMode ||
         billingExpr !== initialBillingExpr ||
         requestRuleExpr !== (editData?.requestRuleExpr ?? '') ||
-        !pluginExpressionsEqual(pluginExpressions, editData?.pluginBillingExpr)
+        !pluginExpressionsEqual(
+          pluginExpressions,
+          editData?.pluginBillingExpr
+        ) ||
+        sourceCurrency !== (editData?.billingCurrency ?? 'USD')
     )
   }, [
     onDirtyChange,
@@ -425,6 +431,7 @@ export const ModelPricingEditorPanel = forwardRef<
     initialPricingMode,
     initialBillingExpr,
     pluginExpressions,
+    sourceCurrency,
   ])
 
   const setFormValue = (field: keyof ModelPricingFormValues, value: string) => {
@@ -567,7 +574,7 @@ export const ModelPricingEditorPanel = forwardRef<
       previewLanes.prices,
       previewLanes.enabled,
       t,
-      currency,
+      previewCurrency,
       effectivePreview?.cacheWriteMode,
       effectivePreview?.billingDetails
     )
@@ -580,7 +587,7 @@ export const ModelPricingEditorPanel = forwardRef<
     requestRuleExpr,
     t,
     watchedValues,
-    currency,
+    previewCurrency,
     effectivePreview,
   ])
 
@@ -685,6 +692,8 @@ export const ModelPricingEditorPanel = forwardRef<
           ? { pluginBillingExpr: pluginExpressions }
           : {}),
         billingMode: pricingMode,
+        billingCurrency: sourceCurrency,
+        hasMetadata: editData?.hasMetadata,
         price: values.price || '',
         ratio: values.ratio || '',
         cacheRatio: values.cacheRatio || '',
@@ -709,6 +718,7 @@ export const ModelPricingEditorPanel = forwardRef<
       pluginExpressions,
       editData,
       pluginVariants,
+      sourceCurrency,
     ]
   )
 
@@ -907,7 +917,11 @@ export const ModelPricingEditorPanel = forwardRef<
                   />
                 )}
 
-                <PricingCurrencySelector siteCurrency={siteCurrency} />
+                <SourceCurrencySelector
+                  value={sourceCurrency}
+                  onChange={setSourceCurrency}
+                  legacyMode={pricingMode !== 'tiered_expr'}
+                />
 
                 <TaskPluginPricingEditor
                   key={`${editorReloadToken}:${watchedValues.name}`}
@@ -1206,7 +1220,7 @@ export const ModelPricingEditorPanel = forwardRef<
       {conversionPreview && (
         <PricingConversionDialog
           preview={conversionPreview}
-          currency={currency}
+          currency={previewCurrency}
           onCancel={() => {
             conversionGeneration.current += 1
             setConversionPreview(null)

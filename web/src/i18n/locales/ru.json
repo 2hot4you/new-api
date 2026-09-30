@@ -7816,6 +7816,13 @@
     "Time-of-use pricing": "Тарификация по времени суток",
     "Unable to load billing calendar": "Не удалось загрузить календарь тарификации",
     "Weekend": "Выходной",
-    "Workday": "Рабочий день"
+    "Workday": "Рабочий день",
+    "Source pricing currency": "Исходная валюта тарифа",
+    "About source pricing currency": "Об исходной валюте тарифа",
+    "Chinese yuan (CNY)": "Китайский юань (CNY)",
+    "Expression coefficients are stored exactly in this source currency. User-facing prices still follow the site display currency.": "Коэффициенты выражения сохраняются без изменения в исходной валюте, а цены для пользователей отображаются в валюте сайта.",
+    "Legacy ratio and fixed-price billing remains USD-compatible.": "Устаревшие тарифы по коэффициенту и фиксированной цене остаются совместимыми с USD.",
+    "Changing currency does not rewrite expression coefficients.": "Смена валюты не изменяет коэффициенты выражения.",
+    "Create exact model metadata before saving pricing or source currency.": "Создайте точные метаданные модели перед сохранением цены или исходной валюты."
   }
 }

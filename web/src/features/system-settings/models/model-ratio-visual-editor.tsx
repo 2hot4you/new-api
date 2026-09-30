@@ -49,6 +49,7 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   isSeedanceManagedPricingModel,
+  type SourcePricingCurrency,
   useModelPricing,
 } from '@/features/model-pricing/api'
 import {
@@ -107,6 +108,11 @@ type ModelRatioVisualEditorProps = {
   onChange: (field: string, value: string) => void
   onSave: () => void | Promise<void>
   isSaving: boolean
+  currencyOverrides?: Partial<Record<string, SourcePricingCurrency>>
+  onBillingCurrencyChange?: (
+    modelName: string,
+    currency: SourcePricingCurrency
+  ) => void
 }
 
 export type ModelRatioVisualEditorHandle = {
@@ -148,6 +154,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
     onChange,
     onSave,
     isSaving,
+    currencyOverrides = {},
+    onBillingCurrencyChange,
   },
   ref
 ) {
@@ -355,11 +363,12 @@ const ModelRatioVisualEditorComponent = forwardRef<
         billingExpr: editableModel.billingExpr,
         pluginBillingExpr: editableModel.pluginBillingExpr,
         requestRuleExpr: editableModel.requestRuleExpr,
+        billingCurrency: currencyOverrides[editableModel.name],
       })
       setEditorOpen(true)
       if (isMobile) setSheetOpen(true)
     },
-    [isMobile]
+    [currencyOverrides, isMobile]
   )
 
   const handleAdd = useCallback(() => {
@@ -555,6 +564,11 @@ const ModelRatioVisualEditorComponent = forwardRef<
       })
       const updated = applyPricingDraft(options, data, targetNames)
       for (const [key, value] of Object.entries(updated)) onChange(key, value)
+      if (data.billingCurrency) {
+        for (const name of targetNames) {
+          onBillingCurrencyChange?.(name, data.billingCurrency)
+        }
+      }
     },
     [
       modelPrice,
@@ -569,6 +583,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingExpr,
       pluginBillingExpr,
       onChange,
+      onBillingCurrencyChange,
     ]
   )
 
@@ -625,6 +640,19 @@ const ModelRatioVisualEditorComponent = forwardRef<
   )
 
   const hasRows = table.getRowModel().rows.length > 0
+  const pricingEntry = pricingConfig.data?.entries.find(
+    (entry) => entry.model_name === editData?.name
+  )
+  const editorEditData = editData
+    ? {
+        ...editData,
+        billingCurrency:
+          currencyOverrides[editData.name] ??
+          pricingEntry?.billing_currency ??
+          'USD',
+        hasMetadata: pricingEntry?.has_metadata,
+      }
+    : null
 
   let emptyStateText = t('No models configured. Use Add model to get started.')
   if (table.getState().globalFilter) {
@@ -746,7 +774,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
           {editorOpen ? (
             <ModelPricingEditorPanel
               ref={editorPanelRef}
-              editData={editData}
+              editData={editorEditData}
               pluginVariants={
                 pricingConfig.data?.entries.find(
                   (entry) => entry.model_name === editData?.name
@@ -758,7 +786,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
                 )?.usage_schema
               }
               onSave={onSave}
-              isSaving={isSaving}
+              isSaving={
+                isSaving ||
+                Boolean(editData && pricingEntry?.has_metadata === false)
+              }
               className='h-full min-h-0'
             />
           ) : (
@@ -796,7 +827,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
           ref={editorPanelRef}
           open={sheetOpen}
           onOpenChange={setSheetOpen}
-          editData={editData}
+          editData={editorEditData}
           pluginVariants={
             pricingConfig.data?.entries.find(
               (entry) => entry.model_name === editData?.name
@@ -808,7 +839,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
             )?.usage_schema
           }
           onSave={onSave}
-          isSaving={isSaving}
+          isSaving={
+            isSaving ||
+            Boolean(editData && pricingEntry?.has_metadata === false)
+          }
         />
       )}
     </div>
@@ -848,6 +882,8 @@ export const ModelRatioVisualEditor = memo(
       prevProps.filterMode === nextProps.filterMode &&
       prevProps.onChange === nextProps.onChange &&
       prevProps.onSave === nextProps.onSave &&
+      prevProps.currencyOverrides === nextProps.currencyOverrides &&
+      prevProps.onBillingCurrencyChange === nextProps.onBillingCurrencyChange &&
       prevProps.isSaving === nextProps.isSaving
     )
   }

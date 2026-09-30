@@ -66,8 +66,12 @@ export type ModelPricingEntry = ModelPricingDescription & {
   model_name: string
   version: string
   configured: PricingValues
+  billing_currency?: SourcePricingCurrency
+  has_metadata?: boolean
   usage_schema?: BillingUsageSchema
 }
+
+export type SourcePricingCurrency = 'USD' | 'CNY'
 
 export type ModelPricingConfig = {
   entries: ModelPricingEntry[]
@@ -78,6 +82,7 @@ export type ModelPricingChange = {
   model_name: string
   expected_version: string
   pricing: PricingValues
+  billing_currency?: SourcePricingCurrency
   reset?: boolean
 }
 
@@ -187,7 +192,8 @@ export function useSaveModelPricing() {
 export function buildPricingChanges(
   snapshot: ModelPricingConfig,
   before: PricingOptions,
-  after: PricingOptions
+  after: PricingOptions,
+  currencyOverrides: Partial<Record<string, SourcePricingCurrency>> = {}
 ): ModelPricingChange[] {
   const previous = pricingValuesByModel(before)
   const next = pricingValuesByModel(after)
@@ -195,7 +201,11 @@ export function buildPricingChanges(
     snapshot.entries.map((entry) => [entry.model_name, entry])
   )
   const changes: ModelPricingChange[] = []
-  for (const name of new Set([...previous.keys(), ...next.keys()])) {
+  for (const name of new Set([
+    ...previous.keys(),
+    ...next.keys(),
+    ...Object.keys(currencyOverrides),
+  ])) {
     const oldValues = previous.get(name) ?? {}
     const newValues = next.get(name) ?? {}
     const dirty = PRICING_KEYS.filter((key) =>
@@ -203,8 +213,13 @@ export function buildPricingChanges(
         ? !pluginExpressionsEqual(oldValues[key], newValues[key])
         : oldValues[key] !== newValues[key]
     )
-    if (!dirty.length) continue
     const entry = entries.get(name)
+    const billingCurrency = currencyOverrides[name] ?? entry?.billing_currency
+    const currencyDirty =
+      billingCurrency !== undefined &&
+      billingCurrency !== entry?.billing_currency
+    if (!dirty.length && !currencyDirty) continue
+    if (entry?.has_metadata === false) continue
     const pricing = { ...entry?.configured }
     for (const key of dirty) {
       delete pricing[key]
@@ -221,6 +236,7 @@ export function buildPricingChanges(
       model_name: name,
       expected_version: entry?.version ?? snapshot.empty_version,
       pricing,
+      billing_currency: billingCurrency ?? 'USD',
     })
   }
   return changes

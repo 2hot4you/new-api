@@ -7816,6 +7816,13 @@
     "Time-of-use pricing": "峰谷時段計費",
     "Unable to load billing calendar": "無法載入計費日曆",
     "Weekend": "一般週末",
-    "Workday": "一般工作日"
+    "Workday": "一般工作日",
+    "Source pricing currency": "原始計價幣別",
+    "About source pricing currency": "關於原始計價幣別",
+    "Chinese yuan (CNY)": "人民幣（CNY）",
+    "Expression coefficients are stored exactly in this source currency. User-facing prices still follow the site display currency.": "計費表達式中的價格係數會按此原始幣別原值儲存；使用者端價格仍使用平台顯示幣別。",
+    "Legacy ratio and fixed-price billing remains USD-compatible.": "舊版倍率與固定價格計費仍按美元相容邏輯處理。",
+    "Changing currency does not rewrite expression coefficients.": "切換幣別不會改寫計費表達式中的數值係數。",
+    "Create exact model metadata before saving pricing or source currency.": "請先建立完全符合的模型中繼資料，再儲存價格或原始計價幣別。"
   }
 }

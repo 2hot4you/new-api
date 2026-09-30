@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import * as z from 'zod'
 
+import type { SourcePricingCurrency } from '@/features/model-pricing/api'
 import {
   formatPricingAmount,
   USD_PRICING_CURRENCY,
@@ -73,6 +74,8 @@ export type ModelRatioData = {
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
+  billingCurrency?: SourcePricingCurrency
+  hasMetadata?: boolean
 }
 
 export type PreviewRow = {
@@ -236,7 +239,7 @@ export function buildPreviewRows(
       { key: 'mode', label: t('Pricing'), value: t('Expression') },
       {
         key: 'expr',
-        label: `${t('Expression')} (USD)`,
+        label: t('Expression'),
         value: effectiveExpr || t('Empty'),
         multiline: true,
       },

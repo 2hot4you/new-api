@@ -7816,6 +7816,13 @@
     "Time-of-use pricing": "時間帯別料金",
     "Unable to load billing calendar": "課金カレンダーを読み込めません",
     "Weekend": "通常の週末",
-    "Workday": "通常の平日"
+    "Workday": "通常の平日",
+    "Source pricing currency": "元の価格通貨",
+    "About source pricing currency": "元の価格通貨について",
+    "Chinese yuan (CNY)": "中国人民元（CNY）",
+    "Expression coefficients are stored exactly in this source currency. User-facing prices still follow the site display currency.": "式の係数はこの元通貨の値のまま保存され、ユーザー向け表示はサイト通貨に従います。",
+    "Legacy ratio and fixed-price billing remains USD-compatible.": "従来の比率・固定価格課金は USD 互換のままです。",
+    "Changing currency does not rewrite expression coefficients.": "通貨を変更しても式の係数は書き換えられません。",
+    "Create exact model metadata before saving pricing or source currency.": "価格または元通貨を保存する前に、完全一致のモデルメタデータを作成してください。"
   }
 }

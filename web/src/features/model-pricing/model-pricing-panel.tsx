@@ -36,8 +36,6 @@ import {
   type ModelPricingEditorPanelHandle,
 } from '@/features/system-settings/models/model-pricing-sheet'
 import { handleServerError } from '@/lib/handle-server-error'
-import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
-import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
   useCanEditModelPricing,
@@ -46,11 +44,6 @@ import {
   useSaveModelPricing,
   type ModelPricingEntry,
 } from './api'
-import {
-  getSitePricingCurrency,
-  isValidPricingCurrency,
-  USD_PRICING_CURRENCY,
-} from './currency'
 import { modelPricingDisplay, pricingFromDraft, pricingRow } from './pricing'
 
 export function ModelPricingPanel(props: {
@@ -59,10 +52,6 @@ export function ModelPricingPanel(props: {
   onDirtyChange?: (dirty: boolean) => void
 }) {
   const { t } = useTranslation()
-  const currencyConfig = useSystemConfigStore((state) => state.config.currency)
-  const currencyPreference = usePricingPreferencesStore(
-    (state) => state.currency
-  )
   const canEdit = useCanEditModelPricing()
   const isSeedanceManaged = isSeedanceManagedPricingModel(props.modelName)
   const query = useModelPricing(
@@ -81,7 +70,11 @@ export function ModelPricingPanel(props: {
       values['billing_setting.billing_expr'] =
         entry.effective['billing_setting.billing_expr']
     }
-    return pricingRow(entry.model_name, values)
+    return {
+      ...pricingRow(entry.model_name, values),
+      billingCurrency: entry.billing_currency,
+      hasMetadata: entry.has_metadata,
+    }
   }, [entry])
 
   useEffect(() => {
@@ -103,6 +96,8 @@ export function ModelPricingPanel(props: {
           model_name: entry.model_name,
           expected_version: entry.version,
           pricing: draft ? pricingFromDraft(draft) : {},
+          billing_currency:
+            draft?.billingCurrency ?? entry.billing_currency ?? 'USD',
           reset,
         },
       ])
@@ -146,15 +141,8 @@ export function ModelPricingPanel(props: {
   if (!editData || !entry) return <LoadingState />
   const effectivePricing = {
     ...modelPricingDisplay(entry),
-    ...(props.billingCurrency
-      ? { billing_currency: props.billingCurrency }
-      : {}),
+    billing_currency: entry.billing_currency ?? props.billingCurrency ?? 'USD',
   }
-  const siteCurrency = getSitePricingCurrency(currencyConfig)
-  const currency =
-    currencyPreference === 'site' && isValidPricingCurrency(siteCurrency)
-      ? siteCurrency
-      : USD_PRICING_CURRENCY
   const current = pricingRow(entry.model_name, entry.effective)
   const currentLanes = createInitialLaneState(current)
   const details = buildPreviewRows(
@@ -166,7 +154,7 @@ export function ModelPricingPanel(props: {
     currentLanes.prices,
     currentLanes.enabled,
     t,
-    currency,
+    undefined,
     entry.cache_write_mode,
     entry.billing_details
   ).filter(
@@ -187,7 +175,7 @@ export function ModelPricingPanel(props: {
         pluginVariants={entry.plugin_variants}
         onDirtyChange={props.onDirtyChange}
         onSave={() => persist()}
-        isSaving={save.isPending}
+        isSaving={save.isPending || entry.has_metadata === false}
         className='rounded-none border-0'
         scrollHeader={
           <>
@@ -208,6 +196,13 @@ export function ModelPricingPanel(props: {
                 {t('Restore default pricing')}
               </Button>
             </div>
+            {entry.has_metadata === false && (
+              <p role='alert' className='text-destructive text-sm'>
+                {t(
+                  'Create exact model metadata before saving pricing or source currency.'
+                )}
+              </p>
+            )}
             <section
               aria-label={t('Current Billing')}
               className='space-y-3 border-b pb-3'
