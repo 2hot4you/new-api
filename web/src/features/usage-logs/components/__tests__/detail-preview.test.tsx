@@ -353,7 +353,7 @@ test('task log prices select the executing provider’s schema', () => {
   expect(preview).toHaveTextContent('images · images $0.25/image')
 })
 
-test('dynamic prices use the matched model currency without applying the site exchange rate', () => {
+test('dynamic prices prefer the frozen log currency over current model metadata', () => {
   useSystemConfigStore.getState().setConfig({
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
@@ -365,13 +365,15 @@ test('dynamic prices use the matched model currency without applying the site ex
     data: [
       {
         model_name: 'wan2.5-i2v-preview',
-        billing_currency: 'CNY',
+        billing_currency: 'USD',
       },
     ],
     vendors: [],
   })
 
   const preview = renderPreview({
+    source_currency: 'CNY',
+    cny_per_usd: 7,
     billing_mode: 'tiered_expr',
     expr_b64: btoa('tier("image", fixed(0.2))'),
     billing_unit: 'request',

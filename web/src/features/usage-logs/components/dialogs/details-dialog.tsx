@@ -49,7 +49,7 @@ import { PolicyDecisionRecord } from '@/features/system-settings/request-policie
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import {
   formatBillingCurrencyFromUSD,
-  formatCatalogCurrencyAmount,
+  formatSourceBillingAmount,
 } from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -291,9 +291,13 @@ function BillingBreakdown(props: {
 
   const rows: Array<{ label: string; value: string }> = []
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
+  const frozenBillingCurrency = other.source_currency ?? props.billingCurrency
   const fmtPrice = (price: number) =>
-    props.billingCurrency
-      ? formatCatalogCurrencyAmount(price, props.billingCurrency, priceOpts)
+    frozenBillingCurrency
+      ? formatSourceBillingAmount(price, frozenBillingCurrency, {
+          ...priceOpts,
+          cnyPerUSD: other.cny_per_usd,
+        })
       : formatBillingCurrencyFromUSD(price, priceOpts)
   const baseInputUSD = other.model_ratio != null ? other.model_ratio * 2.0 : 0
 
@@ -617,6 +621,38 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
   const isSubscription = other?.billing_source === 'subscription'
+  const billingMoneyAudit = (() => {
+    if (
+      other?.source_currency &&
+      Number.isFinite(other.source_cost) &&
+      Number.isFinite(other.cny_per_usd) &&
+      Number.isFinite(other.cost_usd)
+    ) {
+      return {
+        sourceCurrency: other.source_currency,
+        sourceCost: Number(other.source_cost),
+        cnyPerUSD: Number(other.cny_per_usd),
+        costUSD: Number(other.cost_usd),
+        displayCurrency: other.display_currency,
+        displayCost: other.display_cost,
+      }
+    }
+    let specialized = null
+    if (other?.grok_image_billing?.version === 2) {
+      specialized = other.grok_image_billing
+    } else if (other?.grok_video_billing?.version === 2) {
+      specialized = other.grok_video_billing
+    }
+    if (!specialized) return null
+    return {
+      sourceCurrency: specialized.source_currency,
+      sourceCost: specialized.final_source_cost,
+      cnyPerUSD: specialized.cny_per_usd,
+      costUSD: specialized.final_cost_usd,
+      displayCurrency: undefined,
+      displayCost: undefined,
+    }
+  })()
   const isTieredBilling =
     isConsume &&
     !isViolation &&
@@ -1303,15 +1339,27 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {other && isStarAIVideoLog && <StarAIVideoBillingCard other={other} />}
 
         {isGrokImage && other?.grok_image_preview_available !== true && (
-          <GrokImageBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />
+          <GrokImageBillingCard
+            log={props.log}
+            quotaPerUnit={quotaPerUnit}
+            isAdmin={props.isAdmin}
+          />
         )}
 
         {isGrokImage && other?.grok_image_preview_available === true && (
-          <GrokImagePreviewCard log={props.log} quotaPerUnit={quotaPerUnit} />
+          <GrokImagePreviewCard
+            log={props.log}
+            quotaPerUnit={quotaPerUnit}
+            isAdmin={props.isAdmin}
+          />
         )}
 
         {isGrokVideo && (
-          <GrokVideoBillingCard log={props.log} quotaPerUnit={quotaPerUnit} />
+          <GrokVideoBillingCard
+            log={props.log}
+            quotaPerUnit={quotaPerUnit}
+            isAdmin={props.isAdmin}
+          />
         )}
 
         {isGPTImage2 && (
@@ -1335,7 +1383,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
               log={props.log}
               other={other}
               isAdmin={props.isAdmin}
-              billingCurrency={matchedPricingModel?.billing_currency}
+              billingCurrency={
+                other.source_currency ?? matchedPricingModel?.billing_currency
+              }
             />
           )}
 
@@ -1358,8 +1408,48 @@ export function DetailsDialog(props: DetailsDialogProps) {
               hideCacheColumns={!hasAnyCacheTokens(other)}
               usageSchema={billingUsageSchema}
               usageFacts={other.usage_facts}
-              billingCurrency={matchedPricingModel?.billing_currency}
+              billingCurrency={
+                other.source_currency ?? matchedPricingModel?.billing_currency
+              }
+              taskPriceOptions={{ usdExchangeRate: other.cny_per_usd }}
             />
+          </DetailSection>
+        )}
+
+        {props.isAdmin &&
+          isConsume &&
+          billingMoneyAudit &&
+          !isGrokImage &&
+          !isGrokVideo && (
+          <DetailSection label={t('Billing currency audit')}>
+            <DetailRow
+              label={t('Source currency')}
+              value={billingMoneyAudit.sourceCurrency}
+              mono
+            />
+            <DetailRow
+              label={t('Source cost')}
+              value={`${billingMoneyAudit.sourceCurrency} ${billingMoneyAudit.sourceCost}`}
+              mono
+            />
+            <DetailRow
+              label={t('Frozen exchange rate')}
+              value={`1 USD = ${billingMoneyAudit.cnyPerUSD} CNY`}
+              mono
+            />
+            <DetailRow
+              label={t('USD-equivalent cost')}
+              value={`USD ${billingMoneyAudit.costUSD}`}
+              mono
+            />
+            {billingMoneyAudit.displayCurrency &&
+              Number.isFinite(billingMoneyAudit.displayCost) && (
+                <DetailRow
+                  label={t('Display cost at settlement')}
+                  value={`${billingMoneyAudit.displayCurrency} ${billingMoneyAudit.displayCost}`}
+                  mono
+                />
+              )}
           </DetailSection>
         )}
 

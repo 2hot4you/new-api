@@ -129,15 +129,32 @@ export function PriceDimensionTable({ dimensions }: PriceDimensionTableProps) {
                 {t(sourceLabels[dimension.sourceType])}
               </td>
               <td className='px-2 py-2 text-right font-mono tabular-nums'>
-                {formatQuoteAmount(dimension.catalogAmount, dimension.currency)}
+                {formatQuoteAmount(
+                  dimension.catalogAmount,
+                  dimension.sourceCurrency ?? dimension.currency
+                )}
               </td>
               <td className='px-2 py-2 text-right font-mono tabular-nums'>
-                {formatQuoteAmount(dimension.sourceAmount, dimension.currency)}
+                {formatQuoteAmount(
+                  dimension.sourceAmount,
+                  dimension.sourceCurrency ?? dimension.currency
+                )}
               </td>
               <td className='px-2 py-2 text-right font-mono font-semibold tabular-nums'>
                 {formatQuoteAmount(dimension.quoteAmount, dimension.currency)}
               </td>
-              <td className='px-2 py-2'>{dimension.currency}</td>
+              <td className='px-2 py-2'>
+                {dimension.sourceCurrency &&
+                dimension.sourceCurrency !== dimension.currency ? (
+                  <span className='whitespace-nowrap'>
+                    <span>{dimension.sourceCurrency}</span>
+                    {' → '}
+                    <span>{dimension.currency}</span>
+                  </span>
+                ) : (
+                  dimension.currency
+                )}
+              </td>
               <td className='px-2 py-2'>{t(dimension.unit)}</td>
               <td className='max-w-48 px-2 py-2 break-words'>
                 {conditionLabel(dimension.condition)}

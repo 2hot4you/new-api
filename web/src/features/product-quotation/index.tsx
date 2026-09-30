@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
 import { toIntlLocale } from '@/i18n/languages'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { QuotationEditor } from './components/quotation-editor'
 import { QuotationPreview } from './components/quotation-preview'
@@ -130,6 +131,9 @@ export function ProductQuotation() {
     priceRate,
     usdExchangeRate,
   } = usePricingData(true)
+  const quotaDisplayType = useSystemConfigStore(
+    (state) => state.config.currency.quotaDisplayType
+  )
   const { draft, setDraft, clearDraft, saveStatus } = useQuotationDraft()
   const [refreshing, setRefreshing] = useState(false)
   const [refreshFeedback, setRefreshFeedback] = useState<string | null>(null)
@@ -143,8 +147,19 @@ export function ProductQuotation() {
         groupRatio,
         pricingVersion,
         fetchedAt,
+        quoteCurrency: quotaDisplayType === 'CNY' ? 'CNY' : 'USD',
+        cnyPerUSD: usdExchangeRate,
       }),
-    [draft, fetchedAt, groupRatio, models, pricingVersion, vendors]
+    [
+      draft,
+      fetchedAt,
+      groupRatio,
+      models,
+      pricingVersion,
+      quotaDisplayType,
+      usdExchangeRate,
+      vendors,
+    ]
   )
   const validation = useMemo(() => validateQuotation(snapshot), [snapshot])
   const groups = useMemo(

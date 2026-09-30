@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { GrokVideoBillingV1 } from '../types'
+import {
+  formatBillingCurrencyFromUSD,
+  formatSourceBillingAmount,
+} from '@/lib/currency'
+
+import type { GrokVideoBilling } from '../types'
 
 const GROK_VIDEO_MODELS = new Set([
   'grok-imagine-video',
@@ -30,13 +35,13 @@ type GrokVideoLogLike = {
 }
 
 export type GrokVideoBillingState =
-  | { kind: 'current'; model: string; billing: GrokVideoBillingV1 }
+  | { kind: 'current'; model: string; billing: GrokVideoBilling }
   | { kind: 'history'; model: string }
   | { kind: 'not-grok-video' }
 
 export function isGrokVideoModel(
   model: unknown
-): model is GrokVideoBillingV1['model'] {
+): model is GrokVideoBilling['model'] {
   return typeof model === 'string' && GROK_VIDEO_MODELS.has(model)
 }
 
@@ -56,7 +61,9 @@ function isOperationInputPair(operation: unknown, inputType: unknown): boolean {
   return (
     (operation === 'text_to_video' && inputType === 'text') ||
     (operation === 'image_to_video' && inputType === 'image') ||
-    (operation === 'video_edit' && inputType === 'video')
+    (operation === 'video_edit' && inputType === 'video') ||
+    (operation === 'video_extension' && inputType === 'video') ||
+    (operation === 'reference_to_video' && inputType === 'image')
   )
 }
 
@@ -71,20 +78,20 @@ function parseOther(value: unknown): Record<string, unknown> | null {
   }
 }
 
-/** Parse only the complete, versioned v1 contract; never synthesize fields. */
-export function parseGrokVideoBilling(
-  other: unknown
-): GrokVideoBillingV1 | null {
+/** Parse only complete versioned contracts; never synthesize audit fields. */
+export function parseGrokVideoBilling(other: unknown): GrokVideoBilling | null {
   const root = parseOther(other)
   const value = root?.grok_video_billing
   if (!isRecord(value)) return null
 
   if (
-    value.version !== 1 ||
+    (value.version !== 1 && value.version !== 2) ||
     !isGrokVideoModel(value.model) ||
     (value.operation !== 'text_to_video' &&
       value.operation !== 'image_to_video' &&
-      value.operation !== 'video_edit') ||
+      value.operation !== 'video_edit' &&
+      value.operation !== 'video_extension' &&
+      value.operation !== 'reference_to_video') ||
     (value.input_type !== 'text' &&
       value.input_type !== 'image' &&
       value.input_type !== 'video') ||
@@ -113,7 +120,19 @@ export function parseGrokVideoBilling(
     return null
   }
 
-  return value as unknown as GrokVideoBillingV1
+  if (
+    value.version === 2 &&
+    ((value.source_currency !== 'USD' && value.source_currency !== 'CNY') ||
+      !isNonNegativeFiniteNumber(value.cny_per_usd) ||
+      value.cny_per_usd === 0 ||
+      !isNonNegativeFiniteNumber(value.cost_usd) ||
+      !isNonNegativeFiniteNumber(value.final_source_cost) ||
+      !isNonNegativeFiniteNumber(value.final_cost_usd))
+  ) {
+    return null
+  }
+
+  return value as unknown as GrokVideoBilling
 }
 
 export function getGrokVideoBillingState(
@@ -141,15 +160,42 @@ export function formatGrokVideoCny(value: number): string {
   return `¥${value.toFixed(6)}`
 }
 
-export function formatGrokVideoFormula(billing: GrokVideoBillingV1): string {
-  const output = `${formatGrokVideoCny(billing.output_unit_price)} × ${billing.actual_duration_seconds}`
+export function formatGrokVideoAmount(
+  billing: GrokVideoBilling,
+  value: number
+): string {
+  if (billing.version === 1) return formatGrokVideoCny(value)
+  return formatSourceBillingAmount(value, billing.source_currency, {
+    cnyPerUSD: billing.cny_per_usd,
+    digitsLarge: 6,
+    digitsSmall: 6,
+    abbreviate: false,
+  })
+}
+
+export function formatGrokVideoFinalCharge(
+  billing: GrokVideoBilling
+): string {
+  if (billing.version === 1) return formatGrokVideoCny(billing.final_cost)
+  return formatBillingCurrencyFromUSD(billing.final_cost_usd, {
+    digitsLarge: 6,
+    digitsSmall: 6,
+    abbreviate: false,
+  })
+}
+
+export function formatGrokVideoFormula(billing: GrokVideoBilling): string {
+  const output = `${formatGrokVideoAmount(billing, billing.output_unit_price)} × ${billing.actual_duration_seconds}`
   let terms = output
   if (billing.operation === 'image_to_video') {
-    terms = `${output} + ${formatGrokVideoCny(billing.image_input_unit_price)} × ${billing.input_image_count}`
-  } else if (billing.operation === 'video_edit') {
-    terms = `${output} + ${formatGrokVideoCny(billing.video_input_unit_price)} × ${billing.video_input_billed_seconds}`
+    terms = `${output} + ${formatGrokVideoAmount(billing, billing.image_input_unit_price)} × ${billing.input_image_count}`
+  } else if (
+    billing.operation === 'video_edit' ||
+    billing.operation === 'video_extension'
+  ) {
+    terms = `${output} + ${formatGrokVideoAmount(billing, billing.video_input_unit_price)} × ${billing.video_input_billed_seconds}`
   }
-  return `(${terms}) × ${billing.group_ratio.toFixed(4)} = ${formatGrokVideoCny(billing.final_cost)}`
+  return `(${terms}) × ${billing.group_ratio.toFixed(4)} = ${formatGrokVideoFinalCharge(billing)}`
 }
 
 export function getGrokVideoListSummary(log: GrokVideoLogLike): string | null {

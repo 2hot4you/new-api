@@ -122,10 +122,11 @@ function displayDiscount(
 function displayAmount(
   amount: number | null,
   dimension: QuotePriceDimension,
-  labels: QuotationHtmlLabels
+  labels: QuotationHtmlLabels,
+  currency = dimension.currency
 ): string {
   return typeof amount === 'number' && Number.isFinite(amount)
-    ? escapeHtml(formatQuoteAmount(amount, dimension.currency))
+    ? escapeHtml(formatQuoteAmount(amount, currency))
     : escapeHtml(labels.emptyValue)
 }
 
@@ -159,10 +160,10 @@ function renderDimension(
   return `<tr>
     <td>${displayMappedText(dimension.label, dimensionLabels, labels)}</td>
     <td>${displayText(labels.sourceTypes[dimension.sourceType], labels)}</td>
-    <td class="number">${displayAmount(dimension.catalogAmount, dimension, labels)}</td>
-    <td class="number">${displayAmount(dimension.sourceAmount, dimension, labels)}</td>
+    <td class="number">${displayAmount(dimension.catalogAmount, dimension, labels, dimension.sourceCurrency ?? dimension.currency)}</td>
+    <td class="number">${displayAmount(dimension.sourceAmount, dimension, labels, dimension.sourceCurrency ?? dimension.currency)}</td>
     <td class="number quote-price">${displayAmount(dimension.quoteAmount, dimension, labels)}</td>
-    <td>${displayText(dimension.currency, labels)}</td>
+    <td>${displayText(dimension.sourceCurrency && dimension.sourceCurrency !== dimension.currency ? `${dimension.sourceCurrency} → ${dimension.currency}` : dimension.currency, labels)}</td>
     <td>${displayMappedText(dimension.unit, unitLabels, labels)}</td>
     <td>${displayMappedText(dimension.condition, conditionLabels, labels)}</td>
     <td><span class="${statusClass}">${statusLabel(dimension, labels)}</span></td>

@@ -66,6 +66,19 @@ describe('Grok image billing parser', () => {
     assert.deepEqual(parseGrokImageBilling({ grok_image_billing: edit }), edit)
   })
 
+  test('parses a v2 snapshot with frozen source and USD amounts', () => {
+    const v2 = {
+      ...generation,
+      version: 2,
+      source_currency: 'CNY',
+      cny_per_usd: 7,
+      cost_usd: 0.05 / 7,
+      final_source_cost: 0.05,
+      final_cost_usd: 0.05 / 7,
+    } as const
+    assert.deepEqual(parseGrokImageBilling({ grok_image_billing: v2 }), v2)
+  })
+
   test('requires and preserves the image 2.0 quality tier', () => {
     const image20 = {
       ...generation,
@@ -91,6 +104,7 @@ describe('Grok image billing parser', () => {
 
   test('rejects invalid versions, models, operations, and incomplete payloads', () => {
     const invalid = [
+      { ...generation, version: 3 },
       { ...generation, version: 2 },
       { ...generation, model: 'grok-imagine-video' },
       { ...generation, operation: 'generate' },

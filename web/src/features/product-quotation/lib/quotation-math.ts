@@ -637,9 +637,49 @@ function normalizeFetchedAt(value: string | number | Date): string {
   return new Date(value).toISOString()
 }
 
+function convertQuoteAmount(
+  amount: number | null,
+  sourceCurrency: QuoteCurrency,
+  quoteCurrency: QuoteCurrency,
+  cnyPerUSD: number
+): number | null {
+  if (amount === null) return null
+  if (sourceCurrency === quoteCurrency) return amount
+  if (!Number.isFinite(cnyPerUSD) || cnyPerUSD <= 0) return null
+  return sourceCurrency === 'CNY'
+    ? amount / cnyPerUSD
+    : amount * cnyPerUSD
+}
+
+function normalizeDimensionCurrency(
+  dimension: QuotePriceDimension,
+  quoteCurrency: QuoteCurrency,
+  cnyPerUSD: number
+): QuotePriceDimension {
+  const sourceCurrency = dimension.currency
+  const quoteAmount = convertQuoteAmount(
+    dimension.quoteAmount,
+    sourceCurrency,
+    quoteCurrency,
+    cnyPerUSD
+  )
+  return {
+    ...dimension,
+    sourceCurrency,
+    quoteAmount,
+    currency: quoteCurrency,
+    status:
+      dimension.status === 'ready' && quoteAmount === null
+        ? 'needs_confirmation'
+        : dimension.status,
+  }
+}
+
 export function buildQuotationSnapshot(
   input: BuildQuotationSnapshotInput
 ): QuotationSnapshot {
+  const quoteCurrency = input.quoteCurrency ?? 'USD'
+  const cnyPerUSD = input.cnyPerUSD ?? 1
   const selectedGroup =
     input.draft.priceBasis.type === 'group'
       ? input.draft.priceBasis.group
@@ -705,7 +745,14 @@ export function buildQuotationSnapshot(
       available,
       unavailableReason: available ? null : 'group_unavailable',
       dimensions: available
-        ? modelDimensions(model, basisRatio, discountCoefficient)
+        ? modelDimensions(model, basisRatio, discountCoefficient).map(
+            (dimension) =>
+              normalizeDimensionCurrency(
+                dimension,
+                quoteCurrency,
+                cnyPerUSD
+              )
+          )
         : [],
       usageExamples: (model.billing_usage_examples ?? []).map((example) => ({
         label: example.label,
@@ -723,6 +770,8 @@ export function buildQuotationSnapshot(
     pricingVersion: input.pricingVersion ?? null,
     fetchedAt: normalizeFetchedAt(input.fetchedAt),
     globalDiscount: input.draft.globalDiscount,
+    quoteCurrency,
+    cnyPerUSD,
     priceBasis: {
       type: input.draft.priceBasis.type,
       group: selectedGroup,

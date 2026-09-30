@@ -73,8 +73,22 @@ describe('Grok video billing parser', () => {
     )
   })
 
+  test('parses a v2 snapshot with frozen source and USD amounts', () => {
+    const v2 = {
+      ...videoEdit,
+      version: 2,
+      source_currency: 'CNY',
+      cny_per_usd: 7,
+      cost_usd: 0.36 / 7,
+      final_source_cost: 0.36,
+      final_cost_usd: 0.36 / 7,
+    } as const
+    assert.deepEqual(parseGrokVideoBilling({ grok_video_billing: v2 }), v2)
+  })
+
   test('rejects unsupported, malformed, negative, non-finite, and incomplete snapshots', () => {
     const invalid = [
+      { ...videoEdit, version: 3 },
       { ...videoEdit, version: 2 },
       { ...videoEdit, model: 'grok-imagine-image' },
       { ...videoEdit, operation: 'generate' },

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import i18next from 'i18next'
 import { afterEach, beforeAll, describe, expect, test } from 'vitest'
 
@@ -41,6 +41,12 @@ const i18nKeys = {
   'Group Ratio': 'Group Ratio',
   'Total Cost': 'Total Cost',
   'Usage parameters': 'Usage parameters',
+  'Billing currency audit': 'Billing currency audit',
+  'Source currency': 'Source currency',
+  'Source cost': 'Source cost',
+  'Frozen exchange rate': 'Frozen exchange rate',
+  'USD-equivalent cost': 'USD-equivalent cost',
+  'Display cost at settlement': 'Display cost at settlement',
 }
 
 function makeLog(other: LogOtherData): UsageLog {
@@ -72,7 +78,8 @@ function makeLog(other: LogOtherData): UsageLog {
 function renderDetails(
   other: LogOtherData,
   promptTokens = 0,
-  pricingModels: unknown[] = []
+  pricingModels: unknown[] = [],
+  isAdmin = false
 ): QueryClient {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -89,7 +96,7 @@ function renderDetails(
     <QueryClientProvider client={queryClient}>
       <DetailsDialog
         log={{ ...makeLog(other), prompt_tokens: promptTokens }}
-        isAdmin={false}
+        isAdmin={isAdmin}
         isRoot={false}
         open
         onOpenChange={() => undefined}
@@ -98,6 +105,30 @@ function renderDetails(
   )
   return queryClient
 }
+
+test('shows frozen billing currency audit only to administrators', () => {
+  const audit: LogOtherData = {
+    source_currency: 'CNY',
+    source_cost: 14,
+    cny_per_usd: 7,
+    cost_usd: 2,
+    display_currency: 'CNY',
+    display_cost: 14,
+  }
+  const userClient = renderDetails(audit)
+  expect(screen.queryByText('Billing currency audit')).not.toBeInTheDocument()
+  userClient.clear()
+  cleanup()
+
+  const adminClient = renderDetails(audit, 0, [], true)
+  expect(screen.getByText('Billing currency audit')).toBeVisible()
+  expect(rowValue('Source currency')).toBe('CNY')
+  expect(rowValue('Source cost')).toBe('CNY 14')
+  expect(rowValue('Frozen exchange rate')).toBe('1 USD = 7 CNY')
+  expect(rowValue('USD-equivalent cost')).toBe('USD 2')
+  expect(rowValue('Display cost at settlement')).toBe('CNY 14')
+  adminClient.clear()
+})
 
 function rowValue(label: string): string | null {
   return screen.getByText(label).nextElementSibling?.textContent ?? null

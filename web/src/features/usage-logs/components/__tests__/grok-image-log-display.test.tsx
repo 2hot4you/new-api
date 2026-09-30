@@ -84,14 +84,18 @@ const baseLog: UsageLog = {
   upstream_request_id: '',
 }
 
-async function renderCard(log: UsageLog) {
+async function renderCard(log: UsageLog, isAdmin = false) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
   await act(async () => {
     root.render(
       <I18nextProvider i18n={i18n}>
-        <GrokImageBillingCard log={log} quotaPerUnit={500000} />
+        <GrokImageBillingCard
+          log={log}
+          quotaPerUnit={500000}
+          isAdmin={isAdmin}
+        />
       </I18nextProvider>
     )
   })
@@ -140,6 +144,7 @@ describe('Grok image billing display', () => {
       '¥0.010000',
       '¥0.090000',
       'Final Charge',
+      'Historical pricing basis',
     ]) {
       assert.equal(text.includes(expected), true, expected)
     }
@@ -181,6 +186,48 @@ describe('Grok image billing display', () => {
     ]) {
       assert.equal(text.includes(forbidden), false, forbidden)
     }
+
+    await act(async () => rendered.root.unmount())
+    rendered.container.remove()
+  })
+
+  test('renders v2 in site currency and exposes frozen amounts to admins', async () => {
+    const rendered = await renderCard(
+      {
+        ...baseLog,
+        other: JSON.stringify({
+          grok_image_billing: {
+            version: 2,
+            model: 'grok-imagine-image-quality',
+            operation: 'generation',
+            resolution: '2k',
+            aspect_ratio: '1:1',
+            requested_output_count: 1,
+            output_count: 1,
+            input_image_count: 0,
+            output_unit_price: 0.35,
+            input_unit_price: 0,
+            output_cost: 0.35,
+            input_cost: 0,
+            subtotal: 0.35,
+            source_currency: 'CNY',
+            cny_per_usd: 7,
+            cost_usd: 0.05,
+            group_ratio: 1,
+            final_cost: 0.05,
+            final_source_cost: 0.35,
+            final_cost_usd: 0.05,
+          },
+        }),
+      },
+      true
+    )
+    const text = rendered.container.textContent ?? ''
+    assert.equal(text.includes('$0.05'), true)
+    assert.equal(text.includes('CNY 0.35'), true)
+    assert.equal(text.includes('1 USD = 7 CNY'), true)
+    assert.equal(text.includes('USD 0.05'), true)
+    assert.equal(text.includes('Historical pricing basis'), false)
 
     await act(async () => rendered.root.unmount())
     rendered.container.remove()

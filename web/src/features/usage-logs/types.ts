@@ -141,6 +141,20 @@ export interface GrokImageBillingV1 {
   final_cost: number
 }
 
+export interface GrokImageBillingV2
+  extends Omit<GrokImageBillingV1, 'version'> {
+  version: 2
+  requested_model?: string
+  billed_model?: string
+  source_currency: 'USD' | 'CNY'
+  cny_per_usd: number
+  cost_usd: number
+  final_source_cost: number
+  final_cost_usd: number
+}
+
+export type GrokImageBilling = GrokImageBillingV1 | GrokImageBillingV2
+
 export interface GPTImage2LogV1 {
   version: 1
   model: 'gpt-image-2'
@@ -159,6 +173,8 @@ export type GrokVideoOperation =
   | 'text_to_video'
   | 'image_to_video'
   | 'video_edit'
+  | 'video_extension'
+  | 'reference_to_video'
 
 export type GrokVideoInputType = 'text' | 'image' | 'video'
 
@@ -187,12 +203,27 @@ export interface GrokVideoBillingV1 {
   final_cost: number
 }
 
+export interface GrokVideoBillingV2
+  extends Omit<GrokVideoBillingV1, 'version'> {
+  version: 2
+  requested_model?: string
+  billed_model?: string
+  resolution_source?: string
+  source_currency: 'USD' | 'CNY'
+  cny_per_usd: number
+  cost_usd: number
+  final_source_cost: number
+  final_cost_usd: number
+}
+
+export type GrokVideoBilling = GrokVideoBillingV1 | GrokVideoBillingV2
+
 export interface LogOtherData {
-  grok_image_billing?: GrokImageBillingV1
+  grok_image_billing?: GrokImageBilling
   grok_image_preview_available?: boolean
   gpt_image_2?: GPTImage2LogV1
   gpt_image_2_preview_available?: boolean
-  grok_video_billing?: GrokVideoBillingV1
+  grok_video_billing?: GrokVideoBilling
   admin_info?: {
     request_policy?: PolicyEvent[]
     is_multi_key?: boolean
@@ -317,6 +348,12 @@ export interface LogOtherData {
   is_system_prompt_overwritten?: boolean
   po?: string[]
   billing_source?: string
+  source_currency?: 'USD' | 'CNY'
+  source_cost?: number
+  cny_per_usd?: number
+  cost_usd?: number
+  display_currency?: string
+  display_cost?: number
   group?: string
   stream_status?: {
     status?: string

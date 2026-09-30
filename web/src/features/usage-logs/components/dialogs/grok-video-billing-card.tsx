@@ -23,11 +23,13 @@ import { Label } from '@/components/ui/label'
 
 import type { UsageLog } from '../../data/schema'
 import {
+  formatGrokVideoAmount,
   formatGrokVideoCny,
+  formatGrokVideoFinalCharge,
   formatGrokVideoFormula,
   getGrokVideoBillingState,
 } from '../../lib/grok-video-billing'
-import type { GrokVideoBillingV1 } from '../../types'
+import type { GrokVideoBilling } from '../../types'
 
 function BillingMetric(props: {
   label: React.ReactNode
@@ -58,16 +60,18 @@ function formatResolution(resolution: string): string {
 }
 
 function operationLabel(
-  operation: GrokVideoBillingV1['operation'],
+  operation: GrokVideoBilling['operation'],
   t: (key: string) => string
 ): string {
   if (operation === 'image_to_video') return t('Image to Video')
   if (operation === 'video_edit') return t('Video Editing')
+  if (operation === 'video_extension') return t('Video Extension')
+  if (operation === 'reference_to_video') return t('Reference to Video')
   return t('Text to Video')
 }
 
 function inputTypeLabel(
-  inputType: GrokVideoBillingV1['input_type'],
+  inputType: GrokVideoBilling['input_type'],
   t: (key: string) => string
 ): string {
   if (inputType === 'image') return t('Image')
@@ -78,6 +82,7 @@ function inputTypeLabel(
 export function GrokVideoBillingCard(props: {
   log: UsageLog
   quotaPerUnit: number
+  isAdmin?: boolean
 }) {
   const { t } = useTranslation()
   const state = getGrokVideoBillingState(props.log)
@@ -178,24 +183,30 @@ export function GrokVideoBillingCard(props: {
             <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
               <BillingMetric
                 label={t('Output Unit Price')}
-                value={`${formatGrokVideoCny(state.billing.output_unit_price)} / s`}
+                value={`${formatGrokVideoAmount(state.billing, state.billing.output_unit_price)} / s`}
                 mono
               />
               <BillingMetric
                 label={t('Output Subtotal')}
-                value={formatGrokVideoCny(state.billing.output_cost)}
+                value={formatGrokVideoAmount(
+                  state.billing,
+                  state.billing.output_cost
+                )}
                 mono
               />
               {state.billing.operation === 'image_to_video' && (
                 <>
                   <BillingMetric
                     label={t('Image Input Unit Price')}
-                    value={`${formatGrokVideoCny(state.billing.image_input_unit_price)} / ${t('Image').toLowerCase()}`}
+                    value={`${formatGrokVideoAmount(state.billing, state.billing.image_input_unit_price)} / ${t('Image').toLowerCase()}`}
                     mono
                   />
                   <BillingMetric
                     label={t('Image Input Subtotal')}
-                    value={formatGrokVideoCny(state.billing.image_input_cost)}
+                    value={formatGrokVideoAmount(
+                      state.billing,
+                      state.billing.image_input_cost
+                    )}
                     mono
                   />
                 </>
@@ -204,19 +215,25 @@ export function GrokVideoBillingCard(props: {
                 <>
                   <BillingMetric
                     label={t('Video Input Unit Price')}
-                    value={`${formatGrokVideoCny(state.billing.video_input_unit_price)} / s`}
+                    value={`${formatGrokVideoAmount(state.billing, state.billing.video_input_unit_price)} / s`}
                     mono
                   />
                   <BillingMetric
                     label={t('Video Input Subtotal')}
-                    value={formatGrokVideoCny(state.billing.video_input_cost)}
+                    value={formatGrokVideoAmount(
+                      state.billing,
+                      state.billing.video_input_cost
+                    )}
                     mono
                   />
                 </>
               )}
               <BillingMetric
                 label={t('Subtotal')}
-                value={formatGrokVideoCny(state.billing.subtotal)}
+                value={formatGrokVideoAmount(
+                  state.billing,
+                  state.billing.subtotal
+                )}
                 mono
               />
               <BillingMetric
@@ -225,6 +242,37 @@ export function GrokVideoBillingCard(props: {
                 mono
               />
             </div>
+
+            {props.isAdmin && state.billing.version === 2 && (
+              <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
+                <BillingMetric
+                  label={t('Source currency')}
+                  value={state.billing.source_currency}
+                  mono
+                />
+                <BillingMetric
+                  label={t('Source cost')}
+                  value={`${state.billing.source_currency} ${state.billing.final_source_cost}`}
+                  mono
+                />
+                <BillingMetric
+                  label={t('Frozen exchange rate')}
+                  value={`1 USD = ${state.billing.cny_per_usd} CNY`}
+                  mono
+                />
+                <BillingMetric
+                  label={t('USD-equivalent cost')}
+                  value={`USD ${state.billing.final_cost_usd}`}
+                  mono
+                />
+              </div>
+            )}
+
+            {state.billing.version === 1 && (
+              <div className='text-muted-foreground text-[11px]'>
+                {t('Historical pricing basis')}
+              </div>
+            )}
 
             <div className='space-y-1.5 rounded-md border border-sky-200 bg-sky-50/70 p-2 dark:border-sky-900 dark:bg-sky-950/20'>
               <div className='flex items-center gap-1.5 text-xs font-medium text-sky-700 dark:text-sky-300'>
@@ -239,7 +287,7 @@ export function GrokVideoBillingCard(props: {
             <div className='flex items-center justify-between gap-3 border-t pt-2 text-xs'>
               <span className='text-muted-foreground'>{t('Final Charge')}</span>
               <span className='font-mono font-semibold'>
-                {formatGrokVideoCny(state.billing.final_cost)}
+                {formatGrokVideoFinalCharge(state.billing)}
               </span>
             </div>
           </>

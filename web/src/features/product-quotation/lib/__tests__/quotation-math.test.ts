@@ -160,6 +160,7 @@ describe('canonical quotation snapshot', () => {
       catalogAmount: 0,
       sourceAmount: 0,
       quoteAmount: 0,
+      sourceCurrency: 'USD',
       currency: 'USD',
       unit: 'request',
       condition: null,
@@ -212,7 +213,7 @@ describe('canonical quotation snapshot', () => {
       dimensions.map((dimension) => [
         dimension.key,
         dimension.catalogAmount,
-        dimension.currency,
+        dimension.sourceCurrency,
         dimension.condition,
       ]),
       [
@@ -241,7 +242,12 @@ describe('canonical quotation snapshot', () => {
 
     const dimensions = snapshot.providers[0]?.models[0]?.dimensions ?? []
     assert.equal(dimensions.length, 4)
-    assert.ok(dimensions.every((dimension) => dimension.currency === 'CNY'))
+    assert.ok(
+      dimensions.every(
+        (dimension) =>
+          dimension.sourceCurrency === 'CNY' && dimension.currency === 'USD'
+      )
+    )
     assert.deepEqual(
       dimensions.map((dimension) => dimension.catalogAmount),
       [0.2, 0.8, 0.1, 0.4]
@@ -381,7 +387,8 @@ describe('canonical quotation snapshot', () => {
     assert.ok(
       video?.dimensions.every(
         (dimension) =>
-          dimension.currency === 'CNY' &&
+          dimension.sourceCurrency === 'CNY' &&
+          dimension.currency === 'USD' &&
           dimension.unit === '1M token' &&
           dimension.condition?.includes('fps 24') &&
           dimension.condition?.includes('extra frames 1')
@@ -403,7 +410,9 @@ describe('canonical quotation snapshot', () => {
     assert.ok(
       usdVideo?.dimensions.every(
         (dimension) =>
-          dimension.currency === 'USD' && dimension.unit === '1M token'
+          dimension.sourceCurrency === 'USD' &&
+          dimension.currency === 'USD' &&
+          dimension.unit === '1M token'
       )
     )
   })
@@ -627,8 +636,36 @@ describe('canonical quotation snapshot', () => {
 
     const [fixed, request] = snapshot.providers[0]?.models ?? []
     assert.ok(
-      fixed?.dimensions.every((dimension) => dimension.currency === 'CNY')
+      fixed?.dimensions.every(
+        (dimension) =>
+          dimension.sourceCurrency === 'CNY' && dimension.currency === 'USD'
+      )
     )
-    assert.equal(request?.dimensions[0]?.currency, 'CNY')
+    assert.equal(request?.dimensions[0]?.sourceCurrency, 'CNY')
+    assert.equal(request?.dimensions[0]?.currency, 'USD')
+  })
+
+  test('normalizes mixed USD and CNY source prices into one quote currency', () => {
+    const snapshot = buildSnapshot(
+      [
+        pricingModel({ model_name: 'usd', model_ratio: 2 }),
+        pricingModel({
+          id: 2,
+          model_name: 'cny',
+          model_ratio: 2,
+          billing_currency: 'CNY',
+        }),
+      ],
+      { quoteCurrency: 'CNY', cnyPerUSD: 7 }
+    )
+    const [usd, cny] = snapshot.providers[0]?.models ?? []
+    assert.equal(usd?.dimensions[0]?.sourceCurrency, 'USD')
+    assert.ok(
+      Math.abs((usd?.dimensions[0]?.quoteAmount ?? 0) - 22.4) < 1e-12
+    )
+    assert.equal(cny?.dimensions[0]?.sourceCurrency, 'CNY')
+    assert.equal(cny?.dimensions[0]?.quoteAmount, 3.2)
+    assert.equal(snapshot.quoteCurrency, 'CNY')
+    assert.equal(snapshot.cnyPerUSD, 7)
   })
 })

@@ -60,6 +60,9 @@ export type QuotePriceDimension = {
   sourceAmount: number | null
   /** Source value after applying the quotation discount exactly once. */
   quoteAmount: number | null
+  /** Currency used by the provider/model catalog. */
+  sourceCurrency?: QuoteCurrency
+  /** Currency used for the final quotation amount. */
   currency: QuoteCurrency
   unit: string
   condition: string | null
@@ -103,6 +106,8 @@ export type QuotationSnapshot = {
   pricingVersion: string | null
   fetchedAt: string
   globalDiscount: number | null
+  quoteCurrency?: QuoteCurrency
+  cnyPerUSD?: number
   priceBasis: QuotationSnapshotPriceBasis
   providers: QuoteProviderSection[]
 }
@@ -137,4 +142,6 @@ export type BuildQuotationSnapshotInput = {
   groupRatio: Record<string, number>
   pricingVersion?: string | null
   fetchedAt: string | number | Date
+  quoteCurrency?: QuoteCurrency
+  cnyPerUSD?: number
 }

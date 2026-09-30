@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { GrokImageBillingV1 } from '../types'
+import {
+  formatBillingCurrencyFromUSD,
+  formatSourceBillingAmount,
+} from '@/lib/currency'
+
+import type { GrokImageBilling } from '../types'
 
 const GROK_IMAGE_MODELS = new Set([
   'grok-imagine-image',
@@ -30,13 +35,13 @@ type GrokImageLogLike = {
 }
 
 export type GrokImageBillingState =
-  | { kind: 'current'; model: string; billing: GrokImageBillingV1 }
+  | { kind: 'current'; model: string; billing: GrokImageBilling }
   | { kind: 'history'; model: string }
   | { kind: 'not-grok-image' }
 
 export function isGrokImageModel(
   model: unknown
-): model is GrokImageBillingV1['model'] {
+): model is GrokImageBilling['model'] {
   return typeof model === 'string' && GROK_IMAGE_MODELS.has(model)
 }
 
@@ -63,16 +68,14 @@ function parseOther(value: unknown): Record<string, unknown> | null {
   }
 }
 
-/** Parse only the complete, versioned v1 contract; never synthesize fields. */
-export function parseGrokImageBilling(
-  other: unknown
-): GrokImageBillingV1 | null {
+/** Parse only complete versioned contracts; never synthesize audit fields. */
+export function parseGrokImageBilling(other: unknown): GrokImageBilling | null {
   const root = parseOther(other)
   const value = root?.grok_image_billing
   if (!isRecord(value)) return null
 
   if (
-    value.version !== 1 ||
+    (value.version !== 1 && value.version !== 2) ||
     !isGrokImageModel(value.model) ||
     (value.operation !== 'generation' && value.operation !== 'edit') ||
     typeof value.resolution !== 'string' ||
@@ -95,6 +98,17 @@ export function parseGrokImageBilling(
     return null
   }
   if (
+    value.version === 2 &&
+    ((value.source_currency !== 'USD' && value.source_currency !== 'CNY') ||
+      !isNonNegativeFiniteNumber(value.cny_per_usd) ||
+      value.cny_per_usd === 0 ||
+      !isNonNegativeFiniteNumber(value.cost_usd) ||
+      !isNonNegativeFiniteNumber(value.final_source_cost) ||
+      !isNonNegativeFiniteNumber(value.final_cost_usd))
+  ) {
+    return null
+  }
+  if (
     value.model === 'grok-imagine-image-2.0' &&
     value.quality !== 'low' &&
     value.quality !== 'medium'
@@ -102,7 +116,7 @@ export function parseGrokImageBilling(
     return null
   }
 
-  return value as unknown as GrokImageBillingV1
+  return value as unknown as GrokImageBilling
 }
 
 export function getGrokImageBillingState(
@@ -125,13 +139,37 @@ export function formatGrokImageCny(value: number): string {
   return `¥${value.toFixed(6)}`
 }
 
-export function formatGrokImageFormula(billing: GrokImageBillingV1): string {
-  const output = `${formatGrokImageCny(billing.output_unit_price)} × ${billing.output_count}`
+export function formatGrokImageAmount(
+  billing: GrokImageBilling,
+  value: number
+): string {
+  if (billing.version === 1) return formatGrokImageCny(value)
+  return formatSourceBillingAmount(value, billing.source_currency, {
+    cnyPerUSD: billing.cny_per_usd,
+    digitsLarge: 6,
+    digitsSmall: 6,
+    abbreviate: false,
+  })
+}
+
+export function formatGrokImageFinalCharge(
+  billing: GrokImageBilling
+): string {
+  if (billing.version === 1) return formatGrokImageCny(billing.final_cost)
+  return formatBillingCurrencyFromUSD(billing.final_cost_usd, {
+    digitsLarge: 6,
+    digitsSmall: 6,
+    abbreviate: false,
+  })
+}
+
+export function formatGrokImageFormula(billing: GrokImageBilling): string {
+  const output = `${formatGrokImageAmount(billing, billing.output_unit_price)} × ${billing.output_count}`
   const terms =
     billing.operation === 'edit'
-      ? `${output} + ${formatGrokImageCny(billing.input_unit_price)} × ${billing.input_image_count}`
+      ? `${output} + ${formatGrokImageAmount(billing, billing.input_unit_price)} × ${billing.input_image_count}`
       : output
-  return `(${terms}) × ${billing.group_ratio.toFixed(4)} = ${formatGrokImageCny(billing.final_cost)}`
+  return `(${terms}) × ${billing.group_ratio.toFixed(4)} = ${formatGrokImageFinalCharge(billing)}`
 }
 
 export function getGrokImageListSummary(log: GrokImageLogLike): string | null {

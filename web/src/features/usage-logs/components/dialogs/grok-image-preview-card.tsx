@@ -35,6 +35,7 @@ import { ImageDialog } from './image-dialog'
 interface GrokImagePreviewCardProps {
   log: UsageLog
   quotaPerUnit: number
+  isAdmin?: boolean
 }
 
 export function GrokImagePreviewCard(props: GrokImagePreviewCardProps) {
@@ -251,6 +252,7 @@ function GrokImagePreviewContent(props: GrokImagePreviewCardProps) {
           log={props.log}
           quotaPerUnit={props.quotaPerUnit}
           showParameters={false}
+          isAdmin={props.isAdmin}
         />
       </aside>
 

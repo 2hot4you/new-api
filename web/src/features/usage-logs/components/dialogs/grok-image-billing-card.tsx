@@ -23,7 +23,9 @@ import { Label } from '@/components/ui/label'
 
 import type { UsageLog } from '../../data/schema'
 import {
+  formatGrokImageAmount,
   formatGrokImageCny,
+  formatGrokImageFinalCharge,
   formatGrokImageFormula,
   getGrokImageBillingState,
 } from '../../lib/grok-image-billing'
@@ -51,6 +53,7 @@ export function GrokImageBillingCard(props: {
   log: UsageLog
   quotaPerUnit: number
   showParameters?: boolean
+  isAdmin?: boolean
 }) {
   const { t } = useTranslation()
   const state = getGrokImageBillingState(props.log)
@@ -141,31 +144,46 @@ export function GrokImageBillingCard(props: {
             <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
               <BillingMetric
                 label={t('Output Unit Price')}
-                value={formatGrokImageCny(state.billing.output_unit_price)}
+                value={formatGrokImageAmount(
+                  state.billing,
+                  state.billing.output_unit_price
+                )}
                 mono
               />
               <BillingMetric
                 label={t('Output Subtotal')}
-                value={formatGrokImageCny(state.billing.output_cost)}
+                value={formatGrokImageAmount(
+                  state.billing,
+                  state.billing.output_cost
+                )}
                 mono
               />
               {state.billing.operation === 'edit' && (
                 <>
                   <BillingMetric
                     label={t('Input Unit Price')}
-                    value={formatGrokImageCny(state.billing.input_unit_price)}
+                    value={formatGrokImageAmount(
+                      state.billing,
+                      state.billing.input_unit_price
+                    )}
                     mono
                   />
                   <BillingMetric
                     label={t('Input Subtotal')}
-                    value={formatGrokImageCny(state.billing.input_cost)}
+                    value={formatGrokImageAmount(
+                      state.billing,
+                      state.billing.input_cost
+                    )}
                     mono
                   />
                 </>
               )}
               <BillingMetric
                 label={t('Subtotal')}
-                value={formatGrokImageCny(state.billing.subtotal)}
+                value={formatGrokImageAmount(
+                  state.billing,
+                  state.billing.subtotal
+                )}
                 mono
               />
               <BillingMetric
@@ -174,6 +192,37 @@ export function GrokImageBillingCard(props: {
                 mono
               />
             </div>
+
+            {props.isAdmin && state.billing.version === 2 && (
+              <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
+                <BillingMetric
+                  label={t('Source currency')}
+                  value={state.billing.source_currency}
+                  mono
+                />
+                <BillingMetric
+                  label={t('Source cost')}
+                  value={`${state.billing.source_currency} ${state.billing.final_source_cost}`}
+                  mono
+                />
+                <BillingMetric
+                  label={t('Frozen exchange rate')}
+                  value={`1 USD = ${state.billing.cny_per_usd} CNY`}
+                  mono
+                />
+                <BillingMetric
+                  label={t('USD-equivalent cost')}
+                  value={`USD ${state.billing.final_cost_usd}`}
+                  mono
+                />
+              </div>
+            )}
+
+            {state.billing.version === 1 && (
+              <div className='text-muted-foreground text-[11px]'>
+                {t('Historical pricing basis')}
+              </div>
+            )}
 
             <div className='space-y-1.5 rounded-md border border-violet-200 bg-violet-50/70 p-2 dark:border-violet-900 dark:bg-violet-950/20'>
               <div className='flex items-center gap-1.5 text-xs font-medium text-violet-700 dark:text-violet-300'>
@@ -188,7 +237,7 @@ export function GrokImageBillingCard(props: {
             <div className='flex items-center justify-between gap-3 border-t pt-2 text-xs'>
               <span className='text-muted-foreground'>{t('Final Charge')}</span>
               <span className='font-mono font-semibold'>
-                {formatGrokImageCny(state.billing.final_cost)}
+                {formatGrokImageFinalCharge(state.billing)}
               </span>
             </div>
           </>

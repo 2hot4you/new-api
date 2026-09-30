@@ -492,7 +492,7 @@ describe('product quotation workspace states', () => {
     expect(screen.getAllByText('1M token').length).toBeGreaterThan(0)
     expect(screen.getAllByText('image').length).toBeGreaterThan(0)
     expect(screen.getByText('1024x1024')).toBeInTheDocument()
-    expect(screen.getByText('¥0.16')).toBeInTheDocument()
+    expect(screen.getByText('$0.02285714')).toBeInTheDocument()
     expect(
       screen.queryByText(/grand total|total price/i)
     ).not.toBeInTheDocument()

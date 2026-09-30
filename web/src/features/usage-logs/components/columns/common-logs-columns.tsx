@@ -59,7 +59,7 @@ import { getUserGroups } from '@/lib/api'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import {
   formatBillingCurrencyFromUSD,
-  formatCatalogCurrencyAmount,
+  formatSourceBillingAmount,
 } from '@/lib/currency'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
@@ -285,9 +285,13 @@ function buildTypeDetailSegments(
   const segments: DetailSegment[] = []
 
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
+  const frozenBillingCurrency = other.source_currency ?? billingCurrency
   const formatPriceCompact = (price: number) =>
-    billingCurrency
-      ? formatCatalogCurrencyAmount(price, billingCurrency, priceOpts)
+    frozenBillingCurrency
+      ? formatSourceBillingAmount(price, frozenBillingCurrency, {
+          ...priceOpts,
+          cnyPerUSD: other.cny_per_usd,
+        })
       : formatBillingCurrencyFromUSD(price, priceOpts)
   const formatPrice = (price: number) => `${formatPriceCompact(price)}/M`
   const formatPriceList = (prices: string[], showUnit: boolean) => {
@@ -315,7 +319,8 @@ function buildTypeDetailSegments(
         const unitLabel = taskUsageUnitLabel(definition, language, t(unitKey))
         return `${field} ${formatTaskUsageUnitPrice(price, {
           tokenUnit: 'M',
-          billingCurrency,
+          billingCurrency: frozenBillingCurrency,
+          usdExchangeRate: other.cny_per_usd,
         })}/${unitLabel}`
       })
       if (tier.constant > 0) {
@@ -1039,7 +1044,7 @@ export function useCommonLogsColumns(
             isAdmin,
             i18n.language,
             usageSchema,
-            matchedPricingModel?.billing_currency
+            other?.source_currency ?? matchedPricingModel?.billing_currency
           )
           const primary = segments[0]
           const previewText = getCommonLogDetailPreviewText(
@@ -1049,7 +1054,7 @@ export function useCommonLogsColumns(
             isAdmin,
             i18n.language,
             usageSchema,
-            matchedPricingModel?.billing_currency
+            other?.source_currency ?? matchedPricingModel?.billing_currency
           )
           const hasMore = segments.length > 1
           let primaryTextClass = 'text-foreground'
