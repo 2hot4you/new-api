@@ -1,0 +1,13 @@
+{
+  "id": "explain-deepseek-pro-currency",
+  "title": "解释 DeepSeek Pro 显示人民币而 Flash 显示美元",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "说明展示币种与实际表达式计费单位的差异",
+  "createdAt": "2026-09-30T10:30:00+08:00",
+  "completedAt": "2026-09-30T10:31:00+08:00",
+  "branch": "upgrade/rc40"
+}
