@@ -90,6 +90,33 @@ func TestModelPricingSnapshotAndSaveIncludeBillingCurrency(t *testing.T) {
 	require.ErrorContains(t, err, "metadata")
 }
 
+func TestModelPricingSnapshotAllIncludesUnconfiguredExactMetadata(t *testing.T) {
+	setupModelPricingCurrencyTest(t)
+	const name = "glm-5.3"
+	require.NoError(t, DB.Create(&[]Model{
+		{ModelName: name, NameRule: NameRuleExact, BillingCurrency: "CNY"},
+		{ModelName: "glm-prefix", NameRule: NameRulePrefix, BillingCurrency: "CNY"},
+	}).Error)
+
+	snapshot, err := GetModelPricingSnapshot(nil)
+	require.NoError(t, err)
+	entries := make(map[string]ModelPricingEntry, len(snapshot.Entries))
+	for _, entry := range snapshot.Entries {
+		entries[entry.ModelName] = entry
+	}
+	entry, exists := entries[name]
+	require.True(t, exists, "unconfigured exact metadata must be editable from the full pricing list")
+	assert.Equal(t, "CNY", entry.BillingCurrency)
+	assert.True(t, entry.HasMetadata)
+	assert.NotEqual(t, snapshot.EmptyVersion, entry.Version)
+	assert.NotContains(t, entries, "glm-prefix")
+
+	require.NoError(t, UpdateModelPricing([]ModelPricingChange{{
+		ModelName: name, ExpectedVersion: entry.Version,
+		Pricing: PricingValues{"ModelPrice": float64(2)}, BillingCurrency: "CNY",
+	}}))
+}
+
 func TestUpdateModelPricingRollsBackCurrencyWithPricingFailure(t *testing.T) {
 	setupModelPricingCurrencyTest(t)
 	const name = "pricing-currency-rollback"

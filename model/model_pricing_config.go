@@ -268,6 +268,18 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 		for name := range billing_setting.GetBuiltinBillingExprCopy() {
 			nameSet[name] = true
 		}
+		if DB.Migrator().HasTable(&Model{}) {
+			var metadataNames []string
+			if err := DB.Model(&Model{}).
+				Where("name_rule = ?", NameRuleExact).
+				Distinct("model_name").
+				Pluck("model_name", &metadataNames).Error; err != nil {
+				return nil, err
+			}
+			for _, name := range metadataNames {
+				nameSet[name] = true
+			}
+		}
 		for name := range nameSet {
 			names = append(names, name)
 		}
