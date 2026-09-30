@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,13 +20,28 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	kittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func TestMain(m *testing.M) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		panic(err)
+	}
+	if err = database.AutoMigrate(&model.Model{}); err != nil {
+		panic(err)
+	}
+	model.DB = database
+	os.Exit(m.Run())
+}
 
 func imageContext(t *testing.T, body string) *gin.Context {
 	t.Helper()
@@ -240,7 +256,7 @@ func TestEstimateImageBillingSeparatesInputAndOutputUnits(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, 0.16, ratios["molii_grok_direct_cost"], 0.000001)
 	require.NotNil(t, info.GrokImageBilling)
-	assert.Equal(t, 1, info.GrokImageBilling.Version)
+	assert.Equal(t, 2, info.GrokImageBilling.Version)
 	assert.Equal(t, "grok-imagine-image-quality", info.GrokImageBilling.Model)
 	assert.Equal(t, "grok-imagine-image-quality", info.GrokImageBilling.RequestedModel)
 	assert.Equal(t, "grok-imagine-image-quality", info.GrokImageBilling.BilledModel)
@@ -279,6 +295,30 @@ func TestEstimateImageBillingSnapshotsGenerationDefaults(t *testing.T) {
 	assert.InDelta(t, 0.002, info.GrokImageBilling.InputUnitPrice, 0.000001)
 	assert.InDelta(t, 0.02, info.GrokImageBilling.OutputCost, 0.000001)
 	assert.InDelta(t, 0.02, info.GrokImageBilling.Subtotal, 0.000001)
+}
+
+func TestEstimateImageBillingNormalizesCNYSourceCost(t *testing.T) {
+	require.NoError(t, model.DB.Create(&model.Model{
+		ModelName: "grok-imagine-image", NameRule: model.NameRuleExact, BillingCurrency: "CNY",
+	}).Error)
+	t.Cleanup(func() { model.DB.Where("model_name = ?", "grok-imagine-image").Delete(&model.Model{}) })
+	previousRate := operation_setting.USDExchangeRate
+	operation_setting.USDExchangeRate = 7
+	t.Cleanup(func() { operation_setting.USDExchangeRate = previousRate })
+
+	body := `{"model":"grok-imagine-image","prompt":"cat"}`
+	c := imageContext(t, body)
+	info := imageInfo()
+	ratios, err := (&Adaptor{}).EstimateImageBilling(c, info, dto.ImageRequest{Model: "grok-imagine-image", Prompt: "cat"})
+	require.NoError(t, err)
+
+	assert.InDelta(t, 0.02/7.0, ratios["molii_grok_direct_cost"], 1e-12)
+	require.NotNil(t, info.GrokImageBilling)
+	assert.Equal(t, 2, info.GrokImageBilling.Version)
+	assert.Equal(t, "CNY", info.GrokImageBilling.SourceCurrency)
+	assert.Equal(t, 7.0, info.GrokImageBilling.CNYPerUSD)
+	assert.InDelta(t, 0.02, info.GrokImageBilling.Subtotal, 1e-12)
+	assert.InDelta(t, 0.02/7.0, info.GrokImageBilling.CostUSD, 1e-12)
 }
 
 func TestEstimateImage20BillingUsesQualityTier(t *testing.T) {

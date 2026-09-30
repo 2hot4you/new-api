@@ -643,6 +643,26 @@ func TestGrokVideoV1CompletionUsesHalfAwayRoundingWithGroupRatio(t *testing.T) {
 	assert.Equal(t, 1.5, task.PrivateData.BillingContext.GrokVideoBilling.GroupRatio)
 }
 
+func TestGrokVideoV2CompletionUsesFrozenCNYRate(t *testing.T) {
+	task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{
+		GroupRatio: 1, OriginModelName: LegacyVideoModel,
+		GrokVideoBilling: &model.GrokVideoBillingSnapshot{
+			Version: 2, Model: LegacyVideoModel, Operation: "text_to_video", InputType: "text",
+			RequestedDurationSeconds: 5, EstimatedDurationSeconds: 5,
+			RequestedResolution: "480p", EstimatedResolution: "480p",
+			OutputUnitPrice: 0.05, SourceCurrency: "CNY", CNYPerUSD: 7,
+		},
+	}}}
+
+	quota := (&TaskAdaptor{}).AdjustBillingOnComplete(task, &relaycommon.TaskInfo{ActualDurationSeconds: 5})
+
+	assert.Equal(t, 17_857, quota)
+	billing := task.PrivateData.BillingContext.GrokVideoBilling
+	assert.InDelta(t, 0.25, billing.Subtotal, 1e-12)
+	assert.InDelta(t, 0.25/7.0, billing.CostUSD, 1e-12)
+	assert.Equal(t, 7.0, billing.CNYPerUSD)
+}
+
 func TestVideoSubmitReturnsOnlyPublicTaskID(t *testing.T) {
 	c, recorder := taskContext(t, `{}`)
 	info := taskInfo()

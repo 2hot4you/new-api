@@ -76,8 +76,13 @@ type GrokImageBillingSnapshot struct {
 	OutputCost           float64 `json:"output_cost"`
 	InputCost            float64 `json:"input_cost"`
 	Subtotal             float64 `json:"subtotal"`
+	SourceCurrency       string  `json:"source_currency,omitempty"`
+	CNYPerUSD            float64 `json:"cny_per_usd,omitempty"`
+	CostUSD              float64 `json:"cost_usd,omitempty"`
 	GroupRatio           float64 `json:"group_ratio"`
 	FinalCost            float64 `json:"final_cost"`
+	FinalSourceCost      float64 `json:"final_source_cost,omitempty"`
+	FinalCostUSD         float64 `json:"final_cost_usd,omitempty"`
 }
 
 const (
@@ -114,8 +119,13 @@ type GrokVideoBillingSnapshot struct {
 	ImageInputCost           float64 `json:"image_input_cost"`
 	VideoInputCost           float64 `json:"video_input_cost"`
 	Subtotal                 float64 `json:"subtotal"`
+	SourceCurrency           string  `json:"source_currency,omitempty"`
+	CNYPerUSD                float64 `json:"cny_per_usd,omitempty"`
+	CostUSD                  float64 `json:"cost_usd,omitempty"`
 	GroupRatio               float64 `json:"group_ratio"`
 	FinalCost                float64 `json:"final_cost"`
+	FinalSourceCost          float64 `json:"final_source_cost,omitempty"`
+	FinalCostUSD             float64 `json:"final_cost_usd,omitempty"`
 }
 
 type GPTImage2LogSnapshot struct {

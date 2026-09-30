@@ -7,8 +7,8 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 )
 
-// MoliiGrokPriceSetting stores direct platform-currency prices. USD catalog
-// numbers are treated as CNY at 1:1 without an exchange-rate conversion.
+// MoliiGrokPriceSetting stores CNY source prices. Runtime billing normalizes
+// them to USD-equivalent quota through the model's frozen money context.
 type MoliiGrokPriceSetting struct {
 	ImageStandardInput float64 `json:"image_standard_input"`
 	ImageStandard1K    float64 `json:"image_standard_1k"`
@@ -168,8 +168,7 @@ func GetMoliiGrokVideoPrices(model, resolution string) (outputPrice, imageInputP
 }
 
 // GetMoliiGrokCatalogPricing returns the configured direct price table for a
-// Grok Imagine model. All values are CNY-denominated using the configured 1:1
-// catalog convention.
+// Grok Imagine model. All values are CNY-denominated source prices.
 func GetMoliiGrokCatalogPricing(model string) (*MoliiGrokCatalogPricing, bool) {
 	switch model {
 	case "grok-imagine-image", "grok-imagine-image-quality":

@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -92,6 +93,13 @@ func TestBuildGrokVideoEditBillingSnapshotUsesImmutableInputProbeMetadata(t *tes
 }
 
 func TestPrepareGrokVideoBillingSnapshotFreezesValuesBeforePrecharge(t *testing.T) {
+	require.NoError(t, model.DB.Create(&model.Model{
+		ModelName: grokVideoModelLegacy, NameRule: model.NameRuleExact, BillingCurrency: "CNY",
+	}).Error)
+	t.Cleanup(func() { model.DB.Where("model_name = ?", grokVideoModelLegacy).Delete(&model.Model{}) })
+	previousRate := operation_setting.USDExchangeRate
+	operation_setting.USDExchangeRate = 7
+	t.Cleanup(func() { operation_setting.USDExchangeRate = previousRate })
 	c, _ := gin.CreateTestContext(nil)
 	c.Set("task_request", relaycommon.TaskSubmitReq{Video: "https://fixture.invalid/input.mp4"})
 	info := &relaycommon.RelayInfo{
@@ -106,12 +114,18 @@ func TestPrepareGrokVideoBillingSnapshotFreezesValuesBeforePrecharge(t *testing.
 
 	require.True(t, PrepareGrokVideoBillingSnapshot(c, info, 180000))
 	require.NotNil(t, info.GrokVideoBilling)
+	assert.Equal(t, 2, info.GrokVideoBilling.Version)
+	assert.Equal(t, "CNY", info.GrokVideoBilling.SourceCurrency)
+	assert.Equal(t, 7.0, info.GrokVideoBilling.CNYPerUSD)
+	assert.InDelta(t, info.GrokVideoBilling.Subtotal/7.0, info.GrokVideoBilling.CostUSD, 1e-12)
 	info.InputVideoDurationSeconds = 8.7
 	info.InputVideoResolutionTier = "720p"
+	operation_setting.USDExchangeRate = 8
 
 	assert.Equal(t, 6.25, info.GrokVideoBilling.RequestedDurationSeconds)
 	assert.Equal(t, "480p", info.GrokVideoBilling.RequestedResolution)
 	assert.Equal(t, relaycommon.GrokVideoResolutionSourceInputProbeV1, info.GrokVideoBilling.ResolutionSource)
+	assert.Equal(t, 7.0, info.GrokVideoBilling.CNYPerUSD)
 }
 
 func TestBuildGrokVideoBillingSnapshotKeepsRequestedAndBilledModel(t *testing.T) {

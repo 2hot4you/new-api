@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingmoney"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -237,8 +238,16 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	c.Set(imageBillingInputCountContextKey, inputCount)
 	c.Set(imageBillingBasePriceContextKey, basePrice)
 	cost := outputPrice*float64(n) + inputPrice*float64(inputCount)
+	moneyContext, _, err := model.ResolveBillingMoneyContext(model.DB, billedModel)
+	if err != nil {
+		return nil, fmt.Errorf("Molii Grok image billing currency is invalid: %w", err)
+	}
+	amounts, err := moneyContext.Normalize(cost)
+	if err != nil {
+		return nil, fmt.Errorf("Molii Grok image cost is invalid: %w", err)
+	}
 	info.GrokImageBilling = &relaycommon.GrokImageBillingSnapshot{
-		Version:              1,
+		Version:              2,
 		Model:                modelName,
 		RequestedModel:       modelName,
 		BilledModel:          billedModel,
@@ -254,8 +263,11 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 		OutputCost:           outputPrice * float64(n),
 		InputCost:            inputPrice * float64(inputCount),
 		Subtotal:             cost,
+		SourceCurrency:       string(moneyContext.SourceCurrency),
+		CNYPerUSD:            moneyContext.CNYPerUSD,
+		CostUSD:              amounts.CostUSD,
 	}
-	return map[string]float64{"molii_grok_direct_cost": cost / basePrice}, nil
+	return map[string]float64{"molii_grok_direct_cost": amounts.CostUSD / basePrice}, nil
 }
 
 func normalizeImageQuality(modelName, requested string) (string, error) {
@@ -431,7 +443,16 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		basePrice := c.GetFloat64(imageBillingBasePriceContextKey)
 		if outputPrice >= 0 && inputPrice >= 0 && basePrice > 0 {
 			actualCost := outputPrice*float64(actualCount) + inputPrice*float64(inputCount)
-			info.PriceData.AddOtherRatio("molii_grok_direct_cost", actualCost/basePrice)
+			costUSD := actualCost
+			if info.GrokImageBilling != nil && info.GrokImageBilling.Version >= 2 {
+				moneyContext, contextErr := billingmoney.NewContext(info.GrokImageBilling.SourceCurrency, info.GrokImageBilling.CNYPerUSD)
+				if contextErr == nil {
+					if amounts, normalizeErr := moneyContext.Normalize(actualCost); normalizeErr == nil {
+						costUSD = amounts.CostUSD
+					}
+				}
+			}
+			info.PriceData.AddOtherRatio("molii_grok_direct_cost", costUSD/basePrice)
 		}
 	}
 	if info != nil && info.GrokImageBilling != nil {
@@ -440,6 +461,13 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		snapshot.OutputCost = snapshot.OutputUnitPrice * float64(actualCount)
 		snapshot.InputCost = snapshot.InputUnitPrice * float64(snapshot.InputImageCount)
 		snapshot.Subtotal = snapshot.OutputCost + snapshot.InputCost
+		if snapshot.Version >= 2 {
+			if moneyContext, contextErr := billingmoney.NewContext(snapshot.SourceCurrency, snapshot.CNYPerUSD); contextErr == nil {
+				if amounts, normalizeErr := moneyContext.Normalize(snapshot.Subtotal); normalizeErr == nil {
+					snapshot.CostUSD = amounts.CostUSD
+				}
+			}
+		}
 	}
 	c.JSON(http.StatusOK, dto.ImageResponse{Data: data})
 	return &dto.Usage{}, nil

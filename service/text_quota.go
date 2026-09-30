@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/billingmoney"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -402,7 +403,7 @@ func isZeroCostGrokImageBilling(relayInfo *relaycommon.RelayInfo) bool {
 		return false
 	}
 	snapshot := relayInfo.GrokImageBilling
-	if snapshot.Version != 1 || snapshot.Model != relayInfo.OriginModelName || snapshot.Subtotal != 0 {
+	if (snapshot.Version != 1 && snapshot.Version != 2) || snapshot.Model != relayInfo.OriginModelName || snapshot.Subtotal != 0 {
 		return false
 	}
 	switch relayInfo.OriginModelName {
@@ -420,6 +421,10 @@ func appendGrokImageBillingLog(other *model.LogOther, relayInfo *relaycommon.Rel
 	snapshot := relayInfo.GrokImageBilling
 	snapshot.GroupRatio = groupRatio
 	snapshot.FinalCost = float64(settledQuota) / common.QuotaPerUnit
+	if snapshot.Version >= 2 {
+		snapshot.FinalSourceCost = snapshot.Subtotal * groupRatio
+		snapshot.FinalCostUSD = snapshot.FinalCost
+	}
 	other.SetPublic("grok_image_billing", snapshot)
 	if relayInfo.GrokImagePreviewAvailable {
 		other.SetPublic("grok_image_preview_available", true)
@@ -439,24 +444,37 @@ func appendGrokImageBillingLog(other *model.LogOther, relayInfo *relaycommon.Rel
 	if snapshot.Quality != "" {
 		parts = append(parts, fmt.Sprintf("质量 %s", snapshot.Quality))
 	}
+	finalDisplayCost := snapshot.FinalCost
+	symbol := "¥"
+	if snapshot.Version >= 2 {
+		finalDisplayCost = snapshot.FinalSourceCost
+		if snapshot.SourceCurrency != string(billingmoney.CurrencyCNY) {
+			symbol = "$"
+		}
+	}
 	if snapshot.Operation == "edit" {
 		parts = append(parts, fmt.Sprintf("输入 %d 张", snapshot.InputImageCount))
 		parts = append(parts, fmt.Sprintf(
-			"计费 (¥%.6f × %d + ¥%.6f × %d) × %.4f = ¥%.6f",
+			"计费 (%s%.6f × %d + %s%.6f × %d) × %.4f = %s%.6f",
+			symbol,
 			snapshot.OutputUnitPrice,
 			snapshot.OutputCount,
+			symbol,
 			snapshot.InputUnitPrice,
 			snapshot.InputImageCount,
 			snapshot.GroupRatio,
-			snapshot.FinalCost,
+			symbol,
+			finalDisplayCost,
 		))
 	} else {
 		parts = append(parts, fmt.Sprintf(
-			"计费 (¥%.6f × %d) × %.4f = ¥%.6f",
+			"计费 (%s%.6f × %d) × %.4f = %s%.6f",
+			symbol,
 			snapshot.OutputUnitPrice,
 			snapshot.OutputCount,
 			snapshot.GroupRatio,
-			snapshot.FinalCost,
+			symbol,
+			finalDisplayCost,
 		))
 	}
 	return strings.Join(parts, ", ")

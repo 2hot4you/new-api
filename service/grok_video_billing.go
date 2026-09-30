@@ -8,13 +8,15 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingmoney"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	grokVideoBillingVersion     = 1
+	grokVideoBillingVersion     = 2
+	grokVideoBillingVersionV1   = 1
 	grokVideoModelLegacy        = "grok-imagine-video"
 	grokVideoModel15            = "grok-imagine-video-1.5"
 	grokVideoEditOperation      = "video_edit"
@@ -50,7 +52,7 @@ func validGrokBillingNumber(value float64) bool {
 }
 
 func validSubmittedGrokVideoBilling(snapshot *model.GrokVideoBillingSnapshot) bool {
-	if snapshot == nil || snapshot.Version != grokVideoBillingVersion || !isGrokVideoModel(grokVideoBilledModel(snapshot)) {
+	if snapshot == nil || (snapshot.Version != grokVideoBillingVersionV1 && snapshot.Version != grokVideoBillingVersion) || !isGrokVideoModel(grokVideoBilledModel(snapshot)) {
 		return false
 	}
 	if snapshot.EstimatedDurationSeconds <= 0 || strings.TrimSpace(snapshot.EstimatedResolution) == "" ||
@@ -89,7 +91,20 @@ func validFinalizedGrokVideoBilling(snapshot *model.GrokVideoBillingSnapshot) bo
 	if (snapshot.Operation == grokVideoEditOperation || snapshot.Operation == grokVideoExtensionOperation) && snapshot.ResolutionSource != relaycommon.GrokVideoResolutionSourceInputProbeV1 {
 		return false
 	}
-	return math.Abs(snapshot.Subtotal-expectedSubtotal) <= 1e-9
+	if math.Abs(snapshot.Subtotal-expectedSubtotal) > 1e-9 {
+		return false
+	}
+	if snapshot.Version >= grokVideoBillingVersion {
+		moneyContext, err := billingmoney.NewContext(snapshot.SourceCurrency, snapshot.CNYPerUSD)
+		if err != nil {
+			return false
+		}
+		amounts, err := moneyContext.Normalize(snapshot.Subtotal)
+		if err != nil || math.Abs(snapshot.CostUSD-amounts.CostUSD) > 1e-9 {
+			return false
+		}
+	}
+	return true
 }
 
 // ConfigureGrokVideoFinalUsage enables the rollout only when a complete V1
@@ -122,7 +137,7 @@ func PrepareGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo
 // BuildGrokVideoBillingSnapshot captures request parameters and direct unit
 // prices at submission time. It intentionally records counts and media types,
 // never media references or upstream identifiers.
-func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, preConsumedQuota int) *model.GrokVideoBillingSnapshot {
+func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, _ int) *model.GrokVideoBillingSnapshot {
 	if c == nil || info == nil {
 		return nil
 	}
@@ -184,6 +199,10 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 	if !ok {
 		return nil
 	}
+	moneyContext, _, err := model.ResolveBillingMoneyContext(model.DB, billedModel)
+	if err != nil {
+		return nil
+	}
 
 	snapshot := &model.GrokVideoBillingSnapshot{
 		Version:                  grokVideoBillingVersion,
@@ -201,8 +220,9 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 		OutputUnitPrice:          outputPrice,
 		ImageInputUnitPrice:      imageInputPrice,
 		VideoInputUnitPrice:      videoInputPrice,
+		SourceCurrency:           string(moneyContext.SourceCurrency),
+		CNYPerUSD:                moneyContext.CNYPerUSD,
 		GroupRatio:               info.PriceData.GroupRatioInfo.GroupRatio,
-		FinalCost:                float64(preConsumedQuota) / common.QuotaPerUnit,
 	}
 	if operation == grokVideoEditOperation {
 		snapshot.RequestedDurationSeconds = estimatedDuration
@@ -217,6 +237,17 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 		snapshot.VideoInputBilledSeconds = info.InputVideoDurationSeconds
 	}
 	calculateGrokVideoBillingCosts(snapshot, estimatedDuration)
+	amounts, err := moneyContext.Normalize(snapshot.Subtotal)
+	if err != nil {
+		return nil
+	}
+	snapshot.CostUSD = amounts.CostUSD
+	snapshot.FinalSourceCost = snapshot.Subtotal * snapshot.GroupRatio
+	snapshot.FinalCostUSD = snapshot.CostUSD * snapshot.GroupRatio
+	snapshot.FinalCost = snapshot.FinalCostUSD
+	quota, _ := common.QuotaRoundChecked(snapshot.FinalCostUSD * common.QuotaPerUnit)
+	info.PriceData.Quota = quota
+	info.PriceData.QuotaToPreConsume = quota
 	return snapshot
 }
 
@@ -237,11 +268,15 @@ func finalGrokVideoBilling(task *model.Task) (*model.GrokVideoBillingSnapshot, s
 		return nil, "生成视频"
 	}
 	snapshot := *task.PrivateData.BillingContext.GrokVideoBilling
-	if snapshot.Version != grokVideoBillingVersion || !isGrokVideoModel(grokVideoBilledModel(&snapshot)) {
+	if (snapshot.Version != grokVideoBillingVersionV1 && snapshot.Version != grokVideoBillingVersion) || !isGrokVideoModel(grokVideoBilledModel(&snapshot)) {
 		return nil, "生成视频"
 	}
 	snapshot.GroupRatio = task.PrivateData.BillingContext.GroupRatio
 	snapshot.FinalCost = float64(task.Quota) / common.QuotaPerUnit
+	if snapshot.Version >= grokVideoBillingVersion {
+		snapshot.FinalSourceCost = snapshot.Subtotal * snapshot.GroupRatio
+		snapshot.FinalCostUSD = snapshot.FinalCost
+	}
 
 	duration := snapshot.ActualDurationSeconds
 	if duration <= 0 {
@@ -252,28 +287,36 @@ func finalGrokVideoBilling(task *model.Task) (*model.GrokVideoBillingSnapshot, s
 		resolution = snapshot.EstimatedResolution
 	}
 
+	symbol := "¥"
+	finalDisplayCost := snapshot.FinalCost
+	if snapshot.Version >= grokVideoBillingVersion {
+		if snapshot.SourceCurrency != string(billingmoney.CurrencyCNY) {
+			symbol = "$"
+		}
+		finalDisplayCost = snapshot.FinalSourceCost
+	}
 	operationName := "文生视频"
-	formula := fmt.Sprintf("(¥%.6f × %.3g) × %.4f", snapshot.OutputUnitPrice, duration, snapshot.GroupRatio)
+	formula := fmt.Sprintf("(%s%.6f × %.3g) × %.4f", symbol, snapshot.OutputUnitPrice, duration, snapshot.GroupRatio)
 	switch snapshot.Operation {
 	case imageToVideoOperation:
 		operationName = "图生视频"
-		formula = fmt.Sprintf("(¥%.6f × %.3g + ¥%.6f × %d) × %.4f",
-			snapshot.OutputUnitPrice, duration, snapshot.ImageInputUnitPrice, snapshot.InputImageCount, snapshot.GroupRatio)
+		formula = fmt.Sprintf("(%s%.6f × %.3g + %s%.6f × %d) × %.4f",
+			symbol, snapshot.OutputUnitPrice, duration, symbol, snapshot.ImageInputUnitPrice, snapshot.InputImageCount, snapshot.GroupRatio)
 	case grokVideoEditOperation:
 		operationName = "视频编辑"
-		formula = fmt.Sprintf("(¥%.6f × %.3g + ¥%.6f × %.3g) × %.4f",
-			snapshot.OutputUnitPrice, duration, snapshot.VideoInputUnitPrice, snapshot.VideoInputBilledSeconds, snapshot.GroupRatio)
+		formula = fmt.Sprintf("(%s%.6f × %.3g + %s%.6f × %.3g) × %.4f",
+			symbol, snapshot.OutputUnitPrice, duration, symbol, snapshot.VideoInputUnitPrice, snapshot.VideoInputBilledSeconds, snapshot.GroupRatio)
 	case grokVideoExtensionOperation:
 		operationName = "视频延长"
-		formula = fmt.Sprintf("(¥%.6f × %.3g + ¥%.6f × %.3g) × %.4f",
-			snapshot.OutputUnitPrice, duration, snapshot.VideoInputUnitPrice, snapshot.VideoInputBilledSeconds, snapshot.GroupRatio)
+		formula = fmt.Sprintf("(%s%.6f × %.3g + %s%.6f × %.3g) × %.4f",
+			symbol, snapshot.OutputUnitPrice, duration, symbol, snapshot.VideoInputUnitPrice, snapshot.VideoInputBilledSeconds, snapshot.GroupRatio)
 	case referenceToVideoOperation:
 		operationName = "参考图生视频"
-		formula = fmt.Sprintf("(¥%.6f × %.3g + ¥%.6f × %d) × %.4f",
-			snapshot.OutputUnitPrice, duration, snapshot.ImageInputUnitPrice, snapshot.InputImageCount, snapshot.GroupRatio)
+		formula = fmt.Sprintf("(%s%.6f × %.3g + %s%.6f × %d) × %.4f",
+			symbol, snapshot.OutputUnitPrice, duration, symbol, snapshot.ImageInputUnitPrice, snapshot.InputImageCount, snapshot.GroupRatio)
 	}
-	content := fmt.Sprintf("Grok %s，模型 %s，实际 %s · %.3g 秒，计费 %s = ¥%.6f",
-		operationName, grokVideoRequestedModel(&snapshot), resolution, duration, formula, snapshot.FinalCost)
+	content := fmt.Sprintf("Grok %s，模型 %s，实际 %s · %.3g 秒，计费 %s = %s%.6f",
+		operationName, grokVideoRequestedModel(&snapshot), resolution, duration, formula, symbol, finalDisplayCost)
 	return &snapshot, content
 }
 

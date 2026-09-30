@@ -53,6 +53,13 @@ func TestBuildStarAIVideoBillingExpressionsPricesEverySeedanceTier(t *testing.T)
 			assert.Equal(t, test.tier, trace.MatchedTier)
 		})
 	}
+
+	amounts, err := billingexpr.ExpressionAmounts(46, &billingexpr.BillingSnapshot{
+		TaskUsageBilling: true, SourceCurrency: "CNY", CNYPerUSD: 7,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, float64(46), amounts.SourceCost)
+	assert.InDelta(t, 46.0/7.0, amounts.CostUSD, 1e-12)
 }
 
 func TestBuildStarAIVideoBillingExpressionsRejectsInvalidPrices(t *testing.T) {

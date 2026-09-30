@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingmoney"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -645,7 +646,7 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 		return 0
 	}
 	bc := task.PrivateData.BillingContext
-	if snapshot := bc.GrokVideoBilling; snapshot != nil && snapshot.Version == 1 {
+	if snapshot := bc.GrokVideoBilling; snapshot != nil && (snapshot.Version == 1 || snapshot.Version == 2) {
 		duration := taskResult.ActualDurationSeconds
 		if duration <= 0 {
 			duration = snapshot.RequestedDurationSeconds
@@ -685,7 +686,22 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 		snapshot.VideoInputCost = snapshot.VideoInputUnitPrice * snapshot.VideoInputBilledSeconds
 		snapshot.Subtotal = snapshot.OutputCost + snapshot.ImageInputCost + snapshot.VideoInputCost
 		snapshot.GroupRatio = bc.GroupRatio
-		quota, _ := common.QuotaRoundChecked(snapshot.Subtotal * common.QuotaPerUnit * bc.GroupRatio)
+		costUSD := snapshot.Subtotal
+		if snapshot.Version >= 2 {
+			moneyContext, err := billingmoney.NewContext(snapshot.SourceCurrency, snapshot.CNYPerUSD)
+			if err != nil {
+				return 0
+			}
+			amounts, err := moneyContext.Normalize(snapshot.Subtotal)
+			if err != nil {
+				return 0
+			}
+			costUSD = amounts.CostUSD
+			snapshot.CostUSD = costUSD
+			snapshot.FinalSourceCost = snapshot.Subtotal * bc.GroupRatio
+			snapshot.FinalCostUSD = costUSD * bc.GroupRatio
+		}
+		quota, _ := common.QuotaRoundChecked(costUSD * common.QuotaPerUnit * bc.GroupRatio)
 		return quota
 	}
 

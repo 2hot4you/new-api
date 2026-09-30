@@ -35,8 +35,9 @@ var starAIVideoPriceFields = map[string]struct{}{
 	"seedance_25_1080p": {}, "seedance_25_1080p_video": {},
 }
 
-// StarAIVideoPriceSetting stores direct platform-currency prices per 1M tokens.
-// molii uses a 1:1 CNY/USD platform value, so no exchange-rate conversion applies.
+// StarAIVideoPriceSetting stores CNY source prices per 1M tokens. Generated
+// expressions keep these coefficients unchanged; the billing snapshot converts
+// their result to USD-equivalent quota using the frozen exchange rate.
 type StarAIVideoPriceSetting struct {
 	Standard720p         float64 `json:"standard_720p"`
 	Standard720pVideo    float64 `json:"standard_720p_video"`
@@ -55,7 +56,7 @@ type StarAIVideoPriceSetting struct {
 }
 
 // StarAIVideoPriceRow is a public, read-only view of one resolution tier.
-// The values are direct platform-currency prices per 1M tokens.
+// The values are CNY source prices per 1M tokens.
 type StarAIVideoPriceRow struct {
 	Resolutions  []string `json:"resolutions"`
 	WithoutVideo float64  `json:"without_video"`

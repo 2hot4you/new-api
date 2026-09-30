@@ -632,6 +632,10 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.GrokVideoBilling != nil {
 		bc.GrokVideoBilling.GroupRatio = bc.GroupRatio
 		bc.GrokVideoBilling.FinalCost = float64(actualQuota) / common.QuotaPerUnit
+		if bc.GrokVideoBilling.Version >= 2 {
+			bc.GrokVideoBilling.FinalSourceCost = bc.GrokVideoBilling.Subtotal * bc.GroupRatio
+			bc.GrokVideoBilling.FinalCostUSD = bc.GrokVideoBilling.FinalCost
+		}
 	}
 
 	if quotaDelta == 0 {
