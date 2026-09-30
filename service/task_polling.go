@@ -17,6 +17,7 @@ import (
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -956,7 +957,7 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 			return true
 		}
 		bc.TieredSnapshot.UsageFacts = usageFacts
-		bc.TieredSnapshot.EstimatedTier = result.MatchedTier
+		billingexpr.ApplyResultToSnapshot(bc.TieredSnapshot, result)
 		return RecalculateTaskQuota(ctx, task, result.ActualQuotaAfterGroup, "任务用量表达式结算", result.Clamp)
 	}
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {

@@ -13,6 +13,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -342,6 +343,7 @@ func InjectTieredBillingInfo(other *model.LogOther, relayInfo *relaycommon.Relay
 	}
 	other.SetPublic("billing_mode", "tiered_expr")
 	other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
+	appendTieredBillingMoneyAudit(other, snap, result)
 	if result != nil {
 		if tokens := result.BillingTokens; tokens != nil && result.BillingUnit == billingexpr.BillingUnitToken {
 			other.SetPublic("image_cache_tokens", tokens.ImgCR)
@@ -375,4 +377,38 @@ func InjectTieredBillingInfo(other *model.LogOther, relayInfo *relaycommon.Relay
 			other.SetPublic("fixed_price", *snap.EstimatedFixedPrice)
 		}
 	}
+}
+
+func appendTieredBillingMoneyAudit(other *model.LogOther, snap *billingexpr.BillingSnapshot, result *billingexpr.TieredResult) {
+	if other == nil || snap == nil || snap.SourceCurrency == "" {
+		return
+	}
+	sourceCost := snap.EstimatedSourceCost
+	costUSD := snap.EstimatedCostUSD
+	if result != nil {
+		sourceCost = result.ActualSourceCost
+		costUSD = result.ActualCostUSD
+	}
+
+	displayCurrency := operation_setting.GetQuotaDisplayType()
+	displayCost := costUSD
+	switch displayCurrency {
+	case operation_setting.QuotaDisplayTypeCNY:
+		displayCost = costUSD * snap.CNYPerUSD
+	case operation_setting.QuotaDisplayTypeCustom:
+		displayCost = costUSD * operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	case operation_setting.QuotaDisplayTypeTokens:
+		quotaPerUnit := snap.QuotaPerUnit
+		if quotaPerUnit == 0 {
+			quotaPerUnit = common.QuotaPerUnit
+		}
+		displayCost = costUSD * quotaPerUnit
+	}
+
+	other.SetPublic("source_currency", snap.SourceCurrency)
+	other.SetPublic("source_cost", sourceCost)
+	other.SetPublic("cny_per_usd", snap.CNYPerUSD)
+	other.SetPublic("cost_usd", costUSD)
+	other.SetPublic("display_currency", displayCurrency)
+	other.SetPublic("display_cost", displayCost)
 }

@@ -270,7 +270,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			} else {
 				finalQuota = settlement.ActualQuotaAfterGroup
 				snap.UsageFacts = facts
-				snap.EstimatedTier = settlement.MatchedTier
+				billingexpr.ApplyResultToSnapshot(snap, settlement)
 				noteTaskQuotaClamp(info, settlement.Clamp)
 			}
 		}
@@ -473,12 +473,41 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 			}
 			return nil, service.TaskErrorWrapper(runErr, "model_price_error", http.StatusBadRequest)
 		}
+		moneyContext, _, moneyErr := model.ResolveBillingMoneyContext(model.DB, billingModelName)
+		if moneyErr != nil {
+			return nil, service.TaskErrorWrapper(fmt.Errorf("model %s billing currency resolution failed: %w", billingModelName, moneyErr), "model_price_error", http.StatusBadRequest)
+		}
+		snapshot := &billingexpr.BillingSnapshot{
+			EvaluationTime:       evaluationTime,
+			BillingMode:          billing_setting.BillingModeTieredExpr,
+			ModelName:            billingModelName,
+			ExprString:           exprStr,
+			ExprHash:             billingexpr.ExprHashString(exprStr),
+			EstimatedTier:        trace.MatchedTier,
+			QuotaPerUnit:         common.QuotaPerUnit,
+			ExprVersion:          billingexpr.ExprVersion(exprStr),
+			TaskUsageBilling:     true,
+			UsageFacts:           facts,
+			SourceCurrency:       string(moneyContext.SourceCurrency),
+			CNYPerUSD:            moneyContext.CNYPerUSD,
+			EstimatedBillingUnit: trace.BillingUnit,
+		}
+		amounts, moneyErr := billingexpr.ExpressionAmounts(cost, snapshot)
+		if moneyErr != nil {
+			return nil, service.TaskErrorWrapper(fmt.Errorf("model %s billing amount normalization failed: %w", billingModelName, moneyErr), "model_price_error", http.StatusBadRequest)
+		}
 		recordEstimatedTaskExpressionPrice(info, facts, cost)
 		groupRatioInfo := helper.HandleGroupRatio(c, info)
-		quota, clamp := common.QuotaRoundChecked(cost * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		quotaBeforeGroup := amounts.CostUSD * common.QuotaPerUnit
+		quota, clamp := common.QuotaRoundChecked(quotaBeforeGroup * groupRatioInfo.GroupRatio)
 		noteTaskQuotaClamp(info, clamp)
 		priceData = types.PriceData{Quota: quota, QuotaToPreConsume: quota, GroupRatioInfo: groupRatioInfo}
-		info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{EvaluationTime: evaluationTime, BillingMode: billing_setting.BillingModeTieredExpr, ModelName: billingModelName, ExprString: exprStr, ExprHash: billingexpr.ExprHashString(exprStr), GroupRatio: groupRatioInfo.GroupRatio, EstimatedQuotaBeforeGroup: cost * common.QuotaPerUnit, EstimatedQuotaAfterGroup: quota, EstimatedTier: trace.MatchedTier, QuotaPerUnit: common.QuotaPerUnit, ExprVersion: billingexpr.ExprVersion(exprStr), TaskUsageBilling: true, UsageFacts: facts}
+		snapshot.GroupRatio = groupRatioInfo.GroupRatio
+		snapshot.EstimatedQuotaBeforeGroup = quotaBeforeGroup
+		snapshot.EstimatedQuotaAfterGroup = quota
+		snapshot.EstimatedSourceCost = amounts.SourceCost
+		snapshot.EstimatedCostUSD = amounts.CostUSD
+		info.TieredBillingSnapshot = snapshot
 	} else {
 		priceData, err = helper.ModelPriceHelperPerCall(c, info)
 		if err != nil {

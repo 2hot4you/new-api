@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -35,7 +36,7 @@ func setupRelayChannelDB(t *testing.T) *gorm.DB {
 	sqlDB, err := database.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, database.AutoMigrate(&model.Channel{}))
+	require.NoError(t, database.AutoMigrate(&model.Channel{}, &model.Model{}))
 	model.DB = database
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	common.MemoryCacheEnabled = false
@@ -133,6 +134,7 @@ func pinMappingOrderPlugin(t *testing.T, c *gin.Context, source string) {
 
 func newTaskSubmitContext(t *testing.T, originalModel, mapping string) (*gin.Context, *relaycommon.RelayInfo) {
 	t.Helper()
+	setupRelayChannelDB(t)
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -144,6 +146,48 @@ func newTaskSubmitContext(t *testing.T, originalModel, mapping string) (*gin.Con
 	}
 	c.Set("task_request", map[string]any{"prompt": "p"})
 	return c, &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{}}
+}
+
+func TestRelayTaskSubmitTieredUsesFrozenBillingModelCurrency(t *testing.T) {
+	saveBillingConfig(t)
+	previousRate := operation_setting.USDExchangeRate
+	operation_setting.USDExchangeRate = 7
+	t.Cleanup(func() { operation_setting.USDExchangeRate = previousRate })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"declared-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":    `{"declared-model":"tier(\"base\", u(\"tokens\") * 46 / 1000000)"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+
+	c, info := newTaskSubmitContext(t, "declared-model", "")
+	require.NoError(t, model.DB.Create(&model.Model{
+		ModelName: "declared-model", NameRule: model.NameRuleExact, BillingCurrency: "CNY",
+	}).Error)
+	source := strings.Replace(billingFallbackPlugin, `fetchMode:"per_task"`, `fetchMode:"per_task",usageSchema:{tokens:{type:"number",unit:"token"}},usageExamples:[{label:"default",facts:{tokens:1000000}}]`, 1) + `
+export function extractUsage(){return {tokens:1000000};}
+`
+	registry := pluginruntime.NewRegistry()
+	plugin, err := registry.Register(source, pluginruntime.Options{})
+	require.NoError(t, err)
+	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Generation: registry.Generation(), Plugin: plugin})
+	c.Set("task_plugin_key", plugin.Meta.Key)
+	c.Set("group", "default")
+	info.OriginModelName = "declared-model"
+	info.UserGroup, info.UsingGroup = "default", "default"
+
+	_, taskErr := RelayTaskSubmit(c, info)
+	require.NotNil(t, taskErr) // The fixture stops at quota reservation.
+	require.NotNil(t, info.TieredBillingSnapshot, "submission error: %+v", taskErr)
+	assert.Equal(t, "CNY", info.TieredBillingSnapshot.SourceCurrency)
+	assert.Equal(t, 7.0, info.TieredBillingSnapshot.CNYPerUSD)
+	assert.InDelta(t, 46.0, info.TieredBillingSnapshot.EstimatedSourceCost, 1e-9)
+	assert.InDelta(t, 46.0/7.0, info.TieredBillingSnapshot.EstimatedCostUSD, 1e-9)
+	assert.Equal(t, 3_285_714, info.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+
+	operation_setting.USDExchangeRate = 8
+	result, _, err := service.EvaluateTaskCompletionUsage(info.TieredBillingSnapshot, map[string]any{"tokens": float64(1_000_000)})
+	require.NoError(t, err)
+	assert.Equal(t, 3_285_714, result.ActualQuotaAfterGroup)
 }
 
 func TestRelayTaskSubmitMapsBeforeValidateWhenOriginSet(t *testing.T) {

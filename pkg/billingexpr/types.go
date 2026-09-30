@@ -87,6 +87,10 @@ type BillingSnapshot struct {
 	ExprVersion               int            `json:"expr_version"`
 	TaskUsageBilling          bool           `json:"task_usage_billing,omitempty"`
 	UsageFacts                map[string]any `json:"usage_facts,omitempty"`
+	SourceCurrency            string         `json:"source_currency,omitempty"`
+	CNYPerUSD                 float64        `json:"cny_per_usd,omitempty"`
+	EstimatedSourceCost       float64        `json:"estimated_source_cost,omitempty"`
+	EstimatedCostUSD          float64        `json:"estimated_cost_usd,omitempty"`
 }
 
 // TieredResult holds everything needed after running tiered settlement.
@@ -100,6 +104,8 @@ type TieredResult struct {
 	FixedPrice             *float64           `json:"fixed_price,omitempty"`
 	ActualQuotaBeforeGroup float64            `json:"actual_quota_before_group"`
 	ActualQuotaAfterGroup  int                `json:"actual_quota_after_group"`
+	ActualSourceCost       float64            `json:"actual_source_cost"`
+	ActualCostUSD          float64            `json:"actual_cost_usd"`
 	MatchedTier            string             `json:"matched_tier"`
 	RequestRules           []RequestRuleTrace `json:"request_rules,omitempty"`
 	CrossedTier            bool               `json:"crossed_tier"`

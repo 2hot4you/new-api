@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -307,6 +308,10 @@ func callLogTaskConsumption(t *testing.T, info *relaycommon.RelayInfo, task *mod
 
 func TestLogTaskConsumptionIncludesTieredSnapshotUsageFacts(t *testing.T) {
 	truncate(t)
+	setting := operation_setting.GetGeneralSetting()
+	previousDisplay := setting.QuotaDisplayType
+	setting.QuotaDisplayType = operation_setting.QuotaDisplayTypeCNY
+	t.Cleanup(func() { setting.QuotaDisplayType = previousDisplay })
 	const userID, channelID = 40, 40
 	seedUser(t, userID, 10_000)
 	seedChannel(t, channelID)
@@ -326,8 +331,12 @@ func TestLogTaskConsumptionIncludesTieredSnapshotUsageFacts(t *testing.T) {
 			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
 		},
 		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
-			ExprString:    expression,
-			EstimatedTier: "720P",
+			ExprString:          expression,
+			EstimatedTier:       "720P",
+			SourceCurrency:      "CNY",
+			CNYPerUSD:           7,
+			EstimatedSourceCost: 14,
+			EstimatedCostUSD:    2,
 			UsageFacts: map[string]any{
 				"resolution": "720P",
 				"seconds":    5,
@@ -346,6 +355,12 @@ func TestLogTaskConsumptionIncludesTieredSnapshotUsageFacts(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "720P", facts["resolution"])
 	assert.Equal(t, float64(5), facts["seconds"])
+	assert.Equal(t, "CNY", other["source_currency"])
+	assert.Equal(t, float64(14), other["source_cost"])
+	assert.Equal(t, float64(7), other["cny_per_usd"])
+	assert.Equal(t, float64(2), other["cost_usd"])
+	assert.Equal(t, "CNY", other["display_currency"])
+	assert.Equal(t, float64(14), other["display_cost"])
 	assert.NotContains(t, other, "resolution")
 	assert.NotContains(t, other, "seconds")
 	assert.Contains(t, log.Content, "计算参数：")
@@ -1927,6 +1942,8 @@ func TestSettle_TieredSnapshotWriteBackUsesSettledFactsAndMatchedTier(t *testing
 		TaskUsageBilling: true,
 		UsageFacts:       map[string]any{"resolution": "720P", "seconds": float64(5)},
 		EstimatedTier:    "720P",
+		SourceCurrency:   "USD",
+		CNYPerUSD:        7,
 	}
 
 	settled := settleTaskBillingOnComplete(
@@ -1944,6 +1961,8 @@ func TestSettle_TieredSnapshotWriteBackUsesSettledFactsAndMatchedTier(t *testing
 	require.NotNil(t, snap)
 	assert.Equal(t, map[string]any{"resolution": "1080P", "seconds": float64(5)}, snap.UsageFacts)
 	assert.Equal(t, "1080P", snap.EstimatedTier)
+	assert.Equal(t, float64(50), snap.EstimatedSourceCost)
+	assert.Equal(t, float64(50), snap.EstimatedCostUSD)
 	assert.Equal(t, 50, task.Quota)
 
 	log := getLastLog(t)

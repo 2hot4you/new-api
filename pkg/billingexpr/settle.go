@@ -4,19 +4,30 @@ import (
 	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/billingmoney"
 )
 
-// quotaConversion converts raw expression output to quota based on the
-// expression version. This is the central dispatch point for future versions
-// that may use a different conversion formula.
-func quotaConversion(exprOutput float64, snap *BillingSnapshot) float64 {
+// ExpressionAmounts converts raw expression output into an actual monetary
+// amount in both the frozen source currency and the internal USD ledger unit.
+func ExpressionAmounts(exprOutput float64, snap *BillingSnapshot) (billingmoney.Amounts, error) {
+	sourceCost := exprOutput
 	if snap.TaskUsageBilling {
-		return exprOutput * snap.QuotaPerUnit
+		sourceCost = exprOutput
+	} else {
+		switch snap.ExprVersion {
+		default: // v1: coefficients are source-currency prices per 1M tokens.
+			sourceCost = exprOutput / 1_000_000
+		}
 	}
-	switch snap.ExprVersion {
-	default: // v1: coefficients are $/1M tokens prices
-		return exprOutput / 1_000_000 * snap.QuotaPerUnit
+	sourceCurrency := snap.SourceCurrency
+	if sourceCurrency == "" {
+		sourceCurrency = string(billingmoney.CurrencyUSD)
 	}
+	ctx, err := billingmoney.NewContext(sourceCurrency, snap.CNYPerUSD)
+	if err != nil {
+		return billingmoney.Amounts{}, err
+	}
+	return ctx.Normalize(sourceCost)
 }
 
 // ComputeTieredQuota runs the Expr from a frozen BillingSnapshot against
@@ -34,7 +45,11 @@ func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, re
 		return TieredResult{}, err
 	}
 
-	quotaBeforeGroup := quotaConversion(cost, snap)
+	amounts, err := ExpressionAmounts(cost, snap)
+	if err != nil {
+		return TieredResult{}, err
+	}
+	quotaBeforeGroup := amounts.CostUSD * snap.QuotaPerUnit
 	afterGroup, clamp := common.QuotaRoundChecked(quotaBeforeGroup * snap.GroupRatio)
 	crossed := trace.MatchedTier != snap.EstimatedTier
 
@@ -44,6 +59,8 @@ func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, re
 		FixedPrice:             trace.FixedPrice,
 		ActualQuotaBeforeGroup: quotaBeforeGroup,
 		ActualQuotaAfterGroup:  afterGroup,
+		ActualSourceCost:       amounts.SourceCost,
+		ActualCostUSD:          amounts.CostUSD,
 		MatchedTier:            trace.MatchedTier,
 		RequestRules:           trace.RequestRules,
 		CrossedTier:            crossed,
@@ -53,4 +70,21 @@ func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, re
 		result.BillingTokens = &params
 	}
 	return result, nil
+}
+
+// ApplyResultToSnapshot promotes settled values into the durable snapshot so
+// later audit logs describe the actual charge while retaining the frozen
+// currency and exchange-rate context.
+func ApplyResultToSnapshot(snap *BillingSnapshot, result TieredResult) {
+	if snap == nil {
+		return
+	}
+	snap.EstimatedImageCount = result.ImageCount
+	snap.EstimatedQuotaBeforeGroup = result.ActualQuotaBeforeGroup
+	snap.EstimatedQuotaAfterGroup = result.ActualQuotaAfterGroup
+	snap.EstimatedSourceCost = result.ActualSourceCost
+	snap.EstimatedCostUSD = result.ActualCostUSD
+	snap.EstimatedTier = result.MatchedTier
+	snap.EstimatedBillingUnit = result.BillingUnit
+	snap.EstimatedFixedPrice = result.FixedPrice
 }

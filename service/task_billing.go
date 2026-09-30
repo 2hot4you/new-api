@@ -92,6 +92,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		other.SetPublic("billing_mode", "tiered_expr")
 		other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
 		other.SetPublic("matched_tier", snap.EstimatedTier)
+		appendTieredBillingMoneyAudit(other, snap, nil)
 		if len(snap.UsageFacts) > 0 {
 			other.SetPublic("usage_facts", snap.UsageFacts)
 		}
@@ -234,6 +235,7 @@ func taskBillingOther(task *model.Task) *model.LogOther {
 			other.SetPublic("billing_mode", "tiered_expr")
 			other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
 			other.SetPublic("matched_tier", snap.EstimatedTier)
+			appendTieredBillingMoneyAudit(other, snap, nil)
 			if len(snap.UsageFacts) > 0 {
 				other.SetPublic("usage_facts", snap.UsageFacts)
 			}
@@ -513,7 +515,7 @@ func BuildTerminalTaskBillingJob(ctx context.Context, adaptor TaskPollingAdaptor
 			return job
 		}
 		snapshot.UsageFacts = usageFacts
-		snapshot.EstimatedTier = result.MatchedTier
+		billingexpr.ApplyResultToSnapshot(snapshot, result)
 		targetQuota = result.ActualQuotaAfterGroup
 		if result.Clamp != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("task %s tiered billing quota was clamped: %+v", task.TaskID, result.Clamp))

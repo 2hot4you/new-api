@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -18,9 +20,111 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func TestMain(m *testing.M) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		panic(err)
+	}
+	if err = database.AutoMigrate(&model.Model{}); err != nil {
+		panic(err)
+	}
+	model.DB = database
+	os.Exit(m.Run())
+}
+
+func TestModelPriceHelperTieredUsesFrozenBillingModelCurrency(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousDB := model.DB
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, database.AutoMigrate(&model.Model{}))
+	model.DB = database
+	t.Cleanup(func() { model.DB = previousDB })
+	require.NoError(t, database.Create(&model.Model{
+		ModelName: "cny-target", NameRule: model.NameRuleExact, BillingCurrency: "CNY",
+	}).Error)
+
+	previousRate := operation_setting.USDExchangeRate
+	previousMultiplier := operation_setting.GetQuotaSetting().PreConsumeMultiplier
+	operation_setting.USDExchangeRate = 7
+	operation_setting.GetQuotaSetting().PreConsumeMultiplier = 1
+	t.Cleanup(func() {
+		operation_setting.USDExchangeRate = previousRate
+		operation_setting.GetQuotaSetting().PreConsumeMultiplier = previousMultiplier
+	})
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"cny-target":"tiered_expr"}`,
+		"billing_setting.billing_expr":    `{"cny-target":"tier(\"base\", p * 7)"}`,
+		"group_ratio_setting.group_ratio": `{"default":1.2}`,
+	}))
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "requested-alias", BillingModelName: "cny-target",
+		UserGroup: "default", UsingGroup: "default", BillingRequestInput: &billingexpr.RequestInput{},
+	}
+
+	price, err := ModelPriceHelper(ctx, info, 1_000_000, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	assert.Equal(t, 600_000, price.QuotaToPreConsume)
+	require.NotNil(t, info.TieredBillingSnapshot)
+	assert.Equal(t, "cny-target", info.TieredBillingSnapshot.ModelName)
+	assert.Equal(t, "CNY", info.TieredBillingSnapshot.SourceCurrency)
+	assert.Equal(t, 7.0, info.TieredBillingSnapshot.CNYPerUSD)
+	assert.Equal(t, 7.0, info.TieredBillingSnapshot.EstimatedSourceCost)
+	assert.Equal(t, 1.0, info.TieredBillingSnapshot.EstimatedCostUSD)
+
+	operation_setting.USDExchangeRate = 8
+	settled, err := billingexpr.ComputeTieredQuota(info.TieredBillingSnapshot, billingexpr.TokenParams{P: 1_000_000})
+	require.NoError(t, err)
+	assert.Equal(t, 600_000, settled.ActualQuotaAfterGroup)
+}
+
+func TestModelPriceHelperLegacyRatioIgnoresBillingCurrencyMetadata(t *testing.T) {
+	require.NoError(t, model.DB.Create(&model.Model{
+		ModelName: "legacy-cny-ratio", NameRule: model.NameRuleExact, BillingCurrency: "CNY",
+	}).Error)
+	previousRatios := ratio_setting.ModelRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"legacy-cny-ratio":2}`))
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousRatios)) })
+	previousMultiplier := operation_setting.GetQuotaSetting().PreConsumeMultiplier
+	operation_setting.GetQuotaSetting().PreConsumeMultiplier = 1
+	t.Cleanup(func() { operation_setting.GetQuotaSetting().PreConsumeMultiplier = previousMultiplier })
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"legacy-cny-ratio":"ratio"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{OriginModelName: "legacy-cny-ratio", UserGroup: "default", UsingGroup: "default"}
+
+	price, err := ModelPriceHelper(ctx, info, 1_000, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	assert.Nil(t, info.TieredBillingSnapshot)
+	assert.Equal(t, 2_000, price.QuotaToPreConsume)
+}
 
 func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	gin.SetMode(gin.TestMode)

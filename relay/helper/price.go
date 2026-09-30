@@ -383,8 +383,36 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 		return hosttypes.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", billingModelName, err)
 	}
 
-	// Expression coefficients are $/1M tokens prices; convert to quota the same way per-call billing does.
-	quotaBeforeGroup := rawCost / 1_000_000 * common.QuotaPerUnit
+	moneyContext, _, err := model.ResolveBillingMoneyContext(model.DB, billingModelName)
+	if err != nil {
+		return hosttypes.PriceData{}, fmt.Errorf("model %s billing currency resolution failed: %w", billingModelName, err)
+	}
+	snapshot := &billingexpr.BillingSnapshot{
+		EstimatedImageCount:       trace.ImageCount,
+		BillingMode:               billing_setting.BillingModeTieredExpr,
+		ModelName:                 billingModelName,
+		ExprString:                exprStr,
+		ExprHash:                  exprHash,
+		GroupRatio:                groupRatioInfo.GroupRatio,
+		EstimatedPromptTokens:     promptTokens,
+		EstimatedCompletionTokens: 0,
+		PreConsumeMultiplier:      preConsumeMultiplier,
+		EstimatedTier:             trace.MatchedTier,
+		EstimatedBillingUnit:      trace.BillingUnit,
+		EstimatedFixedPrice:       trace.FixedPrice,
+		QuotaPerUnit:              common.QuotaPerUnit,
+		ExprVersion:               billingexpr.ExprVersion(exprStr),
+		SourceCurrency:            string(moneyContext.SourceCurrency),
+		CNYPerUSD:                 moneyContext.CNYPerUSD,
+	}
+	amounts, err := billingexpr.ExpressionAmounts(rawCost, snapshot)
+	if err != nil {
+		return hosttypes.PriceData{}, fmt.Errorf("model %s billing amount normalization failed: %w", billingModelName, err)
+	}
+	snapshot.EstimatedSourceCost = amounts.SourceCost
+	snapshot.EstimatedCostUSD = amounts.CostUSD
+
+	quotaBeforeGroup := amounts.CostUSD * common.QuotaPerUnit
 	// Scale the reservation, preserving the expression's context-length tier
 	// and leaving actual settlement and fixed request prices unchanged.
 	if trace.BillingUnit != billingexpr.BillingUnitRequest {
@@ -403,24 +431,8 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 		}
 	}
 
-	snapshot := &billingexpr.BillingSnapshot{
-		EstimatedImageCount:       trace.ImageCount,
-		BillingMode:               billing_setting.BillingModeTieredExpr,
-		ModelName:                 billingModelName,
-		ExprString:                exprStr,
-		ExprHash:                  exprHash,
-		GroupRatio:                groupRatioInfo.GroupRatio,
-		EstimatedPromptTokens:     promptTokens,
-		EstimatedCompletionTokens: 0,
-		PreConsumeMultiplier:      preConsumeMultiplier,
-		EstimatedQuotaBeforeGroup: quotaBeforeGroup,
-		EstimatedQuotaAfterGroup:  preConsumedQuota,
-		EstimatedTier:             trace.MatchedTier,
-		EstimatedBillingUnit:      trace.BillingUnit,
-		EstimatedFixedPrice:       trace.FixedPrice,
-		QuotaPerUnit:              common.QuotaPerUnit,
-		ExprVersion:               billingexpr.ExprVersion(exprStr),
-	}
+	snapshot.EstimatedQuotaBeforeGroup = quotaBeforeGroup
+	snapshot.EstimatedQuotaAfterGroup = preConsumedQuota
 	info.TieredBillingSnapshot = snapshot
 	info.BillingRequestInput = &requestInput
 
