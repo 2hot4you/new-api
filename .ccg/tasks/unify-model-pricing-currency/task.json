@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "fullstack",
   "currentPhase": "planning",
-  "nextAction": "等待用户审阅正式设计稿，通过后制定实施计划",
+  "nextAction": "等待用户审阅实施计划，通过后由 Codex 原生逐任务实施",
   "createdAt": "2026-09-30T10:35:00+08:00",
   "branch": "upgrade/rc40"
 }
