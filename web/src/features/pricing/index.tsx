@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -44,11 +44,15 @@ import { useInfiniteModels } from './hooks/use-infinite-models'
 import { usePricingData } from './hooks/use-pricing-data'
 import { getModelCategories } from './lib/model-directory'
 import { getPricingFilterGroups } from './lib/model-helpers'
+import type { PricingCurrencyMode } from './lib/pricing-currency'
 
 export function Pricing() {
   const { t } = useTranslation()
   const navigate = useNavigate({ from: '/pricing/' })
+  const routeSearch = useSearch({ from: '/pricing/' })
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card')
+  const currencyMode: PricingCurrencyMode =
+    routeSearch.currency === 'cny' ? 'cny' : 'source'
 
   const {
     models,
@@ -119,11 +123,13 @@ export function Pricing() {
         capabilityFilter === FILTER_ALL ? undefined : capabilityFilter,
       tokenUnit: tokenUnit === DEFAULT_TOKEN_UNIT ? undefined : tokenUnit,
       rechargePrice: showRechargePrice || undefined,
+      currency: currencyMode === 'cny' ? ('cny' as const) : undefined,
     }),
     [
       capabilityFilter,
       categoryFilter,
       contextFilter,
+      currencyMode,
       endpointTypeFilter,
       groupFilter,
       inputModalityFilter,
@@ -143,6 +149,20 @@ export function Pricing() {
         to: '/pricing/$modelId',
         params: { modelId: modelName },
         search: directorySearch,
+      })
+    },
+    [directorySearch, navigate]
+  )
+
+  const handleCurrencyModeChange = useCallback(
+    (mode: PricingCurrencyMode) => {
+      void navigate({
+        to: '/pricing',
+        search: {
+          ...directorySearch,
+          currency: mode === 'cny' ? 'cny' : undefined,
+        },
+        replace: true,
       })
     },
     [directorySearch, navigate]
@@ -187,6 +207,7 @@ export function Pricing() {
           tokenUnit={tokenUnit}
           showRechargePrice={showRechargePrice}
           selectedGroup={groupFilter}
+          currencyMode={currencyMode}
           onModelClick={handleModelClick}
         />
       )
@@ -200,6 +221,7 @@ export function Pricing() {
         tokenUnit={tokenUnit}
         showRechargePrice={showRechargePrice}
         selectedGroup={groupFilter}
+        currencyMode={currencyMode}
       />
     )
   }
@@ -275,6 +297,8 @@ export function Pricing() {
               onTokenUnitChange={setTokenUnit}
               showRechargePrice={showRechargePrice}
               onRechargePriceChange={setShowRechargePrice}
+              currencyMode={currencyMode}
+              onCurrencyModeChange={handleCurrencyModeChange}
               viewMode={viewMode}
               onViewModeChange={setViewMode}
               quotaTypeFilter={quotaTypeFilter}

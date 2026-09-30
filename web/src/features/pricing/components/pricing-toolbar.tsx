@@ -48,7 +48,9 @@ import {
 import { cn } from '@/lib/utils'
 
 import { getSortLabels, type SortOption } from '../constants'
+import type { PricingCurrencyMode } from '../lib/pricing-currency'
 import type { PricingModel, PricingVendor, TokenUnit } from '../types'
+import { PricingCurrencyToggle } from './pricing-currency-toggle'
 import { PricingSidebar } from './pricing-sidebar'
 import { SearchBar } from './search-bar'
 
@@ -68,6 +70,8 @@ export interface PricingToolbarProps {
   onTokenUnitChange: (value: TokenUnit) => void
   showRechargePrice: boolean
   onRechargePriceChange: (value: boolean) => void
+  currencyMode?: PricingCurrencyMode
+  onCurrencyModeChange?: (value: PricingCurrencyMode) => void
   viewMode?: 'card' | 'table'
   onViewModeChange?: (value: 'card' | 'table') => void
   quotaTypeFilter: string
@@ -225,6 +229,10 @@ export function PricingToolbar(props: PricingToolbarProps) {
         </div>
 
         <div className='flex flex-wrap items-center gap-2'>
+          <PricingCurrencyToggle
+            value={props.currencyMode ?? 'source'}
+            onChange={(value) => props.onCurrencyModeChange?.(value)}
+          />
           <div className='hidden items-center gap-2 sm:flex'>
             <SegmentedControl
               options={[

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
+
 import { describe, test } from 'vitest'
 
 import { pricingSearchSchema } from '../pricing-search'
@@ -45,12 +46,21 @@ describe('pricing route search schema', () => {
         sort: 'release-date',
         category: 'video',
         tokenUnit: 'M',
+        currency: 'cny',
       }),
       {
         sort: 'release-date',
         category: 'video',
         tokenUnit: 'M',
+        currency: 'cny',
       }
+    )
+  })
+
+  test('drops unsupported pricing currency modes from shared URLs', () => {
+    assert.equal(
+      pricingSearchSchema.parse({ currency: 'eur' }).currency,
+      undefined
     )
   })
 })

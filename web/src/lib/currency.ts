@@ -85,6 +85,8 @@ import {
   type CurrencyDisplayType,
 } from '@/stores/system-config-store'
 
+export type BillingSourceCurrency = 'USD' | 'CNY'
+
 export interface CurrencyFormatOptions {
   /** Fraction digits to use when |value| >= 1 */
   digitsLarge?: number
@@ -103,9 +105,9 @@ export interface CurrencyFormatOptions {
   showSymbol?: boolean
   /** Locale used for number formatting (defaults to the runtime locale) */
   locale?: Intl.LocalesArgument | undefined
+  /** Override the monetary display currency for this formatter call. */
+  displayCurrency?: BillingSourceCurrency
 }
-
-export type BillingSourceCurrency = 'USD' | 'CNY'
 
 export type SourceBillingFormatOptions = CurrencyFormatOptions & {
   /** CNY paid for one USD; required to normalize CNY source prices. */
@@ -114,7 +116,7 @@ export type SourceBillingFormatOptions = CurrencyFormatOptions & {
 
 type ResolvedCurrencyFormatOptions = Omit<
   Required<CurrencyFormatOptions>,
-  'locale'
+  'locale' | 'displayCurrency'
 > & {
   locale: Intl.LocalesArgument | undefined
 }
@@ -222,7 +224,26 @@ function getDisplayMeta(config: CurrencyConfig): DisplayMeta {
   }
 }
 
-function getBillingDisplayMeta(config: CurrencyConfig): DisplayMeta {
+function getBillingDisplayMeta(
+  config: CurrencyConfig,
+  displayCurrency?: BillingSourceCurrency
+): DisplayMeta {
+  if (displayCurrency === 'CNY') {
+    return {
+      kind: 'currency',
+      symbol: '¥',
+      currencyCode: 'CNY',
+      exchangeRate: config.usdExchangeRate,
+    }
+  }
+  if (displayCurrency === 'USD') {
+    return {
+      kind: 'currency',
+      symbol: '$',
+      currencyCode: 'USD',
+      exchangeRate: 1,
+    }
+  }
   const meta = getDisplayMeta(config)
   if (meta.kind === 'tokens') {
     return {
@@ -482,7 +503,7 @@ export function formatBillingCurrencyFromUSD(
   if (amountUSD == null || Number.isNaN(amountUSD)) return '-'
 
   const { config } = getCurrencyDisplay()
-  const meta = getBillingDisplayMeta(config)
+  const meta = getBillingDisplayMeta(config, options?.displayCurrency)
   const merged = mergeOptions(options)
   const value =
     meta.kind === 'currency' || meta.kind === 'custom'
@@ -615,7 +636,10 @@ export function getCurrencyLabel(): string {
 }
 
 /** Currency label used by monetary billing UIs; token mode falls back to USD. */
-export function getBillingCurrencyLabel(): string {
+export function getBillingCurrencyLabel(
+  displayCurrency?: BillingSourceCurrency
+): string {
+  if (displayCurrency) return displayCurrency
   const { config } = getCurrencyDisplay()
   return config.quotaDisplayType === 'TOKENS' ? 'USD' : getCurrencyLabel()
 }

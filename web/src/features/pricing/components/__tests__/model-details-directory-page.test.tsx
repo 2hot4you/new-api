@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test } from 'vitest'
 
 import { getRelatedModels } from '../../lib/related-models'
 import type { PricingModel } from '../../types'
@@ -156,6 +156,41 @@ describe('independent model directory detail page', () => {
     assert.match(container.textContent ?? '', /输入: 文本 · 图片/)
     assert.match(container.textContent ?? '', /输出: 图片/)
     assert.doesNotMatch(container.textContent ?? '', /输入: text · 张/)
+
+    queryClient.clear()
+  })
+
+  test('renders a single unconditional expression as ordinary token pricing', () => {
+    const container = document.createElement('div')
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { enabled: false, retry: false } },
+    })
+
+    container.innerHTML = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <ModelDetailsContent
+            model={model('claude-fable-5', {
+              billing_mode: 'tiered_expr',
+              billing_expr:
+                'tier("Token billing", p * 10 + c * 50 + cr * 1 + cc * 12.5 + cc1h * 20)',
+              billing_currency: 'USD',
+            })}
+            groupRatio={{ default: 1 }}
+            usableGroup={{ default: { desc: 'Default', ratio: 1 } }}
+            endpointMap={{}}
+            autoGroups={[]}
+            priceRate={1}
+            usdExchangeRate={7}
+            tokenUnit='M'
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+
+    assert.doesNotMatch(container.textContent ?? '', /Dynamic Pricing/)
+    assert.equal(container.querySelector('[data-dynamic-pricing]'), null)
+    assert.doesNotMatch(container.textContent ?? '', /Tier/)
 
     queryClient.clear()
   })

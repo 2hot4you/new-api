@@ -8,7 +8,10 @@ import {
   formatUptimePct,
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
-import { formatSourceBillingAmount } from '@/lib/currency'
+import {
+  formatSourceBillingAmount,
+  type BillingSourceCurrency,
+} from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -84,7 +87,10 @@ export function ModelDetailsGrokOverview(props: { model: PricingModel }) {
   )
 }
 
-export function ModelDetailsGrokPricing(props: { model: PricingModel }) {
+export function ModelDetailsGrokPricing(props: {
+  model: PricingModel
+  displayCurrency?: BillingSourceCurrency
+}) {
   const { t } = useTranslation()
   const cnyPerUSD = useSystemConfigStore(
     (state) => state.config.currency.usdExchangeRate
@@ -109,7 +115,12 @@ export function ModelDetailsGrokPricing(props: { model: PricingModel }) {
             value={formatSourceBillingAmount(
               row.outputPrice,
               props.model.billing_currency ?? 'CNY',
-              { cnyPerUSD, digitsLarge: 4, digitsSmall: 6 }
+              {
+                cnyPerUSD,
+                displayCurrency: props.displayCurrency,
+                digitsLarge: 4,
+                digitsSmall: 6,
+              }
             )}
             hint={`${t('Per')} ${outputUnit}`}
           />
@@ -120,7 +131,12 @@ export function ModelDetailsGrokPricing(props: { model: PricingModel }) {
             value={formatSourceBillingAmount(
               pricing.image_input_price,
               props.model.billing_currency ?? 'CNY',
-              { cnyPerUSD, digitsLarge: 4, digitsSmall: 6 }
+              {
+                cnyPerUSD,
+                displayCurrency: props.displayCurrency,
+                digitsLarge: 4,
+                digitsSmall: 6,
+              }
             )}
             hint={t('Per input image')}
           />
@@ -131,7 +147,12 @@ export function ModelDetailsGrokPricing(props: { model: PricingModel }) {
             value={formatSourceBillingAmount(
               pricing.video_input_price,
               props.model.billing_currency ?? 'CNY',
-              { cnyPerUSD, digitsLarge: 4, digitsSmall: 6 }
+              {
+                cnyPerUSD,
+                displayCurrency: props.displayCurrency,
+                digitsLarge: 4,
+                digitsSmall: 6,
+              }
             )}
             hint={t('Per input video second')}
           />

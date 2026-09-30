@@ -32,6 +32,10 @@ import {
 } from '../lib/dynamic-price'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
+import {
+  getPricingDisplayCurrency,
+  type PricingCurrencyMode,
+} from '../lib/pricing-currency'
 import { taskUsageUnitLabel } from '../lib/task-price-display'
 import type { PricingModel, TokenUnit } from '../types'
 
@@ -41,6 +45,7 @@ export type ModelPriceCellOptions = {
   usdExchangeRate?: number
   showRechargePrice?: boolean
   selectedGroup?: string
+  currencyMode?: PricingCurrencyMode
 }
 
 export function ModelPriceCell(props: {
@@ -50,8 +55,11 @@ export function ModelPriceCell(props: {
 }) {
   const { t, i18n } = useTranslation()
   const currency = useSystemConfigStore((state) => state.config.currency)
-  const currencyLabel = getBillingCurrencyLabel()
   const options = props.options ?? {}
+  const displayCurrency = options.currencyMode
+    ? getPricingDisplayCurrency(props.model, options.currencyMode)
+    : undefined
+  const currencyLabel = getBillingCurrencyLabel(displayCurrency)
   const tokenUnit = options.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const billingTime = useBillingTime(props.model.billing_expr)
@@ -64,6 +72,7 @@ export function ModelPriceCell(props: {
         now: billingTime === undefined ? undefined : new Date(billingTime),
         tokenUnit,
         showCurrencySymbol: false,
+        displayCurrency,
         groupRatioMultiplier: getDynamicDisplayGroupRatio(
           props.model,
           options.selectedGroup
@@ -80,6 +89,7 @@ export function ModelPriceCell(props: {
       options.selectedGroup,
       billingTime,
       currency,
+      displayCurrency,
     ]
   )
   let metrics: Array<{ label: string; value: string }>
@@ -99,7 +109,7 @@ export function ModelPriceCell(props: {
       return (
         <span className='block max-w-full min-w-0'>
           <span className='text-muted-foreground block truncate text-sm'>
-            {t('Special billing expression')}
+            {t('Custom pricing expression')}
           </span>
           {providerCaption && (
             <span className='text-muted-foreground block text-xs'>
@@ -198,7 +208,8 @@ export function ModelPriceCell(props: {
             options.priceRate,
             options.usdExchangeRate,
             options.selectedGroup,
-            false
+            false,
+            displayCurrency
           ),
         },
         {
@@ -211,7 +222,8 @@ export function ModelPriceCell(props: {
             options.priceRate,
             options.usdExchangeRate,
             options.selectedGroup,
-            false
+            false,
+            displayCurrency
           ),
         },
       ]
@@ -225,7 +237,8 @@ export function ModelPriceCell(props: {
             options.priceRate,
             options.usdExchangeRate,
             options.selectedGroup,
-            false
+            false,
+            displayCurrency
           ),
         },
       ]

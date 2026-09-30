@@ -468,7 +468,35 @@ describe('task dynamic pricing', () => {
           billing_expr: 'tier("base", p * 2 + c * 8)',
         })
       ),
+      'Token-based'
+    )
+    assert.equal(
+      getBillingModeLabelKey(
+        pricingModel({
+          billing_mode: 'tiered_expr',
+          billing_expr: 'tier("base", fixed(0.25))',
+        })
+      ),
+      'Per Request'
+    )
+    assert.equal(
+      getBillingModeLabelKey(
+        pricingModel({
+          billing_mode: 'tiered_expr',
+          billing_expr:
+            'len <= 128000 ? tier("short", p * 2 + c * 8) : tier("long", p * 4 + c * 16)',
+        })
+      ),
       'Dynamic Pricing'
+    )
+    assert.equal(
+      getBillingModeLabelKey(
+        pricingModel({
+          billing_mode: 'tiered_expr',
+          billing_expr: 'vendor_specific_cost(request)',
+        })
+      ),
+      'Custom pricing expression'
     )
     assert.equal(getBillingModeLabelKey(pricingModel({})), 'Token-based')
     assert.equal(

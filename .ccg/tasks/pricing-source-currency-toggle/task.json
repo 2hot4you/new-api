@@ -1,0 +1,12 @@
+{
+  "id": "pricing-source-currency-toggle",
+  "title": "价格页原始币种切换与单档表达式展示优化",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交远端 develop",
+  "createdAt": "2026-09-30T14:30:00+08:00",
+  "branch": "upgrade/rc40"
+}

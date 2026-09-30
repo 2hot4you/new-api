@@ -34,6 +34,7 @@ function toolbarProps(): PricingToolbarProps {
     sortBy: 'name',
     tokenUnit: 'M',
     showRechargePrice: false,
+    currencyMode: 'source',
     viewMode: 'card',
     quotaTypeFilter: 'all',
     endpointTypeFilter: 'all',
@@ -43,6 +44,7 @@ function toolbarProps(): PricingToolbarProps {
     onSortChange: vi.fn(),
     onTokenUnitChange: vi.fn(),
     onRechargePriceChange: vi.fn(),
+    onCurrencyModeChange: vi.fn(),
     onViewModeChange: vi.fn(),
     onQuotaTypeChange: vi.fn(),
     onEndpointTypeChange: vi.fn(),
@@ -168,6 +170,24 @@ describe('pricing controls', () => {
       'aria-pressed',
       'false'
     )
+  })
+
+  it('switches between source prices and renminbi display', async () => {
+    const props = toolbarProps()
+    const user = userEvent.setup()
+    const { rerender } = render(<PricingToolbar {...props} />)
+
+    await user.click(screen.getByRole('button', { name: 'Renminbi' }))
+    expect(props.onCurrencyModeChange).toHaveBeenCalledWith('cny')
+
+    rerender(<PricingToolbar {...props} currencyMode='cny' />)
+    expect(screen.getByRole('button', { name: 'Renminbi' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(
+      screen.getByRole('button', { name: 'Original currency' })
+    ).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('switches to table view with the keyboard and exposes the selected view', async () => {

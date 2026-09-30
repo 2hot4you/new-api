@@ -415,7 +415,7 @@ describe('model cards', () => {
         onClick={vi.fn()}
       />
     )
-    expect(screen.getByText('Special billing expression')).toBeVisible()
+    expect(screen.getByText('Custom pricing expression')).toBeVisible()
     expect(screen.getByText(expression)).toBeVisible()
   })
 

@@ -30,6 +30,7 @@ import {
 } from '../lib/dynamic-price'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, stripTrailingZeros } from '../lib/price'
+import { getPricingDisplayCurrency } from '../lib/pricing-currency'
 import type { PricingModel } from '../types'
 import type { ModelPriceCellOptions } from './model-price-cell'
 
@@ -49,6 +50,9 @@ export function CachedPriceCell(props: {
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
 
   const model = props.model
+  const displayCurrency = props.options.currencyMode
+    ? getPricingDisplayCurrency(model, props.options.currencyMode)
+    : undefined
   const currency = useSystemConfigStore((state) => state.config.currency)
   const billingTime = useBillingTime(model.billing_expr)
   const dynamicSummary = useMemo(
@@ -60,6 +64,7 @@ export function CachedPriceCell(props: {
         priceRate,
         usdExchangeRate,
         groupRatioMultiplier: getDynamicDisplayGroupRatio(model, selectedGroup),
+        displayCurrency,
       }),
     // Currency is read indirectly by the price formatter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,6 +77,7 @@ export function CachedPriceCell(props: {
       selectedGroup,
       billingTime,
       currency,
+      displayCurrency,
     ]
   )
 
@@ -79,7 +85,7 @@ export function CachedPriceCell(props: {
     if (dynamicSummary.isSpecialExpression) {
       return (
         <span className='text-muted-foreground/50 text-xs'>
-          {t('Special billing expression')}
+          {t('Custom pricing expression')}
         </span>
       )
     }
@@ -136,7 +142,9 @@ export function CachedPriceCell(props: {
       showRechargePrice,
       priceRate,
       usdExchangeRate,
-      selectedGroup
+      selectedGroup,
+      true,
+      displayCurrency
     )
   )
 

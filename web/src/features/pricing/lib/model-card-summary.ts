@@ -30,6 +30,10 @@ import {
   type DynamicPricingStrategy,
 } from './dynamic-price'
 import { formatPrice, formatRequestPrice } from './price'
+import {
+  getPricingDisplayCurrency,
+  type PricingCurrencyMode,
+} from './pricing-currency'
 import { formatVideoPrice } from './video-pricing'
 
 type CompactPricingOptions = {
@@ -38,6 +42,7 @@ type CompactPricingOptions = {
   priceRate?: number
   usdExchangeRate?: number
   selectedGroup?: string
+  currencyMode?: PricingCurrencyMode
 }
 
 export type CompactPricingSummary =
@@ -74,9 +79,14 @@ export type CompactPricingSummary =
       unit: '1M' | '1K' | 'image' | 'second'
     }
 
-function formatDirectCNY(value: number, cnyPerUSD: number): string {
+function formatDirectCNY(
+  value: number,
+  cnyPerUSD: number,
+  displayCurrency: PricingModel['billing_currency']
+): string {
   return formatSourceBillingAmount(value, 'CNY', {
     cnyPerUSD,
+    displayCurrency,
     digitsLarge: 4,
     digitsSmall: 6,
     abbreviate: false,
@@ -132,6 +142,9 @@ export function getCompactPricingSummary(
   const usdExchangeRate =
     options.usdExchangeRate ??
     useSystemConfigStore.getState().config.currency.usdExchangeRate
+  const displayCurrency = options.currencyMode
+    ? getPricingDisplayCurrency(model, options.currencyMode)
+    : undefined
 
   if (model.molii_grok_pricing) {
     const prices = Object.values(model.molii_grok_pricing.output_prices).filter(
@@ -143,7 +156,9 @@ export function getCompactPricingSummary(
       label: 'Tiered pricing',
       ...(minimum == null
         ? {}
-        : { from: formatDirectCNY(minimum, usdExchangeRate) }),
+        : {
+            from: formatDirectCNY(minimum, usdExchangeRate, displayCurrency),
+          }),
       unit: model.molii_grok_pricing.output_unit,
     }
   }
@@ -159,7 +174,14 @@ export function getCompactPricingSummary(
       label: 'Tiered pricing',
       ...(minimum == null
         ? {}
-        : { from: formatVideoPrice(minimum, tokenUnit, usdExchangeRate) }),
+        : {
+            from: formatVideoPrice(
+              minimum,
+              tokenUnit,
+              usdExchangeRate,
+              displayCurrency
+            ),
+          }),
       unit: tokenUnitLabel,
     }
   }
@@ -173,6 +195,7 @@ export function getCompactPricingSummary(
       model,
       options.selectedGroup
     ),
+    displayCurrency,
   })
   if (dynamic) {
     if (dynamic.isSpecialExpression) {
@@ -190,6 +213,7 @@ export function getCompactPricingSummary(
             model,
             options.selectedGroup
           ),
+          displayCurrency,
         })
         return {
           kind: 'task',
@@ -251,7 +275,9 @@ export function getCompactPricingSummary(
         showRechargePrice,
         priceRate,
         usdExchangeRate,
-        options.selectedGroup
+        options.selectedGroup,
+        true,
+        displayCurrency
       ),
       unit: 'request',
     }
@@ -270,7 +296,9 @@ export function getCompactPricingSummary(
         showRechargePrice,
         priceRate,
         usdExchangeRate,
-        options.selectedGroup
+        options.selectedGroup,
+        true,
+        displayCurrency
       ),
     },
     {
@@ -282,7 +310,9 @@ export function getCompactPricingSummary(
         showRechargePrice,
         priceRate,
         usdExchangeRate,
-        options.selectedGroup
+        options.selectedGroup,
+        true,
+        displayCurrency
       ),
     },
   ]
@@ -296,7 +326,9 @@ export function getCompactPricingSummary(
         showRechargePrice,
         priceRate,
         usdExchangeRate,
-        options.selectedGroup
+        options.selectedGroup,
+        true,
+        displayCurrency
       ),
     })
   }

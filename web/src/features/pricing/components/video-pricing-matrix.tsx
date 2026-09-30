@@ -19,7 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { Info } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { getBillingCurrencyLabel } from '@/lib/currency'
+import {
+  getBillingCurrencyLabel,
+  type BillingSourceCurrency,
+} from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -32,6 +35,7 @@ export function VideoPricingMatrix(props: {
   showFormula?: boolean
   tokenUnit?: TokenUnit
   className?: string
+  displayCurrency?: BillingSourceCurrency
 }) {
   const { t } = useTranslation()
   const currency = useSystemConfigStore((state) => state.config.currency)
@@ -105,7 +109,8 @@ export function VideoPricingMatrix(props: {
                   {formatVideoPrice(
                     row.without_video,
                     tokenUnit,
-                    currency.usdExchangeRate
+                    currency.usdExchangeRate,
+                    props.displayCurrency
                   )}
                 </td>
                 <td
@@ -117,7 +122,8 @@ export function VideoPricingMatrix(props: {
                   {formatVideoPrice(
                     row.with_video,
                     tokenUnit,
-                    currency.usdExchangeRate
+                    currency.usdExchangeRate,
+                    props.displayCurrency
                   )}
                 </td>
               </tr>
@@ -152,7 +158,8 @@ export function VideoPricingMatrix(props: {
             compact ? 'px-2 py-1 text-[10px]' : 'px-3 py-2 text-xs'
           )}
         >
-          {t('Online inference')} · {getBillingCurrencyLabel()} /{' '}
+          {t('Online inference')} ·{' '}
+          {getBillingCurrencyLabel(props.displayCurrency)} /{' '}
           {priceTokenCountLabel} Token
         </div>
       </div>

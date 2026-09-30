@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { formatSourceBillingAmount } from '@/lib/currency'
 
-import type { TokenUnit } from '../types'
+import type { PricingModel, TokenUnit } from '../types'
 
 export function getVideoPriceTokenCount(tokenUnit: TokenUnit): number {
   return tokenUnit === 'K' ? 1_000 : 1_000_000
@@ -27,12 +27,14 @@ export function getVideoPriceTokenCount(tokenUnit: TokenUnit): number {
 export function formatVideoPrice(
   pricePerMillionTokens: number,
   tokenUnit: TokenUnit = 'M',
-  cnyPerUSD?: number
+  cnyPerUSD?: number,
+  displayCurrency?: PricingModel['billing_currency']
 ): string {
   const displayedPrice =
     tokenUnit === 'K' ? pricePerMillionTokens / 1_000 : pricePerMillionTokens
   return formatSourceBillingAmount(displayedPrice, 'CNY', {
     cnyPerUSD,
+    displayCurrency,
     digitsLarge: tokenUnit === 'K' ? 3 : 2,
     digitsSmall: tokenUnit === 'K' ? 3 : 2,
     abbreviate: false,

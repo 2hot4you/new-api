@@ -56,6 +56,7 @@ export type DynamicPriceOptions = {
   usdExchangeRate?: number
   groupRatioMultiplier?: number
   billingCurrency?: PricingModel['billing_currency']
+  displayCurrency?: PricingModel['billing_currency']
   usageSchema?: BillingUsageSchema
   now?: Date
 }
@@ -192,6 +193,60 @@ export function isDynamicPricingModel(model: PricingModel): boolean {
   return model.billing_mode === 'tiered_expr' && Boolean(model.billing_expr)
 }
 
+export function isDynamicPricingPresentation(model: PricingModel): boolean {
+  if (model.billing_plugin_variants?.length) {
+    return model.billing_plugin_variants.some((variant) =>
+      isDynamicPricingPresentation(withPluginPricing(model, variant))
+    )
+  }
+  if (!isDynamicPricingModel(model)) return false
+  if (hasDynamicRequestRules(model)) return true
+
+  const tiers = getDynamicPricingTiers(model)
+  return (
+    tiers.length > 1 ||
+    tiers.some(
+      (tier) =>
+        !('unitPrices' in tier) &&
+        (tier.conditions.length > 0 || Boolean(tier.conditionText))
+    )
+  )
+}
+
+export function getFlatExpressionBillingUnit(
+  model: PricingModel
+): 'token' | 'request' | null {
+  if (model.billing_plugin_variants?.length) {
+    const units = model.billing_plugin_variants.map((variant) => {
+      if (variant.billing_mode === 'ratio') {
+        return model.quota_type === 1 ? 'request' : 'token'
+      }
+      return getFlatExpressionBillingUnit(withPluginPricing(model, variant))
+    })
+    const first = units[0]
+    return first && units.every((unit) => unit === first) ? first : null
+  }
+  if (
+    !isDynamicPricingModel(model) ||
+    hasDynamicRequestRules(model) ||
+    hasTaskUsageSchema(model)
+  ) {
+    return null
+  }
+  const tiers = getDynamicPricingTiers(model)
+  const tier = tiers[0]
+  if (
+    tiers.length !== 1 ||
+    !tier ||
+    'unitPrices' in tier ||
+    tier.conditions.length > 0 ||
+    tier.conditionText
+  ) {
+    return null
+  }
+  return tier.billingUnit === 'request' ? 'request' : 'token'
+}
+
 export function hasTaskUsageSchema(model: PricingModel): boolean {
   return Object.keys(model.billing_usage_schema ?? {}).length > 0
 }
@@ -303,6 +358,7 @@ export function formatDynamicUnitPrice(
   )
 
   return formatBillingCurrencyFromUSD(displayPrice, {
+    displayCurrency: options.displayCurrency,
     showSymbol: options.showCurrencySymbol ?? true,
     digitsLarge: 4,
     digitsSmall: 6,
@@ -327,6 +383,7 @@ export function formatTaskUsageUnitPrice(
     usdExchangeRate
   )
   return formatBillingCurrencyFromUSD(displayPrice, {
+    displayCurrency: options.displayCurrency,
     showSymbol: options.showCurrencySymbol ?? true,
     digitsLarge: 4,
     digitsSmall: 6,

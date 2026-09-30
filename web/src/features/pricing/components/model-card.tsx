@@ -47,6 +47,10 @@ import {
 } from '../lib/model-card-summary'
 import { getPricingModelDescription } from '../lib/model-description'
 import { getModelInputModalities } from '../lib/model-directory'
+import {
+  getPricingDisplayCurrency,
+  type PricingCurrencyMode,
+} from '../lib/pricing-currency'
 import { taskPriceLabel, taskUsageUnitLabel } from '../lib/task-price-display'
 import type {
   Modality,
@@ -65,6 +69,7 @@ export interface ModelCardProps {
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
   selectedGroup?: string
+  currencyMode?: PricingCurrencyMode
   perf?: ModelPerfBadgeData
 }
 
@@ -229,7 +234,7 @@ function CompactPricing(props: { summary: CompactPricingSummary }) {
     return (
       <div className='space-y-1'>
         <div className='text-muted-foreground text-xs'>
-          {t('Special billing expression')}
+          {t('Custom pricing expression')}
         </div>
         <code className='text-muted-foreground block text-[10px] break-all'>
           {summary.expression}
@@ -273,6 +278,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const usdExchangeRate = props.usdExchangeRate ?? currency.usdExchangeRate
   const showRechargePrice = props.showRechargePrice ?? false
   const billingTime = useBillingTime(props.model.billing_expr)
+  const displayCurrency = props.currencyMode
+    ? getPricingDisplayCurrency(props.model, props.currencyMode)
+    : undefined
   const dynamicPriceOptions = useMemo(
     () => ({
       now: billingTime === undefined ? undefined : new Date(billingTime),
@@ -280,6 +288,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       showRechargePrice,
       priceRate,
       usdExchangeRate,
+      displayCurrency,
       groupRatioMultiplier: getDynamicDisplayGroupRatio(
         props.model,
         props.selectedGroup
@@ -293,6 +302,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       showRechargePrice,
       priceRate,
       usdExchangeRate,
+      displayCurrency,
     ]
   )
   const dynamicSummary = useMemo(
@@ -317,6 +327,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     usdExchangeRate: props.usdExchangeRate,
     showRechargePrice: props.showRechargePrice,
     selectedGroup: props.selectedGroup,
+    currencyMode: props.currencyMode,
   })
   const description = getPricingModelDescription(
     props.model,
@@ -338,9 +349,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     if (dynamicSummary.isSpecialExpression) {
       dynamicPriceSummary = (
         <div className='col-span-full min-w-0'>
-          <span className='text-warning'>
-            {t('Special billing expression')}
-          </span>
+          <span className='text-warning'>{t('Custom pricing expression')}</span>
           <code className='text-muted-foreground mt-1 line-clamp-2 block font-mono text-xs break-all'>
             {dynamicSummary.rawExpression}
           </code>

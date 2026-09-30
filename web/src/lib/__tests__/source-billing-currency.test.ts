@@ -52,6 +52,38 @@ describe('source billing currency conversion', () => {
     )
   })
 
+  test('lets public pricing choose the display currency without changing the site setting', () => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        quotaDisplayType: 'CNY',
+        usdExchangeRate: 7,
+      },
+    })
+
+    assert.equal(
+      formatSourceBillingAmount(2, 'USD', {
+        cnyPerUSD: 7,
+        displayCurrency: 'USD',
+      }),
+      '$2'
+    )
+    assert.equal(
+      formatSourceBillingAmount(2, 'USD', {
+        cnyPerUSD: 7,
+        displayCurrency: 'CNY',
+      }),
+      '¥14'
+    )
+    assert.equal(
+      formatSourceBillingAmount(14, 'CNY', {
+        cnyPerUSD: 7,
+        displayCurrency: 'CNY',
+      }),
+      '¥14'
+    )
+  })
+
   test('rejects an invalid CNY exchange rate instead of guessing', () => {
     assert.equal(formatSourceBillingAmount(2, 'CNY', { cnyPerUSD: 0 }), '-')
   })

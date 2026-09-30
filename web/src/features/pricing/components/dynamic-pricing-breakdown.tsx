@@ -105,6 +105,7 @@ type DynamicPricingBreakdownProps = {
     showRechargePrice?: boolean
     priceRate?: number
     usdExchangeRate?: number
+    displayCurrency?: 'USD' | 'CNY'
   }
 }
 
@@ -421,7 +422,7 @@ export function DynamicPricingBreakdown({
             </span>
             <div>
               <div className='text-foreground text-base font-medium'>
-                {t('Special billing expression')}
+                {t('Custom pricing expression')}
               </div>
               <div className='text-muted-foreground text-xs'>
                 {t(pricingDisplayFallbackKey(expr, usageSchema))}

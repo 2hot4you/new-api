@@ -32,6 +32,7 @@ export const pricingSearchSchema = z.object({
   endpointType: optionalSearchString,
   tag: optionalSearchString,
   tokenUnit: z.enum(['M', 'K']).optional(),
+  currency: z.enum(['cny']).optional().catch(undefined),
   view: z.enum(['card', 'table']).optional().catch(undefined),
   rechargePrice: z.boolean().optional(),
   category: optionalSearchString,

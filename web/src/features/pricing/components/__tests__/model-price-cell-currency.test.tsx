@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 describe('model price cell billing currency', () => {
-  test('converts an explicit USD model into the site CNY currency', () => {
+  test('shows an explicit USD model in its source currency by default', () => {
     useSystemConfigStore.getState().setConfig({
       currency: {
         ...DEFAULT_CURRENCY_CONFIG,
@@ -35,14 +35,41 @@ describe('model price cell billing currency', () => {
       billing_currency: 'USD',
     }
 
-    render(<ModelPriceCell model={model} />)
+    render(
+      <ModelPriceCell model={model} options={{ currencyMode: 'source' }} />
+    )
+
+    expect(screen.getByText('USD / 1M tokens')).toBeVisible()
+    expect(screen.getByText('2')).toBeVisible()
+    expect(screen.getByText('4')).toBeVisible()
+  })
+
+  test('converts an explicit USD model when renminbi display is selected', () => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        quotaDisplayType: 'CNY',
+        usdExchangeRate: 7,
+      },
+    })
+    const model: PricingModel = {
+      id: 4,
+      model_name: 'usd-model-cny-display',
+      quota_type: 0,
+      model_ratio: 1,
+      completion_ratio: 2,
+      enable_groups: ['default'],
+      billing_currency: 'USD',
+    }
+
+    render(<ModelPriceCell model={model} options={{ currencyMode: 'cny' }} />)
 
     expect(screen.getByText('CNY / 1M tokens')).toBeVisible()
     expect(screen.getByText('14')).toBeVisible()
     expect(screen.getByText('28')).toBeVisible()
   })
 
-  test('uses billing USD when the site display mode is tokens', () => {
+  test('keeps a CNY expression in its source currency when site quotas use tokens', () => {
     useSystemConfigStore.getState().setConfig({
       currency: {
         ...DEFAULT_CURRENCY_CONFIG,
@@ -62,11 +89,13 @@ describe('model price cell billing currency', () => {
       billing_expr: 'tier("base", p * 0.2 + c * 2)',
     }
 
-    render(<ModelPriceCell model={model} />)
+    render(
+      <ModelPriceCell model={model} options={{ currencyMode: 'source' }} />
+    )
 
-    expect(screen.getByText('USD / 1M tokens')).toBeVisible()
-    expect(screen.getByText('0.028571')).toBeVisible()
-    expect(screen.getByText('0.285714')).toBeVisible()
+    expect(screen.getByText('CNY / 1M tokens')).toBeVisible()
+    expect(screen.getByText('0.2')).toBeVisible()
+    expect(screen.getByText('2')).toBeVisible()
   })
 
   test('keeps legacy ratio prices in USD semantics before site conversion', () => {

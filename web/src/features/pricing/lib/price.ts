@@ -156,7 +156,8 @@ export function formatPrice(
   priceRate = 1,
   usdExchangeRate = 1,
   selectedGroup?: string,
-  showCurrencySymbol = true
+  showCurrencySymbol = true,
+  displayCurrency?: PricingModel['billing_currency']
 ): string {
   if (model.quota_type === QUOTA_TYPE_VALUES.REQUEST) {
     return '-'
@@ -174,6 +175,7 @@ export function formatPrice(
 
   const price = priceInUSD / TOKEN_UNIT_DIVISORS[tokenUnit]
   return formatLegacyPrice(price, {
+    displayCurrency,
     showSymbol: showCurrencySymbol,
     digitsLarge: 4,
     digitsSmall: 6,
@@ -192,7 +194,8 @@ export function formatGroupPrice(
   showWithRecharge = false,
   priceRate = 1,
   usdExchangeRate = 1,
-  groupRatio: Record<string, number>
+  groupRatio: Record<string, number>,
+  displayCurrency?: PricingModel['billing_currency']
 ): string {
   if (model.quota_type === QUOTA_TYPE_VALUES.REQUEST) {
     return '-'
@@ -210,6 +213,7 @@ export function formatGroupPrice(
 
   const price = priceInUSD / TOKEN_UNIT_DIVISORS[tokenUnit]
   return formatLegacyPrice(price, {
+    displayCurrency,
     digitsLarge: 4,
     digitsSmall: 6,
     abbreviate: false,
@@ -225,7 +229,8 @@ export function formatFixedPrice(
   showWithRecharge = false,
   priceRate = 1,
   usdExchangeRate = 1,
-  groupRatio: Record<string, number>
+  groupRatio: Record<string, number>,
+  displayCurrency?: PricingModel['billing_currency']
 ): string {
   if (model.quota_type !== QUOTA_TYPE_VALUES.REQUEST) {
     return '-'
@@ -242,6 +247,7 @@ export function formatFixedPrice(
   )
 
   return formatLegacyPrice(priceInUSD, {
+    displayCurrency,
     digitsLarge: 4,
     digitsSmall: 4,
     abbreviate: false,
@@ -257,7 +263,8 @@ export function formatRequestPrice(
   priceRate = 1,
   usdExchangeRate = 1,
   selectedGroup?: string,
-  showCurrencySymbol = true
+  showCurrencySymbol = true,
+  displayCurrency?: PricingModel['billing_currency']
 ): string {
   if (model.quota_type !== QUOTA_TYPE_VALUES.REQUEST) {
     return '-'
@@ -275,6 +282,7 @@ export function formatRequestPrice(
   )
 
   return formatLegacyPrice(priceInUSD, {
+    displayCurrency,
     showSymbol: showCurrencySymbol,
     digitsLarge: 4,
     digitsSmall: 4,

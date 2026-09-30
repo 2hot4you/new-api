@@ -172,7 +172,7 @@ it('shows nested task conditions and prices in detail and group tables without a
     </QueryClientProvider>
   )
   expect(
-    screen.queryByText('Special billing expression')
+    screen.queryByText('Custom pricing expression')
   ).not.toBeInTheDocument()
   expect(
     screen.getAllByText(/resolution: 4K · 18:00–22:00 \(Asia\/Shanghai\)/)

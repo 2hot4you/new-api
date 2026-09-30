@@ -37,6 +37,7 @@ import {
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
+import type { BillingSourceCurrency } from '@/lib/currency'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
@@ -55,6 +56,7 @@ import {
   getDynamicPricingTiers,
   getTaskUsageQuantityUnitLabelKey,
   isDynamicPricingModel,
+  isDynamicPricingPresentation,
   isUnconfiguredTaskUsageModel,
   type DynamicPriceEntry,
 } from '../lib/dynamic-price'
@@ -68,6 +70,10 @@ import {
 } from '../lib/model-helpers'
 import { withPluginPricing } from '../lib/plugin-pricing'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
+import {
+  getPricingDisplayCurrency,
+  type PricingCurrencyMode,
+} from '../lib/pricing-currency'
 import {
   evaluateTaskUsageExamples,
   getTaskEnumFields,
@@ -96,6 +102,7 @@ import {
 import { ModelDetailsPerformance } from './model-details-performance'
 import { ModelDetailsVideoOverview } from './model-details-video-overview'
 import { ModelDetailsVideoPerformance } from './model-details-video-performance'
+import { PricingCurrencyToggle } from './pricing-currency-toggle'
 import { RelatedModels } from './related-models'
 import { VideoPricingMatrix } from './video-pricing-matrix'
 
@@ -461,12 +468,15 @@ export function PriceSection(props: {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice: boolean
+  displayCurrency?: BillingSourceCurrency
 }) {
   const { t, i18n } = useTranslation()
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
   const baseGroupKey = '_base'
   const baseGroupRatioMap = { [baseGroupKey]: 1 }
+  const displayCurrency =
+    props.displayCurrency ?? getPricingDisplayCurrency(props.model, 'source')
   const currency = useSystemConfigStore((state) => state.config.currency)
   const billingTime = useBillingTime(props.model.billing_expr)
   const dynamicSummary = useMemo(
@@ -478,6 +488,7 @@ export function PriceSection(props: {
         priceRate: props.priceRate,
         usdExchangeRate: props.usdExchangeRate,
         groupRatioMultiplier: 1,
+        displayCurrency,
       }),
     // Currency is read indirectly by the price formatter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -487,6 +498,7 @@ export function PriceSection(props: {
       props.showRechargePrice,
       props.priceRate,
       props.usdExchangeRate,
+      displayCurrency,
       billingTime,
       currency,
     ]
@@ -512,6 +524,7 @@ export function PriceSection(props: {
         <VideoPricingMatrix
           pricing={props.model.video_pricing}
           tokenUnit={props.tokenUnit}
+          displayCurrency={displayCurrency}
           showFormula
         />
       </section>
@@ -561,7 +574,7 @@ export function PriceSection(props: {
           <SectionTitle>{t('Base Price')}</SectionTitle>
           <div className='rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10'>
             <div className='text-sm font-medium text-amber-800 dark:text-amber-200'>
-              {t('Special billing expression')}
+              {t('Custom pricing expression')}
             </div>
             <p className='text-muted-foreground mt-1 text-xs'>
               {t(
@@ -703,7 +716,8 @@ export function PriceSection(props: {
               props.showRechargePrice,
               props.priceRate,
               props.usdExchangeRate,
-              baseGroupRatioMap
+              baseGroupRatioMap,
+              displayCurrency
             )}
           </span>
         </div>
@@ -722,7 +736,8 @@ export function PriceSection(props: {
         props.showRechargePrice,
         props.priceRate,
         props.usdExchangeRate,
-        baseGroupRatioMap
+        baseGroupRatioMap,
+        displayCurrency
       )}
       <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
         / {tokenUnitLabel}
@@ -859,6 +874,7 @@ type GroupPricingSectionProps = {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  displayCurrency: BillingSourceCurrency
 }
 
 function GroupPricingSection(props: GroupPricingSectionProps) {
@@ -993,7 +1009,7 @@ function ProviderGroupPricingSection(
           <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
           <div className='rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10'>
             <div className='text-sm font-medium text-amber-800 dark:text-amber-200'>
-              {t('Special billing expression')}
+              {t('Custom pricing expression')}
             </div>
             <p className='text-muted-foreground mt-1 text-xs'>
               {t(
@@ -1028,6 +1044,7 @@ function ProviderGroupPricingSection(
       usdExchangeRate: props.usdExchangeRate,
       groupRatioMultiplier: 1,
       billingCurrency: props.model.billing_currency,
+      displayCurrency: props.displayCurrency,
       usageSchema: props.model.billing_usage_schema,
     })
     const formattedPricesByGroup = new Map(
@@ -1042,6 +1059,7 @@ function ProviderGroupPricingSection(
             usdExchangeRate: props.usdExchangeRate,
             groupRatioMultiplier: ratio,
             billingCurrency: props.model.billing_currency,
+            displayCurrency: props.displayCurrency,
             usageSchema: props.model.billing_usage_schema,
           }),
         ] as const
@@ -1078,7 +1096,8 @@ function ProviderGroupPricingSection(
                     `${group}-${tier.label}-${tierIndex}`
                   }
                   columns={[
-                    ...(hasSimpleTaskPricing(props.model)
+                    ...(!isDynamicPricingPresentation(props.model) ||
+                    hasSimpleTaskPricing(props.model)
                       ? []
                       : [
                           {
@@ -1183,6 +1202,7 @@ function ProviderGroupPricingSection(
                               usdExchangeRate: props.usdExchangeRate,
                               groupRatioMultiplier: ratio,
                               billingCurrency: props.model.billing_currency,
+                              displayCurrency: props.displayCurrency,
                             })}`,
                         },
                       ]}
@@ -1228,7 +1248,8 @@ function ProviderGroupPricingSection(
       showRechargePrice,
       props.priceRate,
       props.usdExchangeRate,
-      props.groupRatio
+      props.groupRatio,
+      props.displayCurrency
     )
   const renderFixedGroupPrice = (group: string) =>
     formatFixedPrice(
@@ -1237,7 +1258,8 @@ function ProviderGroupPricingSection(
       showRechargePrice,
       props.priceRate,
       props.usdExchangeRate,
-      props.groupRatio
+      props.groupRatio,
+      props.displayCurrency
     )
 
   return (
@@ -1321,15 +1343,18 @@ export interface ModelDetailsContentProps {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  currencyMode?: PricingCurrencyMode
 }
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const { t } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
+  const displayCurrency = getPricingDisplayCurrency(
+    props.model,
+    props.currencyMode ?? 'source'
+  )
 
-  const isDynamic =
-    props.model.billing_mode === 'tiered_expr' &&
-    Boolean(props.model.billing_expr)
+  const isDynamic = isDynamicPricingPresentation(props.model)
   const isVideoModel = isOpenAIVideoModel(props.model)
   const isGrokModel = isGrokImagineModel(props.model)
   const isGrokImage = isGrokImageModel(props.model)
@@ -1366,7 +1391,10 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
         <h2 className='mb-5 text-lg font-semibold'>{t('Pricing')}</h2>
         <div className='bg-card/60 space-y-5 rounded-xl border p-4 shadow-sm'>
           {isGrokModel ? (
-            <ModelDetailsGrokPricing model={props.model} />
+            <ModelDetailsGrokPricing
+              model={props.model}
+              displayCurrency={displayCurrency}
+            />
           ) : (
             <PriceSection
               model={props.model}
@@ -1374,6 +1402,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
+              displayCurrency={displayCurrency}
             />
           )}
           {isDynamic && !hasSimpleTaskPricing(props.model) && (
@@ -1385,6 +1414,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
                 showRechargePrice,
                 priceRate: props.priceRate,
                 usdExchangeRate: props.usdExchangeRate,
+                displayCurrency,
               }}
             />
           )}
@@ -1398,6 +1428,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
+              displayCurrency={displayCurrency}
             />
           )}
         </div>
@@ -1446,6 +1477,8 @@ export function ModelDetails() {
 
   const tokenUnit: TokenUnit =
     search.tokenUnit === 'K' ? 'K' : DEFAULT_TOKEN_UNIT
+  const currencyMode: PricingCurrencyMode =
+    search.currency === 'cny' ? 'cny' : 'source'
 
   const model = useMemo(() => {
     if (!models || !modelId) return null
@@ -1454,6 +1487,18 @@ export function ModelDetails() {
 
   const handleBack = () => {
     navigate({ to: '/pricing', search })
+  }
+
+  const handleCurrencyModeChange = (mode: PricingCurrencyMode) => {
+    void navigate({
+      to: '/pricing/$modelId',
+      params: { modelId },
+      search: {
+        ...search,
+        currency: mode === 'cny' ? 'cny' : undefined,
+      },
+      replace: true,
+    })
   }
 
   if (isLoading) {
@@ -1502,15 +1547,21 @@ export function ModelDetails() {
   return (
     <PublicLayout>
       <div className='mx-auto max-w-7xl px-4 sm:px-6'>
-        <Button
-          variant='ghost'
-          size='sm'
-          onClick={handleBack}
-          className='text-muted-foreground hover:text-foreground mb-4 h-auto gap-1 px-0 py-1 text-xs'
-        >
-          <ArrowLeft className='size-3.5' />
-          {t('Back')}
-        </Button>
+        <div className='mb-4 flex flex-wrap items-center justify-between gap-3'>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={handleBack}
+            className='text-muted-foreground hover:text-foreground h-auto gap-1 px-0 py-1 text-xs'
+          >
+            <ArrowLeft className='size-3.5' />
+            {t('Back')}
+          </Button>
+          <PricingCurrencyToggle
+            value={currencyMode}
+            onChange={handleCurrencyModeChange}
+          />
+        </div>
 
         <ModelDetailsContent
           model={model}
@@ -1521,6 +1572,7 @@ export function ModelDetails() {
           usdExchangeRate={usdExchangeRate ?? 1}
           tokenUnit={tokenUnit}
           showRechargePrice={search.rechargePrice ?? false}
+          currencyMode={currencyMode}
           endpointMap={
             (endpointMap as Record<
               string,
