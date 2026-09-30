@@ -1,0 +1,13 @@
+{
+  "id": "diagnose-pricing-currency-selector-no-effect",
+  "title": "诊断模型定价编辑器切换人民币和美元无效果",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "由用户决定是否将编辑器定价货币与模型元数据币种联动",
+  "createdAt": "2026-09-30T10:20:00+08:00",
+  "completedAt": "2026-09-30T10:25:00+08:00",
+  "branch": "upgrade/rc40"
+}
