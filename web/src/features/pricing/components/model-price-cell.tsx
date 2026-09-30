@@ -59,8 +59,7 @@ export function ModelPriceCell(props: {
     () =>
       getDynamicPricingSummary(props.model, {
         priceRate: options.priceRate,
-        usdExchangeRate:
-          options.usdExchangeRate ?? currency.usdExchangeRate,
+        usdExchangeRate: options.usdExchangeRate ?? currency.usdExchangeRate,
         showRechargePrice: options.showRechargePrice,
         now: billingTime === undefined ? undefined : new Date(billingTime),
         tokenUnit,

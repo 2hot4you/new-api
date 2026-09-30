@@ -660,9 +660,7 @@ describe('canonical quotation snapshot', () => {
     )
     const [usd, cny] = snapshot.providers[0]?.models ?? []
     assert.equal(usd?.dimensions[0]?.sourceCurrency, 'USD')
-    assert.ok(
-      Math.abs((usd?.dimensions[0]?.quoteAmount ?? 0) - 22.4) < 1e-12
-    )
+    assert.ok(Math.abs((usd?.dimensions[0]?.quoteAmount ?? 0) - 22.4) < 1e-12)
     assert.equal(cny?.dimensions[0]?.sourceCurrency, 'CNY')
     assert.equal(cny?.dimensions[0]?.quoteAmount, 3.2)
     assert.equal(snapshot.quoteCurrency, 'CNY')

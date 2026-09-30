@@ -16,10 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  formatBillingCurrencyFromUSD,
-  sourceAmountToUSD,
-} from '@/lib/currency'
+import { formatBillingCurrencyFromUSD, sourceAmountToUSD } from '@/lib/currency'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { TOKEN_UNIT_DIVISORS } from '../constants'

@@ -517,11 +517,7 @@ export function formatSourceBillingAmount(
   const { cnyPerUSD, ...formatOptions } = options ?? {}
   const configuredRate =
     cnyPerUSD ?? useSystemConfigStore.getState().config.currency.usdExchangeRate
-  const amountUSD = sourceAmountToUSD(
-    amount,
-    sourceCurrency,
-    configuredRate
-  )
+  const amountUSD = sourceAmountToUSD(amount, sourceCurrency, configuredRate)
   if (!Number.isFinite(amountUSD)) return '-'
   return formatBillingCurrencyFromUSD(amountUSD, formatOptions)
 }

@@ -152,9 +152,7 @@ export function formatGrokImageAmount(
   })
 }
 
-export function formatGrokImageFinalCharge(
-  billing: GrokImageBilling
-): string {
+export function formatGrokImageFinalCharge(billing: GrokImageBilling): string {
   if (billing.version === 1) return formatGrokImageCny(billing.final_cost)
   return formatBillingCurrencyFromUSD(billing.final_cost_usd, {
     digitsLarge: 6,

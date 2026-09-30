@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { describe, test } from 'vitest'
+
+import { afterEach, beforeEach, describe, test } from 'vitest'
+
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 import type { PricingModel, TokenUnit } from '../../types'
 import * as dynamicPrice from '../dynamic-price'
@@ -58,6 +64,22 @@ const getTextModelCardPricing = (
 ).getTextModelCardPricing
 
 describe('text model marketplace card pricing', () => {
+  beforeEach(() => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        quotaDisplayType: 'CNY',
+        usdExchangeRate: 7,
+      },
+    })
+  })
+
+  afterEach(() => {
+    useSystemConfigStore.getState().setConfig({
+      currency: { ...DEFAULT_CURRENCY_CONFIG },
+    })
+  })
+
   test('exposes a billing explanation only for the four selected fixed-price models', () => {
     assert.equal(typeof getTextModelCardPricing, 'function')
     if (!getTextModelCardPricing) return

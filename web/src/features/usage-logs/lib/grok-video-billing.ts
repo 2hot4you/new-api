@@ -173,9 +173,7 @@ export function formatGrokVideoAmount(
   })
 }
 
-export function formatGrokVideoFinalCharge(
-  billing: GrokVideoBilling
-): string {
+export function formatGrokVideoFinalCharge(billing: GrokVideoBilling): string {
   if (billing.version === 1) return formatGrokVideoCny(billing.final_cost)
   return formatBillingCurrencyFromUSD(billing.final_cost_usd, {
     digitsLarge: 6,

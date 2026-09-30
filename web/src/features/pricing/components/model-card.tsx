@@ -270,8 +270,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const priceRate = props.priceRate ?? 1
-  const usdExchangeRate =
-    props.usdExchangeRate ?? currency.usdExchangeRate
+  const usdExchangeRate = props.usdExchangeRate ?? currency.usdExchangeRate
   const showRechargePrice = props.showRechargePrice ?? false
   const billingTime = useBillingTime(props.model.billing_expr)
   const dynamicPriceOptions = useMemo(

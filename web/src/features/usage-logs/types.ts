@@ -141,8 +141,10 @@ export interface GrokImageBillingV1 {
   final_cost: number
 }
 
-export interface GrokImageBillingV2
-  extends Omit<GrokImageBillingV1, 'version'> {
+export interface GrokImageBillingV2 extends Omit<
+  GrokImageBillingV1,
+  'version'
+> {
   version: 2
   requested_model?: string
   billed_model?: string
@@ -203,8 +205,10 @@ export interface GrokVideoBillingV1 {
   final_cost: number
 }
 
-export interface GrokVideoBillingV2
-  extends Omit<GrokVideoBillingV1, 'version'> {
+export interface GrokVideoBillingV2 extends Omit<
+  GrokVideoBillingV1,
+  'version'
+> {
   version: 2
   requested_model?: string
   billed_model?: string

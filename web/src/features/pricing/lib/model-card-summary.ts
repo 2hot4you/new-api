@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { formatSourceBillingAmount } from '@/lib/currency'
+import { useSystemConfigStore } from '@/stores/system-config-store'
+
 import type { PricingModel, TokenUnit } from '../types'
 import {
   getDynamicDisplayGroupRatio,
@@ -300,5 +303,3 @@ export function getCompactPricingSummary(
 
   return { kind: 'token', items, unit: tokenUnitLabel }
 }
-import { formatSourceBillingAmount } from '@/lib/currency'
-import { useSystemConfigStore } from '@/stores/system-config-store'

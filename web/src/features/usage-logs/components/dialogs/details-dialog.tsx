@@ -1421,37 +1421,37 @@ export function DetailsDialog(props: DetailsDialogProps) {
           billingMoneyAudit &&
           !isGrokImage &&
           !isGrokVideo && (
-          <DetailSection label={t('Billing currency audit')}>
-            <DetailRow
-              label={t('Source currency')}
-              value={billingMoneyAudit.sourceCurrency}
-              mono
-            />
-            <DetailRow
-              label={t('Source cost')}
-              value={`${billingMoneyAudit.sourceCurrency} ${billingMoneyAudit.sourceCost}`}
-              mono
-            />
-            <DetailRow
-              label={t('Frozen exchange rate')}
-              value={`1 USD = ${billingMoneyAudit.cnyPerUSD} CNY`}
-              mono
-            />
-            <DetailRow
-              label={t('USD-equivalent cost')}
-              value={`USD ${billingMoneyAudit.costUSD}`}
-              mono
-            />
-            {billingMoneyAudit.displayCurrency &&
-              Number.isFinite(billingMoneyAudit.displayCost) && (
-                <DetailRow
-                  label={t('Display cost at settlement')}
-                  value={`${billingMoneyAudit.displayCurrency} ${billingMoneyAudit.displayCost}`}
-                  mono
-                />
-              )}
-          </DetailSection>
-        )}
+            <DetailSection label={t('Billing currency audit')}>
+              <DetailRow
+                label={t('Source currency')}
+                value={billingMoneyAudit.sourceCurrency}
+                mono
+              />
+              <DetailRow
+                label={t('Source cost')}
+                value={`${billingMoneyAudit.sourceCurrency} ${billingMoneyAudit.sourceCost}`}
+                mono
+              />
+              <DetailRow
+                label={t('Frozen exchange rate')}
+                value={`1 USD = ${billingMoneyAudit.cnyPerUSD} CNY`}
+                mono
+              />
+              <DetailRow
+                label={t('USD-equivalent cost')}
+                value={`USD ${billingMoneyAudit.costUSD}`}
+                mono
+              />
+              {billingMoneyAudit.displayCurrency &&
+                Number.isFinite(billingMoneyAudit.displayCost) && (
+                  <DetailRow
+                    label={t('Display cost at settlement')}
+                    value={`${billingMoneyAudit.displayCurrency} ${billingMoneyAudit.displayCost}`}
+                    mono
+                  />
+                )}
+            </DetailSection>
+          )}
 
         {/* Admin billing mode indicator for non-consume */}
         {props.isAdmin &&

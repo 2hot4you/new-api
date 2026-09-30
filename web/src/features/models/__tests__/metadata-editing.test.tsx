@@ -131,6 +131,7 @@ describe('model pricing entry', () => {
           {
             model_name: 'channel-only',
             expected_version: 'v1',
+            billing_currency: 'USD',
             pricing: { ModelPrice: 0, 'billing_setting.billing_mode': 'ratio' },
             reset: false,
           },
@@ -555,6 +556,7 @@ describe('metadata editing', () => {
           {
             model_name: 'example-model',
             expected_version: 'v1',
+            billing_currency: 'USD',
             pricing: { ModelPrice: 0, 'billing_setting.billing_mode': 'ratio' },
             reset: false,
           },
@@ -579,6 +581,7 @@ describe('metadata editing', () => {
           {
             model_name: 'example-model',
             expected_version: 'v2',
+            billing_currency: 'USD',
             pricing: { ModelPrice: 0, 'billing_setting.billing_mode': 'ratio' },
             reset: false,
           },

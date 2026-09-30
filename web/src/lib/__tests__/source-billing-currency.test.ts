@@ -2,10 +2,7 @@ import assert from 'node:assert/strict'
 
 import { afterEach, describe, test } from 'vitest'
 
-import {
-  formatSourceBillingAmount,
-  sourceAmountToUSD,
-} from '@/lib/currency'
+import { formatSourceBillingAmount, sourceAmountToUSD } from '@/lib/currency'
 import {
   DEFAULT_CURRENCY_CONFIG,
   useSystemConfigStore,

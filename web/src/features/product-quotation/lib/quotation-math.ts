@@ -646,9 +646,7 @@ function convertQuoteAmount(
   if (amount === null) return null
   if (sourceCurrency === quoteCurrency) return amount
   if (!Number.isFinite(cnyPerUSD) || cnyPerUSD <= 0) return null
-  return sourceCurrency === 'CNY'
-    ? amount / cnyPerUSD
-    : amount * cnyPerUSD
+  return sourceCurrency === 'CNY' ? amount / cnyPerUSD : amount * cnyPerUSD
 }
 
 function normalizeDimensionCurrency(
@@ -747,11 +745,7 @@ export function buildQuotationSnapshot(
       dimensions: available
         ? modelDimensions(model, basisRatio, discountCoefficient).map(
             (dimension) =>
-              normalizeDimensionCurrency(
-                dimension,
-                quoteCurrency,
-                cnyPerUSD
-              )
+              normalizeDimensionCurrency(dimension, quoteCurrency, cnyPerUSD)
           )
         : [],
       usageExamples: (model.billing_usage_examples ?? []).map((example) => ({
