@@ -378,13 +378,11 @@ func validateCatalogValues(field string, values []string, allowed map[string]str
 // NormalizeCatalogMetadata normalizes optional catalog facts before they are
 // persisted. It intentionally does not invent missing metadata.
 func (mi *Model) NormalizeCatalogMetadata() error {
-	mi.BillingCurrency = strings.ToUpper(strings.TrimSpace(mi.BillingCurrency))
-	if mi.BillingCurrency == "" {
-		mi.BillingCurrency = "USD"
+	billingCurrency, err := normalizeModelBillingCurrency(mi.BillingCurrency)
+	if err != nil {
+		return err
 	}
-	if mi.BillingCurrency != "USD" && mi.BillingCurrency != "CNY" {
-		return fmt.Errorf("billing_currency must be USD or CNY")
-	}
+	mi.BillingCurrency = string(billingCurrency)
 	mi.KnowledgeCutoff = strings.TrimSpace(mi.KnowledgeCutoff)
 	mi.ReleaseDate = strings.TrimSpace(mi.ReleaseDate)
 	mi.MetadataSource = strings.TrimSpace(mi.MetadataSource)
