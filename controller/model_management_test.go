@@ -181,6 +181,9 @@ func TestModelPricingConversionDatabaseMatrix(t *testing.T) {
 				{"conversion-audio", model.PricingValues{"ModelRatio": float64(1), "AudioRatio": float64(2)}, `tier("base", p * 2 + c * 2 + ai * 4 + ao * 4)`, ""},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
+					require.NoError(t, db.FirstOrCreate(&model.Model{}, model.Model{
+						ModelName: tc.name, NameRule: model.NameRuleExact, BillingCurrency: "USD",
+					}).Error)
 					before, err := model.GetModelPricingSnapshot([]string{tc.name})
 					require.NoError(t, err)
 					var response struct {
@@ -486,6 +489,13 @@ func TestUpdateOptionSavesSeedanceMatrixAndGeneratedExpressionsTogether(t *testi
 		Seedance25720p: 70, Seedance25720pVideo: 42,
 		Seedance251080p: 77, Seedance251080pVideo: 46,
 	}
+	models := []string{
+		"doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128",
+		"doubao-seedance-2-0-mini-260615", "doubao-seedance-2-5-260628",
+	}
+	for _, name := range models {
+		require.NoError(t, db.Create(&model.Model{ModelName: name, NameRule: model.NameRuleExact, BillingCurrency: "USD"}).Error)
+	}
 	encoded, err := common.Marshal(prices)
 	require.NoError(t, err)
 	recorder := modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{
@@ -493,10 +503,6 @@ func TestUpdateOptionSavesSeedanceMatrixAndGeneratedExpressionsTogether(t *testi
 	}, nil)
 	assert.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 
-	models := []string{
-		"doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128",
-		"doubao-seedance-2-0-mini-260615", "doubao-seedance-2-5-260628",
-	}
 	snapshot, err := model.GetModelPricingSnapshot(models)
 	require.NoError(t, err)
 	require.Len(t, snapshot.Entries, 4)
@@ -812,23 +818,24 @@ export function parseTaskResult() { return {}; }
 				assert.EqualValues(t, 3, count)
 				prices, err := model.GetModelPricingSnapshot([]string{"listing-new"})
 				require.NoError(t, err)
+				require.ErrorContains(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: "listing-new", ExpectedVersion: prices.Entries[0].Version, Pricing: model.PricingValues{"ModelPrice": float64(0)}}}), "exact metadata")
+				created := model.Model{ModelName: "listing-new", Status: 1}
+				require.NoError(t, created.Insert())
+				prices, err = model.GetModelPricingSnapshot([]string{"listing-new"})
+				require.NoError(t, err)
 				require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: "listing-new", ExpectedVersion: prices.Entries[0].Version, Pricing: model.PricingValues{"ModelPrice": float64(0)}}}))
-				t.Cleanup(func() {
-					snapshot, err := model.GetModelPricingSnapshot([]string{"listing-new"})
-					require.NoError(t, err)
-					require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: "listing-new", ExpectedVersion: snapshot.Entries[0].Version, Reset: true}}))
-				})
 				require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", "listing-new").Count(&count).Error)
-				assert.Zero(t, count)
+				assert.EqualValues(t, 1, count)
 				for _, price := range model.GetPricing() {
 					assert.NotEqual(t, catalog.ModelName, price.ModelName)
 				}
-				created := model.Model{ModelName: "listing-new", Status: 1}
-				require.NoError(t, created.Insert())
 				var after listingResponse
 				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-new", nil, &after)
 				require.Len(t, after.Data.Items, 1)
 				assert.Equal(t, created.Id, after.Data.Items[0].Id)
+				snapshot, err := model.GetModelPricingSnapshot([]string{"listing-new"})
+				require.NoError(t, err)
+				require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: "listing-new", ExpectedVersion: snapshot.Entries[0].Version, Reset: true}}))
 				require.NoError(t, created.Delete())
 				after = listingResponse{}
 				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-new", nil, &after)
@@ -847,6 +854,11 @@ export function parseTaskResult() { return {}; }
 			})
 
 			t.Run("pricing_saves_zero_switches_modes_and_rejects_stale_batches", func(t *testing.T) {
+				pricingModels := []model.Model{{ModelName: "matrix-priced", Status: 1}, {ModelName: "matrix-other", Status: 1}}
+				require.NoError(t, db.Create(&pricingModels).Error)
+				t.Cleanup(func() {
+					require.NoError(t, db.Unscoped().Where("model_name IN ?", []string{"matrix-priced", "matrix-other"}).Delete(&model.Model{}).Error)
+				})
 				before, err := model.GetModelPricingSnapshot([]string{"matrix-priced", "matrix-other"})
 				require.NoError(t, err)
 				changes := []model.ModelPricingChange{
@@ -923,6 +935,11 @@ export function parseTaskResult() { return {}; }
 				assert.Equal(t, 1, conflicts)
 			})
 			t.Run("task_usage_and_builtin_reset", func(t *testing.T) {
+				taskPricingModels := []model.Model{{ModelName: "matrix-task", Status: 1}, {ModelName: "gpt-6-astra", Status: 1}}
+				require.NoError(t, db.Create(&taskPricingModels).Error)
+				t.Cleanup(func() {
+					require.NoError(t, db.Unscoped().Where("model_name IN ?", []string{"matrix-task", "gpt-6-astra"}).Delete(&model.Model{}).Error)
+				})
 				snapshot, err := model.GetModelPricingSnapshot([]string{"matrix-task"})
 				require.NoError(t, err)
 				assert.Contains(t, snapshot.Entries[0].UsageSchema, "seconds")
@@ -1038,8 +1055,8 @@ export function parseTaskResult() { return {}; }
 				require.NoError(t, err)
 				assert.Equal(t, float64(0), prices.Entries[0].Configured["ModelPrice"])
 				assert.Empty(t, prices.Entries[1].Configured)
-				require.NoError(t, reloaded.Delete())
 				require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: "matrix-hidden-unpriced", ExpectedVersion: prices.Entries[0].Version, Reset: true}}))
+				require.NoError(t, reloaded.Delete())
 				prices, err = model.GetModelPricingSnapshot([]string{"matrix-hidden-unpriced"})
 				require.NoError(t, err)
 				assert.Empty(t, prices.Entries[0].Configured)
@@ -1333,7 +1350,11 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					require.NotNil(t, cached)
 					baseline, err := model.GetModelPricingSnapshot([]string{name})
 					require.NoError(t, err)
-					require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: name, ExpectedVersion: baseline.EmptyVersion, Pricing: model.PricingValues{"ModelPrice": float64(2)}}}))
+					if rule == model.NameRuleExact {
+						require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: name, ExpectedVersion: baseline.EmptyVersion, Pricing: model.PricingValues{"ModelPrice": float64(2)}}}))
+					} else {
+						require.ErrorContains(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: name, ExpectedVersion: baseline.EmptyVersion, Pricing: model.PricingValues{"ModelPrice": float64(2)}}}), "exact metadata")
+					}
 					pricingBefore, err := model.GetModelPricingSnapshot([]string{name, second.ModelName})
 					require.NoError(t, err)
 					if rule != model.NameRuleExact {
@@ -1405,7 +1426,10 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					require.NotNil(t, cached)
 					pricingAfter, err := model.GetModelPricingSnapshot([]string{name, second.ModelName})
 					require.NoError(t, err)
-					assert.Equal(t, pricingBefore, pricingAfter)
+					assert.Equal(t, pricingBefore.Entries[0].Configured, pricingAfter.Entries[0].Configured)
+					assert.Equal(t, pricingBefore.Entries[1].Configured, pricingAfter.Entries[1].Configured)
+					assert.False(t, pricingAfter.Entries[0].HasMetadata)
+					assert.False(t, pricingAfter.Entries[1].HasMetadata)
 					require.NoError(t, db.Model(&model.Model{}).Where("id IN ?", []int{first.Id, second.Id}).Count(&count).Error)
 					assert.Zero(t, count)
 					_, err = model.DeleteModelMetadata([]int{first.Id}, true, false)
@@ -1467,9 +1491,16 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					require.True(t, response.Success, recorder.Body.String())
 					after, err = model.GetModelPricingSnapshot([]string{name, keep})
 					require.NoError(t, err)
-					assert.Equal(t, before, after, "metadata deletion must preserve all pricing")
+					assert.Equal(t, before.Entries[0].Configured, after.Entries[0].Configured, "metadata deletion must preserve selected pricing")
+					assert.Equal(t, before.Entries[1].Configured, after.Entries[1].Configured, "metadata deletion must preserve unrelated pricing")
+					assert.False(t, after.Entries[0].HasMetadata)
 
-					// Explicit versioned pricing reset affects only the selected name.
+					// Pricing remains preserved while metadata is absent. Recreating the
+					// exact row makes an explicit versioned reset available again.
+					recreated := model.Model{ModelName: name, NameRule: model.NameRuleExact, Status: 1}
+					require.NoError(t, recreated.Insert())
+					after, err = model.GetModelPricingSnapshot([]string{name, keep})
+					require.NoError(t, err)
 					require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: name, ExpectedVersion: after.Entries[0].Version, Reset: true}}))
 					after, err = model.GetModelPricingSnapshot([]string{name, keep})
 					require.NoError(t, err)
@@ -1484,7 +1515,8 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 						expectedModels = keep
 					}
 					assert.Equal(t, expectedModels, channelAfter.Models)
-					require.NoError(t, db.Model(&model.Model{}).Where("id = ?", metadata.Id).Count(&count).Error)
+					require.NoError(t, recreated.Delete())
+					require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", name).Count(&count).Error)
 					assert.Zero(t, count)
 				})
 			}
@@ -1506,6 +1538,9 @@ func TestSharedModelPluginPricingDatabaseMatrix(t *testing.T) {
 				t.Skip("set " + dialect.env + " to run this database")
 			}
 			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
+			record := model.Model{ModelName: name, NameRule: model.NameRuleExact, Status: 1}
+			require.NoError(t, record.Insert())
+			t.Cleanup(func() { require.NoError(t, record.Delete()) })
 			for _, spec := range []struct{ key, field, unit string }{{"matrix-alpha", "seconds", "second"}, {"matrix-beta", "credits", "credit"}} {
 				source := fmt.Sprintf(`
 		export const meta = {apiVersion:1,key:%q,name:%q,version:"1.0.0",author:{name:"Test"},models:[%q],fetchMode:"per_task",usageSchema:{%s:{type:"number",unit:%q}}};

@@ -29,16 +29,19 @@ type ModelPricingChange struct {
 	ModelName       string        `json:"model_name"`
 	ExpectedVersion string        `json:"expected_version"`
 	Pricing         PricingValues `json:"pricing"`
+	BillingCurrency string        `json:"billing_currency"`
 	Reset           bool          `json:"reset,omitempty"`
 }
 
 type ModelPricingEntry struct {
 	ModelPricingDescription
-	PluginVariants []ModelPricingPluginVariant          `json:"plugin_variants,omitempty"`
-	ModelName      string                               `json:"model_name"`
-	Version        string                               `json:"version"`
-	Configured     PricingValues                        `json:"configured"`
-	UsageSchema    map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
+	PluginVariants  []ModelPricingPluginVariant          `json:"plugin_variants,omitempty"`
+	ModelName       string                               `json:"model_name"`
+	Version         string                               `json:"version"`
+	Configured      PricingValues                        `json:"configured"`
+	BillingCurrency string                               `json:"billing_currency"`
+	HasMetadata     bool                                 `json:"has_metadata"`
+	UsageSchema     map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
 }
 
 type ModelPricingPluginVariant struct {
@@ -76,7 +79,14 @@ func IsModelPricingOption(key string) bool {
 }
 
 func ModelPricingVersion(values PricingValues) string {
-	encoded, _ := common.Marshal(values)
+	return modelPricingVersion(values, "USD")
+}
+
+func modelPricingVersion(values PricingValues, billingCurrency string) string {
+	encoded, _ := common.Marshal(struct {
+		Pricing         PricingValues `json:"pricing"`
+		BillingCurrency string        `json:"billing_currency"`
+	}{Pricing: values, BillingCurrency: billingCurrency})
 	return fmt.Sprintf("%x", sha256.Sum256(encoded))
 }
 
@@ -263,11 +273,17 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 		}
 	}
 	sort.Strings(names)
+	currencies, err := LoadModelBillingCurrencies(DB, names, false)
+	if err != nil {
+		return nil, err
+	}
 	result := &ModelPricingSnapshot{Entries: make([]ModelPricingEntry, 0, len(names)), Options: make(map[string]string), EmptyVersion: ModelPricingVersion(PricingValues{})}
 	generation := jsplugin.DefaultRegistry.Generation()
 	for _, name := range names {
 		configured := modelPricingValues(values, name)
-		entry := ModelPricingEntry{ModelName: name, Version: ModelPricingVersion(configured), Configured: configured,
+		currency := currencies[name]
+		entry := ModelPricingEntry{ModelName: name, Version: modelPricingVersion(configured, string(currency.BillingCurrency)), Configured: configured,
+			BillingCurrency: string(currency.BillingCurrency), HasMetadata: currency.HasMetadata,
 			ModelPricingDescription: ModelPricingDescription{Effective: effectiveModelPricing(values, name)}}
 		entry.CacheWriteMode = ResolveCacheWriteMode(name, configured)
 		entry.BillingDetails = ResolveLegacyBillingDetails(name, entry.Effective, configured)
@@ -475,11 +491,31 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 			return ErrModelPricingConflict
 		}
 	}
-	return mutateModelPricingOptions(func(_ *gorm.DB, values map[string]map[string]any) error {
+	return mutateModelPricingOptions(func(tx *gorm.DB, values map[string]map[string]any) error {
+		names := make([]string, 0, len(changes))
+		for _, change := range changes {
+			names = append(names, change.ModelName)
+		}
+		currencies, err := LoadModelBillingCurrencies(tx, names, true)
+		if err != nil {
+			return err
+		}
+		targetCurrencies := make(map[string]string, len(changes))
 		defaults := defaultPricingMaps()
 		for _, change := range changes {
+			currentCurrency := currencies[change.ModelName]
+			if !currentCurrency.HasMetadata {
+				return fmt.Errorf("model %s exact metadata is required before saving pricing", change.ModelName)
+			}
+			targetCurrency := currentCurrency.BillingCurrency
+			if strings.TrimSpace(change.BillingCurrency) != "" {
+				targetCurrency, err = normalizeModelBillingCurrency(change.BillingCurrency)
+				if err != nil {
+					return fmt.Errorf("model %s: %w", change.ModelName, err)
+				}
+			}
 			previous := modelPricingValues(values, change.ModelName)
-			if ModelPricingVersion(previous) != change.ExpectedVersion {
+			if modelPricingVersion(previous, string(currentCurrency.BillingCurrency)) != change.ExpectedVersion {
 				return fmt.Errorf("%w: %s", ErrModelPricingConflict, change.ModelName)
 			}
 			pricing := change.Pricing
@@ -490,6 +526,18 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 				return err
 			}
 			replaceModelPricing(values, change.ModelName, pricing)
+			targetCurrencies[change.ModelName] = string(targetCurrency)
+		}
+		for _, name := range slices.Sorted(maps.Keys(targetCurrencies)) {
+			result := tx.Model(&Model{}).
+				Where("model_name = ? AND name_rule = ?", name, NameRuleExact).
+				Update("billing_currency", targetCurrencies[name])
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return fmt.Errorf("model %s exact metadata is required before saving pricing", name)
+			}
 		}
 		return nil
 	})
@@ -591,7 +639,17 @@ func UpdateStarAIVideoPricing(prices ratio_setting.StarAIVideoPriceSetting) erro
 		"AudioCompletionRatio", "AudioRatio", "CacheRatio", "CompletionRatio",
 		"CreateCacheRatio", "ImageRatio", "ModelPrice", "ModelRatio",
 	}
-	return mutateModelPricingOptionsWithExtra(prices.OptionValues(), publishOrder, func(_ *gorm.DB, values map[string]map[string]any) error {
+	return mutateModelPricingOptionsWithExtra(prices.OptionValues(), publishOrder, func(tx *gorm.DB, values map[string]map[string]any) error {
+		modelNames := ratio_setting.StarAIVideoPricingModels()
+		currencies, err := LoadModelBillingCurrencies(tx, modelNames, true)
+		if err != nil {
+			return err
+		}
+		for _, name := range modelNames {
+			if !currencies[name].HasMetadata {
+				return fmt.Errorf("model %s exact metadata is required before publishing Seedance pricing", name)
+			}
+		}
 		for name, expression := range expressions {
 			previous := modelPricingValues(values, name)
 			next := maps.Clone(previous)
@@ -602,6 +660,17 @@ func UpdateStarAIVideoPricing(prices ratio_setting.StarAIVideoPriceSetting) erro
 				return err
 			}
 			replaceModelPricing(values, name, next)
+		}
+		for _, name := range modelNames {
+			result := tx.Model(&Model{}).
+				Where("model_name = ? AND name_rule = ?", name, NameRuleExact).
+				Update("billing_currency", "CNY")
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return fmt.Errorf("model %s exact metadata is required before publishing Seedance pricing", name)
+			}
 		}
 		return nil
 	})

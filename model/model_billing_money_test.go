@@ -91,3 +91,14 @@ func TestLoadModelBillingCurrencies(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadModelBillingCurrenciesWithoutModelsTableDefaultsToUSD(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "missing-models-table.db")), &gorm.Config{})
+	require.NoError(t, err)
+
+	loaded, err := LoadModelBillingCurrencies(db, []string{"legacy-model"}, false)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]ModelBillingCurrency{
+		"legacy-model": {BillingCurrency: billingmoney.CurrencyUSD, HasMetadata: false},
+	}, loaded)
+}

@@ -730,7 +730,11 @@ export function buildQueryRequest(){throw new Error("completed submissions must 
 			assert.Equal(t, want, stored.Quota)
 			assert.Equal(t, model.TaskStatus(tc.status), stored.Status)
 			assert.Positive(t, stored.FinishTime)
-			assert.Equal(t, float64(4), info.TieredBillingSnapshot.EstimatedQuotaBeforeGroup/(0.01*common.QuotaPerUnit))
+			settledUnits := float64(4)
+			if tc.status == "SUCCESS" {
+				settledUnits = tc.count
+			}
+			assert.Equal(t, settledUnits, info.TieredBillingSnapshot.EstimatedQuotaBeforeGroup/(0.01*common.QuotaPerUnit))
 			if tc.status == "SUCCESS" {
 				assert.Equal(t, tc.count, stored.PrivateData.BillingContext.TieredSnapshot.UsageFacts["units"])
 			}

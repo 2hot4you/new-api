@@ -16,6 +16,10 @@ type ModelBillingCurrency struct {
 }
 
 func ResolveBillingMoneyContext(db *gorm.DB, modelName string) (billingmoney.Context, bool, error) {
+	if db == nil {
+		ctx, err := billingmoney.NewContext(string(billingmoney.CurrencyUSD), operation_setting.USDExchangeRate)
+		return ctx, false, err
+	}
 	currencies, err := LoadModelBillingCurrencies(db, []string{modelName}, false)
 	if err != nil {
 		return billingmoney.Context{}, false, err
@@ -45,6 +49,12 @@ func LoadModelBillingCurrencies(db *gorm.DB, modelNames []string, forUpdate bool
 		result[name] = ModelBillingCurrency{BillingCurrency: billingmoney.CurrencyUSD}
 	}
 	if len(names) == 0 {
+		return result, nil
+	}
+	// Some legacy billing and isolated test databases predate the model catalog.
+	// Treat an absent catalog exactly like absent metadata for reads. Pricing
+	// writes remain strict because their caller checks HasMetadata before saving.
+	if !db.Migrator().HasTable(&Model{}) {
 		return result, nil
 	}
 
