@@ -511,3 +511,81 @@ func TestCatalogSyncStoreMigrations(t *testing.T) {
 		})
 	}
 }
+
+// The released Channel declaration predates management credentials. Keep this
+// fixture independent of Channel so a broken production TEXT default is visible.
+type catalogReleasedChannel struct {
+	Id                 int
+	Type               int    `gorm:"default:0"`
+	Key                string `gorm:"not null"`
+	OpenAIOrganization *string
+	TestModel          *string
+	Status             int    `gorm:"default:1"`
+	Name               string `gorm:"index"`
+	Weight             *uint  `gorm:"default:0"`
+	CreatedTime        int64  `gorm:"bigint"`
+	TestTime           int64  `gorm:"bigint"`
+	ResponseTime       int
+	BaseURL            *string `gorm:"column:base_url;default:''"`
+	Other              string
+	Balance            float64
+	BalanceUpdatedTime int64 `gorm:"bigint"`
+	Models             string
+	Group              string  `gorm:"type:varchar(64);default:'default'"`
+	UsedQuota          int64   `gorm:"bigint;default:0"`
+	ModelMapping       *string `gorm:"type:text"`
+	StatusCodeMapping  *string `gorm:"type:varchar(1024);default:''"`
+	Priority           *int64  `gorm:"bigint;default:0"`
+	AutoBan            *int    `gorm:"default:1"`
+	OtherInfo          string
+	Tag                *string     `gorm:"index"`
+	Setting            *string     `gorm:"type:text"`
+	ParamOverride      *string     `gorm:"type:text"`
+	HeaderOverride     *string     `gorm:"type:text"`
+	Remark             *string     `gorm:"type:varchar(255)"`
+	ChannelInfo        ChannelInfo `gorm:"type:json"`
+	OtherSettings      string      `gorm:"column:settings"`
+}
+
+func (catalogReleasedChannel) TableName() string { return "channels" }
+
+func TestCatalogSyncChannelMigrations(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		for _, upgrade := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/upgrade=%t", engine, upgrade), func(t *testing.T) {
+				db := catalogSyncTestDB(t, engine)
+				if upgrade {
+					require.NoError(t, db.AutoMigrate(&catalogReleasedChannel{}))
+					require.NoError(t, db.Create(&catalogReleasedChannel{Id: 7, Key: "fixture-only", Name: "retained", Models: "fixture-model", CreatedTime: 123}).Error)
+				}
+				credentialChannel := Channel{Key: "fixture-only", Name: "configured", MoliiGrokManagementAccessToken: "fixture-management-token"}
+				for pass := range 3 {
+					recorder := &migrationSQLRecorder{}
+					require.NoError(t, db.Session(&gorm.Session{Logger: recorder}).AutoMigrate(&Channel{}))
+					if pass > 0 {
+						assert.Empty(t, recorder.schemaMutations())
+					} else {
+						require.NoError(t, db.Create(&credentialChannel).Error)
+					}
+				}
+				channel := Channel{Key: "fixture-only", Name: "new"}
+				require.NoError(t, db.Create(&channel).Error)
+				var got Channel
+				require.NoError(t, db.First(&got, channel.Id).Error)
+				assert.Empty(t, got.MoliiGrokManagementAccessToken)
+				assert.True(t, db.Migrator().HasIndex(&Channel{}, "idx_channels_name"))
+				got = Channel{}
+				require.NoError(t, db.First(&got, credentialChannel.Id).Error)
+				assert.Equal(t, "fixture-management-token", got.MoliiGrokManagementAccessToken)
+				if upgrade {
+					got = Channel{}
+					require.NoError(t, db.First(&got, 7).Error)
+					assert.Equal(t, "retained", got.Name)
+					assert.Equal(t, "fixture-model", got.Models)
+					assert.Equal(t, int64(123), got.CreatedTime)
+					assert.Empty(t, got.MoliiGrokManagementAccessToken)
+				}
+			})
+		}
+	}
+}

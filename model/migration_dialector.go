@@ -25,7 +25,7 @@ type mysqlSchemaMigrator struct{ mysql.Migrator }
 func (m mysqlSchemaMigrator) AddColumn(value any, name string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		field := stmt.Schema.LookUpField(name)
-		if field != nil && stmt.Table == "models" && strings.EqualFold(string(field.DataType), "text") {
+		if catalogTextWithoutSQLDefault(field) {
 			if field.IgnoreMigration {
 				return nil
 			}
@@ -38,7 +38,7 @@ func (m mysqlSchemaMigrator) AddColumn(value any, name string) error {
 func (m mysqlSchemaMigrator) AlterColumn(value any, name string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		field := stmt.Schema.LookUpField(name)
-		if field != nil && stmt.Table == "models" && strings.EqualFold(string(field.DataType), "text") {
+		if catalogTextWithoutSQLDefault(field) {
 			return m.DB.Exec("ALTER TABLE ? MODIFY COLUMN ? ?", m.CurrentTable(stmt), clause.Column{Name: field.DBName}, m.FullDataTypeOf(field)).Error
 		}
 		return m.Migrator.AlterColumn(value, name)
@@ -47,8 +47,13 @@ func (m mysqlSchemaMigrator) AlterColumn(value any, name string) error {
 
 // MySQL 5.7 cannot default TEXT columns. Retain the model's Go/GORM defaults
 // for inserts, but omit them from DDL (including newer MySQL deployments).
+func catalogTextWithoutSQLDefault(field *schema.Field) bool {
+	return field != nil && field.Schema != nil && strings.EqualFold(string(field.DataType), "text") &&
+		(field.Schema.Table == "models" || (field.Schema.Table == "channels" && field.DBName == "molii_grok_management_access_token"))
+}
+
 func (m mysqlSchemaMigrator) FullDataTypeOf(field *schema.Field) clause.Expr {
-	if field.Schema != nil && field.Schema.Table == "models" && strings.EqualFold(string(field.DataType), "text") {
+	if catalogTextWithoutSQLDefault(field) {
 		copy := *field
 		copy.HasDefaultValue, copy.DefaultValue, copy.DefaultValueInterface = false, "", nil
 		return m.Migrator.FullDataTypeOf(&copy)
@@ -57,7 +62,7 @@ func (m mysqlSchemaMigrator) FullDataTypeOf(field *schema.Field) clause.Expr {
 }
 
 func (m mysqlSchemaMigrator) MigrateColumn(value any, field *schema.Field, column gorm.ColumnType) error {
-	if field.Schema != nil && field.Schema.Table == "models" && strings.EqualFold(string(field.DataType), "text") {
+	if catalogTextWithoutSQLDefault(field) {
 		copy := *field
 		copy.HasDefaultValue, copy.DefaultValue, copy.DefaultValueInterface = false, "", nil
 		return m.Migrator.MigrateColumn(value, &copy, column)

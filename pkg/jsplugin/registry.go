@@ -262,6 +262,74 @@ func NewRegistry() *Registry {
 
 var DefaultRegistry = NewRegistry()
 
+var ErrGenerationBusy = errors.New("plugin generation publication in progress")
+
+type PinnedPluginIdentity struct {
+	Meta       Meta
+	SourceHash string
+}
+
+// GenerationPin must remain held through the caller's real database COMMIT,
+// and be released before acquiring an option-map publication lock.
+type GenerationPin struct {
+	Generation      *RoutingGeneration
+	Enabled         bool
+	Status          string
+	DisabledFactory []string
+	Factory         map[string]PinnedPluginIdentity
+	Overrides       map[string]PinnedPluginIdentity
+	Effective       map[string]PinnedPluginIdentity
+	release         func()
+}
+
+func (p *GenerationPin) Release() {
+	if p != nil && p.release != nil {
+		p.release()
+	}
+}
+
+func (r *Registry) TryPinGeneration() (*GenerationPin, error) {
+	// Do not spawn a waiter: a cancelled waiter could acquire and leak a pin.
+	// A queued preparer/writer also causes this attempt to fail immediately.
+	if !r.mu.TryRLock() {
+		return nil, ErrGenerationBusy
+	}
+	pin := &GenerationPin{
+		Generation: r.generation.Load(), Enabled: r.masterEnabled.Load(),
+		Status:    r.lastRebuild.Status,
+		Factory:   make(map[string]PinnedPluginIdentity, len(r.factory)),
+		Overrides: make(map[string]PinnedPluginIdentity, len(r.override)),
+		Effective: make(map[string]PinnedPluginIdentity),
+		release:   sync.OnceFunc(r.mu.RUnlock),
+	}
+	for _, layer := range []struct {
+		from map[string]*LoadedPlugin
+		to   map[string]PinnedPluginIdentity
+	}{
+		{r.factory, pin.Factory}, {r.override, pin.Overrides},
+	} {
+		for key, plugin := range layer.from {
+			identity := PinnedPluginIdentity{Meta: cloneMeta(plugin.Meta)}
+			if plugin.Engine != nil {
+				identity.SourceHash = plugin.Engine.sourceHash
+			}
+			layer.to[key] = identity
+		}
+	}
+	for _, plugin := range pin.Generation.Plugins() {
+		identity := PinnedPluginIdentity{Meta: cloneMeta(plugin.Meta)}
+		if plugin.Engine != nil {
+			identity.SourceHash = plugin.Engine.sourceHash
+		}
+		pin.Effective[plugin.Meta.Key] = identity
+	}
+	for key := range r.disabledFactory {
+		pin.DisabledFactory = append(pin.DisabledFactory, key)
+	}
+	slices.Sort(pin.DisabledFactory)
+	return pin, nil
+}
+
 func (r *Registry) Register(source string, options Options) (*LoadedPlugin, error) {
 	return r.register(source, options, false)
 }
@@ -865,6 +933,10 @@ func cloneMeta(meta Meta) Meta {
 	meta.Routes = append([]Route(nil), meta.Routes...)
 	for index := range meta.Routes {
 		meta.Routes[index].Models = append([]string(nil), meta.Routes[index].Models...)
+		if meta.Routes[index].RetainResult != nil {
+			retain := *meta.Routes[index].RetainResult
+			meta.Routes[index].RetainResult = &retain
+		}
 	}
 	meta.Protocols = append([]ProtocolClaim(nil), meta.Protocols...)
 	for index := range meta.Protocols {

@@ -2,6 +2,7 @@ package jsplugin
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"regexp"
@@ -110,14 +111,17 @@ type Options struct {
 }
 
 type Engine struct {
-	key       string
-	version   string
-	timeout   time.Duration
-	now       func() time.Time
-	log       func(string)
-	module    *sobek.SourceTextModuleRecord
-	pool      chan *runtimeInstance
-	semaphore chan struct{}
+	// Identity of exactly the source bytes given to ParseModule. No source text
+	// is retained or exposed by the catalog compatibility boundary.
+	sourceHash string
+	key        string
+	version    string
+	timeout    time.Duration
+	now        func() time.Time
+	log        func(string)
+	module     *sobek.SourceTextModuleRecord
+	pool       chan *runtimeInstance
+	semaphore  chan struct{}
 }
 
 type runtimeInstance struct {
@@ -164,14 +168,15 @@ func Compile(source string, options Options) (*Engine, error) {
 	}
 
 	engine := &Engine{
-		key:       options.Key,
-		version:   options.Version,
-		timeout:   timeout,
-		now:       now,
-		log:       options.Log,
-		module:    module,
-		semaphore: make(chan struct{}, concurrency),
-		pool:      make(chan *runtimeInstance, concurrency),
+		sourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))),
+		key:        options.Key,
+		version:    options.Version,
+		timeout:    timeout,
+		now:        now,
+		log:        options.Log,
+		module:     module,
+		semaphore:  make(chan struct{}, concurrency),
+		pool:       make(chan *runtimeInstance, concurrency),
 	}
 	instance, err := engine.newRuntime(context.Background())
 	if err != nil {
