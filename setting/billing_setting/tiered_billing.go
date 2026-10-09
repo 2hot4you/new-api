@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -35,20 +36,38 @@ type BillingSetting struct {
 	PluginBillingExpr map[string]string `json:"plugin_billing_expr"`
 }
 
-var billingSetting = BillingSetting{
-	BillingMode: map[string]string{
-		"minimax-m3":    BillingModeTieredExpr,
-		"qwen3.5-flash": BillingModeTieredExpr,
-		"qwen3.5-plus":  BillingModeTieredExpr,
-	},
-	BillingExpr: map[string]string{
-		// len is the full input context; use it for provider-priced context
-		// windows so cache-hit tokens never select a cheaper tier.
-		"minimax-m3":    `len <= 512000 ? tier("up_to_512k", p * 2.1 + c * 8.4 + cr * 0.42) : tier("over_512k", p * 4.2 + c * 16.8 + cr * 0.84)`,
-		"qwen3.5-flash": `len <= 128000 ? tier("up_to_128k", p * 0.2 + c * 2 + cr * 0.02) : len <= 256000 ? tier("128k_to_256k", p * 0.8 + c * 8 + cr * 0.08) : tier("256k_to_1m", p * 1.2 + c * 12 + cr * 0.12)`,
-		"qwen3.5-plus":  `len <= 128000 ? tier("up_to_128k", p * 0.8 + c * 4.8 + cr * 0.08) : len <= 256000 ? tier("128k_to_256k", p * 2 + c * 12 + cr * 0.2) : tier("256k_to_1m", p * 4 + c * 24 + cr * 0.4)`,
-	},
-	PluginBillingExpr: make(map[string]string),
+var billingSetting = DefaultBillingSetting()
+var billingSettingMu sync.RWMutex
+
+// DefaultBillingSetting returns the compiled administrator seed, not effective
+// built-in expressions or previously loaded configuration.
+func DefaultBillingSetting() BillingSetting {
+	return BillingSetting{
+		BillingMode: map[string]string{
+			"minimax-m3":    BillingModeTieredExpr,
+			"qwen3.5-flash": BillingModeTieredExpr,
+			"qwen3.5-plus":  BillingModeTieredExpr,
+		},
+		BillingExpr: map[string]string{
+			// len is the full input context; use it for provider-priced context
+			// windows so cache-hit tokens never select a cheaper tier.
+			"minimax-m3":    `len <= 512000 ? tier("up_to_512k", p * 2.1 + c * 8.4 + cr * 0.42) : tier("over_512k", p * 4.2 + c * 16.8 + cr * 0.84)`,
+			"qwen3.5-flash": `len <= 128000 ? tier("up_to_128k", p * 0.2 + c * 2 + cr * 0.02) : len <= 256000 ? tier("128k_to_256k", p * 0.8 + c * 8 + cr * 0.08) : tier("256k_to_1m", p * 1.2 + c * 12 + cr * 0.12)`,
+			"qwen3.5-plus":  `len <= 128000 ? tier("up_to_128k", p * 0.8 + c * 4.8 + cr * 0.08) : len <= 256000 ? tier("128k_to_256k", p * 2 + c * 12 + cr * 0.2) : tier("256k_to_1m", p * 4 + c * 24 + cr * 0.4)`,
+		},
+		PluginBillingExpr: make(map[string]string),
+	}
+}
+
+// PublishBillingSetting accepts a fully validated configuration. Registration
+// continues pointing to billingSetting; caller retains no mutable map aliases.
+func PublishBillingSetting(value BillingSetting) {
+	value.BillingMode = maps.Clone(value.BillingMode)
+	value.BillingExpr = maps.Clone(value.BillingExpr)
+	value.PluginBillingExpr = maps.Clone(value.PluginBillingExpr)
+	billingSettingMu.Lock()
+	billingSetting = value
+	billingSettingMu.Unlock()
 }
 
 func init() {
@@ -60,6 +79,12 @@ func init() {
 // ---------------------------------------------------------------------------
 
 func GetBillingMode(model string) string {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
+	return getBillingMode(model)
+}
+
+func getBillingMode(model string) string {
 	if mode, ok := billingSetting.BillingMode[model]; ok {
 		return mode
 	}
@@ -78,10 +103,16 @@ func GetBillingMode(model string) string {
 }
 
 func GetBillingExpr(model string) (string, bool) {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
+	return getBillingExpr(model)
+}
+
+func getBillingExpr(model string) (string, bool) {
 	if expr, ok := billingSetting.BillingExpr[model]; ok {
 		return expr, true
 	}
-	if GetBillingMode(model) == BillingModeTieredExpr {
+	if getBillingMode(model) == BillingModeTieredExpr {
 		expr, ok := builtinBillingExpr[model]
 		return expr, ok
 	}
@@ -106,10 +137,18 @@ func SplitPluginBillingExprKey(key string) (plugin, model string, ok bool) {
 }
 
 func GetPluginBillingExprCopy() map[string]string {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
 	return maps.Clone(billingSetting.PluginBillingExpr)
 }
 
 func GetPluginBillingExpr(pluginKey, model string) (string, bool) {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
+	return getPluginBillingExpr(pluginKey, model)
+}
+
+func getPluginBillingExpr(pluginKey, model string) (string, bool) {
 	expression, ok := billingSetting.PluginBillingExpr[PluginBillingExprKey(pluginKey, model)]
 	return expression, ok
 }
@@ -117,21 +156,23 @@ func GetPluginBillingExpr(pluginKey, model string) (string, bool) {
 // ResolveTaskBillingExpr selects the executing plugin's override before the
 // model expression, retaining the model alias fallback and explicit modes.
 func ResolveTaskBillingExpr(pluginKey, model, mappedModel string) (string, bool) {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
 	if pluginKey != "" {
-		if expr, ok := GetPluginBillingExpr(pluginKey, model); ok {
+		if expr, ok := getPluginBillingExpr(pluginKey, model); ok {
 			return expr, true
 		}
 		if mappedModel != "" && mappedModel != model {
-			if expr, ok := GetPluginBillingExpr(pluginKey, mappedModel); ok {
+			if expr, ok := getPluginBillingExpr(pluginKey, mappedModel); ok {
 				return expr, true
 			}
 		}
 	}
-	if GetBillingMode(model) == BillingModeTieredExpr {
-		return GetBillingExpr(model)
+	if getBillingMode(model) == BillingModeTieredExpr {
+		return getBillingExpr(model)
 	}
-	if mappedModel != "" && mappedModel != model && GetBillingMode(mappedModel) == BillingModeTieredExpr {
-		expression, ok := GetBillingExpr(mappedModel)
+	if mappedModel != "" && mappedModel != model && getBillingMode(mappedModel) == BillingModeTieredExpr {
+		expression, ok := getBillingExpr(mappedModel)
 		return expression, ok && strings.TrimSpace(expression) != ""
 	}
 	return "", false
@@ -159,9 +200,11 @@ func GetBuiltinBillingExprCopy() map[string]string {
 }
 
 func GetBillingModeCopy() map[string]string {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
 	modes := lo.Assign(billingSetting.BillingMode)
 	for model := range builtinBillingExpr {
-		if _, configured := modes[model]; !configured && GetBillingMode(model) == BillingModeTieredExpr {
+		if _, configured := modes[model]; !configured && getBillingMode(model) == BillingModeTieredExpr {
 			modes[model] = BillingModeTieredExpr
 		}
 	}
@@ -169,12 +212,14 @@ func GetBillingModeCopy() map[string]string {
 }
 
 func GetBillingExprCopy() map[string]string {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
 	expressions := lo.Assign(billingSetting.BillingExpr)
 	for model := range builtinBillingExpr {
 		if _, configured := expressions[model]; configured {
 			continue
 		}
-		if expression, ok := GetBillingExpr(model); ok {
+		if expression, ok := getBillingExpr(model); ok {
 			expressions[model] = expression
 		}
 	}

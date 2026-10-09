@@ -3,9 +3,11 @@ package operation_setting
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/QuantumNous/new-api/common"
@@ -57,8 +59,41 @@ type ToolPriceSetting struct {
 	Prices map[string]float64 `json:"prices"`
 }
 
-var toolPriceSetting = ToolPriceSetting{
-	Prices: make(map[string]float64),
+var toolPriceSetting = DefaultToolPriceSetting()
+
+func DefaultToolPriceSetting() ToolPriceSetting {
+	return ToolPriceSetting{Prices: make(map[string]float64)}
+}
+
+var toolPriceMu sync.Mutex
+
+// PreparedToolPrices owns both the administrator values and their immutable
+// lookup index. Build before acquiring a catalog publication lock.
+type PreparedToolPrices struct {
+	prices map[string]float64
+	index  *toolPriceIndex
+}
+
+func PrepareToolPrices(prices map[string]float64) (*PreparedToolPrices, error) {
+	owned := maps.Clone(prices)
+	if owned == nil {
+		owned = make(map[string]float64)
+	}
+	for name, price := range owned {
+		if strings.TrimSpace(name) == "" || !isValidToolPrice(price) {
+			return nil, fmt.Errorf("invalid tool price %q", name)
+		}
+	}
+	return &PreparedToolPrices{prices: owned, index: buildToolPriceIndex(owned)}, nil
+}
+
+// PublishToolPrices performs no parsing, validation or index building. The
+// caller owns the catalog writer; individual lookups use the immutable index.
+func PublishToolPrices(prepared *PreparedToolPrices) {
+	toolPriceMu.Lock()
+	toolPriceSetting.Prices = maps.Clone(prepared.prices)
+	currentIndex.Store(prepared.index)
+	toolPriceMu.Unlock()
 }
 
 func init() {
@@ -140,16 +175,24 @@ func LoadToolPricesFromJSONString(value string) {
 		common.SysError("加载工具价格失败，将使用硬编码兜底: " + err.Error())
 		prices = make(map[string]float64)
 	}
+	toolPriceMu.Lock()
 	toolPriceSetting.Prices = prices
-	RebuildToolPriceIndex()
+	currentIndex.Store(buildToolPriceIndex(prices))
+	toolPriceMu.Unlock()
 }
 
 // RebuildToolPriceIndex rebuilds the lookup index from the current config.
 // Called on init and after config updates. Not on the billing hot path.
 func RebuildToolPriceIndex() {
-	merged := make(map[string]float64, 9+len(toolPriceSetting.Prices))
+	toolPriceMu.Lock()
+	defer toolPriceMu.Unlock()
+	currentIndex.Store(buildToolPriceIndex(toolPriceSetting.Prices))
+}
+
+func buildToolPriceIndex(prices map[string]float64) *toolPriceIndex {
+	merged := make(map[string]float64, 9+len(prices))
 	seedHardcodedToolPrices(merged)
-	for k, v := range toolPriceSetting.Prices {
+	for k, v := range prices {
 		if !isValidToolPrice(v) {
 			continue
 		}
@@ -184,7 +227,7 @@ func RebuildToolPriceIndex() {
 		idx.prefixes[tool] = entries
 	}
 
-	currentIndex.Store(idx)
+	return idx
 }
 
 // GetToolPriceForModel returns the price ($/1K calls) for a tool given a model name.
@@ -223,17 +266,21 @@ func GetToolPrice(toolName string) float64 {
 
 // SetToolPriceForTest injects a tool price and rebuilds the lookup index. Tests only.
 func SetToolPriceForTest(name string, price float64) {
+	toolPriceMu.Lock()
+	defer toolPriceMu.Unlock()
 	if toolPriceSetting.Prices == nil {
 		toolPriceSetting.Prices = make(map[string]float64)
 	}
 	toolPriceSetting.Prices[name] = price
-	RebuildToolPriceIndex()
+	currentIndex.Store(buildToolPriceIndex(toolPriceSetting.Prices))
 }
 
 // DeleteToolPriceForTest removes an injected tool price and rebuilds the index. Tests only.
 func DeleteToolPriceForTest(name string) {
+	toolPriceMu.Lock()
+	defer toolPriceMu.Unlock()
 	delete(toolPriceSetting.Prices, name)
-	RebuildToolPriceIndex()
+	currentIndex.Store(buildToolPriceIndex(toolPriceSetting.Prices))
 }
 
 // ---------------------------------------------------------------------------

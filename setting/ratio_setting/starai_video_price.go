@@ -7,6 +7,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/setting/config"
 )
@@ -148,21 +149,40 @@ func StarAIVideoPricingModels() []string {
 	return append([]string(nil), starAIVideoPricingModels...)
 }
 
-var starAIVideoPriceSetting = StarAIVideoPriceSetting{
-	Standard720p:         46,
-	Standard720pVideo:    28,
-	Standard1080p:        51,
-	Standard1080pVideo:   31,
-	Standard4K:           26,
-	Standard4KVideo:      16,
-	Fast720p:             37,
-	Fast720pVideo:        22,
-	Mini720p:             23,
-	Mini720pVideo:        14,
-	Seedance25720p:       70,
-	Seedance25720pVideo:  42,
-	Seedance251080p:      77,
-	Seedance251080pVideo: 46,
+var starAIVideoPriceSetting = DefaultStarAIVideoPriceSetting()
+var starAIVideoPriceSettingMu sync.RWMutex
+
+func DefaultStarAIVideoPriceSetting() StarAIVideoPriceSetting {
+	return StarAIVideoPriceSetting{
+		Standard720p:         46,
+		Standard720pVideo:    28,
+		Standard1080p:        51,
+		Standard1080pVideo:   31,
+		Standard4K:           26,
+		Standard4KVideo:      16,
+		Fast720p:             37,
+		Fast720pVideo:        22,
+		Mini720p:             23,
+		Mini720pVideo:        14,
+		Seedance25720p:       70,
+		Seedance25720pVideo:  42,
+		Seedance251080p:      77,
+		Seedance251080pVideo: 46,
+	}
+}
+
+func GetStarAIVideoPriceSettingCopy() StarAIVideoPriceSetting {
+	starAIVideoPriceSettingMu.RLock()
+	defer starAIVideoPriceSettingMu.RUnlock()
+	return starAIVideoPriceSetting
+}
+
+// PublishStarAIVideoPriceSetting accepts a complete prevalidated value; the caller
+// owns the catalog writer across the batch and preserves registration identity.
+func PublishStarAIVideoPriceSetting(value StarAIVideoPriceSetting) {
+	starAIVideoPriceSettingMu.Lock()
+	starAIVideoPriceSetting = value
+	starAIVideoPriceSettingMu.Unlock()
 }
 
 // BuildStarAIVideoBillingExpressions turns the editable Seedance price matrix
@@ -232,52 +252,53 @@ func init() {
 
 // GetStarAIVideoPrice returns the configured direct price per 1M tokens.
 func GetStarAIVideoPrice(model, resolution string, hasVideo bool) (float64, bool) {
+	prices := GetStarAIVideoPriceSettingCopy()
 	var price float64
 	switch model {
 	case "doubao-seedance-2-0-260128":
 		switch strings.ToLower(strings.TrimSpace(resolution)) {
 		case "4k":
 			if hasVideo {
-				price = starAIVideoPriceSetting.Standard4KVideo
+				price = prices.Standard4KVideo
 			} else {
-				price = starAIVideoPriceSetting.Standard4K
+				price = prices.Standard4K
 			}
 		case "1080p":
 			if hasVideo {
-				price = starAIVideoPriceSetting.Standard1080pVideo
+				price = prices.Standard1080pVideo
 			} else {
-				price = starAIVideoPriceSetting.Standard1080p
+				price = prices.Standard1080p
 			}
 		default:
 			if hasVideo {
-				price = starAIVideoPriceSetting.Standard720pVideo
+				price = prices.Standard720pVideo
 			} else {
-				price = starAIVideoPriceSetting.Standard720p
+				price = prices.Standard720p
 			}
 		}
 	case "doubao-seedance-2-0-fast-260128":
 		if hasVideo {
-			price = starAIVideoPriceSetting.Fast720pVideo
+			price = prices.Fast720pVideo
 		} else {
-			price = starAIVideoPriceSetting.Fast720p
+			price = prices.Fast720p
 		}
 	case "doubao-seedance-2-0-mini-260615":
 		if hasVideo {
-			price = starAIVideoPriceSetting.Mini720pVideo
+			price = prices.Mini720pVideo
 		} else {
-			price = starAIVideoPriceSetting.Mini720p
+			price = prices.Mini720p
 		}
 	case "doubao-seedance-2-5-260628":
 		if strings.EqualFold(strings.TrimSpace(resolution), "1080p") {
 			if hasVideo {
-				price = starAIVideoPriceSetting.Seedance251080pVideo
+				price = prices.Seedance251080pVideo
 			} else {
-				price = starAIVideoPriceSetting.Seedance251080p
+				price = prices.Seedance251080p
 			}
 		} else if hasVideo {
-			price = starAIVideoPriceSetting.Seedance25720pVideo
+			price = prices.Seedance25720pVideo
 		} else {
-			price = starAIVideoPriceSetting.Seedance25720p
+			price = prices.Seedance25720p
 		}
 	default:
 		return 0, false
@@ -288,6 +309,7 @@ func GetStarAIVideoPrice(model, resolution string, hasVideo bool) (float64, bool
 // GetStarAIVideoPricing returns the configured pricing matrix used by both the
 // public model catalog and the task billing path.
 func GetStarAIVideoPricing(model string) (*StarAIVideoPricing, bool) {
+	prices := GetStarAIVideoPriceSettingCopy()
 	pricing := &StarAIVideoPricing{
 		Unit:        "cny_per_million_tokens",
 		FPS:         24,
@@ -299,38 +321,38 @@ func GetStarAIVideoPricing(model string) (*StarAIVideoPricing, bool) {
 		pricing.Rows = []StarAIVideoPriceRow{
 			{
 				Resolutions:  []string{"480p", "720p"},
-				WithoutVideo: starAIVideoPriceSetting.Standard720p,
-				WithVideo:    starAIVideoPriceSetting.Standard720pVideo,
+				WithoutVideo: prices.Standard720p,
+				WithVideo:    prices.Standard720pVideo,
 			},
 			{
 				Resolutions:  []string{"1080p"},
-				WithoutVideo: starAIVideoPriceSetting.Standard1080p,
-				WithVideo:    starAIVideoPriceSetting.Standard1080pVideo,
+				WithoutVideo: prices.Standard1080p,
+				WithVideo:    prices.Standard1080pVideo,
 			},
 			{
 				Resolutions:  []string{"4K"},
-				WithoutVideo: starAIVideoPriceSetting.Standard4K,
-				WithVideo:    starAIVideoPriceSetting.Standard4KVideo,
+				WithoutVideo: prices.Standard4K,
+				WithVideo:    prices.Standard4KVideo,
 			},
 		}
 	case "doubao-seedance-2-0-fast-260128":
 		pricing.Rows = []StarAIVideoPriceRow{
 			{
 				Resolutions:  []string{"480p", "720p"},
-				WithoutVideo: starAIVideoPriceSetting.Fast720p,
-				WithVideo:    starAIVideoPriceSetting.Fast720pVideo,
+				WithoutVideo: prices.Fast720p,
+				WithVideo:    prices.Fast720pVideo,
 			},
 		}
 		pricing.UnsupportedResolutions = []string{"1080p", "4K"}
 	case "doubao-seedance-2-0-mini-260615":
 		pricing.Rows = []StarAIVideoPriceRow{{
-			Resolutions: []string{"480p", "720p"}, WithoutVideo: starAIVideoPriceSetting.Mini720p, WithVideo: starAIVideoPriceSetting.Mini720pVideo,
+			Resolutions: []string{"480p", "720p"}, WithoutVideo: prices.Mini720p, WithVideo: prices.Mini720pVideo,
 		}}
 		pricing.UnsupportedResolutions = []string{"1080p", "4K"}
 	case "doubao-seedance-2-5-260628":
 		pricing.Rows = []StarAIVideoPriceRow{
-			{Resolutions: []string{"480p", "720p"}, WithoutVideo: starAIVideoPriceSetting.Seedance25720p, WithVideo: starAIVideoPriceSetting.Seedance25720pVideo},
-			{Resolutions: []string{"1080p"}, WithoutVideo: starAIVideoPriceSetting.Seedance251080p, WithVideo: starAIVideoPriceSetting.Seedance251080pVideo},
+			{Resolutions: []string{"480p", "720p"}, WithoutVideo: prices.Seedance25720p, WithVideo: prices.Seedance25720pVideo},
+			{Resolutions: []string{"1080p"}, WithoutVideo: prices.Seedance251080p, WithVideo: prices.Seedance251080pVideo},
 		}
 		pricing.UnsupportedResolutions = []string{"4K"}
 	default:

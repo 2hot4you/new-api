@@ -415,11 +415,11 @@ func DefaultModelRatio2JSONString() string {
 }
 
 func GetDefaultModelRatioMap() map[string]float64 {
-	return defaultModelRatio
+	return maps.Clone(defaultModelRatio)
 }
 
 func GetDefaultModelPriceMap() map[string]float64 {
-	return defaultModelPrice
+	return maps.Clone(defaultModelPrice)
 }
 
 // GetDefaultPricingMaps returns independent copies for model-level reset and
@@ -437,6 +437,20 @@ func GetDefaultPricingMaps() map[string]map[string]float64 {
 		maps.Copy(result[key], values)
 	}
 	return result
+}
+
+// PublishPricingMaps replaces the complete, prevalidated catalog ratio subset.
+// The caller owns the catalog writer across all package publications and cache
+// invalidation. Individual getters are race safe; this is not a batch barrier.
+func PublishPricingMaps(values map[string]map[string]float64) {
+	modelPriceMap.Replace(values["ModelPrice"])
+	modelRatioMap.Replace(values["ModelRatio"])
+	completionRatioMap.Replace(values["CompletionRatio"])
+	cacheRatioMap.Replace(values["CacheRatio"])
+	createCacheRatioMap.Replace(values["CreateCacheRatio"])
+	imageRatioMap.Replace(values["ImageRatio"])
+	audioRatioMap.Replace(values["AudioRatio"])
+	audioCompletionRatioMap.Replace(values["AudioCompletionRatio"])
 }
 
 func CompletionRatio2JSONString() string {

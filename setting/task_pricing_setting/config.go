@@ -1,7 +1,9 @@
 package task_pricing_setting
 
 import (
+	"maps"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/samber/lo"
@@ -12,16 +14,30 @@ type TaskPricingSetting struct {
 	VertexResolution4K map[string]float64 `json:"vertex_resolution_4k_ratio"`
 }
 
-var taskPricingSetting = TaskPricingSetting{
-	SoraSizeRatio: map[string]float64{
-		"1792x1024": 1.666667,
-		"1024x1792": 1.666667,
-	},
-	VertexResolution4K: map[string]float64{
-		"veo-3.1-fast-generate": 2.333333,
-		"veo-3.1-generate":      1.5,
-		"veo-3.1":               1.5,
-	},
+var taskPricingSetting = DefaultTaskPricingSetting()
+var taskPricingMu sync.RWMutex
+
+func DefaultTaskPricingSetting() TaskPricingSetting {
+	return TaskPricingSetting{
+		SoraSizeRatio: map[string]float64{
+			"1792x1024": 1.666667,
+			"1024x1792": 1.666667,
+		},
+		VertexResolution4K: map[string]float64{
+			"veo-3.1-fast-generate": 2.333333,
+			"veo-3.1-generate":      1.5,
+			"veo-3.1":               1.5,
+		},
+	}
+}
+
+// PublishTaskPricingSetting replaces only prevalidated catalog factors.
+func PublishTaskPricingSetting(value TaskPricingSetting) {
+	value.SoraSizeRatio = maps.Clone(value.SoraSizeRatio)
+	value.VertexResolution4K = maps.Clone(value.VertexResolution4K)
+	taskPricingMu.Lock()
+	taskPricingSetting = value
+	taskPricingMu.Unlock()
 }
 
 func init() {
@@ -29,6 +45,8 @@ func init() {
 }
 
 func SoraSizeRatio(size string) float64 {
+	taskPricingMu.RLock()
+	defer taskPricingMu.RUnlock()
 	if ratio, ok := taskPricingSetting.SoraSizeRatio[size]; ok && ratio > 0 {
 		return ratio
 	}
@@ -36,6 +54,8 @@ func SoraSizeRatio(size string) float64 {
 }
 
 func VertexResolutionRatio(model, resolution string) float64 {
+	taskPricingMu.RLock()
+	defer taskPricingMu.RUnlock()
 	if !strings.EqualFold(resolution, "4k") {
 		return 1
 	}
@@ -54,6 +74,8 @@ func VertexResolutionRatio(model, resolution string) float64 {
 }
 
 func GetCopy() TaskPricingSetting {
+	taskPricingMu.RLock()
+	defer taskPricingMu.RUnlock()
 	return TaskPricingSetting{
 		SoraSizeRatio:      lo.Assign(taskPricingSetting.SoraSizeRatio),
 		VertexResolution4K: lo.Assign(taskPricingSetting.VertexResolution4K),

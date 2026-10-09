@@ -1,6 +1,7 @@
 package types
 
 import (
+	"maps"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -49,6 +50,18 @@ func (m *RWMap[K, V]) AddAll(other map[K]V) {
 	for k, v := range other {
 		m.data[k] = v
 	}
+}
+
+// Replace publishes an independently owned, already decoded map. Values with
+// nested mutable state must be copied by the caller before publication.
+func (m *RWMap[K, V]) Replace(values map[K]V) {
+	copied := maps.Clone(values)
+	if copied == nil {
+		copied = make(map[K]V)
+	}
+	m.mutex.Lock()
+	m.data = copied
+	m.mutex.Unlock()
 }
 
 func (m *RWMap[K, V]) Clear() {

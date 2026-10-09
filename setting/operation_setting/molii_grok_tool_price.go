@@ -3,6 +3,7 @@ package operation_setting
 import (
 	"math"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/setting/config"
 )
@@ -16,13 +17,32 @@ type MoliiGrokToolPriceSetting struct {
 	ImageGeneration   float64 `json:"image_generation"`
 }
 
-var moliiGrokToolPriceSetting = MoliiGrokToolPriceSetting{
-	WebSearch:         5,
-	XSearch:           5,
-	CodeExecution:     5,
-	AttachmentSearch:  10,
-	CollectionsSearch: 2.5,
-	ImageGeneration:   0.05,
+var moliiGrokToolPriceSetting = DefaultMoliiGrokToolPriceSetting()
+var moliiGrokToolPriceSettingMu sync.RWMutex
+
+func DefaultMoliiGrokToolPriceSetting() MoliiGrokToolPriceSetting {
+	return MoliiGrokToolPriceSetting{
+		WebSearch:         5,
+		XSearch:           5,
+		CodeExecution:     5,
+		AttachmentSearch:  10,
+		CollectionsSearch: 2.5,
+		ImageGeneration:   0.05,
+	}
+}
+
+func GetMoliiGrokToolPriceSettingCopy() MoliiGrokToolPriceSetting {
+	moliiGrokToolPriceSettingMu.RLock()
+	defer moliiGrokToolPriceSettingMu.RUnlock()
+	return moliiGrokToolPriceSetting
+}
+
+// PublishMoliiGrokToolPriceSetting accepts a complete prevalidated value; the caller
+// owns the catalog writer across the batch and preserves registration identity.
+func PublishMoliiGrokToolPriceSetting(value MoliiGrokToolPriceSetting) {
+	moliiGrokToolPriceSettingMu.Lock()
+	moliiGrokToolPriceSetting = value
+	moliiGrokToolPriceSettingMu.Unlock()
 }
 
 func init() {
@@ -33,22 +53,23 @@ func getMoliiGrokToolPrice(toolName, modelName string) (float64, bool) {
 	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelName)), "grok-") {
 		return 0, false
 	}
+	prices := GetMoliiGrokToolPriceSettingCopy()
 	var price float64
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "web_search", "web_search_preview":
-		price = moliiGrokToolPriceSetting.WebSearch
+		price = prices.WebSearch
 	case "x_search":
-		price = moliiGrokToolPriceSetting.XSearch
+		price = prices.XSearch
 	case "code_execution", "code_interpreter":
-		price = moliiGrokToolPriceSetting.CodeExecution
+		price = prices.CodeExecution
 	case "attachment_search":
-		price = moliiGrokToolPriceSetting.AttachmentSearch
+		price = prices.AttachmentSearch
 	case "collections_search", "file_search":
-		price = moliiGrokToolPriceSetting.CollectionsSearch
+		price = prices.CollectionsSearch
 	case "image_generation":
 		// The shared surcharge engine consumes prices per 1K calls, while the
 		// Imagine price is configured per completed image.
-		price = moliiGrokToolPriceSetting.ImageGeneration * 1000
+		price = prices.ImageGeneration * 1000
 	default:
 		return 0, false
 	}

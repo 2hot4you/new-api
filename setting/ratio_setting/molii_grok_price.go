@@ -3,6 +3,7 @@ package ratio_setting
 import (
 	"math"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/setting/config"
 )
@@ -44,26 +45,45 @@ type MoliiGrokCatalogPricing struct {
 	VideoInputPrice float64            `json:"video_input_price,omitempty"`
 }
 
-var moliiGrokPriceSetting = MoliiGrokPriceSetting{
-	ImageStandardInput: 0.002,
-	ImageStandard1K:    0.02,
-	ImageStandard2K:    0.02,
-	ImageQualityInput:  0.01,
-	ImageQuality1K:     0.05,
-	ImageQuality2K:     0.07,
-	Image20Input:       0.01,
-	Image20Low1K:       0.04,
-	Image20Low2K:       0.06,
-	Image20Medium1K:    0.06,
-	Image20Medium2K:    0.08,
-	Video15ImageInput:  0.01,
-	Video15480p:        0.08,
-	Video15720p:        0.14,
-	Video151080p:       0.25,
-	VideoImageInput:    0.002,
-	VideoVideoInput:    0.01,
-	Video480p:          0.05,
-	Video720p:          0.07,
+var moliiGrokPriceSetting = DefaultMoliiGrokPriceSetting()
+var moliiGrokPriceSettingMu sync.RWMutex
+
+func DefaultMoliiGrokPriceSetting() MoliiGrokPriceSetting {
+	return MoliiGrokPriceSetting{
+		ImageStandardInput: 0.002,
+		ImageStandard1K:    0.02,
+		ImageStandard2K:    0.02,
+		ImageQualityInput:  0.01,
+		ImageQuality1K:     0.05,
+		ImageQuality2K:     0.07,
+		Image20Input:       0.01,
+		Image20Low1K:       0.04,
+		Image20Low2K:       0.06,
+		Image20Medium1K:    0.06,
+		Image20Medium2K:    0.08,
+		Video15ImageInput:  0.01,
+		Video15480p:        0.08,
+		Video15720p:        0.14,
+		Video151080p:       0.25,
+		VideoImageInput:    0.002,
+		VideoVideoInput:    0.01,
+		Video480p:          0.05,
+		Video720p:          0.07,
+	}
+}
+
+func GetMoliiGrokPriceSettingCopy() MoliiGrokPriceSetting {
+	moliiGrokPriceSettingMu.RLock()
+	defer moliiGrokPriceSettingMu.RUnlock()
+	return moliiGrokPriceSetting
+}
+
+// PublishMoliiGrokPriceSetting accepts a complete prevalidated value; the caller
+// owns the catalog writer across the batch and preserves registration identity.
+func PublishMoliiGrokPriceSetting(value MoliiGrokPriceSetting) {
+	moliiGrokPriceSettingMu.Lock()
+	moliiGrokPriceSetting = value
+	moliiGrokPriceSettingMu.Unlock()
 }
 
 func init() {
@@ -87,6 +107,7 @@ func GetMoliiGrokImagePrices(model, resolution string) (outputPrice, inputPrice 
 // GetMoliiGrokImagePricesForQuality returns output and per-input-image prices.
 // Image 2.0 defaults to the official medium tier when quality is omitted.
 func GetMoliiGrokImagePricesForQuality(model, resolution, quality string) (outputPrice, inputPrice float64, ok bool) {
+	prices := GetMoliiGrokPriceSettingCopy()
 	resolution = strings.ToLower(strings.TrimSpace(resolution))
 	quality = strings.ToLower(strings.TrimSpace(quality))
 	if resolution != "1k" && resolution != "2k" {
@@ -94,36 +115,36 @@ func GetMoliiGrokImagePricesForQuality(model, resolution, quality string) (outpu
 	}
 	switch model {
 	case "grok-imagine-image":
-		inputPrice = moliiGrokPriceSetting.ImageStandardInput
+		inputPrice = prices.ImageStandardInput
 		if resolution == "2k" {
-			outputPrice = moliiGrokPriceSetting.ImageStandard2K
+			outputPrice = prices.ImageStandard2K
 		} else {
-			outputPrice = moliiGrokPriceSetting.ImageStandard1K
+			outputPrice = prices.ImageStandard1K
 		}
 	case "grok-imagine-image-quality":
-		inputPrice = moliiGrokPriceSetting.ImageQualityInput
+		inputPrice = prices.ImageQualityInput
 		if resolution == "2k" {
-			outputPrice = moliiGrokPriceSetting.ImageQuality2K
+			outputPrice = prices.ImageQuality2K
 		} else {
-			outputPrice = moliiGrokPriceSetting.ImageQuality1K
+			outputPrice = prices.ImageQuality1K
 		}
 	case "grok-imagine-image-2.0":
-		inputPrice = moliiGrokPriceSetting.Image20Input
+		inputPrice = prices.Image20Input
 		if quality == "" {
 			quality = "medium"
 		}
 		switch quality {
 		case "low":
 			if resolution == "2k" {
-				outputPrice = moliiGrokPriceSetting.Image20Low2K
+				outputPrice = prices.Image20Low2K
 			} else {
-				outputPrice = moliiGrokPriceSetting.Image20Low1K
+				outputPrice = prices.Image20Low1K
 			}
 		case "medium":
 			if resolution == "2k" {
-				outputPrice = moliiGrokPriceSetting.Image20Medium2K
+				outputPrice = prices.Image20Medium2K
 			} else {
-				outputPrice = moliiGrokPriceSetting.Image20Medium1K
+				outputPrice = prices.Image20Medium1K
 			}
 		default:
 			return 0, 0, false
@@ -136,28 +157,29 @@ func GetMoliiGrokImagePricesForQuality(model, resolution, quality string) (outpu
 
 // GetMoliiGrokVideoPrices returns output/sec, input-image and input-video/sec prices.
 func GetMoliiGrokVideoPrices(model, resolution string) (outputPrice, imageInputPrice, videoInputPrice float64, ok bool) {
+	prices := GetMoliiGrokPriceSettingCopy()
 	resolution = strings.ToLower(strings.TrimSpace(resolution))
 	switch model {
 	case "grok-imagine-video-1.5":
-		imageInputPrice = moliiGrokPriceSetting.Video15ImageInput
+		imageInputPrice = prices.Video15ImageInput
 		switch resolution {
 		case "480p":
-			outputPrice = moliiGrokPriceSetting.Video15480p
+			outputPrice = prices.Video15480p
 		case "720p":
-			outputPrice = moliiGrokPriceSetting.Video15720p
+			outputPrice = prices.Video15720p
 		case "1080p":
-			outputPrice = moliiGrokPriceSetting.Video151080p
+			outputPrice = prices.Video151080p
 		default:
 			return 0, 0, 0, false
 		}
 	case "grok-imagine-video":
-		imageInputPrice = moliiGrokPriceSetting.VideoImageInput
-		videoInputPrice = moliiGrokPriceSetting.VideoVideoInput
+		imageInputPrice = prices.VideoImageInput
+		videoInputPrice = prices.VideoVideoInput
 		switch resolution {
 		case "480p":
-			outputPrice = moliiGrokPriceSetting.Video480p
+			outputPrice = prices.Video480p
 		case "720p":
-			outputPrice = moliiGrokPriceSetting.Video720p
+			outputPrice = prices.Video720p
 		default:
 			return 0, 0, 0, false
 		}
