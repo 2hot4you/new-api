@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -35,6 +37,804 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 )
+
+func TestCatalogSyncBusinessPreview(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			prior := jsplugin.DefaultRegistry
+			jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+			t.Cleanup(func() { jsplugin.DefaultRegistry = prior })
+			actor := catalogmanifest.Actor{UserID: 1, SessionID: "session", TargetID: "target", AuthVersion: 1, SessionVersion: 1}
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			require.NotEmpty(t, plan.ValidationDigest, "preview must bind the server-owned staged draft")
+			require.NotEmpty(t, plan.ReferenceDigest, "preview must bind authoritative references")
+			var row CatalogSyncPlan
+			require.NoError(t, db.First(&row, "id = ?", plan.ID).Error)
+			require.NotEmpty(t, row.Validation)
+		})
+	}
+}
+
+func catalogBusinessActor(t *testing.T, db *gorm.DB) catalogmanifest.Actor {
+	t.Helper()
+	require.NoError(t, db.AutoMigrate(&User{}, &UserSession{}))
+	user := User{Username: "catalog-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&UserSession{SID: "catalog-session", UserID: user.Id, UserAuthVersion: 1, Version: 1, Status: UserSessionStatusActive, ExpiresAt: time.Now().Add(time.Hour).Unix(), RefreshHash: strings.Repeat("a", 64), LoginMethod: "password"}).Error)
+	prior := jsplugin.DefaultRegistry
+	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+	t.Cleanup(func() { jsplugin.DefaultRegistry = prior })
+	return catalogmanifest.Actor{UserID: user.Id, SessionID: "catalog-session", TargetID: "target", AuthVersion: 1, SessionVersion: 1}
+}
+
+func TestCatalogSyncBusinessApply(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogSyncTestSource(t)
+			require.NoError(t, appendManagedEntry(&source, catalogmanifest.KindModel, "created-model", catalogmanifest.ModelValue{ModelName: "created-model", Vendor: "source-vendor", BillingCurrency: "CNY", ReleaseDate: "2026-10-01", CreatedTime: 13, UpdatedTime: 17, InputModalities: []string{"text"}, SupportedParameters: []string{"temperature"}, OutputFormats: []string{}}))
+			var err error
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "business-operation", actor)
+			require.NoError(t, err)
+			assert.Equal(t, "committed_pending_publish", result.State)
+			assert.Equal(t, int64(1), result.Revision)
+			var vendor Vendor
+			require.NoError(t, db.First(&vendor, "name = ?", "source-vendor").Error)
+			assert.Equal(t, "original", vendor.Description)
+			assert.NotEqual(t, int64(13), vendor.CreatedTime)
+			var created Model
+			require.NoError(t, db.First(&created, "model_name = ?", "created-model").Error)
+			assert.Zero(t, created.Status)
+			assert.Zero(t, created.SyncOfficial)
+			assert.Equal(t, "CNY", created.BillingCurrency)
+			assert.Equal(t, "2026-10-01", created.ReleaseDate)
+			assert.Equal(t, []string{"temperature"}, created.SupportedParameters)
+			assert.Nil(t, created.SupportedResolutions, "source null array must not silently become []")
+			assert.Equal(t, []string{}, created.OutputFormats, "source empty array must remain distinct from null")
+			assert.NotEqual(t, int64(13), created.CreatedTime)
+			var state CatalogSyncState
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			assert.Equal(t, int64(1), state.BaselineGeneration)
+			assert.Zero(t, state.RuntimeRevision)
+			assert.Equal(t, "business-operation", state.PendingOperationID)
+			replayed, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "business-operation", actor)
+			require.NoError(t, err)
+			assert.Equal(t, result, replayed)
+			_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest+"bad", "business-operation", actor)
+			require.ErrorIs(t, err, ErrCatalogSyncOperationConflict)
+			var operation CatalogSyncOperation
+			require.NoError(t, db.First(&operation, "id = ?", "business-operation").Error)
+			assert.NotEmpty(t, operation.Backup)
+			assert.NotContains(t, string(operation.Backup), state.IncarnationKey)
+			public, err := common.Marshal(operation)
+			require.NoError(t, err)
+			assert.NotContains(t, string(public), "catalog-session")
+			catalogBusinessFixturePublished(t, db, result)
+			next, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			for _, change := range next.Changes {
+				assert.NotEqual(t, "conflict", change.Action, change.Key)
+			}
+		})
+	}
+}
+
+func TestCatalogSyncBusinessWaitedRoleDemotion(t *testing.T) {
+	for _, engine := range []string{"mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			writer := db.Begin()
+			require.NoError(t, writer.Error)
+			defer writer.Rollback()
+			require.NoError(t, writer.Model(&User{}).Where("id = ?", actor.UserID).Update("role", common.RoleAdminUser).Error)
+			done := make(chan error, 1)
+			go func() {
+				_, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "waited-demotion", actor)
+				done <- err
+			}()
+			catalogWaitForDBLock(t, db, engine, done)
+			require.NoError(t, writer.Commit().Error)
+			require.ErrorIs(t, <-done, ErrCatalogSyncPlanUnavailable)
+			var count int64
+			require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&count).Error)
+			assert.Zero(t, count)
+		})
+	}
+}
+
+func TestCatalogSyncBusinessRollbackAndAuth(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			for _, table := range []string{"catalog_sync_operations", "catalog_sync_baselines"} {
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("catalog-business-fail", func(tx *gorm.DB) {
+					if tx.Statement.Table == table {
+						tx.AddError(errors.New("injected durable write failure"))
+					}
+				}))
+				_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "rollback-operation", actor)
+				require.ErrorContains(t, err, "injected durable write failure")
+				require.NoError(t, db.Callback().Create().Remove("catalog-business-fail"))
+				for _, entity := range []any{&Vendor{}, &CatalogSyncOperation{}, &CatalogSyncBaseline{}} {
+					var count int64
+					require.NoError(t, db.Model(entity).Count(&count).Error)
+					assert.Zero(t, count, table)
+				}
+				var state CatalogSyncState
+				require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+				assert.Zero(t, state.Revision)
+				assert.Equal(t, "ready", state.PublicationState)
+			}
+			for _, field := range []string{"user", "session", "target", "auth", "version"} {
+				wrong := actor
+				switch field {
+				case "user":
+					wrong.UserID++
+				case "session":
+					wrong.SessionID += "wrong"
+				case "target":
+					wrong.TargetID += "wrong"
+				case "auth":
+					wrong.AuthVersion++
+				case "version":
+					wrong.SessionVersion++
+				}
+				_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "auth-operation", wrong)
+				require.Error(t, err, field)
+			}
+			for _, mutation := range []struct {
+				entity            any
+				field             string
+				changed, original any
+			}{
+				{&User{}, "role", common.RoleAdminUser, common.RoleRootUser}, {&User{}, "status", common.UserStatusDisabled, common.UserStatusEnabled}, {&User{}, "auth_version", 2, 1},
+				{&UserSession{}, "version", 2, 1}, {&UserSession{}, "expires_at", time.Now().Add(-time.Hour).Unix(), time.Now().Add(time.Hour).Unix()}, {&UserSession{}, "revoked_at", 1, 0},
+			} {
+				require.NoError(t, db.Model(mutation.entity).Where("1 = 1").Update(mutation.field, mutation.changed).Error)
+				_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "auth-operation", actor)
+				require.Error(t, err, mutation.field)
+				require.NoError(t, db.Model(mutation.entity).Where("1 = 1").Update(mutation.field, mutation.original).Error)
+			}
+			_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "finally-valid", actor)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func catalogBusinessPriceSource(t *testing.T, db *gorm.DB) catalogmanifest.Snapshot {
+	t.Helper()
+	require.NoError(t, db.Create(&Vendor{Name: "source-vendor", Status: 1}).Error)
+	require.NoError(t, db.Create(&Model{ModelName: "managed-model", BillingCurrency: "CNY", Status: 1, CreatedTime: 123}).Error)
+	require.NoError(t, db.Create(&Model{ModelName: "local-model", BillingCurrency: "USD", Status: 1}).Error)
+	require.NoError(t, db.Create(&Option{Key: "billing_setting.billing_expr", Value: `{"managed-model":"p * 2", "local-model":"p * 9"}`}).Error)
+	require.NoError(t, db.Create(&Option{Key: "billing_setting.billing_mode", Value: `{"managed-model":"tiered_expr"}`}).Error)
+	source, err := ExportManagedCatalogTx(context.Background(), db, "dev")
+	require.NoError(t, err)
+	retained := make([]catalogmanifest.Entry, 0, len(source.Entries))
+	for _, entry := range source.Entries {
+		if entry.Kind == catalogmanifest.KindModel && entry.Key == "local-model" {
+			source.Coverage[entry.Kind]--
+			continue
+		}
+		if entry.Kind == catalogmanifest.KindModelPrice {
+			key, err := catalogmanifest.DecodePriceKey(entry.Key)
+			require.NoError(t, err)
+			if key.Model == "local-model" {
+				source.Coverage[entry.Kind]--
+				continue
+			}
+			if key.Option == "billing_setting.billing_expr" {
+				value, err := common.Marshal(catalogmanifest.PriceValue{Value: `"tier(\"base\", p * 7.123 + c * 3)"`, BillingCurrency: "CNY", Unit: "expression"})
+				require.NoError(t, err)
+				entry.Value = string(value)
+			}
+		}
+		retained = append(retained, entry)
+	}
+	source.Entries = retained
+	source.Digest, err = catalogmanifest.SnapshotDigest(source)
+	require.NoError(t, err)
+	return source
+}
+
+func TestCatalogSyncBusinessPricesAndDrift(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogBusinessPriceSource(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			// An ordinary catalog save must invalidate an already staged plan.
+			require.NoError(t, (&Vendor{Name: "later-local-vendor", Status: 1}).Insert())
+			_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "stale-save", actor)
+			require.ErrorIs(t, err, ErrCatalogSyncPlanStale)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			// Unrelated progress/private data changes have no billing-reference effect.
+			task := Task{TaskID: "unrelated", Status: TaskStatusInProgress, Properties: Properties{OriginModelName: "local-model"}}
+			require.NoError(t, db.Create(&task).Error)
+			require.NoError(t, db.Model(&task).Updates(map[string]any{"progress": "99%", "fail_reason": "private unrelated text"}).Error)
+			source.Entries[0].Value = "later dev update must not replace pinned source"
+			_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "price-operation", actor)
+			require.NoError(t, err)
+			var option Option
+			require.NoError(t, db.Where(map[string]any{"key": "billing_setting.billing_expr"}).First(&option).Error)
+			var prices map[string]string
+			require.NoError(t, common.UnmarshalJsonStr(option.Value, &prices))
+			assert.Equal(t, `tier("base", p * 7.123 + c * 3)`, prices["managed-model"])
+			assert.Equal(t, "p * 9", prices["local-model"])
+			var record Model
+			require.NoError(t, db.First(&record, "model_name = ?", "managed-model").Error)
+			assert.Equal(t, "CNY", record.BillingCurrency)
+			assert.Equal(t, int64(123), record.CreatedTime)
+			var operation CatalogSyncOperation
+			require.NoError(t, db.First(&operation, "id = ?", "price-operation").Error)
+			assert.NotContains(t, string(operation.Backup), "local-model")
+			assert.NotContains(t, string(operation.Backup), "private unrelated text")
+		})
+	}
+}
+
+func TestCatalogSyncBusinessTaskReferences(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogBusinessPriceSource(t, db)
+			for _, tc := range []struct {
+				name, origin              string
+				terminal, frozen, perCall bool
+				blocked                   bool
+			}{
+				{name: "legacy-relevant", origin: "managed-model", blocked: true},
+				{name: "unrelated", origin: "local-model"},
+				{name: "terminal", origin: "managed-model", terminal: true},
+				{name: "frozen-expression", origin: "managed-model", frozen: true},
+				{name: "per-call-adjuster-unproven", origin: "managed-model", perCall: true, blocked: true},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					task := Task{TaskID: tc.name, Status: TaskStatusInProgress, Properties: Properties{OriginModelName: tc.origin}}
+					if tc.terminal {
+						task.Status = TaskStatusSuccess
+					}
+					if tc.perCall {
+						task.PrivateData.BillingContext = &TaskBillingContext{OriginModelName: tc.origin, PerCallBilling: true}
+					}
+					if tc.frozen {
+						task.PrivateData.BillingContext = &TaskBillingContext{OriginModelName: tc.origin, TieredSnapshot: &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ModelName: tc.origin, ExprString: "p * 2", ExprHash: billingexpr.ExprHashString("p * 2"), TaskUsageBilling: true, QuotaPerUnit: 500000, GroupRatio: 1, SourceCurrency: "CNY", CNYPerUSD: 7}}
+					}
+					require.NoError(t, db.Create(&task).Error)
+					plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+					require.NoError(t, err)
+					assert.Equal(t, !tc.blocked, catalogmanifest.PlanExecutable(plan, time.Now()))
+					if tc.blocked {
+						_, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "blocked-"+tc.name, actor)
+						require.Error(t, err)
+					}
+					require.NoError(t, db.Delete(&task).Error)
+				})
+			}
+		})
+	}
+}
+
+// Test fixture only: no production publisher exists until Task5.
+func catalogBusinessFixturePublished(t *testing.T, db *gorm.DB, result catalogmanifest.Result) {
+	t.Helper()
+	require.NoError(t, db.Model(&CatalogSyncState{}).Where("id = ?", CatalogSyncStateID).Updates(map[string]any{"publication_state": "ready", "runtime_revision": result.Revision, "pending_operation_id": ""}).Error)
+	require.NoError(t, db.Model(&CatalogSyncOperation{}).Where("id = ?", result.OperationID).Update("state", "succeeded").Error)
+}
+
+func TestCatalogSyncBusinessMatchRuleExpansion(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			require.NoError(t, db.Create(&Model{ModelName: "managed", NameRule: NameRulePrefix, BillingCurrency: "USD", Status: 0}).Error)
+			require.NoError(t, db.Create(&Channel{Key: "private", Status: common.ChannelStatusEnabled, Models: "new-managed-route"}).Error)
+			source, err := ExportManagedCatalogTx(context.Background(), db, "dev")
+			require.NoError(t, err)
+			for i := range source.Entries {
+				if source.Entries[i].Kind == catalogmanifest.KindModel {
+					var value catalogmanifest.ModelValue
+					require.NoError(t, common.UnmarshalJsonStr(source.Entries[i].Value, &value))
+					value.NameRule = NameRuleContains
+					encoded, err := common.Marshal(value)
+					require.NoError(t, err)
+					source.Entries[i].Value = string(encoded)
+				}
+			}
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			assert.False(t, catalogmanifest.PlanExecutable(plan, time.Now()), "references matched only by the new rule must block unsafe metadata changes")
+		})
+	}
+}
+
+func TestCatalogSyncBusinessRemovals(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			vendor := Vendor{Name: "managed-vendor", Status: 1}
+			require.NoError(t, db.Create(&vendor).Error)
+			require.NoError(t, db.Create(&Vendor{Name: "retained-vendor", Status: 1}).Error)
+			require.NoError(t, db.Create(&Model{ModelName: "managed-", NameRule: NameRulePrefix, BillingCurrency: "USD", Status: 0, VendorID: vendor.Id}).Error)
+			source, err := ExportManagedCatalogTx(context.Background(), db, "dev")
+			require.NoError(t, err)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			applied, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "adopt-removal-fixture", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, applied)
+			source.Entries = slices.DeleteFunc(source.Entries, func(entry catalogmanifest.Entry) bool { return entry.Kind == catalogmanifest.KindModel })
+			source.Coverage[catalogmanifest.KindModel] = 0
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			for _, scenario := range []string{"mapping-chain", "orphan-ability", "unfinished-task", "legacy-mj", "scheduler"} {
+				t.Run(scenario, func(t *testing.T) {
+					var cleanup func()
+					switch scenario {
+					case "mapping-chain":
+						mapping := `{"alias":"middle","middle":"managed-live"}`
+						row := Channel{Key: "never-export-this-key", Status: common.ChannelStatusEnabled, Models: "alias", ModelMapping: &mapping}
+						require.NoError(t, db.Create(&row).Error)
+						cleanup = func() { require.NoError(t, db.Delete(&row).Error) }
+					case "orphan-ability":
+						row := Ability{ChannelId: 123456, Model: "managed-live", Group: "default", Enabled: true}
+						require.NoError(t, db.Create(&row).Error)
+						cleanup = func() { require.NoError(t, db.Where("channel_id = ?", row.ChannelId).Delete(&Ability{}).Error) }
+					case "unfinished-task":
+						row := Task{TaskID: scenario, Status: TaskStatusUnknown, Properties: Properties{OriginModelName: "managed-live"}}
+						require.NoError(t, db.Create(&row).Error)
+						cleanup = func() { require.NoError(t, db.Delete(&row).Error) }
+					case "legacy-mj":
+						row := Midjourney{Status: "IN_PROGRESS"}
+						require.NoError(t, db.Create(&row).Error)
+						cleanup = func() { require.NoError(t, db.Delete(&row).Error) }
+					case "scheduler":
+						row := SystemTask{TaskID: "pending-channel", Type: SystemTaskTypeChannelTest, Status: SystemTaskStatusPending, Payload: "private-never-export"}
+						require.NoError(t, db.Create(&row).Error)
+						cleanup = func() { require.NoError(t, db.Delete(&row).Error) }
+					}
+					defer cleanup()
+					blocked, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+					require.NoError(t, err)
+					assert.False(t, catalogmanifest.PlanExecutable(blocked, time.Now()))
+					found := false
+					for _, change := range blocked.Changes {
+						if change.Kind == catalogmanifest.KindModel {
+							assert.Equal(t, "blocked", change.Action)
+							found = true
+						}
+					}
+					assert.True(t, found)
+				})
+			}
+			// References gone: a hidden prefix row with no prices can be removed,
+			// but only after the independent whole-plan deletion confirmation.
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			assert.False(t, catalogmanifest.PlanExecutable(plan, time.Now()))
+			plan, err = ResolveCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+			require.NoError(t, err)
+			assert.True(t, catalogmanifest.PlanExecutable(plan, time.Now()))
+			result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "safe-removal", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, result)
+			// A local-only live hidden row still prevents removal of its vendor.
+			require.NoError(t, db.Create(&Model{ModelName: "local-vendor-reference", BillingCurrency: "USD", VendorID: vendor.Id, Status: 0}).Error)
+			source.Entries = slices.DeleteFunc(source.Entries, func(entry catalogmanifest.Entry) bool { return entry.Key == "managed-vendor" })
+			source.Coverage[catalogmanifest.KindVendor]--
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			for _, change := range plan.Changes {
+				if change.Key == "managed-vendor" {
+					assert.Equal(t, "vendor_still_referenced", change.Reason)
+					assert.Equal(t, "blocked", change.Action)
+				}
+			}
+		})
+	}
+}
+
+type catalogBusinessLostAckConnector struct {
+	connection *catalogBusinessLostAckConnection
+	driver     driver.Driver
+}
+
+func (c catalogBusinessLostAckConnector) Connect(context.Context) (driver.Conn, error) {
+	return c.connection, nil
+}
+func (c catalogBusinessLostAckConnector) Driver() driver.Driver { return c.driver }
+
+type catalogBusinessLostAckConnection struct {
+	driver.Conn
+	armed atomic.Bool
+}
+
+func (c *catalogBusinessLostAckConnection) Close() error { return nil } // loan owner closes the real connection
+func (c *catalogBusinessLostAckConnection) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	if native, ok := c.Conn.(driver.ExecerContext); ok {
+		return native.ExecContext(ctx, query, args)
+	}
+	return nil, driver.ErrSkip
+}
+func (c *catalogBusinessLostAckConnection) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	if native, ok := c.Conn.(driver.QueryerContext); ok {
+		return native.QueryContext(ctx, query, args)
+	}
+	return nil, driver.ErrSkip
+}
+func (c *catalogBusinessLostAckConnection) CheckNamedValue(value *driver.NamedValue) error {
+	if native, ok := c.Conn.(driver.NamedValueChecker); ok {
+		return native.CheckNamedValue(value)
+	}
+	return driver.ErrSkip
+}
+func (c *catalogBusinessLostAckConnection) BeginTx(ctx context.Context, options driver.TxOptions) (driver.Tx, error) {
+	tx, err := c.Conn.(driver.ConnBeginTx).BeginTx(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+	return &catalogBusinessLostAckTx{Tx: tx, connection: c}, nil
+}
+
+type catalogBusinessLostAckTx struct {
+	driver.Tx
+	connection *catalogBusinessLostAckConnection
+}
+
+func (tx *catalogBusinessLostAckTx) Commit() error {
+	if err := tx.Tx.Commit(); err != nil {
+		return err
+	}
+	if tx.connection.armed.Swap(false) {
+		return errors.New("injected lost durable commit acknowledgement")
+	}
+	return nil
+}
+
+func TestCatalogSyncBusinessLostAckAndConcurrent(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			loan, err := pool.Conn(context.Background())
+			require.NoError(t, err)
+			defer loan.Close()
+			require.NoError(t, loan.Raw(func(native any) error {
+				connection := &catalogBusinessLostAckConnection{Conn: native.(driver.Conn)}
+				observed := sql.OpenDB(catalogBusinessLostAckConnector{connection, pool.Driver()})
+				observed.SetMaxOpenConns(1)
+				defer observed.Close()
+				root := db.Session(&gorm.Session{NewDB: true, Context: context.Background()})
+				root.Statement.ConnPool = observed
+				DB = root
+				defer func() { DB = db }()
+				connection.armed.Store(true)
+				entered, release := make(chan struct{}), make(chan struct{})
+				resume := sync.OnceFunc(func() { close(release) })
+				defer resume()
+				var once sync.Once
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("catalog-business-pause", func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_operations" {
+						once.Do(func() { close(entered); <-release })
+					}
+				}))
+				defer db.Callback().Create().Remove("catalog-business-pause")
+				type outcome struct {
+					result catalogmanifest.Result
+					err    error
+				}
+				done := make(chan outcome, 1)
+				go func() {
+					result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "lost-ack-operation", actor)
+					done <- outcome{result, err}
+				}()
+				select {
+				case <-entered:
+				case result := <-done:
+					return fmt.Errorf("apply ended before pause: %v", result.err)
+				case <-time.After(10 * time.Second):
+					return errors.New("apply did not reach operation backup")
+				}
+				_, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "lost-ack-operation", actor)
+				require.ErrorIs(t, err, ErrCatalogWriterBusy)
+				resume()
+				result := <-done
+				require.NoError(t, result.err)
+				assert.Equal(t, "committed_pending_publish", result.result.State)
+				replayed, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "lost-ack-operation", actor)
+				require.NoError(t, err)
+				assert.Equal(t, result.result, replayed)
+				var count int64
+				require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&count).Error)
+				assert.Equal(t, int64(1), count)
+				return nil
+			}))
+		})
+	}
+}
+
+func TestCatalogSyncBusinessSpecialFrozenAndFallback(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			require.NoError(t, db.Create(&Vendor{Name: "keep-source-nonempty", Status: 1}).Error)
+			require.NoError(t, db.Create(&Option{Key: "molii_grok_price.video_480p", Value: "0.05"}).Error)
+			source, err := ExportManagedCatalogTx(context.Background(), db, "dev")
+			require.NoError(t, err)
+			for i := range source.Entries {
+				if source.Entries[i].Kind == catalogmanifest.KindSpecialPrice {
+					encoded, err := common.Marshal(catalogmanifest.PriceValue{Value: "0.09", BillingCurrency: "CNY", Unit: "second"})
+					require.NoError(t, err)
+					source.Entries[i].Value = string(encoded)
+				}
+			}
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			for _, tc := range []struct {
+				name            string
+				frozen, related bool
+			}{{"incomplete-legacy", false, true}, {"valid-v2", true, true}, {"invalid-v2-operation", true, true}, {"unrelated-legacy", false, false}} {
+				t.Run(tc.name, func(t *testing.T) {
+					row := Task{TaskID: tc.name, Platform: constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeMoliiGrokAIGC)), Status: TaskStatusInProgress, Properties: Properties{OriginModelName: "grok-imagine-video"}}
+					if !tc.related {
+						row.Platform = "ordinary-plugin"
+						row.Properties.OriginModelName = "unrelated-model"
+					}
+					if tc.frozen {
+						row.PrivateData.BillingContext = &TaskBillingContext{OriginModelName: "grok-imagine-video", GroupRatio: 1, GrokVideoBilling: &GrokVideoBillingSnapshot{Version: 2, Model: "grok-imagine-video", Operation: "text_to_video", InputType: "text", EstimatedDurationSeconds: 6, EstimatedResolution: "480p", OutputUnitPrice: .05, SourceCurrency: "CNY", CNYPerUSD: 7, GroupRatio: 1}}
+					}
+					if tc.name == "invalid-v2-operation" {
+						row.PrivateData.BillingContext.GrokVideoBilling.Operation = "unknown"
+					}
+					require.NoError(t, db.Create(&row).Error)
+					plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+					require.NoError(t, err)
+					assert.Equal(t, tc.frozen && tc.name != "invalid-v2-operation" || !tc.related, catalogmanifest.PlanExecutable(plan, time.Now()))
+					require.NoError(t, db.Delete(&row).Error)
+				})
+			}
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "special-update", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, result)
+			source.Entries = slices.DeleteFunc(source.Entries, func(entry catalogmanifest.Entry) bool { return entry.Kind == catalogmanifest.KindSpecialPrice })
+			source.Coverage[catalogmanifest.KindSpecialPrice] = 0
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			for _, change := range plan.Changes {
+				if change.Kind == catalogmanifest.KindSpecialPrice {
+					assert.Equal(t, "blocked", change.Action)
+					assert.Equal(t, "price_fallback_unproven", change.Reason)
+				}
+			}
+		})
+	}
+}
+
+func TestCatalogSyncBusinessPluginDriftAndAdoption(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogValidationFixture(t, db, jsplugin.DefaultRegistry)
+			source.SourceID = "dev"
+			var err error
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			var plugin TaskPlugin
+			require.NoError(t, db.First(&plugin).Error)
+			require.NoError(t, db.Model(&plugin).Update("source", "never-leak-invalid-private-source").Error)
+			_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "plugin-drift", actor)
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "never-leak")
+			require.NoError(t, db.Model(&plugin).Update("source", plugin.Source).Error)
+			require.NoError(t, db.Model(&plugin).Update("active", false).Error)
+			require.NoError(t, jsplugin.DefaultRegistry.ReplaceOverrides(nil))
+			_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "effective-drift", actor)
+			require.Error(t, err)
+			// Equal existing target usage expressions are new ownership adoption,
+			// so the stale-local preservation exception must not authorize them.
+			_, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCatalogSyncBusinessAuthLayout(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			switch engine {
+			case "mysql":
+				require.NoError(t, db.Exec("ALTER TABLE user_sessions ENGINE=MyISAM").Error)
+			case "postgres":
+				require.NoError(t, db.Exec("ALTER TABLE user_sessions ENABLE ROW LEVEL SECURITY").Error)
+			case "sqlite":
+				require.NoError(t, db.Exec("ALTER TABLE user_sessions RENAME TO original_user_sessions").Error)
+				require.NoError(t, db.Exec("CREATE VIEW user_sessions AS SELECT * FROM original_user_sessions").Error)
+			}
+			_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "unsupported-auth-layout", actor)
+			require.Error(t, err, "unsupported auth storage must not authorize a catalog commit")
+			var count int64
+			require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&count).Error)
+			assert.Zero(t, count)
+		})
+	}
+}
+
+func TestCatalogSyncBusinessAuthTemporaryShadow(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			pool.SetMaxOpenConns(1)
+			pool.SetMaxIdleConns(1)
+			sql := "CREATE TEMPORARY TABLE user_sessions AS SELECT * FROM user_sessions"
+			if engine == "mysql" {
+				sql = "CREATE TEMPORARY TABLE user_sessions (sid varchar(64) PRIMARY KEY) ENGINE=InnoDB"
+			}
+			require.NoError(t, db.Exec(sql).Error)
+			if engine == "postgres" {
+				// The reviewed root helper pins the trusted schema ahead of
+				// pg_temp. An active temporary copy must not mask revocation.
+				require.NoError(t, db.Exec("UPDATE public.user_sessions SET status = 'revoked'").Error)
+			}
+			_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "shadow-auth", actor)
+			require.Error(t, err)
+			var count int64
+			require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&count).Error)
+			assert.Zero(t, count)
+		})
+	}
+}
+
+func TestCatalogSyncBusinessSeedanceFrozen(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogBusinessPriceSource(t, db)
+			for _, tc := range []struct {
+				name                      string
+				ratio, group              float64
+				captured, tiered, allowed bool
+			}{
+				{"saved-anchor", 2, 1, true, false, true},
+				{"starai-saved-anchor", 2, 1, true, false, true},
+				{"starai-missing-anchor", 0, 1, true, false, false},
+				{"captured-zero-group", 2, 0, true, false, true},
+				{"missing-anchor", 0, 1, true, false, false},
+				{"uncaptured-zero-group", 2, 0, false, false, false},
+				{"dispatch-not-generic-tiered", 2, 1, true, true, false},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					bc := &TaskBillingContext{OriginModelName: "managed-model", ModelRatio: tc.ratio, GroupRatio: tc.group, GroupRatioCaptured: tc.captured, OtherRatios: map[string]float64{"video": .5}}
+					if tc.tiered {
+						bc.TieredSnapshot = &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ModelName: "managed-model", TaskUsageBilling: true, ExprString: "p", ExprHash: billingexpr.ExprHashString("p"), QuotaPerUnit: 500000, SourceCurrency: "CNY", CNYPerUSD: 7}
+					}
+					row := Task{TaskID: tc.name, Platform: constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeByteDanceSeedance)), Status: TaskStatusInProgress, Properties: Properties{OriginModelName: "managed-model"}}
+					if strings.HasPrefix(tc.name, "starai-") {
+						row.Platform = constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeStarAI))
+					}
+					row.PrivateData.BillingContext = bc
+					require.NoError(t, db.Create(&row).Error)
+					plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+					require.NoError(t, err)
+					assert.Equal(t, tc.allowed, catalogmanifest.PlanExecutable(plan, time.Now()))
+					require.NoError(t, db.Delete(&row).Error)
+				})
+			}
+		})
+	}
+}
+
+func TestCatalogSyncBusinessResolutionAndIncarnation(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogBusinessPriceSource(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			var prior Model
+			require.NoError(t, db.First(&prior, "model_name = ?", "managed-model").Error)
+			require.NoError(t, db.Delete(&prior).Error)
+			prior.Id = 0
+			prior.DeletedAt = gorm.DeletedAt{}
+			require.NoError(t, db.Create(&prior).Error)
+			_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "recreated-after-preview", actor)
+			require.ErrorIs(t, err, ErrCatalogSyncPlanStale)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "first-price-baseline", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, result)
+			require.NoError(t, db.Model(&Option{}).Where(map[string]any{"key": "billing_setting.billing_expr"}).Update("value", `{"managed-model":"p * 99","local-model":"p * 9"}`).Error)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			assert.False(t, catalogmanifest.PlanExecutable(plan, time.Now()))
+			choice := catalogmanifest.Resolution{OverwriteKeys: []string{catalogmanifest.EntryID(catalogmanifest.Entry{Kind: catalogmanifest.KindModel, Key: "managed-model"})}}
+			resolved, err := ResolveCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, actor, choice)
+			require.NoError(t, err)
+			assert.True(t, catalogmanifest.PlanExecutable(resolved, time.Now()))
+			revoked, err := ResolveCatalogSyncPlan(context.Background(), resolved.ID, resolved.Digest, actor, catalogmanifest.Resolution{})
+			require.NoError(t, err)
+			assert.False(t, catalogmanifest.PlanExecutable(revoked, time.Now()))
+			_, err = ApplyCatalogSyncPlan(context.Background(), resolved.ID, resolved.Digest, "revoked-consent", actor)
+			require.Error(t, err)
+			resolved, err = ResolveCatalogSyncPlan(context.Background(), revoked.ID, revoked.Digest, actor, choice)
+			require.NoError(t, err)
+			result, err = ApplyCatalogSyncPlan(context.Background(), resolved.ID, resolved.Digest, "confirmed-overwrite", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, result)
+			// Removing an explicit effective expression may expose a builtin or
+			// cheaper default; structural validity alone never authorizes that.
+			source.Entries = slices.DeleteFunc(source.Entries, func(entry catalogmanifest.Entry) bool {
+				if entry.Kind != catalogmanifest.KindModelPrice {
+					return false
+				}
+				key, err := catalogmanifest.DecodePriceKey(entry.Key)
+				require.NoError(t, err)
+				if key.Option == "billing_setting.billing_expr" {
+					source.Coverage[entry.Kind]--
+					return true
+				}
+				return false
+			})
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			found := false
+			for _, change := range plan.Changes {
+				if change.Reason == "price_fallback_unproven" {
+					found = true
+					assert.Equal(t, "blocked", change.Action)
+				}
+			}
+			assert.True(t, found)
+		})
+	}
+}
 
 func catalogValidationFixture(t *testing.T, db *gorm.DB, registry *jsplugin.Registry) catalogmanifest.Snapshot {
 	t.Helper()
@@ -425,9 +1225,7 @@ func TestCatalogSyncRefreshExcludesWriter(t *testing.T) {
 func TestCatalogSyncStore(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(engine, func(t *testing.T) {
-			db := catalogSyncTestDB(t, engine)
-			require.NoError(t, db.AutoMigrate(&Model{}, &Vendor{}, &Option{}, &marketplaceOrderLock{}))
-			require.NoError(t, MigrateCatalogSync(db))
+			db := catalogFenceTestDB(t, engine)
 			require.NoError(t, db.Create(&Vendor{Name: "source-vendor", Description: "original", Status: 1, DisplayOrder: 1, CreatedTime: 99, UpdatedTime: 101}).Error)
 			actor := catalogmanifest.Actor{UserID: 1, SessionID: "opaque-session", TargetID: "local", AuthVersion: 2, SessionVersion: 3}
 			source := catalogSyncTestSource(t)
@@ -497,9 +1295,7 @@ func TestCatalogSyncStore(t *testing.T) {
 func TestCatalogSyncStoreBaselineIncarnation(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(engine, func(t *testing.T) {
-			db := catalogSyncTestDB(t, engine)
-			require.NoError(t, db.AutoMigrate(&Model{}, &Vendor{}, &Option{}))
-			require.NoError(t, MigrateCatalogSync(db))
+			db := catalogFenceTestDB(t, engine)
 			vendor := Vendor{Name: "managed-vendor", Status: 1, CreatedTime: 10}
 			require.NoError(t, db.Create(&vendor).Error)
 			model := Model{ModelName: "managed-model", VendorID: vendor.Id, BillingCurrency: "CNY", CreatedTime: 20}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
@@ -145,9 +146,9 @@ type CatalogSyncOperation struct {
 	State     string          `gorm:"size:32;not null"`
 	Revision  int64           `gorm:"not null"`
 	CreatedAt int64           `gorm:"not null"`
-	Backup    CatalogSyncText `gorm:"not null"`
-	History   CatalogSyncText `gorm:"not null"`
-	Result    CatalogSyncText `gorm:"not null"`
+	Backup    CatalogSyncText `gorm:"not null" json:"-"`
+	History   CatalogSyncText `gorm:"not null" json:"-"`
+	Result    CatalogSyncText `gorm:"not null" json:"-"`
 }
 
 func catalogRandomID() (string, error) {
@@ -191,64 +192,36 @@ func validCatalogActor(actor catalogmanifest.Actor) bool {
 }
 
 func CreateCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot, actor catalogmanifest.Actor, now time.Time) (catalogmanifest.Plan, error) {
-	var plan catalogmanifest.Plan
-	if !validCatalogActor(actor) {
-		return plan, ErrCatalogSyncPlanUnavailable
+	return prepareCatalogSyncPlan(ctx, source, actor, now, "", "", catalogmanifest.Resolution{})
+}
+
+func GetCatalogSyncPlan(ctx context.Context, id string, actor catalogmanifest.Actor) (catalogmanifest.Plan, error) {
+	if !validCatalogActor(actor) || id == "" {
+		return catalogmanifest.Plan{}, ErrCatalogSyncPlanUnavailable
 	}
-	err := WithCatalogWriteBarrier(func() error {
-		if err := EnsureCatalogMutationLock(DB.WithContext(ctx)); err != nil {
-			return err
-		}
-		return DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			state, err := LockCatalogMutationTx(tx)
+	var plan catalogmanifest.Plan
+	err := TryWithCatalogWriteBarrier(ctx, func() error {
+		return catalogReferenceTransaction(ctx, DB, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+			var row CatalogSyncPlan
+			if err := tx.First(&row, "id = ?", id).Error; err != nil {
+				return err
+			}
+			var err error
+			plan, err = decodeCatalogSyncPlan(row, actor, time.Now())
 			if err != nil {
 				return err
 			}
 			if state.PublicationState != "ready" {
 				return ErrCatalogPublicationPending
 			}
-			target, err := CaptureCatalogTargetTx(ctx, tx, actor.TargetID, state)
-			if err != nil {
-				return err
-			}
-			base, err := LoadCatalogSyncBaselineTx(tx, state)
-			if err != nil {
-				return err
-			}
-			plan, err = catalogmanifest.BuildPlan(source, target, base, actor, now)
-			if err != nil {
-				return err
-			}
-			plan.ID, err = catalogRandomID()
-			if err != nil {
-				return err
-			}
-			plan.Digest, err = catalogmanifest.CanonicalPlanDigest(plan)
-			if err != nil {
-				return err
-			}
-			body, err := common.Marshal(plan)
-			if err != nil {
-				return err
-			}
-			return tx.Create(&CatalogSyncPlan{ID: plan.ID, Body: CatalogSyncText(body), Digest: plan.Digest, TargetRevision: state.Revision, BaselineGeneration: state.BaselineGeneration, ExpiresAt: plan.ExpiresAt}).Error
+			_, err = recheckCatalogPlanTx(ctx, tx, state, pin, row, plan)
+			return err
 		})
 	})
 	if err != nil {
 		return catalogmanifest.Plan{}, err
 	}
 	return plan, nil
-}
-
-func GetCatalogSyncPlan(ctx context.Context, id string, actor catalogmanifest.Actor) (catalogmanifest.Plan, error) {
-	var row CatalogSyncPlan
-	if !validCatalogActor(actor) || id == "" {
-		return catalogmanifest.Plan{}, ErrCatalogSyncPlanUnavailable
-	}
-	if err := DB.WithContext(ctx).First(&row, "id = ?", id).Error; err != nil {
-		return catalogmanifest.Plan{}, err
-	}
-	return decodeCatalogSyncPlan(row, actor, time.Now())
 }
 
 func decodeCatalogSyncPlan(row CatalogSyncPlan, actor catalogmanifest.Actor, now time.Time) (catalogmanifest.Plan, error) {
@@ -272,43 +245,5 @@ func decodeCatalogSyncPlan(row CatalogSyncPlan, actor catalogmanifest.Actor, now
 // Choices replace earlier choices. ExpectedDigest is a CAS precondition: two
 // stale browser tabs cannot silently replace the proof-bound final plan.
 func ResolveCatalogSyncPlan(ctx context.Context, id, expectedDigest string, actor catalogmanifest.Actor, choices catalogmanifest.Resolution) (catalogmanifest.Plan, error) {
-	var result catalogmanifest.Plan
-	err := WithCatalogWriteBarrier(func() error {
-		return DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			var row CatalogSyncPlan
-			if err := lockForUpdate(tx).First(&row, "id = ?", id).Error; err != nil {
-				return err
-			}
-			plan, err := decodeCatalogSyncPlan(row, actor, time.Now())
-			if err != nil {
-				return err
-			}
-			if expectedDigest != row.Digest {
-				return ErrCatalogSyncPlanStale
-			}
-			result, err = catalogmanifest.ResolvePlan(plan, choices)
-			if err != nil {
-				return err
-			}
-			if result.Digest == row.Digest {
-				return nil
-			}
-			body, err := common.Marshal(result)
-			if err != nil {
-				return err
-			}
-			updated := tx.Model(&CatalogSyncPlan{}).Where("id = ? AND digest = ?", id, expectedDigest).Updates(map[string]any{"body": CatalogSyncText(body), "digest": result.Digest})
-			if updated.Error != nil {
-				return updated.Error
-			}
-			if updated.RowsAffected != 1 {
-				return ErrCatalogSyncPlanStale
-			}
-			return nil
-		})
-	})
-	if err != nil {
-		return catalogmanifest.Plan{}, err
-	}
-	return result, nil
+	return prepareCatalogSyncPlan(ctx, catalogmanifest.Snapshot{}, actor, time.Now(), id, expectedDigest, choices)
 }
