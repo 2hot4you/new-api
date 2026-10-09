@@ -1,4 +1,4 @@
-# Release review
+# Completed release review
 
 User confirmed fixing the stale frontend assertion, verifying the release, backing up production PostgreSQL, then publishing develop to main and following all four deployments. No external Antigravity/Claude executor used, per the user's explicit restriction.
 
@@ -34,3 +34,25 @@ No push-triggered Actions runs or commit check runs were created for the release
 Read-only API checks confirm the repository is not archived/disabled, current credentials have admin/push permissions, repository Actions permission is enabled, and both workflow states are active. These settings do not explain the platform's dispatch rejection; no account-level restriction or billing cause can be confirmed. No repository security settings or billing settings changed, and no direct SSH application deployment bypassed the CI checks.
 
 Public `/api/status` checks on all four sites returned success=true and their previous production versions ending in `a103b6d8ffc4`. Thus branch promotion is complete, production publication is not complete. Task remains blocked and unarchived until Actions runs are restored and the intended release is verified. Existing local primary main branch and untracked user files remain untouched.
+
+## Resumed publication
+
+User confirmed Actions restriction removed. Refetched remote branches; both resolve to `ffe1296f533f6e2974ba36438b32a9ea9f7d22fc`, containing the tested application tree plus the task/blocker record only. Existing application and documentation `main/all-production` dispatches now succeeded:
+
+- Application: https://github.com/2hot4you/new-api/actions/runs/37879474513
+- Documentation: https://github.com/2hot4you/new-api/actions/runs/37879486883
+
+Documentation workflow completed successfully: verification, all four publication jobs, and release summary passed. Public quick-start documentation returned HTTP 200 on all four sites (iXiaozu follows the normal trailing-slash redirect).
+
+Application workflow completed successfully: frontend typecheck/build, Go vet/build for root and relaykit, module tests, Race Detector, deployment contracts, all four production releases, and release summary passed. Verify job took 16m2s; production release jobs took 5m26s–6m40s. Both workflows deployed the exact `ffe1296f533f6e2974ba36438b32a9ea9f7d22fc` source.
+
+Post-release public checks:
+
+| Site | /api/status | Runtime version | /pricing | /docs/quick-start |
+| --- | --- | --- | --- | --- |
+| https://molii.co | success=true | production-molii-ffe1296f533f | HTTP 200 | HTTP 200 |
+| https://aigc.ixiaozu.cn | success=true | production-ixiaozu-ffe1296f533f | HTTP 200 | HTTP 200 after normal slash redirect |
+| https://claudeye.com | success=true | production-claudeye-ffe1296f533f | HTTP 200 | HTTP 200 |
+| https://model.claudeye.com | success=true | production-model-claudeye-ffe1296f533f | HTTP 200 | HTTP 200 |
+
+Molii's public `/api/pricing` returned success=true with 36 models; Shanghai returned success=true with zero models. Unauthenticated requests to iXiaozu and Model Claudeye's `/api/pricing` returned HTTP 401 with `Unauthorized, invalid access token`; authenticated catalog flows were not tested. No paid upstream requests or account/data changes were performed. Container and public health gates passed in each production workflow. Task complete; archive metadata only, preserving the deployed application tree and user files.

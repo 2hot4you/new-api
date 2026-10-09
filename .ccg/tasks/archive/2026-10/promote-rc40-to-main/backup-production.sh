@@ -1,4 +1,5 @@
 #!/bin/sh
+# Used for the verified 2026-10-09 pre-release production backups.
 set -eu
 
 deploy_dir=${1:?deployment directory required}
