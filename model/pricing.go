@@ -101,15 +101,12 @@ var (
 )
 
 func GetPricing() []Pricing {
+	updatePricingLock.Lock()
+	defer updatePricingLock.Unlock()
 	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		updatePricingLock.Lock()
-		defer updatePricingLock.Unlock()
-		// Double check after acquiring the lock
-		if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-			modelSupportEndpointsLock.Lock()
-			defer modelSupportEndpointsLock.Unlock()
-			updatePricing()
-		}
+		modelSupportEndpointsLock.Lock()
+		defer modelSupportEndpointsLock.Unlock()
+		updatePricing()
 	}
 	return pricingMap
 }
@@ -147,10 +144,9 @@ func InvalidatePricingCache() {
 
 // GetVendors 返回当前定价接口使用到的供应商信息
 func GetVendors() []PricingVendor {
-	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		// 保证先刷新一次
-		GetPricing()
-	}
+	GetPricing()
+	updatePricingLock.Lock()
+	defer updatePricingLock.Unlock()
 	return vendorsList
 }
 
@@ -184,7 +180,7 @@ func getPricingEndpointTypesForAbility(ability AbilityWithChannel, advancedCusto
 // The returned configs are pointers shared with the channel cache; they are
 // replaced wholesale on update and never mutated in place, so reading them after
 // RUnlock is safe.
-func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) map[int]*dto.AdvancedCustomConfig {
+func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) (map[int]*dto.AdvancedCustomConfig, error) {
 	channelIDs := make([]int, 0)
 	seen := make(map[int]struct{})
 	for _, ability := range enableAbilities {
@@ -198,7 +194,7 @@ func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) map[
 		channelIDs = append(channelIDs, ability.ChannelId)
 	}
 	if len(channelIDs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	configs := make(map[int]*dto.AdvancedCustomConfig, len(channelIDs))
@@ -210,14 +206,13 @@ func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) map[
 				configs[channelID] = config
 			}
 		}
-		return configs
+		return configs, nil
 	}
 
 	for _, channelID := range channelIDs {
 		channel, err := CacheGetChannel(channelID)
 		if err != nil {
-			common.SysLog(fmt.Sprintf("load advanced custom channel settings error: channel_id=%d, error=%v", channelID, err))
-			continue
+			return nil, fmt.Errorf("load advanced custom channel settings: channel_id=%d: %w", channelID, err)
 		}
 		if channel.Type != constant.ChannelTypeAdvancedCustom {
 			continue
@@ -226,7 +221,7 @@ func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) map[
 			configs[channelID] = config
 		}
 	}
-	return configs
+	return configs, nil
 }
 
 func appendPricingEndpoint(endpoints []string, endpoint string) []string {
@@ -279,15 +274,25 @@ func sortPricingByVendorAndReleaseDate(pricing []Pricing, vendorMap map[int]*Ven
 }
 
 func updatePricing() {
+	if err := updatePricingWithCatalogStage(nil); err != nil {
+		common.SysLog("refresh pricing: " + err.Error())
+	}
+}
+
+// Reuses the existing projection. A lifecycle stage supplies immutable registry
+// and alias inputs plus precompiled compatibility decisions; nil retains the
+// ordinary refresh behavior until the writer integration phase.
+func updatePricingWithCatalogStage(stage *catalogRuntimeStage) error {
 	//modelRatios := common.GetModelRatios()
 	enableAbilities, err := GetAllEnableAbilityWithChannels()
 	if err != nil {
-		common.SysLog(fmt.Sprintf("GetAllEnableAbilityWithChannels error: %v", err))
-		return
+		return fmt.Errorf("load pricing abilities: %w", err)
 	}
 	// 预加载模型元数据与供应商一次，避免循环查询
 	var allMeta []Model
-	_ = DB.Find(&allMeta).Error
+	if err := DB.Find(&allMeta).Error; err != nil {
+		return fmt.Errorf("load pricing metadata: %w", err)
+	}
 	names := make([]string, 0, len(enableAbilities))
 	for _, ability := range enableAbilities {
 		names = append(names, ability.Model)
@@ -296,7 +301,9 @@ func updatePricing() {
 
 	// 预加载供应商
 	var vendors []Vendor
-	_ = DB.Find(&vendors).Error
+	if err := DB.Find(&vendors).Error; err != nil {
+		return fmt.Errorf("load pricing vendors: %w", err)
+	}
 	vendorMap := make(map[int]*Vendor)
 	for i := range vendors {
 		vendorMap[vendors[i].Id] = &vendors[i]
@@ -315,7 +322,10 @@ func updatePricing() {
 
 	//这里使用切片而不是Set，因为一个模型可能支持多个端点类型，并且第一个端点是优先使用端点
 	modelSupportEndpointsStr := make(map[string][]string)
-	advancedCustomConfigs := loadPricingAdvancedCustomConfigs(enableAbilities)
+	advancedCustomConfigs, err := loadPricingAdvancedCustomConfigs(enableAbilities)
+	if err != nil {
+		return err
+	}
 
 	// 先根据已有能力填充原生端点
 	for _, ability := range enableAbilities {
@@ -401,10 +411,22 @@ func updatePricing() {
 	pricingMap = make([]Pricing, 0)
 	referencedVendorIDs := make(map[int]struct{})
 	pluginGeneration := jsplugin.DefaultRegistry.Generation()
+	resolveAlias := func(model string) (TaskAliasTarget, bool) { return ResolveTaskModelAlias(pluginGeneration, model) }
+	compatible := func(expression string, schema map[string]jsplugin.UsageFieldSchema) (bool, error) {
+		return billing_setting.TaskExprCompatible(expression, schema), nil
+	}
+	if stage != nil {
+		pluginGeneration = stage.input.generation
+		resolveAlias = func(model string) (TaskAliasTarget, bool) {
+			target, ok := stage.aliases[jsplugin.ASCIIFold(model)]
+			return target, ok
+		}
+		compatible = stage.compatible
+	}
 	for model, groups := range modelGroupsMap {
 		_, hasTaskPlugin := pluginGeneration.GetByModel(model)
 		if !hasTaskPlugin {
-			_, hasTaskPlugin = ResolveTaskModelAlias(pluginGeneration, model)
+			_, hasTaskPlugin = resolveAlias(model)
 		}
 		meta, ok := metaMap[model]
 		if !ok && !hasTaskPlugin {
@@ -494,7 +516,7 @@ func updatePricing() {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = billingExpr
 			}
-		} else if target, resolved := ResolveTaskModelAlias(pluginGeneration, model); resolved && target.Declared != "" {
+		} else if target, resolved := resolveAlias(model); resolved && target.Declared != "" {
 			if tailMode := billing_setting.GetBillingMode(target.Declared); tailMode == "tiered_expr" {
 				if expr, ok := billing_setting.GetBillingExpr(target.Declared); ok && strings.TrimSpace(expr) != "" {
 					pricing.BillingMode = tailMode
@@ -505,7 +527,7 @@ func updatePricing() {
 		usageModel := model
 		plugin, ok := pluginGeneration.GetByModel(model)
 		if !ok {
-			if target, resolved := ResolveTaskModelAlias(pluginGeneration, model); resolved {
+			if target, resolved := resolveAlias(model); resolved {
 				plugin, ok = pluginGeneration.Get(target.PluginKey)
 				usageModel = target.Declared
 			}
@@ -534,8 +556,14 @@ func updatePricing() {
 				if hasExpression || billing_setting.GetBillingMode(model) == billing_setting.BillingModeTieredExpr {
 					mode = billing_setting.BillingModeTieredExpr
 				}
-				if mode == billing_setting.BillingModeTieredExpr && !billing_setting.TaskExprCompatible(expression, schema) {
-					expression = ""
+				if mode == billing_setting.BillingModeTieredExpr {
+					valid, err := compatible(expression, schema)
+					if err != nil {
+						return err
+					}
+					if !valid {
+						expression = ""
+					}
 				}
 				pricing.BillingPluginVariants = append(pricing.BillingPluginVariants, PricingPluginVariant{
 					PluginKey: provider.Meta.Key, PluginName: provider.Meta.Name, Icon: provider.Meta.Icon,
@@ -584,9 +612,12 @@ func updatePricing() {
 	modelEnableGroupsLock.Unlock()
 
 	lastGetPricingTime = time.Now()
+	return nil
 }
 
 // GetSupportedEndpointMap 返回全局端点到路径的映射
 func GetSupportedEndpointMap() map[string]common.EndpointInfo {
+	modelSupportEndpointsLock.RLock()
+	defer modelSupportEndpointsLock.RUnlock()
 	return supportedEndpointMap
 }
