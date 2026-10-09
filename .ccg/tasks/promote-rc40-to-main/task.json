@@ -1,0 +1,12 @@
+{
+  "id": "promote-rc40-to-main",
+  "title": "修复过期定价测试并将已验证 develop 发布到 main",
+  "status": "blocked",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "release",
+  "currentPhase": "review",
+  "nextAction": "GitHub 恢复 Actions 运行后，触发 main/all-production 应用及文档发布，并验证四站版本后归档",
+  "createdAt": "2026-10-09T03:18:00Z",
+  "branch": "upgrade/rc40"
+}
