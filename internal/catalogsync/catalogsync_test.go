@@ -6,13 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
@@ -313,4 +319,330 @@ func TestApplyRollsBackWhenBackupCannotBeSynced(t *testing.T) {
 	var modelCount int64
 	require.NoError(t, db.Model(&model.Model{}).Count(&modelCount).Error)
 	assert.Zero(t, modelCount)
+}
+
+// This catches exports that only traverse metadata, merge plugin identities
+// into model names, invent defaults, or leak unrelated options.
+func TestManagedExportCompletePricingContract(t *testing.T) {
+	db := openCatalogSyncTestDB(t)
+	vendor := model.Vendor{Name: "Vendor./~", Status: 1, DisplayOrder: 3}
+	require.NoError(t, db.Create(&vendor).Error)
+	metadata := model.Model{
+		ModelName: "model.a/~::b", VendorID: vendor.Id, BillingCurrency: "CNY", Status: 1,
+		DisplayName: "Display", Description: "说明", DescriptionEN: "Description", Icon: "icon", Tags: "video",
+		Endpoints: `["video"]`, SyncOfficial: 1, NameRule: model.NameRuleExact,
+		ContextLength: 123, MaxOutputTokens: 12, KnowledgeCutoff: "2026-01", ReleaseDate: "2026-01-01",
+		InputModalities: []string{"text", "image"}, OutputModalities: []string{"video"}, Capabilities: []string{"video_generation"},
+		MetadataSource: "manual", MetadataVerifiedAt: "2026-10-08", MarketplaceEnabled: true, DisplayOrder: 4,
+		SupportedParameters: []string{"prompt"}, SupportedResolutions: []string{"720p"}, SupportedAspectRatios: []string{"16:9"},
+		MaxInputImages: 2, OutputFormats: []string{"mp4"}, MinDuration: 1, MaxDuration: 15, ReferenceModalities: []string{"image"},
+		CreatedTime: 1234, UpdatedTime: 5678,
+	}
+	require.NoError(t, db.Create(&metadata).Error)
+	options := []model.Option{
+		{Key: "ModelPrice", Value: `{"model.a/~::b":0}`},
+		{Key: "billing_setting.billing_mode", Value: `{"model.a/~::b":"ratio"}`},
+		{Key: "billing_setting.plugin_billing_expr", Value: `{"provider-a::model.a/~::b":"tier(\"base\", u(\"seconds\") * 0.5)"}`},
+		{Key: "starai_video_price.seedance_25_720p", Value: `0`},
+		{Key: "molii_grok_price.video_720p", Value: `0.07`},
+		{Key: "molii_grok_tool_price.web_search", Value: `5`},
+		{Key: "tool_price_setting.prices", Value: `{"search.a/~:model.b":0,"search":{"model.a/~":3}}`},
+		{Key: "task_pricing_setting.sora_size_ratio", Value: `{"1792x1024":1.666667}`},
+		{Key: "GroupRatio", Value: `{"vip":0.5}`},
+		{Key: "USDExchangeRate", Value: `7`},
+		{Key: "SystemName", Value: "private-brand"},
+		{Key: "catalog_sync.token", Value: "do-not-export-secret"},
+	}
+	// The current tool setting is a flat number map; reject nested invalid
+	// payloads before exporting, then exercise leaf identity with valid prices.
+	require.NoError(t, db.Create(&options).Error)
+	_, err := ExportManaged(context.Background(), db, "dev")
+	require.ErrorContains(t, err, "tool_price_setting.prices")
+	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", "tool_price_setting.prices").Update("value", `{"search.a/~:model.b":0,"search:model.a/~":3}`).Error)
+	snapshot, err := ExportManaged(context.Background(), db, "dev")
+	require.NoError(t, err)
+	require.NoError(t, catalogmanifest.ValidateSnapshot(snapshot))
+	assert.Equal(t, 2, snapshot.SchemaVersion)
+	assert.True(t, snapshot.Complete)
+	assert.Equal(t, "dev", snapshot.SourceID)
+	assert.Equal(t, map[string]int{"vendor": 1, "model": 1, "model_price": 2, "plugin_price": 1, "special_price": 3, "tool_price": 3}, snapshot.Coverage)
+	entries := make(map[string]catalogmanifest.Entry)
+	for _, entry := range snapshot.Entries {
+		entries[entry.Kind+":"+entry.Key] = entry
+	}
+	assert.Contains(t, entries, "model:model.a/~::b")
+	assert.NotContains(t, entries, "model:provider-a::model.a/~::b")
+	var gotMetadata map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(entries["model:model.a/~::b"].Value, &gotMetadata))
+	assert.Equal(t, "Vendor./~", gotMetadata["vendor"])
+	assert.Equal(t, "CNY", gotMetadata["billing_currency"])
+	assert.EqualValues(t, 1234, gotMetadata["created_time"])
+	assert.EqualValues(t, 5678, gotMetadata["updated_time"])
+	assert.Equal(t, []any{"720p"}, gotMetadata["supported_resolutions"])
+	assert.NotContains(t, gotMetadata, "id")
+	assert.NotContains(t, gotMetadata, "vendor_id")
+	assert.JSONEq(t, `{
+		"model_name":"model.a/~::b","display_name":"Display","description":"说明","description_en":"Description",
+		"icon":"icon","tags":"video","vendor":"Vendor./~","billing_currency":"CNY","endpoints":"[\"video\"]",
+		"status":1,"sync_official":1,"name_rule":0,"context_length":123,"max_output_tokens":12,
+		"knowledge_cutoff":"2026-01","release_date":"2026-01-01","input_modalities":["text","image"],
+		"output_modalities":["video"],"capabilities":["video_generation"],"metadata_source":"manual",
+		"metadata_verified_at":"2026-10-08","marketplace_enabled":true,"display_order":4,
+		"supported_parameters":["prompt"],"supported_resolutions":["720p"],"supported_aspect_ratios":["16:9"],
+		"max_input_images":2,"output_formats":["mp4"],"min_duration":1,"max_duration":15,
+		"reference_modalities":["image"],"created_time":1234,"updated_time":5678
+	}`, entries["model:model.a/~::b"].Value)
+	for _, entry := range snapshot.Entries {
+		if entry.Kind == "vendor" || entry.Kind == "model" {
+			continue
+		}
+		var key catalogmanifest.PriceKey
+		var value catalogmanifest.PriceValue
+		require.NoError(t, common.UnmarshalJsonStr(entry.Key, &key))
+		require.NoError(t, common.UnmarshalJsonStr(entry.Value, &value))
+		if key.Option == "ModelPrice" {
+			assert.Equal(t, "model.a/~::b", key.Model)
+			assert.Equal(t, "/model.a~1~0::b", key.Path)
+			assert.JSONEq(t, `0`, value.Value)
+			assert.Equal(t, "CNY", value.BillingCurrency)
+		}
+		if entry.Kind == "plugin_price" {
+			assert.Equal(t, "provider-a", key.Plugin)
+			assert.Equal(t, "model.a/~::b", key.Model)
+			assert.JSONEq(t, `"tier(\"base\", u(\"seconds\") * 0.5)"`, value.Value)
+		}
+		if key.Option == "molii_grok_tool_price.web_search" {
+			assert.Equal(t, "CNY", value.BillingCurrency, "the Grok settings store direct CNY tool prices")
+			assert.Equal(t, "thousand_calls", value.Unit)
+		}
+		assert.NotEqual(t, "CacheRatio", key.Option, "absent defaults must remain absent")
+	}
+	encoded, err := common.Marshal(snapshot)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "do-not-export-secret")
+	assert.NotContains(t, string(encoded), "private-brand")
+	assert.NotContains(t, string(encoded), "USDExchangeRate")
+	assert.NotContains(t, string(encoded), "GroupRatio")
+
+	// A price with no metadata must still be discovered, and must block rather
+	// than silently vanish or acquire a guessed USD currency.
+	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", "ModelPrice").Update("value", `{"model.a/~::b":0,"standalone":1}`).Error)
+	_, err = ExportManaged(context.Background(), db, "dev")
+	require.ErrorContains(t, err, "standalone")
+	require.ErrorContains(t, err, "ModelPrice")
+	require.ErrorContains(t, err, "currency")
+	require.NoError(t, db.Create(&model.Model{ModelName: "standalone", BillingCurrency: "USD"}).Error)
+	snapshot, err = ExportManaged(context.Background(), db, "dev")
+	require.NoError(t, err)
+	assert.Equal(t, 3, snapshot.Coverage["model_price"])
+
+	// Unknown fields in a pricing namespace must fail closed, not leak through
+	// a wildcard whitelist or disappear from a purportedly complete export.
+	require.NoError(t, db.Create(&model.Option{Key: "molii_grok_price.unknown_secret", Value: "redacted"}).Error)
+	_, err = ExportManaged(context.Background(), db, "dev")
+	require.ErrorContains(t, err, "unknown price field")
+	assert.NotContains(t, err.Error(), "redacted")
+}
+
+func TestManagedExportSnapshotIntegrity(t *testing.T) {
+	db := openCatalogSyncTestDB(t)
+	require.NoError(t, db.Create(&model.Model{ModelName: "m", BillingCurrency: "USD"}).Error)
+	require.NoError(t, db.Create(&[]model.Option{
+		{Key: "ModelPrice", Value: `{"m":0}`},
+		{Key: "billing_setting.billing_expr", Value: `{"m":"tier(\"request\", fixed(0))"}`},
+	}).Error)
+	snapshot, err := ExportManaged(context.Background(), db, "dev")
+	require.NoError(t, err)
+	require.NoError(t, catalogmanifest.ValidateSnapshot(snapshot))
+	digest, err := catalogmanifest.SnapshotDigest(snapshot)
+	require.NoError(t, err)
+	assert.Equal(t, snapshot.Digest, digest)
+	reordered := snapshot
+	reordered.Entries = slices.Clone(snapshot.Entries)
+	slices.Reverse(reordered.Entries)
+	reordered.ExportedAt++
+	for i := range reordered.Entries {
+		var value any
+		require.NoError(t, common.UnmarshalJsonStr(reordered.Entries[i].Value, &value))
+		encoded, err := common.Marshal(value)
+		require.NoError(t, err)
+		reordered.Entries[i].Value = " \n" + string(encoded) + "\t "
+	}
+	gotDigest, err := catalogmanifest.SnapshotDigest(reordered)
+	require.NoError(t, err)
+	assert.Equal(t, snapshot.Digest, gotDigest, "entry order, JSON whitespace, and display time must not affect digest")
+	require.NoError(t, catalogmanifest.ValidateSnapshot(reordered))
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*catalogmanifest.Snapshot)
+	}{
+		{"partial", func(s *catalogmanifest.Snapshot) { s.Complete = false }},
+		{"wrong schema", func(s *catalogmanifest.Snapshot) { s.SchemaVersion = 1 }},
+		{"wrong digest", func(s *catalogmanifest.Snapshot) { s.Digest = "sha256:wrong" }},
+		{"missing coverage", func(s *catalogmanifest.Snapshot) { delete(s.Coverage, "tool_price") }},
+		{"partial entries", func(s *catalogmanifest.Snapshot) { s.Entries = s.Entries[1:] }},
+		{"duplicate identity", func(s *catalogmanifest.Snapshot) { s.Entries = append(s.Entries, s.Entries[0]) }},
+		{"unknown capability", func(s *catalogmanifest.Snapshot) { s.Capabilities["billing_engine"] = "unsupported" }},
+		{"missing source", func(s *catalogmanifest.Snapshot) { s.SourceID = "" }},
+		{"unknown entry", func(s *catalogmanifest.Snapshot) {
+			s.Entries = append(s.Entries, catalogmanifest.Entry{Kind: "secret", Key: "x", Value: `"private"`})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := common.Marshal(snapshot)
+			require.NoError(t, err)
+			var modified catalogmanifest.Snapshot
+			require.NoError(t, common.Unmarshal(encoded, &modified))
+			tc.mutate(&modified)
+			if tc.name != "wrong digest" {
+				if digest, err := catalogmanifest.SnapshotDigest(modified); err == nil {
+					modified.Digest = digest
+				}
+			}
+			require.Error(t, catalogmanifest.ValidateSnapshot(modified))
+		})
+	}
+
+	// Null, negative and unknown options are invalid pricing, not explicit zero.
+	for _, raw := range []string{`{"m":null}`, `{"m":-1}`, `{"m":"0"}`} {
+		require.NoError(t, db.Model(&model.Option{}).Where("key = ?", "ModelPrice").Update("value", raw).Error)
+		_, err := ExportManaged(context.Background(), db, "dev")
+		require.ErrorContains(t, err, "ModelPrice")
+	}
+}
+
+func TestManagedExportCanonicalIdentityAndMetadata(t *testing.T) {
+	db := openCatalogSyncTestDB(t)
+	require.NoError(t, db.Create(&model.Model{ModelName: "m", BillingCurrency: "USD", InputModalities: []string{}, ContextLength: 128000, UpdatedTime: 1700000000}).Error)
+	require.NoError(t, db.Create(&model.Option{Key: "ModelPrice", Value: `{"m":0}`}).Error)
+	snapshot, err := ExportManaged(context.Background(), db, "dev")
+	require.NoError(t, err)
+	for _, entry := range snapshot.Entries {
+		if entry.Kind != "model" {
+			continue
+		}
+		var metadata map[string]any
+		require.NoError(t, common.UnmarshalJsonStr(entry.Value, &metadata))
+		assert.Equal(t, []any{}, metadata["input_modalities"], "stored empty lists must not become null")
+	}
+	var priceEntry catalogmanifest.Entry
+	for _, entry := range snapshot.Entries {
+		if entry.Kind == "model_price" {
+			priceEntry = entry
+		}
+	}
+	priceEntry.Key = `{"option":"ModelPrice","path":"/m","plugin":"","model":"m"}`
+	snapshot.Entries = append(snapshot.Entries, priceEntry)
+	snapshot.Coverage["model_price"]++
+	snapshot.Digest, err = catalogmanifest.SnapshotDigest(snapshot)
+	require.NoError(t, err)
+	require.ErrorContains(t, catalogmanifest.ValidateSnapshot(snapshot), "duplicate")
+
+	require.NoError(t, db.Create(&model.Option{Key: "billing_setting.billing_expr", Value: `{"m":"v2:tier(\"base\", p * 2)"}`}).Error)
+	_, err = ExportManaged(context.Background(), db, "dev")
+	require.ErrorContains(t, err, "version")
+}
+
+func TestManagedExportDatabaseMatrix(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var dialector gorm.Dialector
+			switch dialect {
+			case "sqlite":
+				dialector = sqlite.Open(":memory:")
+			case "mysql":
+				dsn := os.Getenv("TEST_MYSQL_DSN")
+				if dsn == "" {
+					t.Skip("TEST_MYSQL_DSN is not configured")
+				}
+				dialector = mysql.Open(dsn)
+			case "postgres":
+				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				if dsn == "" {
+					t.Skip("TEST_POSTGRES_DSN is not configured")
+				}
+				dialector = postgres.Open(dsn)
+			}
+			prefix := fmt.Sprintf("managed_export_%d_%d_", os.Getpid(), catalogSyncTestDatabaseID.Add(1))
+			db, err := gorm.Open(dialector, &gorm.Config{NamingStrategy: schema.NamingStrategy{TablePrefix: prefix}})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			t.Cleanup(func() {
+				require.NoError(t, db.Migrator().DropTable(&model.Model{}, &model.Vendor{}, &model.Option{}))
+				require.NoError(t, sqlDB.Close())
+			})
+			require.NoError(t, db.AutoMigrate(&model.Option{}, &model.Vendor{}))
+			if dialect == "mysql" {
+				// This is an export READ fixture, not migration verification.
+				// Existing Model TEXT defaults fail MySQL creation (Error 1101).
+				// Retain every persisted column/type, removing only those defaults.
+				definition := reflect.TypeFor[model.Model]()
+				fields := make([]reflect.StructField, definition.NumField())
+				for i := range definition.NumField() {
+					field := definition.Field(i)
+					gormTag := field.Tag.Get("gorm")
+					if strings.Contains(gormTag, "type:text") {
+						clauses := strings.Split(gormTag, ";")
+						clauses = slices.DeleteFunc(clauses, func(clause string) bool { return strings.HasPrefix(clause, "default:") })
+						field.Tag = reflect.StructTag(fmt.Sprintf("json:%q gorm:%q", field.Tag.Get("json"), strings.Join(clauses, ";")))
+					}
+					fields[i] = field
+				}
+				require.NoError(t, db.Table(prefix+"models").AutoMigrate(reflect.New(reflect.StructOf(fields)).Interface()))
+				for i := range definition.NumField() {
+					field := definition.Field(i)
+					if field.Tag.Get("gorm") == "-" {
+						continue
+					}
+					require.True(t, db.Migrator().HasColumn(&model.Model{}, field.Name), "missing persisted fixture column %s", field.Name)
+				}
+			} else {
+				require.NoError(t, db.AutoMigrate(&model.Model{}))
+			}
+			require.NoError(t, db.Create(&model.Vendor{Name: "Provider", Status: 1}).Error)
+			require.NoError(t, db.Create(&model.Model{
+				ModelName: "m/~", BillingCurrency: "CNY", Status: 1, InputModalities: []string{},
+				SupportedParameters: []string{}, SupportedResolutions: []string{}, SupportedAspectRatios: []string{},
+				OutputFormats: []string{}, ReferenceModalities: []string{},
+			}).Error)
+			require.NoError(t, db.Create(&[]model.Option{
+				{Key: "ModelPrice", Value: `{"m/~":0}`},
+				{Key: "billing_setting.plugin_billing_expr", Value: `{"provider::m/~":"tier(\"base\", u(\"count\") * 0.5)"}`},
+				{Key: "tool_price_setting.prices", Value: `{"search:m/~":0}`},
+				{Key: "SystemName", Value: "private"},
+			}).Error)
+			require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+				snapshot, err := ExportManaged(context.Background(), tx, "dev")
+				require.NoError(t, err)
+				require.NoError(t, catalogmanifest.ValidateSnapshot(snapshot))
+				assert.Equal(t, map[string]int{"vendor": 1, "model": 1, "model_price": 1, "plugin_price": 1, "special_price": 0, "tool_price": 1}, snapshot.Coverage)
+				return nil
+			}))
+		})
+	}
+}
+
+func TestManagedExportCanonicalJSON(t *testing.T) {
+	canonical, err := catalogmanifest.CanonicalJSON(` { "large":9007199254740993,"b":1.2300,"a":1.0 } `)
+	require.NoError(t, err)
+	assert.Equal(t, `{"a":1,"b":123e-2,"large":9007199254740993}`, canonical)
+	for _, raw := range []string{"0", "-0.0", "0e20"} {
+		got, err := catalogmanifest.CanonicalJSON(raw)
+		require.NoError(t, err)
+		assert.Equal(t, "0", got)
+	}
+	key, err := catalogmanifest.EncodePriceKey(catalogmanifest.PriceKey{Option: "ModelPrice", Model: "a.b/~", Path: "/a.b~1~0"})
+	require.NoError(t, err)
+	assert.Equal(t, `{"model":"a.b/~","option":"ModelPrice","path":"/a.b~1~0"}`, key)
+	assert.Equal(t, `["model_price","{\"model\":\"a.b/~\",\"option\":\"ModelPrice\",\"path\":\"/a.b~1~0\"}"]`, catalogmanifest.EntryID(catalogmanifest.Entry{Kind: "model_price", Key: key}))
+	snapshot := catalogmanifest.Snapshot{SchemaVersion: 2, SourceID: "target", Complete: true, Capabilities: catalogmanifest.RequiredCapabilities(), Coverage: map[string]int{}}
+	before, err := catalogmanifest.SnapshotDigest(snapshot)
+	require.NoError(t, err)
+	snapshot.ObjectVersions = map[string]string{"model:m": "opaque-incarnation"}
+	after, err := catalogmanifest.SnapshotDigest(snapshot)
+	require.NoError(t, err)
+	assert.NotEqual(t, before, after, "target digest must bind incarnation tokens")
 }
