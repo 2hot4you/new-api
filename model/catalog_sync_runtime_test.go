@@ -339,6 +339,183 @@ func TestCatalogRuntimeCacheContention(t *testing.T) {
 	require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
 }
 
+func runtimeAdvancedChannel(t *testing.T, db *gorm.DB, memoryCache bool) {
+	t.Helper()
+	original := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = memoryCache
+	t.Cleanup(func() { common.MemoryCacheEnabled = original })
+	channel := Channel{Key: "runtime-advanced", Type: constant.ChannelTypeAdvancedCustom, Models: "managed-model", Status: common.ChannelStatusEnabled, OtherSettings: `{}`}
+	require.NoError(t, db.Create(&channel).Error)
+	require.NoError(t, db.Create(&Ability{ChannelId: channel.Id, Model: "managed-model", Group: "default", Enabled: true}).Error)
+}
+
+func assertRuntimeLocksReleased(t *testing.T) {
+	t.Helper()
+	for name, lock := range map[string]interface {
+		TryLock() bool
+		Unlock()
+	}{
+		"catalog": &catalogBarrier, "pricing": &updatePricingLock, "endpoints": &modelSupportEndpointsLock,
+	} {
+		require.True(t, lock.TryLock(), name+" lock leaked")
+		lock.Unlock()
+	}
+}
+
+func TestCatalogRuntimeAdvancedCacheContention(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			for _, cancelAtRebuild := range []bool{false, true} {
+				name := "busy"
+				if cancelAtRebuild {
+					name = "canceled"
+				}
+				t.Run(name, func(t *testing.T) {
+					preserveCatalogCandidate(t)
+					db := catalogFenceTestDB(t, engine)
+					result := runtimePendingOperation(t, db)
+					runtimeAdvancedChannel(t, db, true)
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					entered := make(chan struct{})
+					var once sync.Once
+					require.NoError(t, db.Callback().Query().After("gorm:query").Register("runtime-advanced-entered", func(tx *gorm.DB) {
+						if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
+							once.Do(func() { close(entered) })
+						}
+					}))
+					defer db.Callback().Query().Remove("runtime-advanced-entered")
+					channelSyncLock.Lock()
+					var release sync.Once
+					defer release.Do(channelSyncLock.Unlock)
+					done := make(chan error, 1)
+					go func() { done <- PublishCatalogSyncRevision(ctx, result.Revision) }()
+					select {
+					case <-entered:
+					case <-time.After(5 * time.Second):
+						t.Fatal("publisher did not reach actual advanced-channel rebuild")
+					}
+					if cancelAtRebuild {
+						cancel()
+					}
+					var err error
+					select {
+					case err = <-done:
+					case <-time.After(time.Second):
+						// Release the test-owned lock before reporting RED, avoiding a
+						// stranded publisher goroutine or poisoned later tests.
+						release.Do(channelSyncLock.Unlock)
+						cancel()
+						err = <-done
+						t.Error("publisher remained blocked on channel cache after cancellation")
+					}
+					require.True(t, errors.Is(err, ErrCatalogWriterBusy) || errors.Is(err, context.Canceled), "unexpected error: %v", err)
+					if !cancelAtRebuild {
+						require.ErrorIs(t, err, ErrCatalogWriterBusy)
+					}
+					assertRuntimeLocksReleased(t)
+					assertRuntimePending(t, db, result)
+					release.Do(channelSyncLock.Unlock)
+					require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+					assertRuntimeLocksReleased(t)
+					require.True(t, channelSyncLock.TryLock(), "successful retry leaked channel-cache read lock")
+					channelSyncLock.Unlock()
+				})
+			}
+		})
+	}
+}
+
+func TestCatalogRuntimeQueryHelperSemantics(t *testing.T) {
+	db := catalogFenceTestDB(t, "sqlite")
+	runtimeAdvancedChannel(t, db, false)
+	var saved Channel
+	require.NoError(t, db.First(&saved).Error)
+	for _, all := range []bool{false, true} {
+		ordinary, err := GetChannelById(saved.Id, all)
+		require.NoError(t, err)
+		bound, err := getChannelByID(db.WithContext(context.Background()), saved.Id, all)
+		require.NoError(t, err)
+		assert.Equal(t, ordinary, bound)
+		if all {
+			assert.Equal(t, saved.Key, bound.Key)
+		} else {
+			assert.Empty(t, bound.Key)
+		}
+	}
+	ordinary, err := GetAllEnableAbilityWithChannels()
+	require.NoError(t, err)
+	bound, err := getAllEnableAbilityWithChannels(db.WithContext(context.Background()))
+	require.NoError(t, err)
+	require.Len(t, bound, 1)
+	assert.Equal(t, ordinary, bound)
+	assert.Equal(t, constant.ChannelTypeAdvancedCustom, bound[0].ChannelType)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = getChannelByID(db.WithContext(ctx), saved.Id, true)
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = getAllEnableAbilityWithChannels(db.WithContext(ctx))
+	require.ErrorIs(t, err, context.Canceled)
+	// The pre-existing malformed-settings repair is also a DB operation;
+	// cancellation must prevent that fallback from escaping through root DB.
+	require.NoError(t, db.Model(&saved).Update("settings", "{").Error)
+	saved.OtherSettings = "{"
+	saved.getOtherSettings(db.WithContext(ctx))
+	var persisted Channel
+	require.NoError(t, db.First(&persisted, saved.Id).Error)
+	assert.Equal(t, "{", persisted.OtherSettings)
+	persisted.GetOtherSettings()
+	require.NoError(t, db.First(&persisted, saved.Id).Error)
+	assert.Equal(t, "{}", persisted.OtherSettings, "ordinary repair remains unchanged")
+}
+
+func TestCatalogRuntimeRebuildSQLContext(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			for _, table := range []string{"abilities", "models", "vendors", "channels"} {
+				t.Run(table, func(t *testing.T) {
+					preserveCatalogCandidate(t)
+					db := catalogFenceTestDB(t, engine)
+					result := runtimePendingOperation(t, db)
+					runtimeAdvancedChannel(t, db, false)
+					type contextKey struct{}
+					ctx, cancel := context.WithCancel(context.WithValue(context.Background(), contextKey{}, "publisher"))
+					defer cancel()
+					seen := false
+					var queryErr error
+					before := func(tx *gorm.DB) {
+						if tx.Statement.Table == table && tx.Statement.ConnPool == db.Statement.ConnPool {
+							seen = true
+							assert.Equal(t, "publisher", tx.Statement.Context.Value(contextKey{}), "actual rebuild SQL lost publisher context")
+							cancel() // The real driver query must observe cancellation; no injected SQL error.
+						}
+					}
+					after := func(tx *gorm.DB) {
+						if tx.Statement.Table == table && tx.Statement.ConnPool == db.Statement.ConnPool {
+							queryErr = tx.Error
+						}
+					}
+					require.NoError(t, db.Callback().Query().Before("gorm:query").Register("runtime-query-cancel", before))
+					require.NoError(t, db.Callback().Query().After("gorm:query").Register("runtime-query-observe", after))
+					require.NoError(t, db.Callback().Row().Before("gorm:row").Register("runtime-row-cancel", before))
+					require.NoError(t, db.Callback().Row().After("gorm:row").Register("runtime-row-observe", after))
+					err := PublishCatalogSyncRevision(ctx, result.Revision)
+					require.NoError(t, db.Callback().Query().Remove("runtime-query-cancel"))
+					require.NoError(t, db.Callback().Query().Remove("runtime-query-observe"))
+					require.NoError(t, db.Callback().Row().Remove("runtime-row-cancel"))
+					require.NoError(t, db.Callback().Row().Remove("runtime-row-observe"))
+					require.True(t, seen, "required query was not reached")
+					require.ErrorIs(t, queryErr, context.Canceled, "actual SQL must fail, not only subsequent acknowledgement")
+					require.ErrorIs(t, err, context.Canceled)
+					assertRuntimeLocksReleased(t)
+					assertRuntimePending(t, db, result)
+					require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+				})
+			}
+		})
+	}
+}
+
 func TestCatalogRuntimeRejectsInvalidCurrency(t *testing.T) {
 	preserveCatalogCandidate(t)
 	db := catalogFenceTestDB(t, "sqlite")

@@ -31,8 +31,12 @@ type AbilityWithChannel struct {
 }
 
 func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
+	return getAllEnableAbilityWithChannels(DB)
+}
+
+func getAllEnableAbilityWithChannels(db *gorm.DB) ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
-	err := DB.Table("abilities").
+	err := db.Table("abilities").
 		Select("abilities.*, channels.type as channel_type").
 		Joins("left join channels on abilities.channel_id = channels.id").
 		Where("abilities.enabled = ?", true).

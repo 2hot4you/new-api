@@ -249,7 +249,7 @@ func publishCatalogRuntimeGuarded(ctx context.Context, stage *catalogRuntimeStag
 	}
 	catalogRuntime.ready = false
 	stage.candidate.publishGuarded()
-	if err := refreshCatalogPricingGuarded(stage); err != nil {
+	if err := refreshCatalogPricingGuarded(ctx, stage); err != nil {
 		return err
 	}
 	err = catalogReferenceTransaction(ctx, DB, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {

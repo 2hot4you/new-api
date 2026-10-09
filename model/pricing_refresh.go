@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -20,14 +21,14 @@ func RefreshPricing() {
 // The caller already holds a catalog read or write barrier. Never reacquire it
 // here: a waiting writer makes recursive RWMutex read locking unsafe.
 func refreshPricingGuarded() {
-	if err := refreshCatalogPricingGuarded(nil); err != nil {
+	if err := refreshCatalogPricingGuarded(context.Background(), nil); err != nil {
 		common.SysLog("refresh pricing: " + err.Error())
 	}
 }
 
 // Required lifecycle rebuild errors must reach the publisher before it can
 // acknowledge a durable revision. No compiler runs when stage is supplied.
-func refreshCatalogPricingGuarded(stage *catalogRuntimeStage) error {
+func refreshCatalogPricingGuarded(ctx context.Context, stage *catalogRuntimeStage) error {
 	if stage != nil {
 		if !updatePricingLock.TryLock() {
 			return ErrCatalogWriterBusy
@@ -50,5 +51,9 @@ func refreshCatalogPricingGuarded(stage *catalogRuntimeStage) error {
 		ratio_setting.InvalidateExposedDataCache()
 	}
 
-	return updatePricingWithCatalogStage(stage)
+	db := DB
+	if stage != nil {
+		db = db.WithContext(ctx)
+	}
+	return updatePricingWithCatalogStage(db, stage)
 }

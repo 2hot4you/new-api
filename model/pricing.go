@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
+	"gorm.io/gorm"
 )
 
 type PricingPluginVariant struct {
@@ -180,7 +181,7 @@ func getPricingEndpointTypesForAbility(ability AbilityWithChannel, advancedCusto
 // The returned configs are pointers shared with the channel cache; they are
 // replaced wholesale on update and never mutated in place, so reading them after
 // RUnlock is safe.
-func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) (map[int]*dto.AdvancedCustomConfig, error) {
+func loadPricingAdvancedCustomConfigs(db *gorm.DB, enableAbilities []AbilityWithChannel, lifecycle bool) (map[int]*dto.AdvancedCustomConfig, error) {
 	channelIDs := make([]int, 0)
 	seen := make(map[int]struct{})
 	for _, ability := range enableAbilities {
@@ -199,7 +200,18 @@ func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) (map
 
 	configs := make(map[int]*dto.AdvancedCustomConfig, len(channelIDs))
 	if common.MemoryCacheEnabled {
-		channelSyncLock.RLock()
+		if lifecycle {
+			if err := db.Statement.Context.Err(); err != nil {
+				return nil, err
+			}
+			// Publication holds the common writer and pricing locks. It must
+			// never wait uninterruptibly for a concurrent channel-cache rebuild.
+			if !channelSyncLock.TryRLock() {
+				return nil, ErrCatalogWriterBusy
+			}
+		} else {
+			channelSyncLock.RLock()
+		}
 		defer channelSyncLock.RUnlock()
 		for _, channelID := range channelIDs {
 			if config := channel2advancedCustomConfig[channelID]; config != nil {
@@ -210,14 +222,16 @@ func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) (map
 	}
 
 	for _, channelID := range channelIDs {
-		channel, err := CacheGetChannel(channelID)
+		// This branch is the same DB fallback used by CacheGetChannel when
+		// memory caching is disabled, retaining selectAll/key semantics.
+		channel, err := getChannelByID(db, channelID, true)
 		if err != nil {
 			return nil, fmt.Errorf("load advanced custom channel settings: channel_id=%d: %w", channelID, err)
 		}
 		if channel.Type != constant.ChannelTypeAdvancedCustom {
 			continue
 		}
-		if config := channel.GetOtherSettings().AdvancedCustom; config != nil {
+		if config := channel.getOtherSettings(db).AdvancedCustom; config != nil {
 			configs[channelID] = config
 		}
 	}
@@ -274,7 +288,7 @@ func sortPricingByVendorAndReleaseDate(pricing []Pricing, vendorMap map[int]*Ven
 }
 
 func updatePricing() {
-	if err := updatePricingWithCatalogStage(nil); err != nil {
+	if err := updatePricingWithCatalogStage(DB, nil); err != nil {
 		common.SysLog("refresh pricing: " + err.Error())
 	}
 }
@@ -282,15 +296,15 @@ func updatePricing() {
 // Reuses the existing projection. A lifecycle stage supplies immutable registry
 // and alias inputs plus precompiled compatibility decisions; nil retains the
 // ordinary refresh behavior until the writer integration phase.
-func updatePricingWithCatalogStage(stage *catalogRuntimeStage) error {
+func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) error {
 	//modelRatios := common.GetModelRatios()
-	enableAbilities, err := GetAllEnableAbilityWithChannels()
+	enableAbilities, err := getAllEnableAbilityWithChannels(db)
 	if err != nil {
 		return fmt.Errorf("load pricing abilities: %w", err)
 	}
 	// 预加载模型元数据与供应商一次，避免循环查询
 	var allMeta []Model
-	if err := DB.Find(&allMeta).Error; err != nil {
+	if err := db.Find(&allMeta).Error; err != nil {
 		return fmt.Errorf("load pricing metadata: %w", err)
 	}
 	names := make([]string, 0, len(enableAbilities))
@@ -301,7 +315,7 @@ func updatePricingWithCatalogStage(stage *catalogRuntimeStage) error {
 
 	// 预加载供应商
 	var vendors []Vendor
-	if err := DB.Find(&vendors).Error; err != nil {
+	if err := db.Find(&vendors).Error; err != nil {
 		return fmt.Errorf("load pricing vendors: %w", err)
 	}
 	vendorMap := make(map[int]*Vendor)
@@ -322,7 +336,7 @@ func updatePricingWithCatalogStage(stage *catalogRuntimeStage) error {
 
 	//这里使用切片而不是Set，因为一个模型可能支持多个端点类型，并且第一个端点是优先使用端点
 	modelSupportEndpointsStr := make(map[string][]string)
-	advancedCustomConfigs, err := loadPricingAdvancedCustomConfigs(enableAbilities)
+	advancedCustomConfigs, err := loadPricingAdvancedCustomConfigs(db, enableAbilities, stage != nil)
 	if err != nil {
 		return err
 	}

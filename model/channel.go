@@ -450,12 +450,16 @@ func SearchChannels(keyword string, group string, model string, idSort bool, sor
 // MemoryCacheEnabled is false. Direct use is appropriate only where fresh DB
 // state is required, e.g. admin CRUD, channel testing, or cache (re)building.
 func GetChannelById(id int, selectAll bool) (*Channel, error) {
+	return getChannelByID(DB, id, selectAll)
+}
+
+func getChannelByID(db *gorm.DB, id int, selectAll bool) (*Channel, error) {
 	channel := &Channel{Id: id}
 	var err error = nil
 	if selectAll {
-		err = DB.First(channel, "id = ?", id).Error
+		err = db.First(channel, "id = ?", id).Error
 	} else {
-		err = DB.Omit("key").First(channel, "id = ?", id).Error
+		err = db.Omit("key").First(channel, "id = ?", id).Error
 	}
 	if err != nil {
 		return nil, err
@@ -1079,13 +1083,17 @@ func (channel *Channel) SetSetting(setting dto.ChannelSettings) {
 }
 
 func (channel *Channel) GetOtherSettings() dto.ChannelOtherSettings {
+	return channel.getOtherSettings(DB)
+}
+
+func (channel *Channel) getOtherSettings(db *gorm.DB) dto.ChannelOtherSettings {
 	setting := dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, &setting)
 		if err != nil {
 			common.SysLog(fmt.Sprintf("failed to unmarshal setting: channel_id=%d, error=%v", channel.Id, err))
 			channel.OtherSettings = "{}" // 清空设置以避免后续错误
-			_ = channel.Save()           // 保存修改
+			_ = db.Save(channel).Error   // 保存修改，保留调用方的上下文
 		}
 	}
 	if preset := common.GetAdvancedCustomPreset(channel.Type); preset != nil {
