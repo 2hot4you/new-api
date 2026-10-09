@@ -5,16 +5,17 @@
   "complexity": "L",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "analysis",
-  "nextAction": "等待用户评审 design.md；批准后编写实施计划，尚未修改业务代码或站点数据",
+  "currentPhase": "planning",
+  "nextAction": "设计已批准；等待用户评审 plan.md 并选择执行方式，尚未修改业务代码或站点数据",
   "createdAt": "2026-10-09T06:32:07Z",
   "branch": "upgrade/rc40",
   "designPath": "architectural",
   "checklist": [
     { "step": "检查现有目录同步、定价和超级管理员鉴权流程", "status": "completed" },
     { "step": "确认删除边界与同步范围", "status": "completed" },
-    { "step": "比较方案并评审设计", "status": "awaiting_user_review" },
+    { "step": "比较方案并评审设计", "status": "completed" },
     { "step": "编写并自审设计文件，提交用户评审", "status": "completed" },
-    { "step": "设计批准后编写实施计划", "status": "pending" }
+    { "step": "设计批准后编写实施计划", "status": "completed" },
+    { "step": "用户评审计划并选择执行方式", "status": "awaiting_user_review" }
   ]
 }
