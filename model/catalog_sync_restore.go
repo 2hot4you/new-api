@@ -126,6 +126,29 @@ func catalogRestorePlanTx(tx *gorm.DB, operationID string, actor catalogmanifest
 					if vendorName == "" {
 						return plan, backup, ErrCatalogSyncPlanStale
 					}
+					var vendor Vendor
+					lookup := tx.Select("id").Where("name = ?", vendorName).Limit(1).Find(&vendor)
+					if lookup.Error != nil {
+						return plan, backup, lookup.Error
+					}
+					if vendor.Id != saved.Model.VendorID {
+						// A missing dependency may receive a new local ID only
+						// when this same inverse restores its exact saved preimage.
+						// A live replacement is never accepted, even at the same name.
+						jointRestore := false
+						if lookup.RowsAffected == 0 {
+							for _, dependency := range backup.Before {
+								if dependency.Kind == catalogmanifest.KindVendor && dependency.Key == vendorName && dependency.Exists && dependency.Vendor != nil && dependency.Vendor.Id == saved.Model.VendorID && dependency.Vendor.Name == vendorName {
+									_, survived := after[catalogmanifest.EntryID(catalogmanifest.Entry{Kind: catalogmanifest.KindVendor, Key: vendorName})]
+									jointRestore = !survived
+									break
+								}
+							}
+						}
+						if !jointRestore {
+							return plan, backup, ErrCatalogSyncPlanStale
+						}
+					}
 				}
 				value = managedModelValue(*saved.Model, vendorName)
 			default:

@@ -489,32 +489,140 @@ func TestCatalogSyncRestoreDeletedObject(t *testing.T) {
 func TestCatalogSyncRestoreDeletedModelDependency(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(engine, func(t *testing.T) {
-			db := catalogFenceTestDB(t, engine)
-			actor := catalogBusinessActor(t, db)
-			vendor := Vendor{Name: "original-vendor", Status: 1}
-			require.NoError(t, db.Create(&vendor).Error)
-			require.NoError(t, db.Create(&Model{ModelName: "deleted-model", VendorID: vendor.Id, BillingCurrency: "USD"}).Error)
-			source, err := ExportManagedCatalogTx(context.Background(), db, "dev")
-			require.NoError(t, err)
-			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
-			require.NoError(t, err)
-			first, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "dependency-first", actor)
-			require.NoError(t, err)
-			catalogBusinessFixturePublished(t, db, first)
-			source.Entries = slices.DeleteFunc(source.Entries, func(entry catalogmanifest.Entry) bool { return entry.Kind == catalogmanifest.KindModel })
-			source.Coverage[catalogmanifest.KindModel] = 0
-			source.Digest, err = catalogmanifest.SnapshotDigest(source)
-			require.NoError(t, err)
-			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
-			require.NoError(t, err)
-			plan, err = ResolveCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
-			require.NoError(t, err)
-			second, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "dependency-second", actor)
-			require.NoError(t, err)
-			catalogBusinessFixturePublished(t, db, second)
-			require.NoError(t, db.Model(&vendor).Update("name", "renamed-local-vendor").Error)
-			_, err = CreateCatalogSyncRestorePlan(context.Background(), second.OperationID, actor, time.Now())
-			require.Error(t, err, "restore must retain the preimage vendor name, never follow a later ID-to-name change")
+			for _, scenario := range []string{"unchanged", "renamed", "recreated", "joint-restore-fixture"} {
+				t.Run(scenario, func(t *testing.T) {
+					db := catalogFenceTestDB(t, engine)
+					actor := catalogBusinessActor(t, db)
+					vendor := Vendor{Name: "original-vendor", Status: 1}
+					require.NoError(t, db.Create(&vendor).Error)
+					require.NoError(t, db.Create(&Vendor{Name: "retained-vendor", Status: 1}).Error)
+					require.NoError(t, db.Create(&Model{ModelName: "deleted-model", VendorID: vendor.Id, BillingCurrency: "USD"}).Error)
+					source, err := ExportManagedCatalogTx(context.Background(), db, "dev")
+					require.NoError(t, err)
+					plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+					require.NoError(t, err)
+					first, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "dependency-first", actor)
+					require.NoError(t, err)
+					catalogBusinessFixturePublished(t, db, first)
+					source.Entries = slices.DeleteFunc(source.Entries, func(entry catalogmanifest.Entry) bool { return entry.Kind == catalogmanifest.KindModel })
+					source.Coverage[catalogmanifest.KindModel] = 0
+					source.Digest, err = catalogmanifest.SnapshotDigest(source)
+					require.NoError(t, err)
+					plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+					require.NoError(t, err)
+					plan, err = ResolveCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+					require.NoError(t, err)
+					second, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "dependency-second", actor)
+					require.NoError(t, err)
+					catalogBusinessFixturePublished(t, db, second)
+					if scenario == "joint-restore-fixture" {
+						// Fixture only: current sync conservatively blocks deleting a
+						// vendor alongside its referencing model. Build a durable joint
+						// preimage from real local records, then exercise the real inverse
+						// preview/apply; this does not claim a production joint producer.
+						var operation CatalogSyncOperation
+						require.NoError(t, db.First(&operation, "id = ?", second.OperationID).Error)
+						var backup catalogOperationBackup
+						require.NoError(t, common.UnmarshalJsonStr(string(operation.Backup), &backup))
+						backup.Before = append(backup.Before, catalogBackupEntry{Kind: catalogmanifest.KindVendor, Key: vendor.Name, Exists: true, Vendor: &vendor})
+						for i := range plan.Changes {
+							if plan.Changes[i].Kind == catalogmanifest.KindVendor && plan.Changes[i].Key == vendor.Name {
+								plan.Changes[i].Action, plan.Changes[i].After = "delete", nil
+							}
+						}
+						plan.Snapshot.Entries = slices.DeleteFunc(plan.Snapshot.Entries, func(entry catalogmanifest.Entry) bool {
+							return entry.Kind == catalogmanifest.KindVendor && entry.Key == vendor.Name
+						})
+						plan.Snapshot.Coverage[catalogmanifest.KindVendor]--
+						plan.Snapshot.Digest, err = catalogmanifest.SnapshotDigest(plan.Snapshot)
+						require.NoError(t, err)
+						plan.Digest, err = catalogmanifest.CanonicalPlanDigest(plan)
+						require.NoError(t, err)
+						body, err := common.Marshal(plan)
+						require.NoError(t, err)
+						encodedBackup, err := common.Marshal(backup)
+						require.NoError(t, err)
+						var binding catalogOperationBinding
+						require.NoError(t, common.UnmarshalJsonStr(string(operation.History), &binding))
+						binding.Digest = plan.Digest
+						history, err := common.Marshal(binding)
+						require.NoError(t, err)
+						require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+							if err := tx.Delete(&vendor).Error; err != nil {
+								return err
+							}
+							if err := tx.Where("kind = ? AND entry_key = ?", catalogmanifest.KindVendor, vendor.Name).Delete(&CatalogSyncBaseline{}).Error; err != nil {
+								return err
+							}
+							if err := tx.Model(&CatalogSyncPlan{}).Where("id = ?", plan.ID).Updates(map[string]any{"body": CatalogSyncText(body), "digest": plan.Digest}).Error; err != nil {
+								return err
+							}
+							if err := tx.Model(&CatalogSyncOperation{}).Where("id = ?", second.OperationID).Updates(map[string]any{"backup": CatalogSyncText(encodedBackup), "history": CatalogSyncText(history)}).Error; err != nil {
+								return err
+							}
+							digest, err := catalogPersistedDigest(tx)
+							if err != nil {
+								return err
+							}
+							return tx.Model(&CatalogSyncState{}).Where("id = ?", CatalogSyncStateID).Update("current_digest", digest).Error
+						}))
+					}
+					restore, err := CreateCatalogSyncRestorePlan(context.Background(), second.OperationID, actor, time.Now())
+					require.NoError(t, err, "the original vendor is still valid or part of the joint inverse")
+					if scenario == "unchanged" || scenario == "joint-restore-fixture" {
+						_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "dependency-inverse", actor)
+						require.NoError(t, err)
+						var restoredVendor Vendor
+						require.NoError(t, db.First(&restoredVendor, "name = ?", vendor.Name).Error)
+						var restoredModel Model
+						require.NoError(t, db.First(&restoredModel, "model_name = ?", "deleted-model").Error)
+						assert.Equal(t, restoredVendor.Id, restoredModel.VendorID)
+						if scenario == "unchanged" {
+							assert.Equal(t, vendor.Id, restoredVendor.Id)
+						} else {
+							assert.NotEqual(t, vendor.Id, restoredVendor.Id)
+						}
+						return
+					}
+					var stateBefore CatalogSyncState
+					require.NoError(t, db.First(&stateBefore, CatalogSyncStateID).Error)
+					var baselineBefore []CatalogSyncBaseline
+					require.NoError(t, db.Order("identity_hash").Find(&baselineBefore).Error)
+					var operationCount int64
+					require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&operationCount).Error)
+					if scenario == "renamed" {
+						require.NoError(t, db.Model(&vendor).Update("name", "renamed-local-vendor").Error)
+					} else {
+						require.NoError(t, db.Delete(&vendor).Error)
+						vendor.Id, vendor.DeletedAt = 0, gorm.DeletedAt{}
+						require.NoError(t, db.Create(&vendor).Error)
+					}
+					var replacementBefore Vendor
+					require.NoError(t, db.First(&replacementBefore, vendor.Id).Error)
+					_, err = CreateCatalogSyncRestorePlan(context.Background(), second.OperationID, actor, time.Now())
+					require.Error(t, err, "restore must reject a renamed or same-name recreated vendor dependency")
+					if scenario == "recreated" {
+						require.ErrorIs(t, err, ErrCatalogSyncPlanStale)
+					}
+					_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "dependency-inverse", actor)
+					require.ErrorIs(t, err, ErrCatalogSyncPlanStale, "a previously valid inverse cannot attach to the replacement")
+					var absent int64
+					require.NoError(t, db.Model(&Model{}).Where("model_name = ?", "deleted-model").Count(&absent).Error)
+					assert.Zero(t, absent)
+					var replacementAfter Vendor
+					require.NoError(t, db.First(&replacementAfter, vendor.Id).Error)
+					assert.Equal(t, replacementBefore, replacementAfter)
+					var stateAfter CatalogSyncState
+					require.NoError(t, db.First(&stateAfter, CatalogSyncStateID).Error)
+					assert.Equal(t, stateBefore, stateAfter)
+					var baselineAfter []CatalogSyncBaseline
+					require.NoError(t, db.Order("identity_hash").Find(&baselineAfter).Error)
+					assert.Equal(t, baselineBefore, baselineAfter)
+					var operationsAfter int64
+					require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&operationsAfter).Error)
+					assert.Equal(t, operationCount, operationsAfter)
+				})
+			}
 		})
 	}
 }
