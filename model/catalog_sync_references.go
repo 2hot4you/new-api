@@ -60,6 +60,12 @@ func catalogReferenceTransaction(ctx context.Context, db *gorm.DB, registry *jsp
 	if err != nil {
 		return err
 	}
+	var pin *jsplugin.GenerationPin
+	// Release last, after setting restoration and exact-connection Close. On
+	// cancellation database/sql sets Tx.done BEFORE its worker finishes native
+	// rollback; ErrTxDone alone is not a cleanup barrier. Conn.Close waits for
+	// that transaction's connection ownership to end before the pin may release.
+	defer func() { pin.Release() }()
 	defer conn.Close()
 	discarded := false
 	committed := false
@@ -125,9 +131,6 @@ func catalogReferenceTransaction(ctx context.Context, db *gorm.DB, registry *jsp
 	if tx.Error != nil {
 		return tx.Error
 	}
-	var pin *jsplugin.GenerationPin
-	// Defer order matters: rollback completes before the registry lease releases.
-	defer func() { pin.Release() }()
 	defer func() {
 		err := tx.Statement.ConnPool.(gorm.TxCommitter).Rollback()
 		if err != nil && !errors.Is(err, sql.ErrTxDone) {

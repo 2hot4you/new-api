@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"maps"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -781,6 +783,154 @@ func TestCatalogSyncReferenceCommitLease(t *testing.T) {
 			option = Option{}
 			require.NoError(t, db.First(&option, commonKeyCol+" = ?", "uncertain").Error)
 			assert.Equal(t, "committed", option.Value)
+		})
+	}
+}
+
+// Loan a real fixture connection while its owning sql.Conn.Raw callback holds
+// exclusive ownership. Only native rollback completion is paused; statements,
+// transaction creation, cancellation and the database locks remain real.
+type catalogRollbackConnector struct {
+	connection *catalogRollbackConnection
+	driver     driver.Driver
+}
+
+func (c catalogRollbackConnector) Connect(context.Context) (driver.Conn, error) {
+	return c.connection, nil
+}
+func (c catalogRollbackConnector) Driver() driver.Driver { return c.driver }
+
+type catalogRollbackConnection struct {
+	driver.Conn
+	started chan struct{}
+	resume  chan struct{}
+}
+
+// The original fixture sql.Conn owns and closes this loaned native connection.
+func (c *catalogRollbackConnection) Close() error { return nil }
+func (c *catalogRollbackConnection) BeginTx(ctx context.Context, options driver.TxOptions) (driver.Tx, error) {
+	tx, err := c.Conn.(driver.ConnBeginTx).BeginTx(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+	return &catalogPausedRollback{Tx: tx, connection: c}, nil
+}
+
+type catalogPausedRollback struct {
+	driver.Tx
+	connection *catalogRollbackConnection
+}
+
+func (tx *catalogPausedRollback) Rollback() error {
+	close(tx.connection.started)
+	<-tx.connection.resume
+	return tx.Tx.Rollback()
+}
+
+func TestCatalogSyncReferenceCancellationRollbackLease(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			loan, err := pool.Conn(context.Background())
+			require.NoError(t, err)
+			defer loan.Close()
+			require.NoError(t, loan.Raw(func(native any) error {
+				connection := &catalogRollbackConnection{Conn: native.(driver.Conn), started: make(chan struct{}), resume: make(chan struct{})}
+				observed := sql.OpenDB(catalogRollbackConnector{connection: connection, driver: pool.Driver()})
+				observed.SetMaxOpenConns(1)
+				defer observed.Close()
+				root := db.Session(&gorm.Session{NewDB: true, Context: context.Background()})
+				root.Statement.ConnPool = observed
+				registry := jsplugin.NewRegistry()
+				before := registry.Generation().Number
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				callbackReady := make(chan struct{})
+				callbackReturn := make(chan struct{})
+				returnCallback := sync.OnceFunc(func() { close(callbackReturn) })
+				resumeRollback := sync.OnceFunc(func() { close(connection.resume) })
+				rollbackReturned := make(chan error, 1)
+				result := make(chan error, 1)
+				rootDone := make(chan struct{})
+				publication := make(chan struct{})
+				defer func() {
+					cancel()
+					returnCallback()
+					resumeRollback()
+					<-rootDone
+				}()
+				go func() {
+					defer close(rootDone)
+					result <- WithCatalogWriteBarrier(func() error {
+						return catalogReferenceTransaction(ctx, root, registry, func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+							if err := tx.Create(&Option{Key: "cancel-rollback", Value: "must-not-commit"}).Error; err != nil {
+								return err
+							}
+							real := tx.Statement.ConnPool.(*sql.Tx)
+							tx.Statement.ConnPool = &catalogCommitObserver{ConnPool: real, commit: real.Commit, rollback: func() error {
+								err := real.Rollback()
+								rollbackReturned <- err
+								return err
+							}}
+							close(callbackReady)
+							<-callbackReturn
+							return ctx.Err()
+						})
+					})
+				}()
+				select {
+				case <-callbackReady:
+				case err := <-result:
+					return fmt.Errorf("root failed before cancellation: %w", err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("root did not acquire its lease")
+				}
+				go func() { registry.SetEnabled(false); close(publication) }()
+				require.Eventually(t, func() bool {
+					probe, err := registry.TryPinGeneration()
+					if probe != nil {
+						probe.Release()
+					}
+					return errors.Is(err, jsplugin.ErrGenerationBusy)
+				}, time.Second, time.Millisecond, "publisher must actually queue behind the lease")
+				cancel()
+				select {
+				case <-connection.started:
+				case <-time.After(3 * time.Second):
+					t.Fatal("database/sql cancellation did not enter native rollback")
+				}
+				returnCallback()
+				select {
+				case err := <-rollbackReturned:
+					assert.ErrorIs(t, err, sql.ErrTxDone, "cancellation worker must own the still-active rollback")
+				case <-time.After(3 * time.Second):
+					t.Error("helper did not attempt rollback")
+				}
+				// Both actual cancellation/rollback entry and the queued registry
+				// writer are acknowledged; this interval checks absence of publication,
+				// not a sleep used to assume either operation has started.
+				select {
+				case <-publication:
+					t.Error("registry published before native cancellation rollback completed")
+				case <-time.After(100 * time.Millisecond):
+				}
+				assert.Equal(t, before, registry.Generation().Number)
+				resumeRollback()
+				require.ErrorIs(t, <-result, context.Canceled)
+				select {
+				case <-publication:
+				case <-time.After(3 * time.Second):
+					t.Error("registry pin leaked after completed rollback")
+				}
+				assert.Greater(t, registry.Generation().Number, before)
+				return nil
+			}))
+			var count int64
+			require.NoError(t, db.Model(&Option{}).Where(commonKeyCol+" = ?", "cancel-rollback").Count(&count).Error)
+			assert.Zero(t, count, "actual native rollback must discard the write")
+			require.NoError(t, db.Create(&Option{Key: "after-cancel-rollback"}).Error)
 		})
 	}
 }
