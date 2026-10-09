@@ -24,6 +24,7 @@ func setupModelCatalogMetadataTestDB(t *testing.T) {
 	}
 	DB = db
 	t.Cleanup(func() { DB = previousDB })
+	initializeOrdinaryCatalogTest(t, db)
 }
 
 func TestModelCatalogMetadataRoundTripAndExplicitClear(t *testing.T) {

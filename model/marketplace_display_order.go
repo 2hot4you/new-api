@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -72,12 +73,8 @@ func acquireMarketplaceOrderLock(tx *gorm.DB) error {
 }
 
 func withMarketplaceOrderTransaction(db *gorm.DB, operation func(tx *gorm.DB) error) error {
-	return WithCatalogWriteBarrier(func() error {
-		if err := catalogMutationTransaction(db, operation); err != nil {
-			return err
-		}
-		invalidateCatalogCaches()
-		return nil
+	return withOrdinaryCatalogMutation(db, nil, func(prepared *catalogOrdinaryMutation) error {
+		return commitOrdinaryCatalogMutationGuarded(context.Background(), db, prepared, operation, nil)
 	})
 }
 

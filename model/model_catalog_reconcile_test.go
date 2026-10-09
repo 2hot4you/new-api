@@ -27,6 +27,7 @@ func setupModelCatalogReconcileTestDB(t *testing.T) {
 	}
 	DB = db
 	t.Cleanup(func() { DB = previousDB })
+	initializeOrdinaryCatalogTest(t, db)
 }
 
 func addEnabledCatalogAbility(t *testing.T, modelName string) {

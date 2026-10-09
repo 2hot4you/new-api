@@ -46,7 +46,7 @@ func migrateModelBillingCurrency(db *gorm.DB) error {
 
 func migrateConfirmedCNYModels(tx *gorm.DB, markerKey string, modelNames []string) error {
 	var marker Option
-	err := tx.Where("key = ?", markerKey).First(&marker).Error
+	err := tx.Where(commonKeyCol+" = ?", markerKey).First(&marker).Error
 	if err == nil {
 		return nil
 	}

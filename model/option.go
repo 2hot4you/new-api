@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"maps"
 	"strconv"
 	"strings"
@@ -323,11 +324,11 @@ func needsCatalogOptionBarrier(values map[string]string) bool {
 	return exchange || hasCatalogOptions(values)
 }
 
-// UpdateOptionsBulk persists multiple key/value pairs in a single database
-// transaction, then dispatches them through updateOptionMap in one pass. If
-// any DB write fails the whole transaction rolls back and no in-memory state
-// is touched — safe for callers that must commit a set of related options
-// atomically (e.g. payment gateway binding).
+// UpdateOptionsBulk persists supplied values in one database transaction.
+// Catalog-bearing saves publish one prepared typed candidate and acknowledge
+// its revision after commit; unrelated values retain their ordinary dispatch.
+// An error may mean a committed mutation is pending publication or its native
+// COMMIT outcome is uncertain, so callers must not blindly replay the request.
 func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
@@ -349,13 +350,18 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
-	if needsCatalogOptionBarrier(normalizedValues) {
-		return WithCatalogWriteBarrier(func() error { return updateOptionsBulkGuarded(normalizedValues) })
+	if hasCatalogOptions(normalizedValues) {
+		return withOrdinaryCatalogMutation(DB, normalizedValues, func(prepared *catalogOrdinaryMutation) error {
+			return updateOptionsBulkGuarded(normalizedValues, prepared)
+		})
 	}
-	return updateOptionsBulkGuarded(normalizedValues)
+	if needsCatalogOptionBarrier(normalizedValues) {
+		return WithCatalogWriteBarrier(func() error { return updateOptionsBulkGuarded(normalizedValues, nil) })
+	}
+	return updateOptionsBulkGuarded(normalizedValues, nil)
 }
 
-func updateOptionsBulkGuarded(normalizedValues map[string]string) error {
+func updateOptionsBulkGuarded(normalizedValues map[string]string, prepared *catalogOrdinaryMutation) error {
 	var policySnapshot *RequestPolicySnapshot
 	for key := range normalizedValues {
 		if IsRequestPolicyOption(key) {
@@ -389,27 +395,28 @@ func updateOptionsBulkGuarded(normalizedValues map[string]string) error {
 		}
 		return nil
 	}
-	var err error
-	if hasCatalogOptions(normalizedValues) {
-		err = catalogMutationTransaction(DB, write)
-	} else {
-		err = DB.Transaction(write)
+	publishOther := func() error {
+		whitelist := catalogmanifest.PriceOptions()
+		for k, v := range normalizedValues {
+			if _, catalog := whitelist[k]; catalog && prepared != nil {
+				continue
+			}
+			if err := updateOptionMap(k, v); err != nil {
+				return err
+			}
+		}
+		if policySnapshot != nil {
+			requestPolicySnapshot.Store(policySnapshot)
+		}
+		return nil
 	}
-	if err != nil {
+	if prepared != nil {
+		return commitOrdinaryCatalogMutationGuarded(context.Background(), DB, prepared, write, publishOther)
+	}
+	if err := DB.Transaction(write); err != nil {
 		return err
 	}
-	for k, v := range normalizedValues {
-		if err := updateOptionMap(k, v); err != nil {
-			return err
-		}
-	}
-	if policySnapshot != nil {
-		requestPolicySnapshot.Store(policySnapshot)
-	}
-	if hasCatalogOptions(normalizedValues) {
-		invalidateCatalogCaches()
-	}
-	return nil
+	return publishOther()
 }
 
 func updateOptionMap(key string, value string) (err error) {
@@ -421,6 +428,9 @@ func updateOptionMap(key string, value string) (err error) {
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
 	common.OptionMap[key] = value
 
 	// 检查是否是模型配置 - 使用更规范的方式处理

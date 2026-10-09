@@ -13,7 +13,6 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -32,6 +31,7 @@ func newMarketplaceOrderTestDB(t *testing.T) *gorm.DB {
 		DB = previousDB
 		common.SetMainDatabaseType(previousType)
 	})
+	initializeOrdinaryCatalogTest(t, db)
 	return db
 }
 
@@ -298,20 +298,13 @@ func openMarketplaceOrderPostgresPair(t *testing.T) (*gorm.DB, *gorm.DB) {
 	if dsn == "" {
 		t.Skip("MARKETPLACE_ORDER_POSTGRES_TEST_DSN is not set")
 	}
-	open := func() *gorm.DB {
-		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-		require.NoError(t, err)
-		sqlDB, err := db.DB()
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-		return db
-	}
-	first, second := open(), open()
-	require.NoError(t, first.AutoMigrate(&marketplaceOrderLock{}, &Model{}, &Vendor{}, &Option{}))
-	require.NoError(t, first.Exec("TRUNCATE TABLE models, vendors, marketplace_order_locks RESTART IDENTITY CASCADE").Error)
-	require.NoError(t, ensureMarketplaceOrderLock(first))
-	require.NoError(t, MigrateCatalogSync(first))
-	return first, second
+	// The ordinary publisher belongs to the active root. Two sessions may use
+	// different native connections from that pool; this is not a proof about
+	// another process or an independently configured database pool.
+	t.Setenv("TEST_POSTGRES_DSN", dsn)
+	first := catalogFenceTestDB(t, "postgres")
+	initializeOrdinaryCatalogTest(t, first)
+	return first, first.Session(&gorm.Session{NewDB: true})
 }
 
 func TestMarketplaceDisplayOrderPostgresConcurrentAppendsUseUniquePositions(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,6 +48,523 @@ func runtimeStageForTest(t *testing.T, db *gorm.DB) *catalogRuntimeStage {
 	stage, err := stageCatalogRuntime(input)
 	require.NoError(t, err)
 	return stage
+}
+
+// Register before typed/registry fixture cleanup so restored prices are in
+// place before restoring the old root's readiness and derived cache views.
+func preserveOrdinaryCatalogRuntime(t *testing.T) {
+	t.Helper()
+	catalogBarrier.Lock()
+	priorRuntime := catalogRuntime
+	updatePricingLock.Lock()
+	priorPricing, priorVendors, priorTime := pricingMap, vendorsList, lastGetPricingTime
+	modelSupportEndpointsLock.Lock()
+	priorEndpoints, priorTypes := supportedEndpointMap, modelSupportEndpointTypes
+	modelEnableGroupsLock.Lock()
+	priorGroups, priorQuotas := modelEnableGroups, modelQuotaTypeMap
+	modelEnableGroupsLock.Unlock()
+	modelSupportEndpointsLock.Unlock()
+	updatePricingLock.Unlock()
+	priorName, priorFX := common.SystemName, operation_setting.USDExchangeRate
+	catalogBarrier.Unlock()
+	t.Cleanup(func() {
+		catalogBarrier.Lock()
+		defer catalogBarrier.Unlock()
+		catalogRuntime = priorRuntime
+		common.SystemName, operation_setting.USDExchangeRate = priorName, priorFX
+		updatePricingLock.Lock()
+		defer updatePricingLock.Unlock()
+		modelSupportEndpointsLock.Lock()
+		defer modelSupportEndpointsLock.Unlock()
+		modelEnableGroupsLock.Lock()
+		defer modelEnableGroupsLock.Unlock()
+		pricingMap, vendorsList, lastGetPricingTime = priorPricing, priorVendors, priorTime
+		supportedEndpointMap, modelSupportEndpointTypes = priorEndpoints, priorTypes
+		modelEnableGroups, modelQuotaTypeMap = priorGroups, priorQuotas
+		ratio_setting.InvalidateExposedDataCache()
+	})
+}
+
+func initializeOrdinaryCatalogTest(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	preserveOrdinaryCatalogRuntime(t)
+	preserveCatalogCandidate(t)
+	priorRegistry := jsplugin.DefaultRegistry
+	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+	t.Cleanup(func() { jsplugin.DefaultRegistry = priorRegistry })
+	require.NoError(t, db.AutoMigrate(&Channel{}, &Ability{}, &Task{}, &TaskPlugin{}, &Midjourney{}, &SystemTask{}))
+}
+
+func TestCatalogRuntimeOrdinaryWriters(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"ordinary":0}`, "billing_setting.billing_mode": `{}`, "SystemName": "ordinary-test"}))
+			var state CatalogSyncState
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			assert.Equal(t, int64(1), state.Revision)
+			assert.Equal(t, state.Revision, state.RuntimeRevision, "ordinary save must acknowledge its actual runtime")
+			assert.Equal(t, "ready", state.PublicationState)
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "ordinary", func() error {
+				price, ok := ratio_setting.GetModelPrice("ordinary", false)
+				assert.True(t, ok)
+				assert.Zero(t, price)
+				return nil
+			}))
+			vendor := Vendor{Name: "ordinary-vendor", Status: 1}
+			require.NoError(t, vendor.Insert())
+			entry := Model{ModelName: "ordinary", VendorID: vendor.Id, BillingCurrency: "USD", Status: 1}
+			require.NoError(t, entry.Insert())
+			entry.BillingCurrency = "CNY"
+			require.NoError(t, entry.Update())
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "ordinary", func() error {
+				currencies, err := LoadModelBillingCurrencies(db, []string{"ordinary"}, false)
+				require.NoError(t, err)
+				assert.Equal(t, "CNY", string(currencies["ordinary"].BillingCurrency))
+				price, ok := ratio_setting.GetModelPrice("ordinary", false)
+				assert.True(t, ok)
+				assert.Zero(t, price)
+				return nil
+			}))
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			assert.Equal(t, int64(4), state.Revision)
+			assert.Equal(t, state.Revision, state.RuntimeRevision)
+			require.NoError(t, ReorderModels([]int{entry.Id}))
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"ordinary":0}`}))
+			var noOp CatalogSyncState
+			require.NoError(t, db.First(&noOp, CatalogSyncStateID).Error)
+			assert.Equal(t, state, noOp, "no-op writers must not stale a prepared plan")
+			var operations int64
+			require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&operations).Error)
+			assert.Zero(t, operations, "ordinary writes have no managed operation")
+		})
+	}
+}
+
+func TestCatalogRuntimeOrdinaryOptions(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			actor := catalogBusinessActor(t, db)
+			oldName, oldFX := common.SystemName, operation_setting.USDExchangeRate
+			t.Cleanup(func() { common.SystemName, operation_setting.USDExchangeRate = oldName, oldFX })
+			values := map[string]string{
+				"ModelPrice":                             `{"historical-orphan":0,"removed":9}`,
+				"billing_setting.billing_mode":           `{}`,
+				"tool_price_setting.prices":              `{"web_search":12,"web_search:custom*":0}`,
+				"molii_grok_tool_price.image_generation": "0.17",
+				"molii_grok_price.image_standard_1k":     "0",
+				"starai_video_price.standard_720p":       "13.25",
+				"task_pricing_setting.sora_size_ratio":   `{"1792x1024":3}`,
+				"USDExchangeRate":                        "7.25", "SystemName": "ordinary-local",
+			}
+			require.NoError(t, UpdateOptionsBulk(values))
+			assert.Equal(t, "ordinary-local", common.SystemName)
+			assert.Equal(t, 7.25, operation_setting.USDExchangeRate)
+			for key, value := range values {
+				var row Option
+				require.NoError(t, db.First(&row, commonKeyCol+" = ?", key).Error)
+				assert.Equal(t, value, row.Value)
+			}
+			var expressionRows int64
+			require.NoError(t, db.Model(&Option{}).Where(commonKeyCol+" = ?", "billing_setting.billing_expr").Count(&expressionRows).Error)
+			assert.Zero(t, expressionRows, "generic Seedance menu fields do not synthesize stored expressions")
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{}`}))
+			_, removed := ratio_setting.GetModelPrice("removed", false)
+			assert.False(t, removed)
+			require.NoError(t, UpdateOption("molii_grok_tool_price.image_generation", "0.19"))
+			before := runtimeStageForTest(t, db).input
+			for _, invalid := range []map[string]string{
+				{"ModelPrice": `{"bad":-1}`, "SystemName": "must-not-persist"},
+				{"molii_grok_price.not_a_price": "1"},
+				{"tool_price_setting.prices": `{"web_search":-1}`},
+			} {
+				require.Error(t, UpdateOptionsBulk(invalid))
+				assert.True(t, before.same(runtimeStageForTest(t, db).input))
+			}
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{}`}))
+			_, err = GetCatalogSyncPlan(context.Background(), plan.ID, actor)
+			require.NoError(t, err, "ordinary no-op preserves actual plan freshness")
+		})
+	}
+}
+
+func TestCatalogRuntimeOrdinaryHistoricalRetention(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			stored := `{"retired::orphan":"tier(\"raw\", u(\"seconds\") * 0.371)"}`
+			require.NoError(t, db.Create(&Option{Key: billing_setting.PluginBillingExprOption, Value: stored}).Error)
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"historical-orphan":0}`}))
+			var row Option
+			require.NoError(t, db.First(&row, commonKeyCol+" = ?", billing_setting.PluginBillingExprOption).Error)
+			assert.Equal(t, stored, row.Value)
+			require.ErrorContains(t, UpdateOptionsBulk(map[string]string{billing_setting.PluginBillingExprOption: `{"retired::orphan":"u(\"seconds\") * 9"}`}), "does not declare")
+			require.NoError(t, UpdateOptionsBulk(map[string]string{billing_setting.PluginBillingExprOption: `{}`}))
+			require.NoError(t, db.First(&row, commonKeyCol+" = ?", billing_setting.PluginBillingExprOption).Error)
+			assert.Equal(t, `{}`, row.Value)
+			var priceRows int64
+			require.NoError(t, db.Model(&Option{}).Where(commonKeyCol+" = ?", "ModelRatio").Count(&priceRows).Error)
+			assert.Zero(t, priceRows, "ordinary typed defaults must not become stored options")
+		})
+	}
+}
+
+func TestCatalogRuntimeOrdinaryFailureRecovery(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			updatePricingLock.Lock()
+			err := UpdateOption("molii_grok_tool_price.image_generation", "0.23")
+			updatePricingLock.Unlock()
+			require.ErrorIs(t, err, ErrCatalogWriterBusy)
+			var pending CatalogSyncState
+			require.NoError(t, db.First(&pending, CatalogSyncStateID).Error)
+			assert.Equal(t, int64(1), pending.Revision)
+			assert.Zero(t, pending.RuntimeRevision)
+			assert.Equal(t, "committed_pending_publish", pending.PublicationState)
+			assert.Empty(t, pending.PendingOperationID)
+			require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "any-model", func() error { t.Error("pending capture ran"); return nil }), ErrCatalogPublicationPending)
+			require.ErrorIs(t, UpdateOption("molii_grok_tool_price.image_generation", "0.25"), ErrCatalogPublicationPending)
+			vendor := Vendor{Name: "blocked"}
+			require.ErrorIs(t, vendor.Insert(), ErrCatalogPublicationPending)
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			var ready CatalogSyncState
+			require.NoError(t, db.First(&ready, CatalogSyncStateID).Error)
+			assert.Equal(t, pending.Revision, ready.Revision)
+			assert.Equal(t, ready.Revision, ready.RuntimeRevision)
+			var row Option
+			require.NoError(t, db.First(&row, commonKeyCol+" = ?", "molii_grok_tool_price.image_generation").Error)
+			assert.Equal(t, "0.23", row.Value)
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "any-model", func() error { return nil }))
+			assertRuntimeLocksReleased(t)
+		})
+	}
+}
+
+func TestCatalogRuntimeOrdinaryFreshRecheck(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			prepared, err := prepareOrdinaryCatalogMutation(context.Background(), db, map[string]string{"ModelPrice": `{"late":1}`})
+			require.NoError(t, err)
+			canceled, cancel := context.WithCancel(context.Background())
+			cancel()
+			_, err = prepareOrdinaryCatalogMutation(canceled, db, nil)
+			require.ErrorIs(t, err, context.Canceled)
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"winner":2}`}))
+			err = WithCatalogWriteBarrier(func() error {
+				return commitOrdinaryCatalogMutationGuarded(context.Background(), db, prepared, func(*gorm.DB) error {
+					t.Error("obsolete preparation reached mutation callback")
+					return nil
+				}, nil)
+			})
+			require.ErrorIs(t, err, ErrCatalogSyncPlanStale)
+			assert.False(t, prepared.wrote)
+			price, ok := ratio_setting.GetModelPrice("winner", false)
+			assert.True(t, ok)
+			assert.Equal(t, 2.0, price)
+			// Metadata-only callbacks cannot smuggle an unstaged pricing write.
+			err = WithModelMetadataTransaction(func(tx *gorm.DB) error {
+				return tx.Model(&Option{}).Where(commonKeyCol+" = ?", "ModelPrice").Update("value", `{"smuggled":9}`).Error
+			})
+			require.ErrorIs(t, err, ErrCatalogSyncPlanStale)
+			var row Option
+			require.NoError(t, db.First(&row, commonKeyCol+" = ?", "ModelPrice").Error)
+			assert.Equal(t, `{"winner":2}`, row.Value)
+		})
+	}
+}
+
+func TestCatalogRuntimeOrdinaryPreparationBudget(t *testing.T) {
+	db := catalogFenceTestDB(t, "sqlite")
+	preserveOrdinaryCatalogRuntime(t)
+	catalogBusinessActor(t, db)
+	attempts := 0
+	err := withOrdinaryCatalogMutation(db, nil, func(prepared *catalogOrdinaryMutation) error {
+		attempts++
+		assert.False(t, prepared.wrote)
+		return ErrCatalogSyncPlanStale // Another writer won before the SQL callback.
+	})
+	require.ErrorIs(t, err, ErrCatalogSyncPlanStale)
+	assert.Equal(t, 64, attempts, "pre-callback stale preparation has a finite retry cap")
+	for _, result := range []error{ErrCatalogSyncPlanStale, ErrCatalogCommitUncertain} {
+		attempts = 0
+		err = withOrdinaryCatalogMutation(db, nil, func(prepared *catalogOrdinaryMutation) error {
+			attempts++
+			prepared.wrote = true
+			return result
+		})
+		require.ErrorIs(t, err, result)
+		assert.Equal(t, 1, attempts, "a started callback is never replayed")
+	}
+}
+
+func TestCatalogRuntimeOrdinaryNativeAcknowledgements(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			loan, err := pool.Conn(context.Background())
+			require.NoError(t, err)
+			defer loan.Close()
+			require.NoError(t, loan.Raw(func(native any) error {
+				connection := &catalogBusinessLostAckConnection{Conn: native.(driver.Conn)}
+				observed := sql.OpenDB(catalogBusinessLostAckConnector{connection, pool.Driver()})
+				observed.SetMaxOpenConns(1)
+				defer observed.Close()
+				root := db.Session(&gorm.Session{NewDB: true, Context: context.Background()})
+				root.Statement.ConnPool = observed
+				DB = root
+				defer func() { DB = db }()
+				require.NoError(t, db.Callback().Update().Before("gorm:update").Register("ordinary-lost-ack", func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_states" {
+						if values, ok := tx.Statement.Dest.(map[string]any); ok && values["publication_state"] != nil {
+							connection.armed.Store(true)
+						}
+					}
+				}))
+				defer db.Callback().Update().Remove("ordinary-lost-ack")
+				calls := 0
+				err := WithModelMetadataTransaction(func(tx *gorm.DB) error {
+					calls++
+					return tx.Create(&Vendor{Name: "exactly-once"}).Error
+				})
+				require.ErrorIs(t, err, ErrCatalogCommitUncertain, "a matching ordinary postimage is not unique attempt identity")
+				assert.Equal(t, 1, calls)
+				var state CatalogSyncState
+				require.NoError(t, root.First(&state, CatalogSyncStateID).Error)
+				assert.Equal(t, "committed_pending_publish", state.PublicationState)
+				assert.Zero(t, state.RuntimeRevision)
+				require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+				assert.Equal(t, int64(2), connection.dropped.Load(), "mutation and recovery ACK actually lost their native responses")
+				require.NoError(t, root.First(&state, CatalogSyncStateID).Error)
+				assert.Equal(t, int64(1), state.Revision)
+				assert.Equal(t, state.Revision, state.RuntimeRevision)
+				assert.Equal(t, "ready", state.PublicationState)
+				return nil
+			}))
+		})
+	}
+}
+
+func TestCatalogRuntimeOrdinaryMetadataCallbacks(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			first, second := Vendor{Name: "first"}, Vendor{Name: "second"}
+			require.NoError(t, first.Insert())
+			require.NoError(t, second.Insert())
+			require.NoError(t, ReorderVendors([]int{second.Id, first.Id}))
+			first.Description = "ordinary vendor edit"
+			require.NoError(t, first.Update())
+			model := Model{ModelName: "metadata-model", VendorID: first.Id, Status: 1, SyncOfficial: 1}
+			require.NoError(t, model.Insert())
+			var actual Model
+			require.NoError(t, db.First(&actual, model.Id).Error)
+			var actualVendor Vendor
+			require.NoError(t, db.First(&actualVendor, first.Id).Error)
+			result, err := ApplyMetadataSync([]MetadataSyncUpdate{{
+				MetadataSyncSelection: MetadataSyncSelection{ModelName: model.ModelName, RecordVersion: MetadataRecordVersion(&actual, &actualVendor, nil), Fields: []string{"description"}},
+				Values:                MetadataValues{Description: "official update", NameRule: NameRuleExact, Status: 1},
+			}}, nil)
+			require.NoError(t, err)
+			assert.Len(t, result.UpdatedModels, 1)
+			channel := Channel{Key: "test", Name: "ordinary-reconcile", Models: "reconciled-model", Status: common.ChannelStatusEnabled}
+			require.NoError(t, db.Create(&channel).Error)
+			require.NoError(t, db.Create(&Ability{Group: "default", Model: "reconciled-model", ChannelId: channel.Id, Enabled: true}).Error)
+			summary, err := ReconcileEnabledModelMetadata()
+			require.NoError(t, err)
+			assert.Equal(t, 1, summary.CreatedModels)
+			var reconciled Model
+			require.NoError(t, db.First(&reconciled, "model_name = ?", "reconciled-model").Error)
+			require.NoError(t, ReorderModels([]int{reconciled.Id, model.Id}))
+			require.NoError(t, second.Delete())
+			var before CatalogSyncState
+			require.NoError(t, db.First(&before, CatalogSyncStateID).Error)
+			summary, err = ReconcileEnabledModelMetadata()
+			require.NoError(t, err)
+			assert.Zero(t, summary.CreatedModels)
+			var after CatalogSyncState
+			require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
+			assert.Equal(t, before, after)
+			assert.Equal(t, after.Revision, after.RuntimeRevision)
+			assert.Equal(t, "ready", after.PublicationState)
+			// These are real deferred data migrations, exercised only after the
+			// full schema/plugin prerequisites above, never a startup bypass.
+			require.NoError(t, migrateModelBillingCurrency(db))
+			require.NoError(t, BackfillLocalMarketplaceMetadata(db))
+			require.NoError(t, InitializeMarketplaceDisplayOrders(db))
+		})
+	}
+}
+
+func TestCatalogRuntimeOrdinaryMissingPrerequisites(t *testing.T) {
+	db := catalogSyncTestDB(t, "sqlite")
+	for _, table := range []any{&Option{}, &Model{}, &Vendor{}} {
+		require.NoError(t, db.AutoMigrate(table))
+	}
+	require.NoError(t, MigrateCatalogSync(db))
+	callbackRan := false
+	require.Error(t, WithModelMetadataTransaction(func(*gorm.DB) error { callbackRan = true; return nil }))
+	assert.False(t, callbackRan)
+	require.Error(t, InitializeMarketplaceDisplayOrders(db))
+	require.Error(t, migrateModelBillingCurrency(db))
+	require.Error(t, BackfillLocalMarketplaceMetadata(db))
+	var state CatalogSyncState
+	require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+	assert.Zero(t, state.Revision)
+}
+
+func TestCatalogRuntimeOrdinaryForeignRoot(t *testing.T) {
+	active := catalogFenceTestDB(t, "sqlite")
+	preserveOrdinaryCatalogRuntime(t)
+	catalogBusinessActor(t, active)
+	require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"active":3}`}))
+	foreign := catalogFenceTestDB(t, "sqlite")
+	DB = active
+	before := runtimeStageForTest(t, active).input
+	called := false
+	err := withMarketplaceOrderTransaction(foreign, func(tx *gorm.DB) error {
+		called = true
+		return tx.Create(&Vendor{Name: "must-not-write"}).Error
+	})
+	require.ErrorContains(t, err, "active root database")
+	assert.False(t, called)
+	var count int64
+	require.NoError(t, foreign.Model(&Vendor{}).Count(&count).Error)
+	assert.Zero(t, count)
+	assert.True(t, before.same(runtimeStageForTest(t, active).input))
+	price, ok := ratio_setting.GetModelPrice("active", false)
+	assert.True(t, ok)
+	assert.Equal(t, 3.0, price)
+}
+
+func TestCatalogRuntimeOrdinaryCurrencyBoundary(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			entry := Model{ModelName: "currency-model", BillingCurrency: "USD"}
+			require.NoError(t, entry.Insert())
+			require.NoError(t, UpdateOptionsBulk(map[string]string{
+				"billing_setting.billing_mode": `{"currency-model":"tiered_expr"}`,
+				"billing_setting.billing_expr": `{"currency-model":"p * 3"}`,
+			}))
+			rebuilt := false
+			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("ordinary-currency-boundary", func(tx *gorm.DB) {
+				if tx.Statement.Table != "vendors" || tx.Statement.ConnPool != db.Statement.ConnPool {
+					return
+				}
+				rebuilt = true
+				assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), entry.ModelName, func() error {
+					t.Error("selection escaped between currency commit and runtime acknowledgement")
+					return nil
+				}), ErrCatalogWriterBusy)
+				assert.ErrorIs(t, TryWithCatalogWriteBarrier(context.Background(), func() error { return nil }), ErrCatalogWriterBusy)
+				published := make(chan struct{})
+				go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(published) }()
+				select {
+				case <-published:
+				case <-time.After(3 * time.Second):
+					t.Error("registry pin retained during ordinary required rebuild")
+				}
+			}))
+			entry.BillingCurrency = "CNY"
+			err := entry.Update()
+			require.NoError(t, db.Callback().Query().Remove("ordinary-currency-boundary"))
+			require.NoError(t, err)
+			require.True(t, rebuilt)
+			require.NoError(t, WithCatalogPricingRead(context.Background(), entry.ModelName, func() error {
+				money, _, err := ResolveBillingMoneyContext(db, entry.ModelName)
+				require.NoError(t, err)
+				assert.Equal(t, "CNY", string(money.SourceCurrency))
+				expression, ok := billing_setting.GetBillingExpr(entry.ModelName)
+				assert.True(t, ok)
+				assert.Equal(t, "p * 3", expression)
+				return nil
+			}))
+			assertRuntimeLocksReleased(t)
+		})
+	}
+}
+
+func TestCatalogRuntimeOrdinaryUnknownMutation(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			loan, err := pool.Conn(context.Background())
+			require.NoError(t, err)
+			defer loan.Close()
+			require.NoError(t, loan.Raw(func(native any) error {
+				connection := &catalogBusinessLostAckConnection{Conn: native.(driver.Conn)}
+				observed := sql.OpenDB(catalogBusinessLostAckConnector{connection, pool.Driver()})
+				observed.SetMaxOpenConns(1)
+				defer observed.Close()
+				root := db.Session(&gorm.Session{NewDB: true, Context: context.Background()})
+				root.Statement.ConnPool = observed
+				DB = root
+				defer func() { DB = db }()
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("ordinary-unknown-commit", func(tx *gorm.DB) {
+					if tx.Statement.Table == "vendors" {
+						connection.armed.Store(true)
+					}
+				}))
+				lookupFailure := errors.New("ordinary durable lookup unavailable")
+				require.NoError(t, db.Callback().Query().Before("gorm:query").Register("ordinary-unknown-lookup", func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_states" && connection.dropped.Load() == 1 {
+						tx.AddError(lookupFailure)
+					}
+				}))
+				calls := 0
+				err := WithModelMetadataTransaction(func(tx *gorm.DB) error {
+					calls++
+					return tx.Create(&Vendor{Name: "committed-once"}).Error
+				})
+				require.NoError(t, db.Callback().Create().Remove("ordinary-unknown-commit"))
+				require.NoError(t, db.Callback().Query().Remove("ordinary-unknown-lookup"))
+				require.ErrorIs(t, err, ErrCatalogCommitUncertain)
+				require.ErrorIs(t, err, lookupFailure)
+				assert.Equal(t, 1, calls)
+				assert.Equal(t, int64(1), connection.dropped.Load())
+				var state CatalogSyncState
+				require.NoError(t, root.First(&state, CatalogSyncStateID).Error)
+				assert.Equal(t, "committed_pending_publish", state.PublicationState)
+				require.ErrorIs(t, WithModelMetadataTransaction(func(*gorm.DB) error { t.Error("pending callback ran"); return nil }), ErrCatalogPublicationPending)
+				require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+				require.NoError(t, root.First(&state, CatalogSyncStateID).Error)
+				assert.Equal(t, int64(1), state.Revision)
+				assert.Equal(t, state.Revision, state.RuntimeRevision)
+				var count int64
+				require.NoError(t, root.Model(&Vendor{}).Count(&count).Error)
+				assert.Equal(t, int64(1), count)
+				return nil
+			}))
+		})
+	}
 }
 
 // A detached candidate is insufficient: failure after the actual mutation must

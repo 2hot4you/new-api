@@ -40,6 +40,162 @@ type catalogRuntimeStage struct {
 	compatibility map[string]bool
 }
 
+// An ordinary mutation has no managed plan, backup or operation. Preparation
+// captures actual previous facts before constructing a detached prospective
+// candidate. Only commitOrdinaryCatalogMutationGuarded may bind its postimage.
+type catalogOrdinaryMutation struct {
+	previous catalogRuntimeInput
+	stage    *catalogRuntimeStage
+	wrote    bool
+}
+
+func prepareOrdinaryCatalogMutation(ctx context.Context, db *gorm.DB, updates map[string]string) (*catalogOrdinaryMutation, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if db == nil || DB == nil || db.Statement.ConnPool != DB.Statement.ConnPool {
+		return nil, errors.New("ordinary catalog publication requires the active root database")
+	}
+	var previous catalogRuntimeInput
+	err := WithCatalogWriteBarrier(func() error {
+		return catalogReferenceTransaction(ctx, db, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+			if state.PublicationState != "ready" || state.PendingOperationID != "" || state.Revision != state.RuntimeRevision {
+				return ErrCatalogPublicationPending
+			}
+			var err error
+			previous, err = captureCatalogRuntimeTx(tx, state, pin)
+			return err
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	prospective := previous
+	prospective.options = maps.Clone(previous.options)
+	whitelist := catalogmanifest.PriceOptions()
+	for key, value := range updates {
+		if _, known := whitelist[key]; known || catalogmanifest.IsPricingNamespace(key) || key == "USDExchangeRate" {
+			prospective.options[key] = value
+		}
+	}
+	stage, err := stageProspectiveCatalogRuntime(prospective, previous.options, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &catalogOrdinaryMutation{previous: previous, stage: stage}, nil
+}
+
+// Caller owns the final common writer; write is SQL-only and invoked once,
+// after a fresh authoritative recheck. It must never compile or publish, commit
+// its transaction, or assume that an error means its COMMIT did not happen.
+// publishOther runs after the real commit/pin release but before the catalog
+// acknowledgement, for supplied noncatalog values in the same transaction.
+func commitOrdinaryCatalogMutationGuarded(ctx context.Context, db *gorm.DB, prepared *catalogOrdinaryMutation, write func(*gorm.DB) error, publishOther func() error) error {
+	changed := false
+	err := catalogReferenceTransaction(ctx, db, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+		fresh, err := captureCatalogRuntimeTx(tx, state, pin)
+		if err != nil {
+			return err
+		}
+		if !prepared.previous.same(fresh) {
+			return ErrCatalogSyncPlanStale
+		}
+		prepared.wrote = true
+		if err := write(tx); err != nil {
+			return err
+		}
+		post, err := captureCatalogRuntimeTx(tx, state, pin)
+		if err != nil {
+			return err
+		}
+		if !maps.Equal(post.options, prepared.stage.input.options) || post.dependencies != fresh.dependencies || post.generation != fresh.generation || post.state != fresh.state {
+			return ErrCatalogSyncPlanStale
+		}
+		changed = post.digest != fresh.digest
+		if changed {
+			state.Revision++
+			state.CurrentDigest = post.digest
+			state.PublicationState = "committed_pending_publish"
+			if err := tx.Model(&CatalogSyncState{}).Where("id = ?", state.ID).Updates(map[string]any{
+				"revision": state.Revision, "current_digest": state.CurrentDigest,
+				"publication_state": state.PublicationState, "pending_operation_id": "",
+			}).Error; err != nil {
+				return err
+			}
+			post.state = *state
+		}
+		prepared.stage.input = post
+		return nil
+	})
+	if errors.Is(err, ErrCatalogCommitUncertain) && changed && prepared.stage.input.state.PublicationState == "committed_pending_publish" {
+		// Inspect the exact durable postimage without replaying write. Even a
+		// match cannot identify this attempt against another process: ordinary
+		// mutations have no unique operation ID. Retain uncertainty and pending;
+		// explicit recovery can publish the authoritative committed revision.
+		lookup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		lookupErr := catalogReferenceTransaction(lookup, db, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+			actual, captureErr := captureCatalogRuntimeTx(tx, state, pin)
+			if captureErr != nil {
+				return captureErr
+			}
+			if !prepared.stage.input.same(actual) {
+				return ErrCatalogSyncPlanStale
+			}
+			return nil
+		})
+		if lookupErr != nil {
+			err = errors.Join(err, lookupErr)
+		}
+	}
+	if err != nil {
+		if errors.Is(err, ErrCatalogCommitUncertain) {
+			catalogRuntime.ready = false
+		}
+		return err
+	}
+	if publishOther != nil {
+		if err := publishOther(); err != nil {
+			if changed {
+				catalogRuntime.ready = false
+			}
+			return err
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return publishCatalogRuntimeGuarded(ctx, prepared.stage)
+}
+
+// Only preparation may be repeated after another writer wins the fresh
+// recheck. Once the SQL callback starts, every result (including uncertainty)
+// returns directly. This preserves concurrent ordinary appends without replaying
+// closures that mutate IDs, counters or caller-owned result objects.
+func withOrdinaryCatalogMutation(db *gorm.DB, updates map[string]string, commit func(*catalogOrdinaryMutation) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for range 64 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		prepared, err := prepareOrdinaryCatalogMutation(ctx, db, updates)
+		if err != nil {
+			return err
+		}
+		err = WithCatalogWriteBarrier(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return commit(prepared)
+		})
+		if !errors.Is(err, ErrCatalogSyncPlanStale) || prepared.wrote {
+			return err
+		}
+	}
+	return ErrCatalogSyncPlanStale
+}
+
 // The empty manifests are ONLY an adapter to the existing desired/effective
 // dependency capture. Actual committed options and metadata are bound below;
 // this is never managed-source completeness or prospective-write attestation.
@@ -304,7 +460,9 @@ func publishCatalogRuntimeGuarded(ctx context.Context, stage *catalogRuntimeStag
 		defer cancel()
 		var state CatalogSyncState
 		lookupErr := DB.WithContext(lookup).First(&state, CatalogSyncStateID).Error
-		if lookupErr == nil && state.Revision == stage.input.state.Revision && state.RuntimeRevision == state.Revision && state.BaselineGeneration == stage.input.state.BaselineGeneration && state.PublicationState == "ready" && state.PendingOperationID == "" {
+		expected := stage.input.state
+		expected.RuntimeRevision, expected.PublicationState, expected.PendingOperationID = expected.Revision, "ready", ""
+		if lookupErr == nil && state == expected {
 			if stage.input.operation.ID != "" {
 				var operation CatalogSyncOperation
 				lookupErr = DB.WithContext(lookup).First(&operation, "id = ?", stage.input.operation.ID).Error
