@@ -613,3 +613,127 @@ func TestCatalogRuntimeUnknownReadyState(t *testing.T) {
 	require.NoError(t, db.Model(&CatalogSyncState{}).Where("id = ?", CatalogSyncStateID).Update("pending_operation_id", "unknown-operation").Error)
 	require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "any", func() error { return nil }), ErrCatalogPublicationPending)
 }
+
+// Lifecycle projection must not invoke the legacy whole-channel repair Save.
+func TestCatalogRuntimeAdvancedSettingsReadOnly(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			preserveCatalogCandidate(t)
+			db := catalogFenceTestDB(t, engine)
+			result := runtimePendingOperation(t, db)
+			runtimeAdvancedChannel(t, db, false)
+			var channel Channel
+			require.NoError(t, db.First(&channel).Error)
+			require.NoError(t, db.Model(&channel).Updates(map[string]any{
+				"settings": "{", "key": "preserve-channel-secret", "used_quota": 123,
+				"other_info": `{"target":"local"}`, "balance": 12.5,
+				"molii_grok_management_access_token": "preserve-management-secret",
+			}).Error)
+			require.NoError(t, db.First(&channel, channel.Id).Error)
+			writes := 0
+			require.NoError(t, db.Callback().Update().Before("gorm:update").Register("runtime-channel-write", func(tx *gorm.DB) {
+				if tx.Statement.Table == "channels" {
+					writes++
+				}
+			}))
+			defer db.Callback().Update().Remove("runtime-channel-write")
+			err := PublishCatalogSyncRevision(context.Background(), result.Revision)
+			assert.Error(t, err, "malformed lifecycle settings must fail publication")
+			var after Channel
+			require.NoError(t, db.First(&after, channel.Id).Error)
+			assert.Equal(t, channel, after, "publication must preserve the complete actual channel row")
+			assert.Zero(t, writes, "lifecycle must not attempt a channel write")
+			assertRuntimeLocksReleased(t)
+			require.ErrorContains(t, err, "decode advanced custom channel settings")
+			assertRuntimePending(t, db, result)
+			// Ordinary callers retain their explicit legacy repair behavior.
+			after.GetOtherSettings()
+			require.NoError(t, db.First(&after, channel.Id).Error)
+			assert.Equal(t, "{}", after.OtherSettings)
+			assert.Equal(t, 1, writes)
+			valid := `{"advanced_custom":{"advanced_routes":[{"incoming_path":"/v1/responses","upstream_path":"/v1/responses"}]}}`
+			require.NoError(t, db.Model(&channel).Update("settings", valid).Error)
+			require.NoError(t, db.First(&channel, channel.Id).Error)
+			writes = 0
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			require.NoError(t, db.First(&after, channel.Id).Error)
+			assert.Equal(t, channel, after)
+			assert.Zero(t, writes)
+			assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIResponse}, GetModelSupportEndpointTypes("managed-model"))
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "managed-model", func() error { return nil }))
+		})
+	}
+}
+
+func TestCatalogRuntimeGroupIndexContention(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			for _, canceled := range []bool{false, true} {
+				name := "busy"
+				if canceled {
+					name = "canceled"
+				}
+				t.Run(name, func(t *testing.T) {
+					preserveCatalogCandidate(t)
+					db := catalogFenceTestDB(t, engine)
+					result := runtimePendingOperation(t, db)
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					entered := make(chan struct{})
+					var once sync.Once
+					require.NoError(t, db.Callback().Query().After("gorm:query").Register("runtime-group-entered", func(tx *gorm.DB) {
+						if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
+							once.Do(func() {
+								if canceled {
+									cancel()
+								}
+								close(entered)
+							})
+						}
+					}))
+					defer db.Callback().Query().Remove("runtime-group-entered")
+					modelEnableGroupsLock.Lock()
+					var release sync.Once
+					defer release.Do(modelEnableGroupsLock.Unlock)
+					groupsBefore, quotaBefore := maps.Clone(modelEnableGroups), maps.Clone(modelQuotaTypeMap)
+					done := make(chan error, 1)
+					go func() { done <- PublishCatalogSyncRevision(ctx, result.Revision) }()
+					select {
+					case <-entered:
+					case <-time.After(5 * time.Second):
+						t.Fatal("publication did not reach required rebuild")
+					}
+					var err error
+					select {
+					case err = <-done:
+					case <-time.After(time.Second):
+						release.Do(modelEnableGroupsLock.Unlock)
+						err = <-done
+						t.Errorf("publication blocked on held group lock: %v", err)
+						return
+					}
+					if canceled {
+						require.ErrorIs(t, err, context.Canceled)
+					} else {
+						require.ErrorIs(t, err, ErrCatalogWriterBusy)
+					}
+					assert.Equal(t, groupsBefore, modelEnableGroups)
+					assert.Equal(t, quotaBefore, modelQuotaTypeMap)
+					assertRuntimeLocksReleased(t)
+					assertRuntimePending(t, db, result)
+					release.Do(modelEnableGroupsLock.Unlock)
+					require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+					assertRuntimeLocksReleased(t)
+					require.True(t, modelEnableGroupsLock.TryLock(), "retry leaked group lock")
+					modelEnableGroupsLock.Unlock()
+					var state CatalogSyncState
+					require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+					assert.Equal(t, result.Revision, state.Revision)
+					assert.Equal(t, result.Revision, state.RuntimeRevision)
+					assert.Equal(t, "ready", state.PublicationState)
+					require.NoError(t, WithCatalogPricingRead(context.Background(), "managed-model", func() error { return nil }))
+				})
+			}
+		})
+	}
+}

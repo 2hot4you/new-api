@@ -1087,19 +1087,27 @@ func (channel *Channel) GetOtherSettings() dto.ChannelOtherSettings {
 }
 
 func (channel *Channel) getOtherSettings(db *gorm.DB) dto.ChannelOtherSettings {
+	setting, err := channel.parseOtherSettings()
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to unmarshal setting: channel_id=%d, error=%v", channel.Id, err))
+		channel.OtherSettings = "{}" // 清空设置以避免后续错误
+		_ = db.Save(channel).Error   // 保存修改，保留调用方的上下文
+	}
+	return setting
+}
+
+// parseOtherSettings shares decoding and presets with ordinary reads without
+// repairing the channel. Catalog publication must never save channel state.
+func (channel *Channel) parseOtherSettings() (dto.ChannelOtherSettings, error) {
 	setting := dto.ChannelOtherSettings{}
+	var err error
 	if channel.OtherSettings != "" {
-		err := common.UnmarshalJsonStr(channel.OtherSettings, &setting)
-		if err != nil {
-			common.SysLog(fmt.Sprintf("failed to unmarshal setting: channel_id=%d, error=%v", channel.Id, err))
-			channel.OtherSettings = "{}" // 清空设置以避免后续错误
-			_ = db.Save(channel).Error   // 保存修改，保留调用方的上下文
-		}
+		err = common.UnmarshalJsonStr(channel.OtherSettings, &setting)
 	}
 	if preset := common.GetAdvancedCustomPreset(channel.Type); preset != nil {
 		setting.AdvancedCustom = preset
 	}
-	return setting
+	return setting, err
 }
 
 func (channel *Channel) SetOtherSettings(setting dto.ChannelOtherSettings) {

@@ -231,7 +231,16 @@ func loadPricingAdvancedCustomConfigs(db *gorm.DB, enableAbilities []AbilityWith
 		if channel.Type != constant.ChannelTypeAdvancedCustom {
 			continue
 		}
-		if config := channel.getOtherSettings(db).AdvancedCustom; config != nil {
+		var settings dto.ChannelOtherSettings
+		if lifecycle {
+			settings, err = channel.parseOtherSettings()
+			if err != nil {
+				return nil, fmt.Errorf("decode advanced custom channel settings: channel_id=%d: %w", channelID, err)
+			}
+		} else {
+			settings = channel.getOtherSettings(db)
+		}
+		if config := settings.AdvancedCustom; config != nil {
 			configs[channelID] = config
 		}
 	}
@@ -616,7 +625,18 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 	}
 
 	// 刷新缓存映射，供高并发快速查询
-	modelEnableGroupsLock.Lock()
+	if stage != nil {
+		if err := db.Statement.Context.Err(); err != nil {
+			return err
+		}
+		// Keep lifecycle rebuild bounded while common/pricing/endpoint locks
+		// are held. A busy index leaves publication pending for retry.
+		if !modelEnableGroupsLock.TryLock() {
+			return ErrCatalogWriterBusy
+		}
+	} else {
+		modelEnableGroupsLock.Lock()
+	}
 	modelEnableGroups = make(map[string][]string)
 	modelQuotaTypeMap = make(map[string]int)
 	for _, p := range pricingMap {
