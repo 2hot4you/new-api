@@ -20,7 +20,12 @@ import (
 // IDs from being exposed or guessed from the wire; soft-delete/recreate obtains
 // a different ID even when name, timestamps and mutable values are identical.
 func CaptureCatalogTargetTx(ctx context.Context, tx *gorm.DB, targetID string, state *CatalogSyncState) (catalogmanifest.Snapshot, error) {
-	snapshot, err := ExportManagedCatalogTx(ctx, tx, targetID)
+	return captureCatalogTargetTx(ctx, tx, targetID, state, false)
+}
+
+// Structural capture is for attestation rechecks, never standalone approval.
+func captureCatalogTargetTx(ctx context.Context, tx *gorm.DB, targetID string, state *CatalogSyncState, structureOnly bool) (catalogmanifest.Snapshot, error) {
+	snapshot, err := exportManagedCatalogTx(ctx, tx, targetID, structureOnly)
 	if err != nil {
 		return snapshot, err
 	}
@@ -85,6 +90,16 @@ func catalogPersistedDigest(tx *gorm.DB) (string, error) {
 // ExportManagedCatalogTx reads through the caller's stable transaction and
 // catalog read/write barrier. It never reads process price caches.
 func ExportManagedCatalogTx(ctx context.Context, tx *gorm.DB, sourceID string) (catalogmanifest.Snapshot, error) {
+	return exportManagedCatalogTx(ctx, tx, sourceID, false)
+}
+
+func exportManagedCatalogTx(ctx context.Context, tx *gorm.DB, sourceID string, structureOnly bool) (catalogmanifest.Snapshot, error) {
+	validatePrice := catalogmanifest.ValidatePriceValue
+	validateSnapshot := catalogmanifest.ValidateSnapshot
+	if structureOnly {
+		validatePrice = catalogmanifest.ValidatePriceValueStructure
+		validateSnapshot = catalogmanifest.ValidateSnapshotStructure
+	}
 	if tx == nil || strings.TrimSpace(sourceID) == "" {
 		return catalogmanifest.Snapshot{}, fmt.Errorf("catalog transaction and source identity are required")
 	}
@@ -199,7 +214,7 @@ func ExportManagedCatalogTx(ctx context.Context, tx *gorm.DB, sourceID string) (
 				}
 			}
 			raw := string(leaves[leafName])
-			if err := catalogmanifest.ValidatePriceValue(option.Key, raw); err != nil {
+			if err := validatePrice(option.Key, raw); err != nil {
 				return catalogmanifest.Snapshot{}, err
 			}
 			canonical, err := catalogmanifest.CanonicalJSON(raw)
@@ -227,7 +242,7 @@ func ExportManagedCatalogTx(ctx context.Context, tx *gorm.DB, sourceID string) (
 		return catalogmanifest.Snapshot{}, err
 	}
 	snapshot.Digest = digest
-	if err := catalogmanifest.ValidateSnapshot(snapshot); err != nil {
+	if err := validateSnapshot(snapshot); err != nil {
 		return catalogmanifest.Snapshot{}, err
 	}
 	return snapshot, nil

@@ -39,7 +39,17 @@ func LoadCatalogSyncBaselineTx(tx *gorm.DB, state *CatalogSyncState) (catalogman
 // Persist the full applied source, including original audit provenance. Caller
 // must hold the catalog writer and DB anchor inside the successful apply tx.
 func SaveCatalogSyncBaselineTx(tx *gorm.DB, source catalogmanifest.Snapshot, objectVersions map[string]string, expectedGeneration int64) (int64, error) {
-	if err := catalogmanifest.ValidateSnapshot(source); err != nil {
+	return saveCatalogSyncBaselineTx(tx, source, objectVersions, expectedGeneration, false)
+}
+
+// structureOnly is reserved for the attested write path: the caller must have
+// already checked the full staged attestation under the root transaction fences.
+func saveCatalogSyncBaselineTx(tx *gorm.DB, source catalogmanifest.Snapshot, objectVersions map[string]string, expectedGeneration int64, structureOnly bool) (int64, error) {
+	validate := catalogmanifest.ValidateSnapshot
+	if structureOnly {
+		validate = catalogmanifest.ValidateSnapshotStructure
+	}
+	if err := validate(source); err != nil {
 		return 0, err
 	}
 	var state CatalogSyncState
@@ -110,6 +120,7 @@ type CatalogSyncState struct {
 
 type CatalogSyncPlan struct {
 	ID                 string          `gorm:"primaryKey;size:64"`
+	Validation         CatalogSyncText `json:"-"`
 	Body               CatalogSyncText `gorm:"not null"`
 	Digest             string          `gorm:"size:71;not null"`
 	TargetRevision     int64           `gorm:"not null"`

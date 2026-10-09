@@ -86,6 +86,10 @@ type Change struct {
 
 type Plan struct {
 	ID                 string     `json:"id"`
+	Kind               string     `json:"kind"`
+	RestoreOperationID string     `json:"restore_operation_id,omitempty"`
+	ValidationDigest   string     `json:"validation_digest"`
+	ReferenceDigest    string     `json:"reference_digest"`
 	Snapshot           Snapshot   `json:"snapshot"`
 	TargetDigest       string     `json:"target_digest"`
 	BaselineGeneration int64      `json:"baseline_generation"`
@@ -410,6 +414,17 @@ func decodeFields(raw string, destination any, requireAll bool) error {
 }
 
 func ValidateSnapshot(snapshot Snapshot) error {
+	return validateSnapshot(snapshot, ValidatePriceValue)
+}
+
+// ValidateSnapshotStructure checks the wire shape, identities and digest only.
+// It never compiles or evaluates expressions and cannot authorize application.
+// Attested transactions must additionally match their staged full validation.
+func ValidateSnapshotStructure(snapshot Snapshot) error {
+	return validateSnapshot(snapshot, ValidatePriceValueStructure)
+}
+
+func validateSnapshot(snapshot Snapshot, validatePrice func(string, string) error) error {
 	if snapshot.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("unsupported snapshot schema version %d", snapshot.SchemaVersion)
 	}
@@ -530,7 +545,7 @@ func ValidateSnapshot(snapshot Snapshot) error {
 		if price.BillingCurrency != currency {
 			return fmt.Errorf("price %q currency mismatch", key.Option)
 		}
-		if err := ValidatePriceValue(key.Option, price.Value); err != nil {
+		if err := validatePrice(key.Option, price.Value); err != nil {
 			return err
 		}
 	}
@@ -550,6 +565,31 @@ func ValidateSnapshot(snapshot Snapshot) error {
 // ValidatePriceValue reuses the billing compiler for expressions. Plugin
 // binding/schema smoke tests still belong to the target's complete draft.
 func ValidatePriceValue(option, raw string) error {
+	if err := ValidatePriceValueStructure(option, raw); err != nil {
+		return err
+	}
+	if option != "billing_setting.billing_expr" && option != billing_setting.PluginBillingExprOption {
+		return nil
+	}
+	var expression string
+	_ = common.UnmarshalJsonStr(raw, &expression)
+	if _, err := billingexpr.CompileFromCache(expression); err != nil {
+		return fmt.Errorf("price %q has invalid expression", option)
+	}
+	if option == billing_setting.PluginBillingExprOption && billingexpr.UsesFixedPricing(expression) {
+		return fmt.Errorf("plugin price cannot use fixed pricing")
+	}
+	if len(billingexpr.UsedUsageKeys(expression)) == 0 {
+		if err := billing_setting.SmokeTestExpr(expression); err != nil {
+			return fmt.Errorf("price %q failed expression validation", option)
+		}
+	}
+	return nil
+}
+
+// ValidatePriceValueStructure performs no compilation or evaluation. Semantic
+// expression validation is mandatory outside the fenced transaction.
+func ValidatePriceValueStructure(option, raw string) error {
 	if option == "billing_setting.billing_mode" {
 		var mode string
 		if err := common.UnmarshalJsonStr(raw, &mode); err != nil || (mode != "ratio" && mode != "tiered_expr") {
@@ -565,17 +605,6 @@ func ValidatePriceValue(option, raw string) error {
 		if prefix, _, found := strings.Cut(strings.TrimSpace(expression), ":"); found && strings.HasPrefix(prefix, "v") && prefix != "v1" {
 			if _, err := strconv.ParseUint(prefix[1:], 10, 64); err == nil {
 				return fmt.Errorf("price %q has unsupported expression version", option)
-			}
-		}
-		if _, err := billingexpr.CompileFromCache(expression); err != nil {
-			return fmt.Errorf("price %q has invalid expression", option)
-		}
-		if option == billing_setting.PluginBillingExprOption && billingexpr.UsesFixedPricing(expression) {
-			return fmt.Errorf("plugin price cannot use fixed pricing")
-		}
-		if len(billingexpr.UsedUsageKeys(expression)) == 0 {
-			if err := billing_setting.SmokeTestExpr(expression); err != nil {
-				return fmt.Errorf("price %q failed expression validation", option)
 			}
 		}
 		return nil
@@ -594,6 +623,17 @@ func ValidatePriceValue(option, raw string) error {
 // SnapshotDigest excludes display time and the supplied digest, and includes
 // source, coverage, compatibility declarations and every explicit leaf.
 func SnapshotDigest(snapshot Snapshot) (string, error) {
+	canonical, err := CanonicalSnapshotContent(snapshot)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(canonical))), nil
+}
+
+// CanonicalSnapshotContent is the exact content hashed by SnapshotDigest. It
+// neither compiles nor evaluates expressions. Attestations reuse this encoding
+// so entry order, equivalent numeric JSON and display time are not new drafts.
+func CanonicalSnapshotContent(snapshot Snapshot) (string, error) {
 	snapshot.ExportedAt = 0
 	snapshot.Digest = ""
 	snapshot.Entries = slices.Clone(snapshot.Entries)
@@ -648,5 +688,5 @@ func SnapshotDigest(snapshot Snapshot) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(canonical))), nil
+	return canonical, nil
 }

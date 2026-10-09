@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync"
 
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -10,6 +11,24 @@ import (
 )
 
 var catalogBarrier sync.RWMutex
+
+var ErrCatalogWriterBusy = errors.New("catalog writer is busy")
+
+// TryWithCatalogWriteBarrier is the sensitive entrypoint's bounded acquisition
+// boundary. Ordinary writers retain their existing blocking API and lock order.
+func TryWithCatalogWriteBarrier(ctx context.Context, write func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !catalogBarrier.TryLock() {
+		return ErrCatalogWriterBusy
+	}
+	defer catalogBarrier.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return write()
+}
 
 func WithCatalogWriteBarrier(write func() error) error {
 	catalogBarrier.Lock()

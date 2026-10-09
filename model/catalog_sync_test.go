@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -32,6 +35,362 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 )
+
+func catalogValidationFixture(t *testing.T, db *gorm.DB, registry *jsplugin.Registry) catalogmanifest.Snapshot {
+	t.Helper()
+	source := pricingUsagePluginSource("1.0.0", `{seconds:{type:"number",unit:"second"}}`)
+	plugin, err := registry.Register(source, jsplugin.Options{})
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&TaskPlugin{Key: plugin.Meta.Key, Version: plugin.Meta.Version, APIVersion: 1, Source: LongText(source), SourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))), Active: true, Enabled: true}).Error)
+	require.NoError(t, db.Create(&Model{ModelName: "pricing-usage-model", BillingCurrency: "CNY"}).Error)
+	require.NoError(t, db.Create(&Option{Key: "billing_setting.billing_expr", Value: `{"pricing-usage-model":"u(\"seconds\") * 0.4"}`}).Error)
+	snapshot, err := ExportManagedCatalogTx(context.Background(), db, "target")
+	require.NoError(t, err)
+	return snapshot
+}
+
+func TestCatalogSyncValidationAttestation(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			registry := jsplugin.NewRegistry()
+			snapshot := catalogValidationFixture(t, db, registry)
+			var input catalogValidationInput
+			err := WithCatalogWriteBarrier(func() error {
+				return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+					var err error
+					snapshot, err = captureCatalogTargetTx(context.Background(), tx, "target", state, true)
+					if err != nil {
+						return err
+					}
+					input, err = captureCatalogValidationInputTx(tx, pin, snapshot, snapshot, nil)
+					return err
+				})
+			})
+			require.NoError(t, err)
+			attestation, err := stageCatalogValidation(input)
+			require.NoError(t, err)
+			plan := catalogmanifest.Plan{Kind: "sync", ValidationDigest: attestation.digest, ReferenceDigest: "server-reference-commitment"}
+			row := CatalogSyncPlan{ID: "attestation", Validation: CatalogSyncText(attestation.payload), Digest: "fixture", Body: "fixture"}
+			require.NoError(t, db.Create(&row).Error)
+			var stored CatalogSyncPlan
+			require.NoError(t, db.First(&stored, "id = ?", row.ID).Error)
+			require.NoError(t, verifyCatalogValidation(stored, plan, input))
+			reordered := snapshot
+			reordered.Entries = slices.Clone(snapshot.Entries)
+			slices.Reverse(reordered.Entries)
+			pin, err := registry.TryPinGeneration()
+			require.NoError(t, err)
+			equivalent, err := captureCatalogValidationInputTx(db, pin, reordered, reordered, nil)
+			pin.Release()
+			require.NoError(t, err)
+			require.NoError(t, verifyCatalogValidation(stored, plan, equivalent), "equivalent snapshot entry order must have one canonical commitment")
+			for _, missing := range []string{"payload", "validation", "reference"} {
+				badRow, badPlan := stored, plan
+				switch missing {
+				case "payload":
+					badRow.Validation = ""
+				case "validation":
+					badPlan.ValidationDigest = ""
+				case "reference":
+					badPlan.ReferenceDigest = ""
+				}
+				require.ErrorIs(t, verifyCatalogValidation(badRow, badPlan, input), ErrCatalogSyncPlanStale)
+			}
+			public, err := common.Marshal(stored)
+			require.NoError(t, err)
+			assert.NotContains(t, string(public), attestation.payload)
+			assert.NotContains(t, attestation.payload, "buildSubmitRequest")
+			assert.NotContains(t, attestation.payload, "IncarnationKey")
+			// Currency and raw expression changes are re-read from the DB and
+			// yield a different full draft commitment, independent of the actor.
+			for _, values := range []struct{ currency, expression string }{{"CNY", `u("seconds") * 0.8`}, {"USD", `u("seconds") * 0.4`}} {
+				require.NoError(t, db.Model(&Model{}).Where("model_name = ?", "pricing-usage-model").Update("billing_currency", values.currency).Error)
+				encoded, err := common.Marshal(map[string]string{"pricing-usage-model": values.expression})
+				require.NoError(t, err)
+				require.NoError(t, db.Model(&Option{}).Where(map[string]any{"key": "billing_setting.billing_expr"}).Update("value", string(encoded)).Error)
+				require.NoError(t, WithCatalogWriteBarrier(func() error {
+					return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+						current, err := captureCatalogTargetTx(context.Background(), tx, "target", state, true)
+						if err != nil {
+							return err
+						}
+						changed, err := captureCatalogValidationInputTx(tx, pin, current, current, nil)
+						if err != nil {
+							return err
+						}
+						assert.ErrorIs(t, verifyCatalogValidation(stored, plan, changed), ErrCatalogSyncPlanStale)
+						return nil
+					})
+				}))
+			}
+			// Source snapshot maps cannot alias the server-owned validation input.
+			snapshot.Entries = slices.Clone(snapshot.Entries)
+			snapshot.Entries[0].Value = "invalid changed caller-owned value"
+			unchanged, err := stageCatalogValidation(input)
+			require.NoError(t, err)
+			assert.Equal(t, attestation, unchanged)
+			snapshot, err = ExportManagedCatalogTx(context.Background(), db, "target")
+			require.NoError(t, err)
+			// A source edit with unchanged key/version/hash cannot masquerade as
+			// the effective old program, even if all schema metadata still matches.
+			require.NoError(t, db.Model(&TaskPlugin{}).Where("active = ?", true).Update("source", "secret-malformed-source").Error)
+			pin, err = registry.TryPinGeneration()
+			require.NoError(t, err)
+			_, err = captureCatalogValidationInputTx(db, pin, snapshot, snapshot, nil)
+			pin.Release()
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "secret-malformed-source")
+		})
+	}
+}
+
+// Fixed persisted declaration from Task3, before the attestation column exists.
+type catalogPlanBeforeAttestation struct {
+	ID                 string          `gorm:"primaryKey;size:64"`
+	Body               CatalogSyncText `gorm:"not null"`
+	Digest             string          `gorm:"size:71;not null"`
+	TargetRevision     int64           `gorm:"not null"`
+	BaselineGeneration int64           `gorm:"not null"`
+	ExpiresAt          int64           `gorm:"not null;index"`
+}
+
+func (catalogPlanBeforeAttestation) TableName() string { return "catalog_sync_plans" }
+
+func TestCatalogSyncValidationMigration(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogSyncTestDB(t, engine)
+			require.NoError(t, db.AutoMigrate(&catalogPlanBeforeAttestation{}))
+			require.NoError(t, db.Create(&catalogPlanBeforeAttestation{ID: "old-plan", Body: "old-body", Digest: "old-digest", TargetRevision: 7, BaselineGeneration: 3, ExpiresAt: 100}).Error)
+			for attempt := range 3 {
+				recorder := &migrationSQLRecorder{}
+				require.NoError(t, MigrateCatalogSync(db.Session(&gorm.Session{Logger: recorder})))
+				if attempt > 0 {
+					assert.Empty(t, recorder.schemaMutations(), "repeated migration must not alter schema")
+				}
+			}
+			var old CatalogSyncPlan
+			require.NoError(t, db.First(&old, "id = ?", "old-plan").Error)
+			assert.Equal(t, CatalogSyncText("old-body"), old.Body)
+			assert.Equal(t, int64(7), old.TargetRevision)
+			assert.Empty(t, old.Validation)
+			require.ErrorIs(t, verifyCatalogValidation(old, catalogmanifest.Plan{}, catalogValidationInput{canonical: "fixture"}), ErrCatalogSyncPlanStale)
+		})
+	}
+}
+
+func TestCatalogSyncValidationPreservation(t *testing.T) {
+	db := catalogFenceTestDB(t, "sqlite")
+	registry := jsplugin.NewRegistry()
+	snapshot := catalogValidationFixture(t, db, registry)
+	require.NoError(t, registry.ReplaceOverrides(nil))
+	require.NoError(t, db.Model(&TaskPlugin{}).Where("active = ?", true).Update("enabled", false).Error)
+	pin, err := registry.TryPinGeneration()
+	require.NoError(t, err)
+	var priceID string
+	for _, entry := range snapshot.Entries {
+		if entry.Kind == catalogmanifest.KindModelPrice {
+			priceID = catalogmanifest.EntryID(entry)
+		}
+	}
+	require.NotEmpty(t, priceID)
+	retained, err := captureCatalogValidationInputTx(db, pin, snapshot, snapshot, nil)
+	require.NoError(t, err)
+	adopted, err := captureCatalogValidationInputTx(db, pin, snapshot, snapshot, []string{priceID})
+	pin.Release()
+	require.NoError(t, err)
+	_, err = stageCatalogValidation(retained)
+	require.NoError(t, err, "unchanged retained local usage expression keeps existing preservation allowance")
+	_, err = stageCatalogValidation(adopted)
+	require.Error(t, err, "equal-to-target source adoption still requires a current schema binding")
+	// Ordinary validation must retain its existing stale-preservation behavior.
+	prior := jsplugin.DefaultRegistry
+	jsplugin.DefaultRegistry = registry
+	t.Cleanup(func() { jsplugin.DefaultRegistry = prior })
+	values := PricingValues{"billing_setting.billing_expr": `u("seconds") * 0.4`, billing_setting.PluginBillingExprOption: map[string]any{"missing": `u("seconds") * 0.4`}}
+	require.NoError(t, validateModelPricing("pricing-usage-model", values, values))
+	// Existing stale plugin overrides retain the same exception, but source
+	// adoption (even byte-identical) is not entitled to the previous value.
+	require.NoError(t, db.Create(&Option{Key: billing_setting.PluginBillingExprOption, Value: `{"missing::pricing-usage-model":"invalid syntax ["}`}).Error)
+	var stale catalogmanifest.Snapshot
+	require.NoError(t, WithCatalogWriteBarrier(func() error {
+		return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+			var err error
+			stale, err = captureCatalogTargetTx(context.Background(), tx, "target", state, true)
+			if err != nil {
+				return err
+			}
+			retained, err = captureCatalogValidationInputTx(tx, pin, stale, stale, nil)
+			if err != nil {
+				return err
+			}
+			for _, entry := range stale.Entries {
+				if entry.Kind == catalogmanifest.KindPluginPrice {
+					priceID = catalogmanifest.EntryID(entry)
+				}
+			}
+			adopted, err = captureCatalogValidationInputTx(tx, pin, stale, stale, []string{priceID})
+			return err
+		})
+	}))
+	_, err = stageCatalogValidation(retained)
+	require.NoError(t, err)
+	_, err = stageCatalogValidation(adopted)
+	require.Error(t, err)
+	_, err = ExportManagedCatalogTx(context.Background(), db, "target")
+	require.Error(t, err, "ordinary/full export retains semantic expression validation")
+}
+
+func TestCatalogSyncValidationRuntimeStates(t *testing.T) {
+	db := catalogFenceTestDB(t, "sqlite")
+	registry := jsplugin.NewRegistry()
+	snapshot := catalogValidationFixture(t, db, registry)
+	key := "pricing-usage-probe"
+	capture := func() error {
+		pin, err := registry.TryPinGeneration()
+		if err != nil {
+			return err
+		}
+		defer pin.Release()
+		_, err = captureCatalogValidationInputTx(db, pin, snapshot, snapshot, nil)
+		return err
+	}
+	source := pricingUsagePluginSource("1.0.0", `{seconds:{type:"number",unit:"second"}}`)
+	factory := strings.ReplaceAll(strings.ReplaceAll(source, "pricing-usage-probe", "factory-probe"), "pricing-usage-model", "factory-model")
+	_, err := registry.RegisterFactory(factory, jsplugin.Options{})
+	require.NoError(t, err)
+	require.NoError(t, capture())
+	require.NoError(t, db.Create(&Option{Key: "TaskPluginDisabledFactoryKeys", Value: `["factory-probe"]`}).Error)
+	require.Error(t, capture(), "desired factory switch must be published")
+	registry.SetDisabledFactoryKeys([]string{"factory-probe"})
+	require.NoError(t, capture())
+	compiled, ok := registry.Generation().Get(key)
+	require.True(t, ok)
+	require.NoError(t, registry.ReplaceOverrides([]*jsplugin.LoadedPlugin{{Meta: compiled.Meta}}))
+	require.Error(t, capture(), "metadata without an actual compiled identity is not proof")
+	_, err = registry.Register(source, jsplugin.Options{})
+	require.NoError(t, err)
+	otherSource := strings.ReplaceAll(strings.ReplaceAll(strings.Replace(source, "fetchMode:", "channelTypes:[77],fetchMode:", 1), key, "other-probe"), "pricing-usage-model", "other-model")
+	other, err := registry.Register(otherSource, jsplugin.Options{})
+	require.NoError(t, err)
+	updated, err := jsplugin.CompilePlugin(strings.Replace(source, "fetchMode:", "channelTypes:[77],fetchMode:", 1), jsplugin.Options{})
+	require.NoError(t, err)
+	require.NoError(t, registry.ReplaceOverrides([]*jsplugin.LoadedPlugin{updated, other}))
+	assert.Equal(t, "partial", registry.LastRebuildOutcome().Status)
+	require.Error(t, capture(), "partial retained publication cannot attest")
+}
+
+func TestCatalogSyncSensitiveWriter(t *testing.T) {
+	called := false
+	require.NoError(t, TryWithCatalogWriteBarrier(context.Background(), func() error { called = true; return nil }))
+	require.True(t, called)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, TryWithCatalogWriteBarrier(ctx, func() error { t.Fatal("cancelled entry must not run"); return nil }), context.Canceled)
+	for _, read := range []bool{false, true} {
+		if read {
+			catalogBarrier.RLock()
+		} else {
+			catalogBarrier.Lock()
+		}
+		finished := make(chan error, 1)
+		go func() {
+			finished <- TryWithCatalogWriteBarrier(context.Background(), func() error { return errors.New("unexpected acquisition") })
+		}()
+		select {
+		case err := <-finished:
+			assert.ErrorIs(t, err, ErrCatalogWriterBusy)
+		case <-time.After(time.Second):
+			t.Error("sensitive writer acquisition blocked")
+		}
+		if read {
+			catalogBarrier.RUnlock()
+		} else {
+			catalogBarrier.Unlock()
+		}
+	}
+	sentinel := errors.New("callback failed")
+	require.ErrorIs(t, TryWithCatalogWriteBarrier(context.Background(), func() error { return sentinel }), sentinel)
+	require.NoError(t, TryWithCatalogWriteBarrier(context.Background(), func() error { return nil }), "failure must release the writer")
+}
+
+func TestCatalogSyncValidationDependencies(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			registry := jsplugin.NewRegistry()
+			_ = catalogValidationFixture(t, db, registry)
+			require.NoError(t, db.Create(&Model{ModelName: "alias", BillingCurrency: "CNY"}).Error)
+			require.NoError(t, db.Model(&Option{}).Where(map[string]any{"key": "billing_setting.billing_expr"}).Update("value", `{"alias":"u(\"seconds\") * 0.5","pricing-usage-model":"u(\"seconds\") * 0.4"}`).Error)
+			mapping := `{"alias":"pricing-usage-model"}`
+			channel := Channel{Key: "must-not-appear-credential", Models: "alias", ModelMapping: &mapping, Status: common.ChannelStatusEnabled}
+			require.NoError(t, db.Create(&channel).Error)
+			snapshot, err := ExportManagedCatalogTx(context.Background(), db, "target")
+			require.NoError(t, err)
+			strict := []string{}
+			for _, entry := range snapshot.Entries {
+				if entry.Kind == catalogmanifest.KindModelPrice {
+					strict = append(strict, catalogmanifest.EntryID(entry))
+				}
+			}
+			capture := func() (catalogValidationInput, error) {
+				var input catalogValidationInput
+				err := WithCatalogWriteBarrier(func() error {
+					return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, _ *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+						var err error
+						input, err = captureCatalogValidationInputTx(tx, pin, snapshot, snapshot, strict)
+						return err
+					})
+				})
+				return input, err
+			}
+			input, err := capture()
+			require.NoError(t, err)
+			attestation, err := stageCatalogValidation(input)
+			require.NoError(t, err)
+			assert.NotContains(t, attestation.payload, "must-not-appear-credential")
+			row := CatalogSyncPlan{Validation: CatalogSyncText(attestation.payload)}
+			plan := catalogmanifest.Plan{ValidationDigest: attestation.digest, ReferenceDigest: "server-reference"}
+			for _, raw := range []string{`null`, `{"alias":"x","alias":"pricing-usage-model"}`, `{"alias":42}`, `{"alias":null}`, `{"alias":"loop","loop":"alias"}`} {
+				require.NoError(t, db.Model(&channel).Update("model_mapping", raw).Error)
+				_, err := capture()
+				require.Error(t, err)
+				assert.NotContains(t, err.Error(), "must-not-appear-credential")
+			}
+			require.NoError(t, db.Model(&channel).Update("model_mapping", `{"alias":"unrelated"}`).Error)
+			changed, err := capture()
+			require.NoError(t, err)
+			require.ErrorIs(t, verifyCatalogValidation(row, plan, changed), ErrCatalogSyncPlanStale)
+			_, err = stageCatalogValidation(changed)
+			require.Error(t, err, "strict alias expression cannot validate against a stale cached alias")
+			require.NoError(t, db.Model(&channel).Update("model_mapping", mapping).Error)
+			updated := pricingUsagePluginSource("1.0.0", `{clips:{type:"number",unit:"count"}}`)
+			_, err = registry.Register(updated, jsplugin.Options{})
+			require.NoError(t, err)
+			_, err = capture()
+			require.Error(t, err, "effective source must match desired DB source")
+			require.NoError(t, db.Model(&TaskPlugin{}).Where("active = ?", true).Updates(map[string]any{"source": updated, "source_hash": fmt.Sprintf("%x", sha256.Sum256([]byte(updated)))}).Error)
+			changed, err = capture()
+			require.NoError(t, err)
+			require.ErrorIs(t, verifyCatalogValidation(row, plan, changed), ErrCatalogSyncPlanStale)
+			_, err = stageCatalogValidation(changed)
+			require.Error(t, err, "same-version schema update must validate with the new schema")
+			require.NoError(t, db.Create(&Option{Key: "TaskPluginEnabled", Value: "false"}).Error)
+			_, err = capture()
+			require.Error(t, err, "pending master switch must block")
+			registry.SetEnabled(false)
+			changed, err = capture()
+			require.NoError(t, err)
+			require.ErrorIs(t, verifyCatalogValidation(row, plan, changed), ErrCatalogSyncPlanStale)
+			require.Error(t, registry.SetGenerationPreparer(func(_, _ *jsplugin.RoutingGeneration) (jsplugin.PreparedRoutingGeneration, error) {
+				return jsplugin.PreparedRoutingGeneration{}, errors.New("fixture publication failure")
+			}))
+			_, err = capture()
+			require.Error(t, err, "failed/retained generation cannot attest")
+		})
+	}
+}
 
 func catalogSyncTestSource(t *testing.T) catalogmanifest.Snapshot {
 	t.Helper()

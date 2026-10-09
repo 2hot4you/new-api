@@ -17,6 +17,53 @@ func diffJSON(t *testing.T, value any) string {
 	return string(encoded)
 }
 
+func TestManagedPlanOperationBinding(t *testing.T) {
+	plan, err := BuildPlan(diffSnapshot(t, diffModel(t, "source")), diffSnapshot(t), Baseline{}, Actor{}, time.Unix(1000, 0))
+	require.NoError(t, err)
+	assert.Equal(t, "sync", plan.Kind)
+	for _, modify := range []func(*Plan){
+		func(p *Plan) { p.Kind = "restore"; p.RestoreOperationID = "original-operation" },
+		func(p *Plan) { p.ValidationDigest = "validation-commitment" },
+		func(p *Plan) { p.ReferenceDigest = "reference-commitment" },
+	} {
+		changed := plan
+		modify(&changed)
+		digest, err := CanonicalPlanDigest(changed)
+		require.NoError(t, err)
+		assert.NotEqual(t, plan.Digest, digest)
+		assert.False(t, PlanExecutable(changed, time.Unix(1001, 0)))
+	}
+	for _, binding := range [][2]string{{"", ""}, {"unknown", ""}, {"sync", "original-operation"}, {"restore", ""}, {"restore", " "}} {
+		changed := plan
+		changed.Kind, changed.RestoreOperationID = binding[0], binding[1]
+		_, err := CanonicalPlanDigest(changed)
+		require.Error(t, err, "invalid operation binding must not be sealable")
+	}
+}
+
+func TestManagedStructuralValidationDoesNotEvaluate(t *testing.T) {
+	for _, expression := range []string{`"p *"`, `"-1"`, `"fixed(1)"`} {
+		price := diffPrice(t, "billing_setting.plugin_billing_expr", "model", "plugin", "/plugin::model", expression)
+		snapshot := diffSnapshot(t, diffModel(t, "source"), price)
+		require.NoError(t, ValidateSnapshotStructure(snapshot))
+		require.Error(t, ValidateSnapshot(snapshot))
+	}
+	zero := diffSnapshot(t, diffModel(t, "source"), diffPrice(t, "ModelRatio", "model", "", "/model", "0"))
+	require.NoError(t, ValidateSnapshotStructure(zero))
+	for _, modify := range []func(*Snapshot){
+		func(s *Snapshot) { s.SchemaVersion++ },
+		func(s *Snapshot) { s.Coverage[KindModel]++ },
+		func(s *Snapshot) {
+			s.Entries[1].Value = diffJSON(t, PriceValue{Value: "0", BillingCurrency: "CNY", Unit: "legacy_ratio"})
+		},
+	} {
+		changed := cloneSnapshot(zero)
+		modify(&changed)
+		diffSeal(t, &changed)
+		require.Error(t, ValidateSnapshotStructure(changed))
+	}
+}
+
 // A recreated or unverifiable model must never silently adopt existing prices.
 func TestManagedIncarnationAndConfirmationUnit(t *testing.T) {
 	model := diffModel(t, "old")

@@ -65,7 +65,7 @@ func BuildPlan(source Snapshot, target Snapshot, base Baseline, actor Actor, now
 	if err != nil {
 		return Plan{}, fmt.Errorf("baseline: %w", err)
 	}
-	plan := Plan{Snapshot: cloneSnapshot(source), TargetDigest: target.Digest, BaselineGeneration: base.Generation, Actor: actor, ExpiresAt: now.Add(10 * time.Minute).Unix()}
+	plan := Plan{Kind: "sync", Snapshot: cloneSnapshot(source), TargetDigest: target.Digest, BaselineGeneration: base.Generation, Actor: actor, ExpiresAt: now.Add(10 * time.Minute).Unix()}
 	identities := make(map[string]bool)
 	for _, entries := range []map[string]*Entry{sourceEntries, targetEntries, baseEntries} {
 		for id := range entries {
@@ -386,6 +386,11 @@ func sortChanges(changes []Change) {
 // expiry, server ID, changelog and confirmation choices. After adding blocked
 // reference checks or a server ID, callers must recompute and persist it.
 func CanonicalPlanDigest(plan Plan) (string, error) {
+	if (plan.Kind != "sync" && plan.Kind != "restore") ||
+		(plan.Kind == "sync" && plan.RestoreOperationID != "") ||
+		(plan.Kind == "restore" && strings.TrimSpace(plan.RestoreOperationID) == "") {
+		return "", fmt.Errorf("invalid catalog plan operation binding")
+	}
 	plan.Digest = ""
 	plan.Snapshot = cloneSnapshot(plan.Snapshot)
 	for i := range plan.Snapshot.Entries {

@@ -389,10 +389,28 @@ func ValidateModelPricing(name string, values PricingValues) error {
 // Writes pass the locked database snapshot here, so allowing an unchanged stale
 // override cannot bypass validation through an out-of-date process-local cache.
 func validateModelPricing(name string, values, previous PricingValues) error {
+	generation := jsplugin.DefaultRegistry.Generation()
+	plugins := make(map[string]jsplugin.Meta)
+	for _, plugin := range generation.Plugins() {
+		plugins[plugin.Meta.Key] = plugin.Meta
+	}
+	return validateModelPricingWithDependencies(name, values, previous, modelPricingValidationDependencies{
+		plugins:      plugins,
+		resolveAlias: func(name string) (TaskAliasTarget, bool) { return ResolveTaskModelAlias(generation, name) },
+	})
+}
+
+// Explicit dependencies let staged managed validation reuse the ordinary rules
+// without observing a live registry, alias cache, DB or previous-value cache.
+type modelPricingValidationDependencies struct {
+	plugins      map[string]jsplugin.Meta
+	resolveAlias func(string) (TaskAliasTarget, bool)
+}
+
+func validateModelPricingWithDependencies(name string, values, previous PricingValues, dependencies modelPricingValidationDependencies) error {
 	if strings.TrimSpace(name) == "" {
 		return errors.New("model name is required")
 	}
-	generation := jsplugin.DefaultRegistry.Generation()
 	previousVariants, _ := previous[billing_setting.PluginBillingExprOption].(map[string]any)
 	variants := map[string]any{}
 	if value, exists := values[billing_setting.PluginBillingExprOption]; exists {
@@ -406,14 +424,14 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 			if !ok || strings.TrimSpace(expression) == "" {
 				return fmt.Errorf("model %s: plugin %s: billing expression is required", name, key)
 			}
-			plugin, exists := generation.Get(key)
-			if !exists || !slices.Contains(plugin.Meta.Models, name) {
+			plugin, exists := dependencies.plugins[key]
+			if !exists || !slices.Contains(plugin.Models, name) {
 				if previousVariants[key] == expression {
 					continue
 				}
 				return fmt.Errorf("model %s: plugin %s does not declare this model", name, key)
 			}
-			schema, _ := plugin.Meta.UsageForModel(name)
+			schema, _ := plugin.UsageForModel(name)
 			if err := billing_setting.SmokeTestTaskExpr(expression, schema); err != nil {
 				return fmt.Errorf("model %s: plugin %s: %w", name, key, err)
 			}
@@ -443,19 +461,26 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 				return fmt.Errorf("model %s: %w", name, err)
 			}
 			var err error
-			if plugins := generation.PluginsByModel(name); len(plugins) > 0 {
+			var plugins []jsplugin.Meta
+			for _, key := range slices.Sorted(maps.Keys(dependencies.plugins)) {
+				plugin := dependencies.plugins[key]
+				if slices.Contains(plugin.Models, name) {
+					plugins = append(plugins, plugin)
+				}
+			}
+			if len(plugins) > 0 {
 				for _, plugin := range plugins {
-					if _, overridden := variants[plugin.Meta.Key]; overridden {
+					if _, overridden := variants[plugin.Key]; overridden {
 						continue
 					}
-					schema, _ := plugin.Meta.UsageForModel(name)
+					schema, _ := plugin.UsageForModel(name)
 					if err = billing_setting.SmokeTestTaskExpr(expression, schema); err != nil {
-						return fmt.Errorf("model %s: plugin %s: %w", name, plugin.Meta.Key, err)
+						return fmt.Errorf("model %s: plugin %s: %w", name, plugin.Key, err)
 					}
 				}
-			} else if target, resolved := ResolveTaskModelAlias(generation, name); resolved {
-				if plugin, ok := generation.Get(target.PluginKey); ok {
-					schema, _ := plugin.Meta.UsageForModel(target.Declared)
+			} else if target, resolved := dependencies.resolveAlias(name); resolved {
+				if plugin, ok := dependencies.plugins[target.PluginKey]; ok {
+					schema, _ := plugin.UsageForModel(target.Declared)
 					err = billing_setting.SmokeTestTaskExpr(expression, schema)
 				} else {
 					err = billing_setting.SmokeTestExpr(expression)

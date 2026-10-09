@@ -2,12 +2,15 @@ package model
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/tidwall/gjson"
+	"gorm.io/gorm"
 )
 
 // TaskAliasTarget is one mapping-derived alias after cross-channel aggregation.
@@ -79,6 +82,17 @@ type taskAliasDraft struct {
 }
 
 func buildTaskAliasView(generation *jsplugin.RoutingGeneration) *taskAliasView {
+	view, err := buildTaskAliasViewTx(DB, generation, false)
+	if err != nil {
+		common.SysError(fmt.Sprintf("rebuild task alias view: %s", err.Error()))
+	}
+	return view
+}
+
+// Strict callers use their authoritative transaction and supplied generation.
+// Parsing/aggregation is shared with ordinary cached alias resolution. Strict
+// failures contain no mapping contents, credentials or channel names.
+func buildTaskAliasViewTx(tx *gorm.DB, generation *jsplugin.RoutingGeneration, strict bool) (*taskAliasView, error) {
 	genNum := uint64(0)
 	if generation != nil {
 		genNum = generation.Number
@@ -88,17 +102,16 @@ func buildTaskAliasView(generation *jsplugin.RoutingGeneration) *taskAliasView {
 		expiresAt:  time.Now().Add(taskAliasViewTTL),
 		byFold:     make(map[string]TaskAliasTarget),
 	}
-	if DB == nil {
-		return view
+	if tx == nil {
+		return view, nil
 	}
 
 	var channels []Channel
-	err := DB.Select("id", "type", "models", "model_mapping").
+	err := tx.Select("id", "type", "models", "model_mapping").
 		Where("status = ?", common.ChannelStatusEnabled).
 		Find(&channels).Error
 	if err != nil {
-		common.SysError(fmt.Sprintf("rebuild task alias view: %s", err.Error()))
-		return view
+		return view, err
 	}
 
 	drafts := make(map[string]*taskAliasDraft)
@@ -110,11 +123,35 @@ func buildTaskAliasView(generation *jsplugin.RoutingGeneration) *taskAliasView {
 		}
 		modelMap := make(map[string]string)
 		if err := common.UnmarshalJsonStr(mappingJSON, &modelMap); err != nil {
+			if strict {
+				return nil, fmt.Errorf("catalog alias mapping is malformed")
+			}
 			common.SysError(fmt.Sprintf("task alias view: channel %d model_mapping: %s", channel.Id, err.Error()))
 			continue
 		}
+		if strict {
+			if modelMap == nil {
+				return nil, fmt.Errorf("catalog alias mapping is malformed")
+			}
+			seen := make(map[string]bool)
+			ambiguous := false
+			gjson.Parse(mappingJSON).ForEach(func(key, value gjson.Result) bool {
+				name := key.String()
+				if seen[name] || value.Type != gjson.String || strings.TrimSpace(name) != name || name == "" || strings.TrimSpace(value.String()) != value.String() {
+					ambiguous = true
+				}
+				seen[name] = true
+				return true
+			})
+			if ambiguous {
+				return nil, fmt.Errorf("catalog alias mapping is ambiguous")
+			}
+		}
 		inModels := make(map[string]struct{})
 		for _, modelName := range channel.GetModels() {
+			if strict && (modelName == "" || strings.TrimSpace(modelName) != modelName) {
+				return nil, fmt.Errorf("catalog alias model identity is ambiguous")
+			}
 			inModels[modelName] = struct{}{}
 		}
 		for alias, mapped := range modelMap {
@@ -129,6 +166,9 @@ func buildTaskAliasView(generation *jsplugin.RoutingGeneration) *taskAliasView {
 			}
 			tail, cyclic := followChannelModelMapping(modelMap, alias)
 			if cyclic {
+				if strict {
+					return nil, fmt.Errorf("catalog alias mapping has a cycle")
+				}
 				common.SysError(fmt.Sprintf("task alias mapping cycle dropped: channel=%d key=%q", channel.Id, alias))
 				continue
 			}
@@ -164,6 +204,9 @@ func buildTaskAliasView(generation *jsplugin.RoutingGeneration) *taskAliasView {
 			}
 		}
 		if len(draft.byPlugin) != 1 {
+			if strict {
+				return nil, fmt.Errorf("catalog alias resolves to multiple plugins")
+			}
 			pluginKeys := make([]string, 0, len(draft.byPlugin))
 			for key := range draft.byPlugin {
 				pluginKeys = append(pluginKeys, key)
@@ -186,7 +229,7 @@ func buildTaskAliasView(generation *jsplugin.RoutingGeneration) *taskAliasView {
 			PluginKey: pluginKey,
 		}
 	}
-	return view
+	return view, nil
 }
 
 // followChannelModelMapping walks one channel's mapping the same way

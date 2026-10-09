@@ -178,6 +178,37 @@ type TaskPluginSyncSnapshot struct {
 	Revision string
 }
 
+// These source-free facts are sufficient to compare desired and effective
+// programs. Active disabled rows still participate in the desired identity.
+type catalogDesiredPlugin struct {
+	Key        string
+	APIVersion int
+	Version    string
+	SourceHash string
+	Enabled    bool
+}
+
+func readCatalogDesiredPluginsTx(tx *gorm.DB) ([]catalogDesiredPlugin, error) {
+	var active []TaskPlugin
+	if err := tx.Select("key", "api_version", "version", "source_hash", "enabled", "source").Where("active = ?", true).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "key"}}).Find(&active).Error; err != nil {
+		return nil, err
+	}
+	result := make([]catalogDesiredPlugin, 0, len(active))
+	seen := make(map[string]bool)
+	for i := range active {
+		plugin := &active[i]
+		hash := sha256.Sum256([]byte(plugin.Source))
+		plugin.Source = ""
+		if seen[plugin.Key] || plugin.Key == "" || plugin.Version == "" || plugin.APIVersion != 1 || plugin.SourceHash != hex.EncodeToString(hash[:]) {
+			return nil, errors.New("catalog desired plugin identity is invalid")
+		}
+		seen[plugin.Key] = true
+		result = append(result, catalogDesiredPlugin{plugin.Key, plugin.APIVersion, plugin.Version, plugin.SourceHash, plugin.Enabled})
+	}
+	return result, nil
+}
+
 // GetTaskPluginSyncSnapshot returns the enabled override set together with a
 // deterministic revision of every active database override. Nodes can compare
 // the revision even though their local routing-generation counters differ.
