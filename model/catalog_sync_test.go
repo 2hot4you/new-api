@@ -38,6 +38,635 @@ import (
 	"gorm.io/gorm/schema"
 )
 
+func TestCatalogSyncRestoreScope(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			original, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "restore-original", actor)
+			require.NoError(t, err)
+			_, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.Error(t, err, "pending publication cannot be restored")
+			catalogBusinessFixturePublished(t, db, original)
+			require.NoError(t, db.Create(&Vendor{Name: "later-unrelated", Description: "keep"}).Error)
+			require.NoError(t, db.Create(&Option{Key: "WebSearchPrice", Value: `{"later":4.25}`}).Error)
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.NoError(t, err, "latest published operation must have a server-created inverse")
+			assert.Equal(t, "restore", restore.Kind)
+			assert.Equal(t, original.OperationID, restore.RestoreOperationID)
+			assert.False(t, catalogmanifest.PlanExecutable(restore, time.Now()), "deletion needs separate consent")
+			restore, err = ResolveCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+			require.NoError(t, err)
+			result, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "inverse", actor)
+			require.NoError(t, err)
+			assert.Equal(t, "committed_pending_publish", result.State)
+			assert.Equal(t, int64(2), result.Revision)
+			var vendors []Vendor
+			require.NoError(t, db.Find(&vendors).Error)
+			require.Len(t, vendors, 1)
+			assert.Equal(t, "later-unrelated", vendors[0].Name)
+			var option Option
+			require.NoError(t, db.Where(map[string]any{"key": "WebSearchPrice"}).First(&option).Error)
+			assert.JSONEq(t, `{"later":4.25}`, option.Value)
+			var state CatalogSyncState
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			assert.Equal(t, int64(2), state.BaselineGeneration)
+			assert.Empty(t, state.SourceID)
+			var count int64
+			require.NoError(t, db.Model(&CatalogSyncBaseline{}).Count(&count).Error)
+			assert.Zero(t, count)
+			replayed, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "inverse", actor)
+			require.NoError(t, err)
+			assert.Equal(t, result, replayed)
+			catalogBusinessFixturePublished(t, db, result)
+			_, err = CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err, "empty restored baseline must permit a later sync")
+			_, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.Error(t, err, "a later succeeded inverse supersedes the original")
+		})
+	}
+}
+
+func TestCatalogSyncRestoreGuards(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogSyncTestSource(t)
+			require.NoError(t, appendManagedEntry(&source, catalogmanifest.KindModel, "created-model", catalogmanifest.ModelValue{ModelName: "created-model", BillingCurrency: "USD"}))
+			var err error
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			original, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "guard-original", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, original)
+			var vendor Vendor
+			require.NoError(t, db.First(&vendor, "name = ?", "source-vendor").Error)
+			local := Model{ModelName: "local-dependent", VendorID: vendor.Id, BillingCurrency: "USD"}
+			require.NoError(t, db.Create(&local).Error)
+			channel := Channel{Key: "PRIVATE-RESTORE-CHANNEL", Status: common.ChannelStatusEnabled, Models: "created-model"}
+			require.NoError(t, db.Create(&channel).Error)
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			assert.False(t, catalogmanifest.PlanExecutable(restore, time.Now()))
+			var blocked, routeBlocked bool
+			for _, change := range restore.Changes {
+				blocked = blocked || change.Reason == "vendor_still_referenced"
+				routeBlocked = routeBlocked || change.Reason == "enabled_route_reference"
+			}
+			require.True(t, blocked, "inverse vendor deletion must see later target-only models")
+			require.True(t, routeBlocked, "inverse model deletion must check current enabled routes")
+			public, err := common.Marshal(restore)
+			require.NoError(t, err)
+			assert.NotContains(t, string(public), channel.Key)
+			require.NoError(t, db.Delete(&local).Error)
+			require.NoError(t, db.Delete(&channel).Error)
+			restore, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			restore, err = ResolveCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+			require.NoError(t, err)
+			// Fixture-only publication state proves the commit-time latest check
+			// independently of target/baseline version changes.
+			later := CatalogSyncOperation{ID: "guard-later", PlanID: "guard-later-plan", State: "succeeded", Revision: original.Revision + 1, Backup: "{}", History: "{}", Result: "{}"}
+			require.NoError(t, db.Create(&later).Error)
+			_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "guard-inverse", actor)
+			require.ErrorIs(t, err, ErrCatalogSyncPlanUnavailable)
+			require.NoError(t, db.Delete(&later).Error)
+			require.NoError(t, db.Model(&vendor).Update("description", "related-edit").Error)
+			_, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.ErrorIs(t, err, ErrCatalogSyncPlanStale)
+			_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "guard-inverse", actor)
+			require.Error(t, err)
+			require.NoError(t, db.Model(&vendor).Update("description", "original").Error)
+			require.NoError(t, db.Delete(&vendor).Error)
+			vendor.Id = 0
+			vendor.DeletedAt = gorm.DeletedAt{}
+			require.NoError(t, db.Create(&vendor).Error)
+			_, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.ErrorIs(t, err, ErrCatalogSyncPlanStale, "identical recreated vendor is not the original object")
+		})
+	}
+}
+
+func TestCatalogSyncRestorePreimages(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogBusinessPriceSource(t, db)
+			var oldModel Model
+			require.NoError(t, db.First(&oldModel, "model_name = ?", "managed-model").Error)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			original, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "price-original", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, original)
+			require.NoError(t, db.Model(&Option{}).Where(map[string]any{"key": "billing_setting.billing_expr"}).Update("value", `{"managed-model":"tier(\"base\", p * 7.123 + c * 3)","local-model":"p * 19"}`).Error)
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			result, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "price-inverse", actor)
+			require.NoError(t, err)
+			var option Option
+			require.NoError(t, db.Where(map[string]any{"key": "billing_setting.billing_expr"}).First(&option).Error)
+			assert.JSONEq(t, `{"managed-model":"p * 2","local-model":"p * 19"}`, option.Value)
+			var model Model
+			require.NoError(t, db.First(&model, "model_name = ?", "managed-model").Error)
+			assert.Equal(t, oldModel.Id, model.Id, "adoption-only metadata is not deleted/recreated")
+			assert.Equal(t, oldModel.CreatedTime, model.CreatedTime)
+			assert.Equal(t, "CNY", model.BillingCurrency)
+			var operation CatalogSyncOperation
+			require.NoError(t, db.First(&operation, "id = ?", result.OperationID).Error)
+			var backup catalogOperationBackup
+			require.NoError(t, common.UnmarshalJsonStr(string(operation.Backup), &backup))
+			assert.Equal(t, int64(1), backup.Baseline.Generation)
+			assert.NotEmpty(t, backup.Before)
+			assert.NotEmpty(t, backup.After)
+		})
+	}
+}
+
+func TestCatalogSyncRestoreMissingAndOwnership(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			require.NoError(t, db.Create(&Model{ModelName: "priced", BillingCurrency: "USD"}).Error)
+			require.NoError(t, db.Create(&Option{Key: "ModelRatio", Value: `{"priced":2.75}`}).Error)
+			source, err := ExportManagedCatalogTx(context.Background(), db, "dev")
+			require.NoError(t, err)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			first, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "ownership-first", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, first)
+			require.NoError(t, db.Where(map[string]any{"key": "ModelRatio"}).Delete(&Option{}).Error)
+			source.Entries = slices.DeleteFunc(source.Entries, func(entry catalogmanifest.Entry) bool {
+				if entry.Kind == catalogmanifest.KindModelPrice {
+					source.Coverage[entry.Kind]--
+					return true
+				}
+				return false
+			})
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			second, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "ownership-second", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, second)
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), second.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "ownership-inverse", actor)
+			require.NoError(t, err)
+			var count int64
+			require.NoError(t, db.Model(&Option{}).Where(map[string]any{"key": "ModelRatio"}).Count(&count).Error)
+			assert.Zero(t, count, "a baseline value must never recreate an absent local price or container")
+			var base []CatalogSyncBaseline
+			require.NoError(t, db.Find(&base).Error)
+			require.Len(t, base, 2, "prior managed price ownership is restored separately")
+			for _, row := range base {
+				assert.Equal(t, int64(3), row.Generation)
+			}
+		})
+	}
+}
+
+func TestCatalogSyncRestoreBaselineIncarnations(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogSyncTestSource(t)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			first, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "inc-first", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, first)
+			var prior CatalogSyncBaseline
+			require.NoError(t, db.First(&prior).Error)
+			var vendor Vendor
+			require.NoError(t, db.First(&vendor).Error)
+			require.NoError(t, db.Delete(&vendor).Error)
+			vendor.Id, vendor.DeletedAt = 0, gorm.DeletedAt{}
+			require.NoError(t, db.Create(&vendor).Error)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			plan, err = ResolveCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, actor, catalogmanifest.Resolution{OverwriteKeys: []string{catalogmanifest.EntryID(source.Entries[0])}})
+			require.NoError(t, err)
+			second, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "inc-second", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, second)
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), second.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "inc-inverse", actor)
+			require.NoError(t, err)
+			var restored CatalogSyncBaseline
+			require.NoError(t, db.First(&restored).Error)
+			assert.Equal(t, prior.ObjectVersion, restored.ObjectVersion, "undo adoption must not grant prior ownership to an already recreated preimage")
+			assert.Equal(t, int64(3), restored.Generation)
+		})
+	}
+}
+
+func TestCatalogSyncRestoreAuthorizationAndRollback(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			original, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "auth-original", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, original)
+			// A new interactive session can independently authorize the restore.
+			require.NoError(t, db.Model(&UserSession{}).Where("sid = ?", actor.SessionID).Update("revoked_at", 1).Error)
+			_, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.Error(t, err)
+			actor.SessionID = "new-restore-session"
+			require.NoError(t, db.Create(&UserSession{SID: actor.SessionID, UserID: actor.UserID, UserAuthVersion: 1, Version: 1, Status: UserSessionStatusActive, ExpiresAt: time.Now().Add(time.Hour).Unix(), RefreshHash: strings.Repeat("b", 64), LoginMethod: "password"}).Error)
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			restore, err = ResolveCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+			require.NoError(t, err)
+			for _, mutation := range []struct {
+				entity       any
+				key, field   string
+				value, reset any
+			}{
+				{&User{}, "id", "role", common.RoleAdminUser, common.RoleRootUser},
+				{&UserSession{}, "sid", "version", 2, 1},
+				{&UserSession{}, "sid", "revoked_at", 1, 0},
+			} {
+				identity := any(actor.SessionID)
+				if mutation.key == "id" {
+					identity = actor.UserID
+				}
+				require.NoError(t, db.Model(mutation.entity).Where(mutation.key+" = ?", identity).Update(mutation.field, mutation.value).Error)
+				_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "auth-inverse", actor)
+				require.Error(t, err)
+				require.NoError(t, db.Model(mutation.entity).Where(mutation.key+" = ?", identity).Update(mutation.field, mutation.reset).Error)
+			}
+			var stored CatalogSyncPlan
+			require.NoError(t, db.First(&stored, "id = ?", restore.ID).Error)
+			for _, mutate := range []func(*catalogmanifest.Plan){
+				func(p *catalogmanifest.Plan) { p.Kind = "sync"; p.RestoreOperationID = "" },
+				func(p *catalogmanifest.Plan) { p.RestoreOperationID = "other-original" },
+				func(p *catalogmanifest.Plan) { p.ExpiresAt = time.Now().Add(-time.Hour).Unix() },
+			} {
+				changed := restore
+				mutate(&changed)
+				body, err := common.Marshal(changed)
+				require.NoError(t, err)
+				require.NoError(t, db.Model(&CatalogSyncPlan{}).Where("id = ?", restore.ID).Update("body", CatalogSyncText(body)).Error)
+				_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "auth-inverse", actor)
+				require.Error(t, err)
+			}
+			require.NoError(t, db.Model(&CatalogSyncPlan{}).Where("id = ?", restore.ID).Update("body", stored.Body).Error)
+			for _, failure := range []string{"create-backup", "final-backup"} {
+				inject := func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_operations" {
+						tx.AddError(errors.New("injected restore backup failure"))
+					}
+				}
+				if failure == "create-backup" {
+					require.NoError(t, db.Callback().Create().Before("gorm:create").Register("restore-backup-fail", inject))
+				} else {
+					require.NoError(t, db.Callback().Update().Before("gorm:update").Register("restore-backup-fail", inject))
+				}
+				_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "auth-inverse", actor)
+				require.ErrorContains(t, err, "injected restore backup failure")
+				if failure == "create-backup" {
+					require.NoError(t, db.Callback().Create().Remove("restore-backup-fail"))
+				} else {
+					require.NoError(t, db.Callback().Update().Remove("restore-backup-fail"))
+				}
+				var count int64
+				require.NoError(t, db.Model(&Vendor{}).Count(&count).Error)
+				assert.Equal(t, int64(1), count)
+				require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&count).Error)
+				assert.Equal(t, int64(1), count)
+				var state CatalogSyncState
+				require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+				assert.Equal(t, int64(1), state.Revision)
+				assert.Equal(t, int64(1), state.BaselineGeneration)
+			}
+			result, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "auth-inverse", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, result)
+			replayed, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "auth-inverse", actor)
+			require.NoError(t, err)
+			assert.Equal(t, result, replayed, "replay keeps original pending result even after row succeeds")
+			_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest+"bad", "auth-inverse", actor)
+			require.ErrorIs(t, err, ErrCatalogSyncOperationConflict)
+			_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "different-op", actor)
+			require.ErrorIs(t, err, ErrCatalogSyncOperationConflict)
+			rows, total, err := ListCatalogSyncOperations(context.Background(), 0, 0)
+			require.NoError(t, err)
+			require.Len(t, rows, 2)
+			assert.Equal(t, int64(2), total)
+			assert.Equal(t, "succeeded", rows[0].State)
+			require.NotNil(t, rows[0].Summary)
+			assert.Equal(t, "restore", rows[0].Summary.Kind)
+			assert.Equal(t, "dev", rows[0].Summary.SourceID)
+			assert.Equal(t, original.OperationID, rows[0].Summary.RestoreOperationID)
+			for _, row := range rows {
+				assert.Empty(t, row.Backup)
+				assert.Empty(t, row.History)
+				assert.Empty(t, row.Result)
+			}
+			public, err := common.Marshal(rows)
+			require.NoError(t, err)
+			assert.NotContains(t, string(public), actor.SessionID)
+			assert.NotContains(t, string(public), "catalog-session")
+			assert.NotContains(t, string(public), "RefreshHash")
+		})
+	}
+}
+
+func TestCatalogSyncRestoreLatestAndFallback(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			require.NoError(t, db.Create(&Model{ModelName: "priced", BillingCurrency: "USD"}).Error)
+			source, err := ExportManagedCatalogTx(context.Background(), db, "dev")
+			require.NoError(t, err)
+			key, err := catalogmanifest.EncodePriceKey(catalogmanifest.PriceKey{Option: "ModelRatio", Model: "priced", Path: "/priced"})
+			require.NoError(t, err)
+			require.NoError(t, appendManagedEntry(&source, catalogmanifest.KindModelPrice, key, catalogmanifest.PriceValue{Value: "3.25", BillingCurrency: "USD", Unit: "legacy_ratio"}))
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			original, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "latest-original", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, original)
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			var blocked bool
+			for _, change := range restore.Changes {
+				blocked = blocked || change.Reason == "price_fallback_unproven"
+			}
+			require.True(t, blocked, "inverse price removal must retain the existing fail-closed fallback policy")
+			restore, err = ResolveCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+			require.NoError(t, err)
+			_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "unsafe-price-inverse", actor)
+			require.Error(t, err)
+			for _, state := range []string{"failed", "committed_pending_publish"} {
+				require.NoError(t, db.Model(&CatalogSyncOperation{}).Where("id = ?", original.OperationID).Update("state", state).Error)
+				_, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+				require.Error(t, err)
+			}
+			require.NoError(t, db.Model(&CatalogSyncOperation{}).Where("id = ?", original.OperationID).Update("state", "succeeded").Error)
+			// Fixture-only later states isolate latest-success checking from the
+			// independent target revision gate; no production publisher is used.
+			later := CatalogSyncOperation{ID: "later-failed", PlanID: "fixture-plan", State: "failed", Revision: original.Revision + 1, Backup: "{}", History: "{}", Result: "{}"}
+			require.NoError(t, db.Create(&later).Error)
+			_, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&later).Update("state", "succeeded").Error)
+			_, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.ErrorIs(t, err, ErrCatalogSyncPlanUnavailable)
+			_, err = GetCatalogSyncPlan(context.Background(), restore.ID, actor)
+			require.ErrorIs(t, err, ErrCatalogSyncPlanUnavailable)
+		})
+	}
+}
+
+func TestCatalogSyncRestoreDeletedObject(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogSyncTestSource(t)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			first, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "deleted-first", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, first)
+			var prior Vendor
+			require.NoError(t, db.First(&prior).Error)
+			source.Entries = nil
+			source.Coverage[catalogmanifest.KindVendor] = 0
+			require.NoError(t, appendManagedEntry(&source, catalogmanifest.KindVendor, "other-vendor", catalogmanifest.VendorValue{Name: "other-vendor", Status: 1}))
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			plan, err = ResolveCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+			require.NoError(t, err)
+			second, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "deleted-second", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, second)
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), second.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			restore, err = ResolveCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+			require.NoError(t, err)
+			result, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "deleted-inverse", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, result)
+			var vendor Vendor
+			require.NoError(t, db.First(&vendor).Error)
+			assert.Equal(t, "source-vendor", vendor.Name)
+			assert.Equal(t, "original", vendor.Description)
+			assert.NotEqual(t, prior.Id, vendor.Id)
+			var state CatalogSyncState
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			target, err := CaptureCatalogTargetTx(context.Background(), db, actor.TargetID, &state)
+			require.NoError(t, err)
+			var baseline CatalogSyncBaseline
+			require.NoError(t, db.First(&baseline).Error)
+			assert.Equal(t, target.ObjectVersions[catalogmanifest.EntryID(catalogmanifest.Entry{Kind: catalogmanifest.KindVendor, Key: "source-vendor"})], baseline.ObjectVersion)
+			assert.Equal(t, int64(3), baseline.Generation)
+		})
+	}
+}
+
+func TestCatalogSyncRestoreDeletedModelDependency(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			vendor := Vendor{Name: "original-vendor", Status: 1}
+			require.NoError(t, db.Create(&vendor).Error)
+			require.NoError(t, db.Create(&Model{ModelName: "deleted-model", VendorID: vendor.Id, BillingCurrency: "USD"}).Error)
+			source, err := ExportManagedCatalogTx(context.Background(), db, "dev")
+			require.NoError(t, err)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			first, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "dependency-first", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, first)
+			source.Entries = slices.DeleteFunc(source.Entries, func(entry catalogmanifest.Entry) bool { return entry.Kind == catalogmanifest.KindModel })
+			source.Coverage[catalogmanifest.KindModel] = 0
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			plan, err = ResolveCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+			require.NoError(t, err)
+			second, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "dependency-second", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, second)
+			require.NoError(t, db.Model(&vendor).Update("name", "renamed-local-vendor").Error)
+			_, err = CreateCatalogSyncRestorePlan(context.Background(), second.OperationID, actor, time.Now())
+			require.Error(t, err, "restore must retain the preimage vendor name, never follow a later ID-to-name change")
+		})
+	}
+}
+
+func TestCatalogSyncRestorePriceModelRecreated(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogBusinessPriceSource(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			first, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "price-inc-first", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, first)
+			for i := range source.Entries {
+				entry := &source.Entries[i]
+				if entry.Kind != catalogmanifest.KindModelPrice {
+					continue
+				}
+				key, err := catalogmanifest.DecodePriceKey(entry.Key)
+				require.NoError(t, err)
+				if key.Option == "billing_setting.billing_expr" {
+					encoded, err := common.Marshal(catalogmanifest.PriceValue{Value: `"p * 8"`, BillingCurrency: "CNY", Unit: "expression"})
+					require.NoError(t, err)
+					entry.Value = string(encoded)
+				}
+			}
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err = CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			second, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "price-inc-second", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, second)
+			var record Model
+			require.NoError(t, db.First(&record, "model_name = ?", "managed-model").Error)
+			require.NoError(t, db.Delete(&record).Error)
+			record.Id = 0
+			record.DeletedAt = gorm.DeletedAt{}
+			require.NoError(t, db.Create(&record).Error)
+			_, err = CreateCatalogSyncRestorePlan(context.Background(), second.OperationID, actor, time.Now())
+			require.ErrorIs(t, err, ErrCatalogSyncPlanStale, "a price-only inverse must not write against a recreated related model")
+		})
+	}
+}
+
+func TestCatalogSyncRestoreLostAck(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			original, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "ack-original", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, original)
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			restore, err = ResolveCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+			require.NoError(t, err)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			loan, err := pool.Conn(context.Background())
+			require.NoError(t, err)
+			defer loan.Close()
+			require.NoError(t, loan.Raw(func(native any) error {
+				connection := &catalogBusinessLostAckConnection{Conn: native.(driver.Conn)}
+				observed := sql.OpenDB(catalogBusinessLostAckConnector{connection, pool.Driver()})
+				observed.SetMaxOpenConns(1)
+				defer observed.Close()
+				root := db.Session(&gorm.Session{NewDB: true, Context: context.Background()})
+				root.Statement.ConnPool = observed
+				DB = root
+				defer func() { DB = db }()
+				connection.armed.Store(true)
+				result, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "ack-inverse", actor)
+				require.NoError(t, err)
+				assert.Equal(t, int64(2), result.Revision)
+				require.NoError(t, root.Where("id IN ?", []string{restore.ID, plan.ID}).Delete(&CatalogSyncPlan{}).Error)
+				replayed, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "ack-inverse", actor)
+				require.NoError(t, err)
+				assert.Equal(t, result, replayed)
+				syncReplay, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "ack-original", actor)
+				require.NoError(t, err)
+				assert.Equal(t, original, syncReplay)
+				_, err = ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest+"bad", "ack-inverse", actor)
+				require.ErrorIs(t, err, ErrCatalogSyncOperationConflict)
+				var count int64
+				require.NoError(t, root.Model(&CatalogSyncOperation{}).Count(&count).Error)
+				assert.Equal(t, int64(2), count)
+				return nil
+			}))
+		})
+	}
+}
+
+func TestCatalogSyncHistoryPagination(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			// Durable fixture rows exercise pagination without inventing a runtime
+			// publisher or running 105 identical business operations.
+			for i := range 105 {
+				copy := plan
+				copy.ID = fmt.Sprintf("history-plan-%03d", i)
+				copy.Digest, err = catalogmanifest.CanonicalPlanDigest(copy)
+				require.NoError(t, err)
+				body, err := common.Marshal(copy)
+				require.NoError(t, err)
+				require.NoError(t, db.Create(&CatalogSyncPlan{ID: copy.ID, Body: CatalogSyncText(body), Digest: copy.Digest, ExpiresAt: copy.ExpiresAt}).Error)
+				binding, err := common.Marshal(catalogOperationBinding{Actor: actor, PlanID: copy.ID, Kind: "sync", Digest: copy.Digest})
+				require.NoError(t, err)
+				require.NoError(t, db.Create(&CatalogSyncOperation{ID: fmt.Sprintf("history-%03d", i), PlanID: copy.ID, State: "succeeded", Revision: int64(i / 2), CreatedAt: 100, Backup: "PRIVATE-BACKUP", History: CatalogSyncText(binding), Result: "PRIVATE-RESULT"}).Error)
+			}
+			rows, total, err := ListCatalogSyncOperations(context.Background(), -1, 0)
+			require.NoError(t, err)
+			require.Len(t, rows, 20)
+			assert.Equal(t, int64(105), total)
+			assert.Equal(t, "history-104", rows[0].ID)
+			assert.Equal(t, "history-103", rows[1].ID)
+			next, total, err := ListCatalogSyncOperations(context.Background(), 20, 999)
+			require.NoError(t, err)
+			require.Len(t, next, 85)
+			assert.Equal(t, int64(105), total)
+			assert.Equal(t, "history-084", next[0].ID)
+			maxRows, _, err := ListCatalogSyncOperations(context.Background(), 0, 999)
+			require.NoError(t, err)
+			assert.Len(t, maxRows, 100)
+			for _, row := range maxRows {
+				assert.Empty(t, row.Backup)
+				assert.Empty(t, row.Result)
+				assert.Empty(t, row.History)
+				require.NotNil(t, row.Summary)
+				assert.Equal(t, 1, row.Summary.Actions["create"])
+				assert.Equal(t, actor.UserID, row.Summary.ActorUserID)
+			}
+			public, err := common.Marshal(maxRows)
+			require.NoError(t, err)
+			assert.NotContains(t, string(public), "PRIVATE-")
+			assert.NotContains(t, string(public), actor.SessionID)
+			empty, total, err := ListCatalogSyncOperations(context.Background(), 105, 10)
+			require.NoError(t, err)
+			assert.Empty(t, empty)
+			assert.Equal(t, int64(105), total)
+		})
+	}
+}
+
 func TestCatalogSyncBusinessPreview(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(engine, func(t *testing.T) {

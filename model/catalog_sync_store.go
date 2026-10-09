@@ -141,14 +141,15 @@ type CatalogSyncBaseline struct {
 }
 
 type CatalogSyncOperation struct {
-	ID        string          `gorm:"primaryKey;size:64"`
-	PlanID    string          `gorm:"size:64;not null;uniqueIndex"`
-	State     string          `gorm:"size:32;not null"`
-	Revision  int64           `gorm:"not null"`
-	CreatedAt int64           `gorm:"not null"`
-	Backup    CatalogSyncText `gorm:"not null" json:"-"`
-	History   CatalogSyncText `gorm:"not null" json:"-"`
-	Result    CatalogSyncText `gorm:"not null" json:"-"`
+	ID        string                       `gorm:"primaryKey;size:64"`
+	PlanID    string                       `gorm:"size:64;not null;uniqueIndex"`
+	State     string                       `gorm:"size:32;not null"`
+	Revision  int64                        `gorm:"not null"`
+	CreatedAt int64                        `gorm:"not null"`
+	Backup    CatalogSyncText              `gorm:"not null" json:"-"`
+	History   CatalogSyncText              `gorm:"not null" json:"-"`
+	Result    CatalogSyncText              `gorm:"not null" json:"-"`
+	Summary   *CatalogSyncOperationSummary `gorm:"-" json:"summary,omitempty"`
 }
 
 func catalogRandomID() (string, error) {
@@ -192,7 +193,7 @@ func validCatalogActor(actor catalogmanifest.Actor) bool {
 }
 
 func CreateCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot, actor catalogmanifest.Actor, now time.Time) (catalogmanifest.Plan, error) {
-	return prepareCatalogSyncPlan(ctx, source, actor, now, "", "", catalogmanifest.Resolution{})
+	return prepareCatalogSyncPlan(ctx, source, actor, now, "", "", catalogmanifest.Resolution{}, "")
 }
 
 func GetCatalogSyncPlan(ctx context.Context, id string, actor catalogmanifest.Actor) (catalogmanifest.Plan, error) {
@@ -245,5 +246,5 @@ func decodeCatalogSyncPlan(row CatalogSyncPlan, actor catalogmanifest.Actor, now
 // Choices replace earlier choices. ExpectedDigest is a CAS precondition: two
 // stale browser tabs cannot silently replace the proof-bound final plan.
 func ResolveCatalogSyncPlan(ctx context.Context, id, expectedDigest string, actor catalogmanifest.Actor, choices catalogmanifest.Resolution) (catalogmanifest.Plan, error) {
-	return prepareCatalogSyncPlan(ctx, catalogmanifest.Snapshot{}, actor, time.Now(), id, expectedDigest, choices)
+	return prepareCatalogSyncPlan(ctx, catalogmanifest.Snapshot{}, actor, time.Now(), id, expectedDigest, choices, "")
 }

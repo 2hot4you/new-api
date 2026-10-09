@@ -70,7 +70,7 @@ func catalogPlanDraft(before catalogmanifest.Snapshot, plan catalogmanifest.Plan
 
 // All compiler work is between root transactions. The second transaction
 // rebuilds Before/Draft from fresh authoritative rows and compares exact inputs.
-func prepareCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot, actor catalogmanifest.Actor, now time.Time, existingID, expectedDigest string, choices catalogmanifest.Resolution) (catalogmanifest.Plan, error) {
+func prepareCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot, actor catalogmanifest.Actor, now time.Time, existingID, expectedDigest string, choices catalogmanifest.Resolution, restoreID string) (catalogmanifest.Plan, error) {
 	var plan catalogmanifest.Plan
 	if !validCatalogActor(actor) {
 		return plan, ErrCatalogSyncPlanUnavailable
@@ -95,10 +95,11 @@ func prepareCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot
 				if err != nil {
 					return err
 				}
-				if row.Digest != expectedDigest || plan.Kind != "sync" {
+				if row.Digest != expectedDigest {
 					return ErrCatalogSyncPlanStale
 				}
 				source = plan.Snapshot
+				restoreID = plan.RestoreOperationID
 			}
 			before, err = captureCatalogTargetTx(ctx, tx, actor.TargetID, state, true)
 			if err != nil {
@@ -107,6 +108,18 @@ func prepareCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot
 			base, err = LoadCatalogSyncBaselineTx(tx, state)
 			if err != nil {
 				return err
+			}
+			if restoreID != "" {
+				if err := authenticateCatalogActorTx(tx, actor); err != nil {
+					return err
+				}
+				inverse, _, err := catalogRestorePlanTx(tx, restoreID, actor, now, before, base)
+				if err != nil {
+					return err
+				}
+				if existingID == "" {
+					plan = inverse
+				}
 			}
 			references, err = captureCatalogReferencesTx(tx, pin)
 			if err != nil {
@@ -121,7 +134,9 @@ func prepareCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot
 		return catalogmanifest.Plan{}, err
 	}
 	if existingID == "" {
-		plan, err = catalogmanifest.BuildPlan(source, before, base, actor, now)
+		if restoreID == "" {
+			plan, err = catalogmanifest.BuildPlan(source, before, base, actor, now)
+		}
 		if err == nil {
 			plan.ID, err = catalogRandomID()
 		}
@@ -221,7 +236,7 @@ func prepareCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot
 }
 
 func recheckCatalogPlanTx(ctx context.Context, tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin, row CatalogSyncPlan, plan catalogmanifest.Plan) (catalogmanifest.Snapshot, error) {
-	if plan.Kind != "sync" || row.TargetRevision != state.Revision || row.BaselineGeneration != state.BaselineGeneration {
+	if (plan.Kind != "sync" && plan.Kind != "restore") || row.TargetRevision != state.Revision || row.BaselineGeneration != state.BaselineGeneration {
 		return catalogmanifest.Snapshot{}, ErrCatalogSyncPlanStale
 	}
 	before, err := captureCatalogTargetTx(ctx, tx, plan.Actor.TargetID, state, true)
@@ -237,6 +252,14 @@ func recheckCatalogPlanTx(ctx context.Context, tx *gorm.DB, state *CatalogSyncSt
 	}
 	if base.Generation != plan.BaselineGeneration {
 		return before, ErrCatalogSyncPlanStale
+	}
+	if plan.Kind == "restore" {
+		if err := authenticateCatalogActorTx(tx, plan.Actor); err != nil {
+			return before, err
+		}
+		if _, _, err := catalogRestorePlanTx(tx, plan.RestoreOperationID, plan.Actor, time.Now(), before, base); err != nil {
+			return before, err
+		}
 	}
 	references, err := captureCatalogReferencesTx(tx, pin)
 	if err != nil {
@@ -270,6 +293,7 @@ var ErrCatalogSyncOperationConflict = errors.New("catalog operation binding does
 type catalogOperationBinding struct {
 	Actor                catalogmanifest.Actor
 	PlanID, Kind, Digest string
+	RestoreOperationID   string `json:",omitempty"`
 }
 
 type catalogBackupEntry struct {
@@ -421,6 +445,15 @@ func catalogOperationResult(tx *gorm.DB, operationID string, binding catalogOper
 	if err := common.UnmarshalJsonStr(string(operation.History), &stored); err != nil {
 		return catalogmanifest.Result{}, true, err
 	}
+	if (stored.Kind != "sync" && stored.Kind != "restore") || (stored.Kind == "sync" && stored.RestoreOperationID != "") || (stored.Kind == "restore" && stored.RestoreOperationID == "") {
+		return catalogmanifest.Result{}, true, ErrCatalogSyncOperationConflict
+	}
+	// The public apply request supplies the sealed digest, not a client kind or
+	// inverse ID. Exact replay derives that intent from the immutable operation
+	// binding, independently of preview expiry or plan-row retention.
+	if binding.Kind == "" && binding.RestoreOperationID == "" {
+		binding.Kind, binding.RestoreOperationID = stored.Kind, stored.RestoreOperationID
+	}
 	if stored != binding || operation.PlanID != binding.PlanID {
 		return catalogmanifest.Result{}, true, ErrCatalogSyncOperationConflict
 	}
@@ -441,7 +474,7 @@ func ApplyCatalogSyncPlan(ctx context.Context, planID, finalDigest, operationID 
 	if !validCatalogActor(actor) || planID == "" || finalDigest == "" || operationID == "" || len(operationID) > 64 || strings.TrimSpace(operationID) != operationID {
 		return result, ErrCatalogSyncPlanUnavailable
 	}
-	binding := catalogOperationBinding{Actor: actor, PlanID: planID, Kind: "sync", Digest: finalDigest}
+	binding := catalogOperationBinding{Actor: actor, PlanID: planID, Digest: finalDigest}
 	err := TryWithCatalogWriteBarrier(ctx, func() error {
 		err := catalogReferenceTransaction(ctx, DB, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
 			if err := authenticateCatalogActorTx(tx, actor); err != nil {
@@ -472,9 +505,10 @@ func ApplyCatalogSyncPlan(ctx context.Context, planID, finalDigest, operationID 
 			if err != nil {
 				return err
 			}
-			if plan.Kind != "sync" || row.Digest != finalDigest || !catalogmanifest.PlanExecutable(plan, time.Now()) {
+			if row.Digest != finalDigest || !catalogmanifest.PlanExecutable(plan, time.Now()) {
 				return ErrCatalogSyncPlanStale
 			}
+			binding.Kind, binding.RestoreOperationID = plan.Kind, plan.RestoreOperationID
 			before, err := recheckCatalogPlanTx(ctx, tx, state, pin, row, plan)
 			if err != nil {
 				return err
@@ -513,8 +547,14 @@ func ApplyCatalogSyncPlan(ctx context.Context, planID, finalDigest, operationID 
 			if err := verifyCatalogWrittenDraft(before, after, plan); err != nil {
 				return err
 			}
-			if _, err := saveCatalogSyncBaselineTx(tx, plan.Snapshot, after.ObjectVersions, state.BaselineGeneration, true); err != nil {
-				return err
+			if plan.Kind == "restore" {
+				if err := restoreCatalogBaselineTx(tx, plan.RestoreOperationID, after, state.BaselineGeneration); err != nil {
+					return err
+				}
+			} else {
+				if _, err := saveCatalogSyncBaselineTx(tx, plan.Snapshot, after.ObjectVersions, state.BaselineGeneration, true); err != nil {
+					return err
+				}
 			}
 			affected := make(map[string]bool)
 			for _, entry := range backup.Before {

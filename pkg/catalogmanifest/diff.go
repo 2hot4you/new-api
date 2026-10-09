@@ -30,7 +30,7 @@ func BuildPlan(source Snapshot, target Snapshot, base Baseline, actor Actor, now
 	if base.SourceID != "" && base.SourceID != source.SourceID {
 		return Plan{}, fmt.Errorf("managed source identity changed")
 	}
-	if base.SourceID == "" && (len(base.Entries) != 0 || len(base.ObjectVersions) != 0 || base.Generation != 0) {
+	if base.SourceID == "" && (len(base.Entries) != 0 || len(base.ObjectVersions) != 0) {
 		return Plan{}, fmt.Errorf("baseline source identity is required")
 	}
 	if base.Generation < 0 {

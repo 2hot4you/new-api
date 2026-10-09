@@ -17,6 +17,17 @@ func diffJSON(t *testing.T, value any) string {
 	return string(encoded)
 }
 
+func TestManagedEmptyRestoredBaseline(t *testing.T) {
+	source, target := diffSnapshot(t, diffModel(t, "source")), diffSnapshot(t)
+	plan, err := BuildPlan(source, target, Baseline{Generation: 2}, Actor{}, time.Unix(1000, 0))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), plan.BaselineGeneration)
+	for _, base := range []Baseline{{Generation: -1}, {Generation: 2, Entries: source.Entries}, {Generation: 2, ObjectVersions: map[string]string{"model": "token"}}, {Generation: 2, SourceID: "another-source"}} {
+		_, err := BuildPlan(source, target, base, Actor{}, time.Unix(1000, 0))
+		require.Error(t, err)
+	}
+}
+
 func TestManagedPlanOperationBinding(t *testing.T) {
 	plan, err := BuildPlan(diffSnapshot(t, diffModel(t, "source")), diffSnapshot(t), Baseline{}, Actor{}, time.Unix(1000, 0))
 	require.NoError(t, err)
