@@ -467,15 +467,91 @@ func catalogOperationResult(tx *gorm.DB, operationID string, binding catalogOper
 	return result, true, nil
 }
 
-// This commits durable state only. Task5 must publish the runtime generation
-// while holding the process writer before exposing this operation as success.
+// Result is the immutable original receipt, including its pending state. The
+// operation's live State becomes succeeded only after publication and exact ack.
 func ApplyCatalogSyncPlan(ctx context.Context, planID, finalDigest, operationID string, actor catalogmanifest.Actor) (catalogmanifest.Result, error) {
 	var result catalogmanifest.Result
 	if !validCatalogActor(actor) || planID == "" || finalDigest == "" || operationID == "" || len(operationID) > 64 || strings.TrimSpace(operationID) != operationID {
 		return result, ErrCatalogSyncPlanUnavailable
 	}
 	binding := catalogOperationBinding{Actor: actor, PlanID: planID, Digest: finalDigest}
+	var input catalogRuntimeInput
+	var prepared catalogmanifest.Plan
+	var replay bool
 	err := TryWithCatalogWriteBarrier(ctx, func() error {
+		return catalogReferenceTransaction(ctx, DB, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+			if err := authenticateCatalogActorTx(tx, actor); err != nil {
+				return err
+			}
+			stored, found, err := catalogOperationResult(tx, operationID, binding)
+			if err != nil {
+				return err
+			}
+			if found {
+				result, replay = stored, true
+				return nil
+			}
+			var prior CatalogSyncOperation
+			if err := tx.Where("plan_id = ?", planID).First(&prior).Error; err == nil {
+				return ErrCatalogSyncOperationConflict
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			if state.PublicationState != "ready" {
+				return ErrCatalogPublicationPending
+			}
+			var row CatalogSyncPlan
+			if err := tx.First(&row, "id = ?", planID).Error; err != nil {
+				return err
+			}
+			prepared, err = decodeCatalogSyncPlan(row, actor, time.Now())
+			if err != nil {
+				return err
+			}
+			if row.Digest != finalDigest || !catalogmanifest.PlanExecutable(prepared, time.Now()) {
+				return ErrCatalogSyncPlanStale
+			}
+			if _, err := recheckCatalogPlanTx(ctx, tx, state, pin, row, prepared); err != nil {
+				return err
+			}
+			input, err = captureCatalogRuntimeTx(tx, state, pin)
+			return err
+		})
+	})
+	if errors.Is(err, ErrCatalogCommitUncertain) {
+		// Capture can be an exact replay of an already durable operation. Keep
+		// its original lost-response reconciliation; never stage or retry a
+		// fresh mutation when the capture transaction outcome is uncertain.
+		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		stored, found, lookupErr := catalogOperationResult(DB.WithContext(lookupCtx), operationID, binding)
+		if lookupErr != nil {
+			return catalogmanifest.Result{}, errors.Join(err, lookupErr)
+		}
+		if found {
+			return stored, nil
+		}
+	}
+	if err != nil {
+		return catalogmanifest.Result{}, err
+	}
+	if replay {
+		return result, nil
+	}
+	// Neither SQL fences, registry pins nor catalog/pricing locks survive this
+	// point. Full Task4 attestation above remains mandatory and is rechecked below.
+	next, strict, err := catalogPlanPricing(input.options, prepared)
+	if err != nil {
+		return result, err
+	}
+	prospective := input
+	prospective.options = next
+	stage, err := stageProspectiveCatalogRuntime(prospective, input.options, strict)
+	if err != nil {
+		return result, err
+	}
+	committed := false
+	err = TryWithCatalogWriteBarrier(ctx, func() error {
 		err := catalogReferenceTransaction(ctx, DB, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
 			if err := authenticateCatalogActorTx(tx, actor); err != nil {
 				return err
@@ -513,6 +589,13 @@ func ApplyCatalogSyncPlan(ctx context.Context, planID, finalDigest, operationID 
 			if err != nil {
 				return err
 			}
+			fresh, err := captureCatalogRuntimeTx(tx, state, pin)
+			if err != nil {
+				return err
+			}
+			if !input.same(fresh) {
+				return ErrCatalogSyncPlanStale
+			}
 			backup, err := captureCatalogBackupTx(tx, state, before, plan)
 			if err != nil {
 				return err
@@ -537,7 +620,7 @@ func ApplyCatalogSyncPlan(ctx context.Context, planID, finalDigest, operationID 
 			if err := tx.Create(&operation).Error; err != nil {
 				return err
 			}
-			if err := writeCatalogPlanTx(tx, plan); err != nil {
+			if err := writeCatalogPlanTx(tx, plan, next); err != nil {
 				return err
 			}
 			after, err := captureCatalogTargetTx(ctx, tx, actor.TargetID, state, true)
@@ -581,29 +664,54 @@ func ApplyCatalogSyncPlan(ctx context.Context, planID, finalDigest, operationID 
 			if err != nil {
 				return err
 			}
-			return tx.Model(&CatalogSyncState{}).Where("id = ?", CatalogSyncStateID).Updates(map[string]any{"revision": result.Revision, "current_digest": digest, "publication_state": result.State, "pending_operation_id": operationID}).Error
+			if err := tx.Model(&CatalogSyncState{}).Where("id = ?", CatalogSyncStateID).Updates(map[string]any{"revision": result.Revision, "current_digest": digest, "publication_state": result.State, "pending_operation_id": operationID}).Error; err != nil {
+				return err
+			}
+			if err := tx.First(state, CatalogSyncStateID).Error; err != nil {
+				return err
+			}
+			postimage, err := captureCatalogRuntimeTx(tx, state, pin)
+			if err != nil {
+				return err
+			}
+			if !maps.Equal(next, postimage.options) || input.dependencies != postimage.dependencies || input.generation != postimage.generation {
+				return ErrCatalogSyncPlanStale
+			}
+			// The structural whole-catalog draft proof above and exact raw options
+			// bind this already-compiled candidate to the actual transaction image.
+			stage.input = postimage
+			committed = true
+			return nil
 		})
-		if !errors.Is(err, ErrCatalogCommitUncertain) {
-			return err
-		}
 		// A lost acknowledgement never causes mutation replay. Resolve only a
 		// durable exact binding on a fresh connection, even if request expired.
-		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		stored, found, lookupErr := catalogOperationResult(DB.WithContext(lookupCtx), operationID, binding)
-		if lookupErr != nil {
-			return errors.Join(err, lookupErr)
+		if errors.Is(err, ErrCatalogCommitUncertain) {
+			lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			stored, found, lookupErr := catalogOperationResult(DB.WithContext(lookupCtx), operationID, binding)
+			if lookupErr != nil {
+				committed = false
+				return errors.Join(err, lookupErr)
+			}
+			if found {
+				result, err = stored, nil
+			}
 		}
-		if found {
-			result = stored
+		if err != nil {
+			committed = false
+			return err
+		}
+		if !committed { // exact replay discovered during the second transaction
 			return nil
 		}
-		return err
+		// Root COMMIT/cleanup has released its registry pin. Keep this SAME
+		// writer through typed publish, read-only rebuild, and durable runtime ack.
+		return publishCatalogRuntimeGuarded(ctx, stage)
 	})
-	if err != nil {
+	if err != nil && !committed {
 		return catalogmanifest.Result{}, err
 	}
-	return result, nil
+	return result, err
 }
 
 func captureCatalogBackupTx(tx *gorm.DB, state *CatalogSyncState, before catalogmanifest.Snapshot, plan catalogmanifest.Plan) (catalogOperationBackup, error) {
@@ -661,7 +769,7 @@ func captureCatalogBackupTx(tx *gorm.DB, state *CatalogSyncState, before catalog
 	return backup, nil
 }
 
-func writeCatalogPlanTx(tx *gorm.DB, plan catalogmanifest.Plan) error {
+func writeCatalogPlanTx(tx *gorm.DB, plan catalogmanifest.Plan, pricing map[string]string) error {
 	now := time.Now().Unix()
 	for _, kind := range []string{catalogmanifest.KindVendor, catalogmanifest.KindModel} {
 		for _, change := range plan.Changes {
@@ -758,43 +866,11 @@ func writeCatalogPlanTx(tx *gorm.DB, plan catalogmanifest.Plan) error {
 		if err != nil {
 			return err
 		}
-		option := options[key.Option]
-		if option == nil {
-			option = &Option{Key: key.Option, Value: "{}"}
-			err := tx.Where(map[string]any{"key": key.Option}).First(option).Error
-			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-			options[key.Option] = option
+		value, exists := pricing[key.Option]
+		if !exists {
+			return ErrCatalogSyncPlanStale
 		}
-		var value catalogmanifest.PriceValue
-		if change.After != nil {
-			if err := common.UnmarshalJsonStr(change.After.Value, &value); err != nil {
-				return err
-			}
-		}
-		if catalogmanifest.PriceOptions()[key.Option].Map {
-			var leaves map[string]common.RawMessage
-			if err := common.UnmarshalJsonStr(option.Value, &leaves); err != nil || leaves == nil {
-				return ErrCatalogSyncPlanStale
-			}
-			leaf := strings.ReplaceAll(strings.ReplaceAll(strings.TrimPrefix(key.Path, "/"), "~1", "/"), "~0", "~")
-			if change.Action == "delete" {
-				delete(leaves, leaf)
-			} else {
-				leaves[leaf] = common.RawMessage(value.Value)
-			}
-			encoded, err := common.Marshal(leaves)
-			if err != nil {
-				return err
-			}
-			option.Value = string(encoded)
-		} else {
-			if change.Action == "delete" {
-				return ErrCatalogSyncPlanStale
-			}
-			option.Value = value.Value
-		}
+		options[key.Option] = &Option{Key: key.Option, Value: value}
 	}
 	for _, key := range slices.Sorted(maps.Keys(options)) {
 		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value"})}).Create(options[key]).Error; err != nil {
@@ -818,6 +894,62 @@ func writeCatalogPlanTx(tx *gorm.DB, plan catalogmanifest.Plan) error {
 		}
 	}
 	return nil
+}
+
+// The exact option postimage, shared by prospective staging and the writer.
+// Untouched raw rows retain byte identity. Adoption is strict even when it
+// changes ownership only; missing/default values never stand in for that leaf.
+func catalogPlanPricing(previous map[string]string, plan catalogmanifest.Plan) (map[string]string, []catalogPricingLeaf, error) {
+	next := maps.Clone(previous)
+	strict := []catalogPricingLeaf{}
+	for _, change := range plan.Changes {
+		if change.Kind == catalogmanifest.KindModel || change.Kind == catalogmanifest.KindVendor || (change.Action != "create" && change.Action != "update" && change.Action != "delete" && change.Action != "adopt") {
+			continue
+		}
+		key, err := catalogmanifest.DecodePriceKey(change.Key)
+		if err != nil {
+			return nil, nil, err
+		}
+		leaf := strings.ReplaceAll(strings.ReplaceAll(strings.TrimPrefix(key.Path, "/"), "~1", "/"), "~0", "~")
+		if change.Action != "delete" && change.After != nil {
+			strict = append(strict, catalogPricingLeaf{Option: key.Option, Name: leaf})
+		}
+		if change.Action == "adopt" {
+			continue
+		}
+		var value catalogmanifest.PriceValue
+		if change.After != nil {
+			if err := common.UnmarshalJsonStr(change.After.Value, &value); err != nil {
+				return nil, nil, err
+			}
+		}
+		if catalogmanifest.PriceOptions()[key.Option].Map {
+			raw, exists := next[key.Option]
+			if !exists {
+				raw = "{}"
+			}
+			leaves, err := decodeCatalogPricingMap(key.Option, raw)
+			if err != nil {
+				return nil, nil, err
+			}
+			if change.Action == "delete" {
+				delete(leaves, leaf)
+			} else {
+				leaves[leaf] = common.RawMessage(value.Value)
+			}
+			encoded, err := common.Marshal(leaves)
+			if err != nil {
+				return nil, nil, err
+			}
+			next[key.Option] = string(encoded)
+		} else {
+			if change.Action == "delete" {
+				return nil, nil, ErrCatalogSyncPlanStale
+			}
+			next[key.Option] = value.Value
+		}
+	}
+	return next, strict, nil
 }
 
 // Verify only structural persisted equality, not expressions or evaluators.

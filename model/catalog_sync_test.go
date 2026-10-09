@@ -48,7 +48,7 @@ func TestCatalogSyncRestoreScope(t *testing.T) {
 			original, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "restore-original", actor)
 			require.NoError(t, err)
 			_, err = CreateCatalogSyncRestorePlan(context.Background(), original.OperationID, actor, time.Now())
-			require.Error(t, err, "pending publication cannot be restored")
+			require.NoError(t, err, "automatic publication permits a real inverse")
 			catalogBusinessFixturePublished(t, db, original)
 			require.NoError(t, db.Create(&Vendor{Name: "later-unrelated", Description: "keep"}).Error)
 			require.NoError(t, db.Create(&Option{Key: "WebSearchPrice", Value: `{"later":4.25}`}).Error)
@@ -698,7 +698,12 @@ func TestCatalogSyncRestoreLostAck(t *testing.T) {
 				root.Statement.ConnPool = observed
 				DB = root
 				defer func() { DB = db }()
-				connection.armed.Store(true)
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("restore-arm-mutation-ack", func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_operations" {
+						connection.armed.Store(true)
+					}
+				}))
+				defer db.Callback().Create().Remove("restore-arm-mutation-ack")
 				result, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "ack-inverse", actor)
 				require.NoError(t, err)
 				assert.Equal(t, int64(2), result.Revision)
@@ -796,6 +801,7 @@ func TestCatalogSyncBusinessPreview(t *testing.T) {
 
 func catalogBusinessActor(t *testing.T, db *gorm.DB) catalogmanifest.Actor {
 	t.Helper()
+	preserveCatalogCandidate(t)
 	require.NoError(t, db.AutoMigrate(&User{}, &UserSession{}))
 	user := User{Username: "catalog-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, AuthVersion: 1}
 	require.NoError(t, db.Create(&user).Error)
@@ -839,8 +845,8 @@ func TestCatalogSyncBusinessApply(t *testing.T) {
 			var state CatalogSyncState
 			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
 			assert.Equal(t, int64(1), state.BaselineGeneration)
-			assert.Zero(t, state.RuntimeRevision)
-			assert.Equal(t, "business-operation", state.PendingOperationID)
+			assert.Equal(t, result.Revision, state.RuntimeRevision)
+			assert.Empty(t, state.PendingOperationID)
 			replayed, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "business-operation", actor)
 			require.NoError(t, err)
 			assert.Equal(t, result, replayed)
@@ -1081,11 +1087,17 @@ func TestCatalogSyncBusinessTaskReferences(t *testing.T) {
 	}
 }
 
-// Test fixture only: no production publisher exists until Task5.
+// Existing business/restore tests now verify actual automatic publication.
 func catalogBusinessFixturePublished(t *testing.T, db *gorm.DB, result catalogmanifest.Result) {
 	t.Helper()
-	require.NoError(t, db.Model(&CatalogSyncState{}).Where("id = ?", CatalogSyncStateID).Updates(map[string]any{"publication_state": "ready", "runtime_revision": result.Revision, "pending_operation_id": ""}).Error)
-	require.NoError(t, db.Model(&CatalogSyncOperation{}).Where("id = ?", result.OperationID).Update("state", "succeeded").Error)
+	var state CatalogSyncState
+	require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+	require.Equal(t, result.Revision, state.RuntimeRevision)
+	require.Equal(t, "ready", state.PublicationState)
+	require.Empty(t, state.PendingOperationID)
+	var operation CatalogSyncOperation
+	require.NoError(t, db.First(&operation, "id = ?", result.OperationID).Error)
+	require.Equal(t, "succeeded", operation.State)
 }
 
 func TestCatalogSyncBusinessMidjourneyPriceRemoval(t *testing.T) {
@@ -1267,7 +1279,8 @@ func (c catalogBusinessLostAckConnector) Driver() driver.Driver { return c.drive
 
 type catalogBusinessLostAckConnection struct {
 	driver.Conn
-	armed atomic.Bool
+	armed   atomic.Bool
+	dropped atomic.Int64
 }
 
 func (c *catalogBusinessLostAckConnection) Close() error { return nil } // loan owner closes the real connection
@@ -1307,6 +1320,7 @@ func (tx *catalogBusinessLostAckTx) Commit() error {
 		return err
 	}
 	if tx.connection.armed.Swap(false) {
+		tx.connection.dropped.Add(1)
 		return errors.New("injected lost durable commit acknowledgement")
 	}
 	return nil
@@ -1333,17 +1347,25 @@ func TestCatalogSyncBusinessLostAckAndConcurrent(t *testing.T) {
 				root.Statement.ConnPool = observed
 				DB = root
 				defer func() { DB = db }()
-				connection.armed.Store(true)
 				entered, release := make(chan struct{}), make(chan struct{})
 				resume := sync.OnceFunc(func() { close(release) })
 				defer resume()
 				var once sync.Once
 				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("catalog-business-pause", func(tx *gorm.DB) {
 					if tx.Statement.Table == "catalog_sync_operations" {
+						connection.armed.Store(true)
 						once.Do(func() { close(entered); <-release })
 					}
 				}))
 				defer db.Callback().Create().Remove("catalog-business-pause")
+				require.NoError(t, db.Callback().Update().Before("gorm:update").Register("catalog-business-ack", func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_operations" {
+						if values, ok := tx.Statement.Dest.(map[string]any); ok && values["state"] == "succeeded" {
+							connection.armed.Store(true)
+						}
+					}
+				}))
+				defer db.Callback().Update().Remove("catalog-business-ack")
 				type outcome struct {
 					result catalogmanifest.Result
 					err    error
@@ -1366,6 +1388,8 @@ func TestCatalogSyncBusinessLostAckAndConcurrent(t *testing.T) {
 				result := <-done
 				require.NoError(t, result.err)
 				assert.Equal(t, "committed_pending_publish", result.result.State)
+				assert.Equal(t, int64(2), connection.dropped.Load(), "both actual mutation and ready-ack committed before their responses were lost")
+				catalogBusinessFixturePublished(t, db, result.result)
 				replayed, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "lost-ack-operation", actor)
 				require.NoError(t, err)
 				assert.Equal(t, result.result, replayed)

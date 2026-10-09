@@ -108,22 +108,49 @@ func (input catalogRuntimeInput) same(other catalogRuntimeInput) bool {
 	return input.state == other.state && input.digest == other.digest && input.dependencies == other.dependencies && input.generation == other.generation && maps.Equal(input.options, other.options) && input.operation.ID == other.operation.ID && input.operation.PlanID == other.operation.PlanID && input.operation.CreatedAt == other.operation.CreatedAt && input.operation.State == other.operation.State && input.operation.Revision == other.operation.Revision && input.operation.Backup == other.operation.Backup && input.operation.History == other.operation.History && input.operation.Result == other.operation.Result
 }
 
-// The only compiler/smoke phase. Its argument owns detached committed facts;
+// Committed compiler/smoke phase. Its argument owns detached committed facts;
 // callers must release SQL transactions, registry pins and catalog locks first.
 func stageCatalogRuntime(input catalogRuntimeInput) (*catalogRuntimeStage, error) {
-	var facts catalogValidationData
-	if err := common.UnmarshalJsonStr(input.dependencies.canonical, &facts); err != nil {
+	dependencies, err := catalogRuntimeDependencies(input)
+	if err != nil {
 		return nil, err
-	}
-	dependencies := catalogPricingDependencies{Plugins: make(map[string]jsplugin.Meta), Aliases: facts.Aliases}
-	for key, plugin := range facts.Effective {
-		dependencies.Plugins[key] = jsplugin.Meta{Key: key, APIVersion: plugin.APIVersion, Version: plugin.Version, Models: plugin.Models, UsageSchema: plugin.UsageSchema, UsageProfiles: plugin.UsageProfiles, RequiredCapabilities: plugin.Capabilities}
 	}
 	candidate, err := stageCommittedCatalogPricing(input.options, dependencies)
 	if err != nil {
 		return nil, err
 	}
-	stage := &catalogRuntimeStage{input: input, candidate: candidate, aliases: facts.Aliases, compatibility: make(map[string]bool)}
+	return stageCatalogCompatibility(input, candidate, dependencies)
+}
+
+// Prospective callers supply actual persisted previous rows and strict leaves
+// derived from their sealed plan. The committed entry point above is reserved
+// for recovery; this private seam shares only detached compatibility staging.
+func stageProspectiveCatalogRuntime(input catalogRuntimeInput, previous map[string]string, strict []catalogPricingLeaf) (*catalogRuntimeStage, error) {
+	dependencies, err := catalogRuntimeDependencies(input)
+	if err != nil {
+		return nil, err
+	}
+	candidate, err := stageProspectiveCatalogPricing(input.options, previous, dependencies, strict)
+	if err != nil {
+		return nil, err
+	}
+	return stageCatalogCompatibility(input, candidate, dependencies)
+}
+
+func catalogRuntimeDependencies(input catalogRuntimeInput) (catalogPricingDependencies, error) {
+	var facts catalogValidationData
+	if err := common.UnmarshalJsonStr(input.dependencies.canonical, &facts); err != nil {
+		return catalogPricingDependencies{}, err
+	}
+	dependencies := catalogPricingDependencies{Plugins: make(map[string]jsplugin.Meta), Aliases: facts.Aliases}
+	for key, plugin := range facts.Effective {
+		dependencies.Plugins[key] = jsplugin.Meta{Key: key, APIVersion: plugin.APIVersion, Version: plugin.Version, Models: plugin.Models, UsageSchema: plugin.UsageSchema, UsageProfiles: plugin.UsageProfiles, RequiredCapabilities: plugin.Capabilities}
+	}
+	return dependencies, nil
+}
+
+func stageCatalogCompatibility(input catalogRuntimeInput, candidate *catalogPricingCandidate, dependencies catalogPricingDependencies) (*catalogRuntimeStage, error) {
+	stage := &catalogRuntimeStage{input: input, candidate: candidate, aliases: dependencies.Aliases, compatibility: make(map[string]bool)}
 	// Cover every possible existing resolver result, including empty/unconfigured
 	// and built-in fallback. The resolver still runs in the existing projection.
 	expressions := map[string]bool{"": true}

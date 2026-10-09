@@ -27,8 +27,10 @@ func runtimePendingOperation(t *testing.T, db *gorm.DB) catalogmanifest.Result {
 	actor := catalogBusinessActor(t, db)
 	plan, err := CreateCatalogSyncPlan(context.Background(), catalogBusinessPriceSource(t, db), actor, time.Now())
 	require.NoError(t, err)
+	updatePricingLock.Lock()
 	result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "runtime-pending", actor)
-	require.NoError(t, err)
+	updatePricingLock.Unlock()
+	require.ErrorIs(t, err, ErrCatalogWriterBusy, "actual apply must commit then retain pending on required rebuild contention")
 	return result
 }
 
@@ -45,6 +47,263 @@ func runtimeStageForTest(t *testing.T, db *gorm.DB) *catalogRuntimeStage {
 	stage, err := stageCatalogRuntime(input)
 	require.NoError(t, err)
 	return stage
+}
+
+// A detached candidate is insufficient: failure after the actual mutation must
+// leave a recoverable pending operation, never permit another mutation, and
+// never replace its original receipt or preimage during recovery.
+func TestCatalogRuntimeManagedFailures(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			for _, phase := range []string{"rebuild", "ack", "plugin-drift"} {
+				t.Run(phase, func(t *testing.T) {
+					db := catalogFenceTestDB(t, engine)
+					actor := catalogBusinessActor(t, db)
+					plan, err := CreateCatalogSyncPlan(context.Background(), catalogBusinessPriceSource(t, db), actor, time.Now())
+					require.NoError(t, err)
+					injected := errors.New("managed publication unavailable")
+					rebuilt := false
+					require.NoError(t, db.Callback().Query().Before("gorm:query").Register("managed-rebuild", func(tx *gorm.DB) {
+						if tx.Statement.Table != "vendors" || tx.Statement.ConnPool != db.Statement.ConnPool {
+							return
+						}
+						rebuilt = true
+						assert.ErrorIs(t, TryWithCatalogWriteBarrier(context.Background(), func() error { return nil }), ErrCatalogWriterBusy)
+						assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "managed-model", func() error { return nil }), ErrCatalogWriterBusy)
+						var state CatalogSyncState
+						require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+						assert.Equal(t, "committed_pending_publish", state.PublicationState)
+						assert.Equal(t, int64(1), state.Revision)
+						// A writer acquisition proves the committing registry pin was
+						// released, not merely that another reader pin is available.
+						published := make(chan struct{})
+						go func() { jsplugin.DefaultRegistry.SetEnabled(phase != "plugin-drift"); close(published) }()
+						select {
+						case <-published:
+						case <-time.After(3 * time.Second):
+							t.Fatal("actual mutation pin survived into required rebuild")
+						}
+						if phase == "rebuild" {
+							tx.AddError(injected)
+						}
+					}))
+					require.NoError(t, db.Callback().Update().Before("gorm:update").Register("managed-ack", func(tx *gorm.DB) {
+						if tx.Statement.Table == "catalog_sync_operations" && phase == "ack" {
+							if values, ok := tx.Statement.Dest.(map[string]any); ok && values["state"] == "succeeded" {
+								tx.AddError(injected)
+							}
+						}
+					}))
+					result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "managed-failure", actor)
+					require.NoError(t, db.Callback().Query().Remove("managed-rebuild"))
+					require.NoError(t, db.Callback().Update().Remove("managed-ack"))
+					require.Error(t, err)
+					require.True(t, rebuilt)
+					if phase != "plugin-drift" {
+						require.ErrorIs(t, err, injected)
+					}
+					assertRuntimePending(t, db, result)
+					assertRuntimeLocksReleased(t)
+					var original CatalogSyncOperation
+					require.NoError(t, db.First(&original, "id = ?", result.OperationID).Error)
+					assert.Equal(t, "committed_pending_publish", original.State)
+					if phase == "plugin-drift" {
+						jsplugin.DefaultRegistry.SetEnabled(true)
+					}
+					replay, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, result.OperationID, actor)
+					require.NoError(t, err)
+					assert.Equal(t, result, replay)
+					require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+					var recovered CatalogSyncOperation
+					require.NoError(t, db.First(&recovered, "id = ?", result.OperationID).Error)
+					assert.Equal(t, "succeeded", recovered.State)
+					assert.Equal(t, original.Result, recovered.Result)
+					assert.Equal(t, original.Backup, recovered.Backup)
+					assert.Equal(t, original.History, recovered.History)
+					catalogBusinessFixturePublished(t, db, result)
+					restore, err := CreateCatalogSyncRestorePlan(context.Background(), result.OperationID, actor, time.Now())
+					require.NoError(t, err)
+					inverse, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "managed-safe-inverse", actor)
+					require.NoError(t, err)
+					catalogBusinessFixturePublished(t, db, inverse)
+					var count int64
+					require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&count).Error)
+					assert.Equal(t, int64(2), count)
+				})
+			}
+		})
+	}
+}
+
+func TestCatalogRuntimeManagedFreshRecheck(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			for _, drift := range []string{"raw-fx", "currency", "desired-plugin", "actor"} {
+				t.Run(drift, func(t *testing.T) {
+					db := catalogFenceTestDB(t, engine)
+					actor := catalogBusinessActor(t, db)
+					plan, err := CreateCatalogSyncPlan(context.Background(), catalogBusinessPriceSource(t, db), actor, time.Now())
+					require.NoError(t, err)
+					before, err := catalogPersistedDigest(db)
+					require.NoError(t, err)
+					captures := 0
+					require.NoError(t, db.Callback().Query().After("gorm:query").Register("managed-final-drift", func(tx *gorm.DB) {
+						if _, ok := tx.Statement.Dest.(*CatalogSyncState); !ok {
+							return
+						}
+						captures++
+						if captures != 2 { // fresh final root after detached staging
+							return
+						}
+						db := tx.Session(&gorm.Session{NewDB: true})
+						switch drift {
+						case "raw-fx":
+							tx.AddError(db.Create(&Option{Key: "USDExchangeRate", Value: "7.333"}).Error)
+						case "currency":
+							tx.AddError(db.Model(&Model{}).Where("model_name = ?", "managed-model").Update("billing_currency", "USD").Error)
+						case "desired-plugin":
+							tx.AddError(db.Create(&Option{Key: "TaskPluginEnabled", Value: "false"}).Error)
+						case "actor":
+							tx.AddError(db.Model(&User{}).Where("id = ?", actor.UserID).Update("role", common.RoleCommonUser).Error)
+						}
+					}))
+					_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "must-not-commit", actor)
+					require.NoError(t, db.Callback().Query().Remove("managed-final-drift"))
+					require.Error(t, err)
+					require.GreaterOrEqual(t, captures, 2)
+					after, err := catalogPersistedDigest(db)
+					require.NoError(t, err)
+					assert.Equal(t, before, after)
+					var count int64
+					require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&count).Error)
+					assert.Zero(t, count)
+				})
+			}
+		})
+	}
+}
+
+func TestCatalogRuntimeManagedResetAndStrictAdoption(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			for key, value := range map[string]string{"ModelPrice": `{"removed":9}`, "starai_video_price.standard_720p": "13.25"} {
+				require.NoError(t, db.Create(&Option{Key: key, Value: value}).Error)
+			}
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			assert.Contains(t, ratio_setting.GetExposedData()["model_price"], "removed")
+			require.NoError(t, db.Where(map[string]any{"key": []string{"ModelPrice", "starai_video_price.standard_720p"}}).Delete(&Option{}).Error)
+			for key, value := range map[string]string{"ModelRatio": `{}`, "billing_setting.billing_mode": `{}`, "tool_price_setting.prices": `{"web_search":0}`, "molii_grok_price.image_standard_1k": "0", "USDExchangeRate": "7.25"} {
+				require.NoError(t, db.Create(&Option{Key: key, Value: value}).Error)
+			}
+			source := catalogValidationFixture(t, db, jsplugin.DefaultRegistry)
+			source.SourceID = "dev"
+			var err error
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			// A real sealed same-value adoption must carry a strict source leaf.
+			// Removing effective providers in a detached copy demonstrates that
+			// the prospective seam cannot claim runtime historical retention.
+			stage := runtimeStageForTest(t, db)
+			next, strict, err := catalogPlanPricing(stage.input.options, plan)
+			require.NoError(t, err)
+			require.NotEmpty(t, strict)
+			var facts catalogValidationData
+			require.NoError(t, common.UnmarshalJsonStr(stage.input.dependencies.canonical, &facts))
+			facts.Effective = nil
+			facts.Aliases = nil
+			encoded, err := common.Marshal(facts)
+			require.NoError(t, err)
+			stage.input.dependencies.canonical = string(encoded)
+			stage.input.options = next
+			_, err = stageCatalogRuntime(stage.input)
+			require.NoError(t, err, "committed historical retention alone would accept this stale local price")
+			_, err = stageProspectiveCatalogRuntime(stage.input, next, strict)
+			require.Error(t, err, "server-derived same-value adoption must remove historical retention")
+			result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "strict-adoption", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, result)
+			assert.NotContains(t, ratio_setting.GetExposedData()["model_price"], "removed")
+			common.OptionMapRWMutex.RLock()
+			assert.Equal(t, "{}", common.OptionMap["ModelRatio"])
+			assert.JSONEq(t, `{"web_search":0}`, common.OptionMap["tool_price_setting.prices"])
+			assert.Equal(t, "0", common.OptionMap["molii_grok_price.image_standard_1k"])
+			assert.NotEqual(t, "13.25", common.OptionMap["starai_video_price.standard_720p"])
+			common.OptionMapRWMutex.RUnlock()
+			var persisted Option
+			require.NoError(t, db.Where(map[string]any{"key": "USDExchangeRate"}).First(&persisted).Error)
+			assert.Equal(t, "7.25", persisted.Value)
+			var defaults int64
+			require.NoError(t, db.Model(&Option{}).Where(map[string]any{"key": []string{"ModelPrice", "starai_video_price.standard_720p"}}).Count(&defaults).Error)
+			assert.Zero(t, defaults, "compiled resets must not become persisted source prices")
+		})
+	}
+}
+
+func TestCatalogRuntimeManagedUnknownMutation(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			loan, err := pool.Conn(context.Background())
+			require.NoError(t, err)
+			defer loan.Close()
+			require.NoError(t, loan.Raw(func(native any) error {
+				connection := &catalogBusinessLostAckConnection{Conn: native.(driver.Conn)}
+				observed := sql.OpenDB(catalogBusinessLostAckConnector{connection, pool.Driver()})
+				observed.SetMaxOpenConns(1)
+				defer observed.Close()
+				root := db.Session(&gorm.Session{NewDB: true, Context: context.Background()})
+				root.Statement.ConnPool = observed
+				DB = root
+				defer func() { DB = db }()
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("managed-unknown-commit", func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_operations" {
+						connection.armed.Store(true)
+					}
+				}))
+				lookupFailure := errors.New("durable lookup unavailable")
+				require.NoError(t, db.Callback().Query().Before("gorm:query").Register("managed-unknown-lookup", func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_operations" && tx.Statement.ConnPool == observed && connection.dropped.Load() == 1 {
+						tx.AddError(lookupFailure)
+					}
+				}))
+				result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "unknown-mutation", actor)
+				require.NoError(t, db.Callback().Create().Remove("managed-unknown-commit"))
+				require.NoError(t, db.Callback().Query().Remove("managed-unknown-lookup"))
+				require.ErrorIs(t, err, ErrCatalogCommitUncertain)
+				require.ErrorIs(t, err, lookupFailure)
+				assert.Equal(t, catalogmanifest.Result{}, result, "an unproven provisional receipt must not escape as a known committed result")
+				assert.Equal(t, int64(1), connection.dropped.Load())
+				var operation CatalogSyncOperation
+				require.NoError(t, root.First(&operation, "id = ?", "unknown-mutation").Error)
+				assert.Equal(t, "committed_pending_publish", operation.State)
+				var receipt catalogmanifest.Result
+				require.NoError(t, common.UnmarshalJsonStr(string(operation.Result), &receipt))
+				assertRuntimePending(t, root, receipt)
+				replayed, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, receipt.OperationID, actor)
+				require.NoError(t, err)
+				assert.Equal(t, receipt, replayed)
+				require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+				catalogBusinessFixturePublished(t, root, receipt)
+				connection.armed.Store(true)
+				replayed, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, receipt.OperationID, actor)
+				require.NoError(t, err, "exact replay still reconciles a lost acknowledgement of its capture transaction")
+				assert.Equal(t, receipt, replayed)
+				var count int64
+				require.NoError(t, root.Model(&CatalogSyncOperation{}).Count(&count).Error)
+				assert.Equal(t, int64(1), count)
+				return nil
+			}))
+		})
+	}
 }
 
 // A publisher that only swaps typed settings, or acknowledges before rebuilding,
@@ -66,11 +325,7 @@ func TestCatalogRuntimePublication(t *testing.T) {
 			require.NoError(t, err)
 			var original CatalogSyncOperation
 			require.NoError(t, db.First(&original, "id = ?", result.OperationID).Error)
-			require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "managed-model", func() error {
-				t.Fatal("pending input must not reach selection")
-				return nil
-			}), ErrCatalogPublicationPending)
-			require.NoError(t, PublishCatalogSyncRevision(context.Background(), result.Revision))
+			assert.Equal(t, "succeeded", original.State, "actual apply must finish publication before reporting live success")
 			var state CatalogSyncState
 			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
 			assert.Equal(t, result.Revision, state.RuntimeRevision)
@@ -101,6 +356,18 @@ func TestCatalogRuntimePublication(t *testing.T) {
 			common.OptionMapRWMutex.RLock()
 			assert.NotEmpty(t, common.OptionMap["billing_setting.billing_expr"])
 			common.OptionMapRWMutex.RUnlock()
+			restore, err := CreateCatalogSyncRestorePlan(context.Background(), result.OperationID, actor, time.Now())
+			require.NoError(t, err)
+			inverse, err := ApplyCatalogSyncPlan(context.Background(), restore.ID, restore.Digest, "runtime-inverse", actor)
+			require.NoError(t, err)
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			assert.Equal(t, inverse.Revision, state.RuntimeRevision)
+			assert.Equal(t, "ready", state.PublicationState)
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "managed-model", func() error {
+				expression, _ := billing_setting.GetBillingExpr("managed-model")
+				assert.Equal(t, "p * 2", expression)
+				return nil
+			}))
 		})
 	}
 }
@@ -218,8 +485,19 @@ func TestCatalogRuntimeScopeAndAcquisition(t *testing.T) {
 			require.NoError(t, err)
 			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
 			require.NoError(t, err)
+			pendingReads := 0
+			injected := errors.New("publication recheck unavailable")
+			require.NoError(t, db.Callback().Query().After("gorm:query").Register("runtime-scope-before-publish", func(tx *gorm.DB) {
+				if state, ok := tx.Statement.Dest.(*CatalogSyncState); ok && state.PendingOperationID == "scope-operation" {
+					pendingReads++
+					if pendingReads == 2 {
+						tx.AddError(injected)
+					}
+				}
+			}))
 			result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "scope-operation", actor)
-			require.NoError(t, err)
+			require.NoError(t, db.Callback().Query().Remove("runtime-scope-before-publish"))
+			require.ErrorIs(t, err, injected)
 			require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "changed-model", read), ErrCatalogPublicationPending)
 			require.NoError(t, WithCatalogPricingRead(context.Background(), "unaffected-model", read))
 			require.True(t, called)
