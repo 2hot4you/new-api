@@ -2,6 +2,8 @@ package model
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -25,6 +28,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 func catalogSyncTestSource(t *testing.T) catalogmanifest.Snapshot {
@@ -587,5 +591,862 @@ func TestCatalogSyncChannelMigrations(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func catalogFenceTestDB(t *testing.T, engine string) *gorm.DB {
+	t.Helper()
+	db := catalogSyncTestDB(t, engine)
+	require.NoError(t, db.AutoMigrate(&Model{}, &Vendor{}, &Option{}, &Channel{}, &Ability{}, &Task{}, &TaskPlugin{}, &Midjourney{}, &SystemTask{}))
+	require.NoError(t, MigrateCatalogSync(db))
+	return db
+}
+
+// Removing any physical table fence permits a bypass writer to commit while
+// the authoritative catalog transaction is still open, including empty tables.
+func TestCatalogSyncReferenceFences(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			registry := jsplugin.NewRegistry()
+			for _, fixture := range []struct {
+				name   string
+				insert string
+				update string
+				remove string
+			}{
+				{"channels", "INSERT INTO channels (id, " + commonKeyCol + ", status, molii_grok_management_access_token) VALUES (10, 'fixture', 2, '')", "UPDATE channels SET status = 1 WHERE id = 10", "DELETE FROM channels WHERE id = 10"},
+				{"abilities", "INSERT INTO abilities (" + commonGroupCol + ", model, channel_id, enabled) VALUES ('g', 'm', 10, " + commonFalseVal + ")", "UPDATE abilities SET enabled = " + commonTrueVal + " WHERE channel_id = 10", "DELETE FROM abilities WHERE channel_id = 10"},
+				{"tasks", "INSERT INTO tasks (id, status) VALUES (10, 'SUCCESS')", "UPDATE tasks SET status = 'IN_PROGRESS' WHERE id = 10", "DELETE FROM tasks WHERE id = 10"},
+				{"task_plugins", "INSERT INTO task_plugins (id, " + commonKeyCol + ", version, source_hash, source, api_version, enabled, active, created_at) VALUES (10, 'fixture', '1', 'fixture', '', 1, " + commonFalseVal + ", " + commonFalseVal + ", 0)", "UPDATE task_plugins SET enabled = " + commonTrueVal + ", active = " + commonTrueVal + " WHERE id = 10", "DELETE FROM task_plugins WHERE id = 10"},
+				{"options", "INSERT INTO options (" + commonKeyCol + ", value) VALUES ('TaskPluginEnabled', 'false')", "UPDATE options SET value = 'true' WHERE " + commonKeyCol + " = 'TaskPluginEnabled'", "DELETE FROM options WHERE " + commonKeyCol + " = 'TaskPluginEnabled'"},
+				{"vendors", "INSERT INTO vendors (id, name, deleted_at) VALUES (10, 'fixture', '2020-01-01')", "UPDATE vendors SET deleted_at = NULL WHERE id = 10", "DELETE FROM vendors WHERE id = 10"},
+				{"models", "INSERT INTO models (id, model_name, description_en, supported_parameters, supported_resolutions, supported_aspect_ratios, output_formats, reference_modalities, deleted_at) VALUES (10, 'fixture', '', '[]', '[]', '[]', '[]', '[]', '2020-01-01')", "UPDATE models SET deleted_at = NULL WHERE id = 10", "DELETE FROM models WHERE id = 10"},
+				{"midjourneys", "INSERT INTO midjourneys (id, status) VALUES (10, 'SUCCESS')", "UPDATE midjourneys SET status = 'IN_PROGRESS' WHERE id = 10", "DELETE FROM midjourneys WHERE id = 10"},
+				{"system_tasks", "INSERT INTO system_tasks (id, status) VALUES (10, 'succeeded')", "UPDATE system_tasks SET status = 'pending' WHERE id = 10", "DELETE FROM system_tasks WHERE id = 10"},
+			} {
+				t.Run(fixture.name, func(t *testing.T) {
+					// ExecContext on an independently acquired connection is the actual
+					// writer attempt; no goroutine-start signal or sleep stands in for it.
+					second := strings.NewReplacer("(10,", "(20,", ", 10,", ", 20,", "'fixture'", "'second'", "'TaskPluginEnabled'", "'TaskPluginDisabledFactoryKeys'").Replace(fixture.insert)
+					reverse := strings.NewReplacer("status = 1", "status = 2", "status = 'IN_PROGRESS'", "status = 'SUCCESS'", "enabled = "+commonTrueVal, "enabled = "+commonFalseVal, "active = "+commonTrueVal, "active = "+commonFalseVal, "value = 'true'", "value = 'false'", "deleted_at = NULL", "deleted_at = '2020-01-01'", "status = 'pending'", "status = 'succeeded'").Replace(fixture.update)
+					for _, statement := range []string{fixture.insert, second, fixture.update, reverse, fixture.remove} {
+						err := WithCatalogWriteBarrier(func() error {
+							return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+								require.NotNil(t, state)
+								require.NotNil(t, pin.Generation)
+								catalogAssertWriterBlocked(t, pool, engine, statement)
+								return nil
+							})
+						})
+						require.NoError(t, err)
+						// The same write is valid after the root COMMIT and all fences release.
+						require.NoError(t, db.Exec(statement).Error)
+					}
+				})
+			}
+		})
+	}
+}
+
+func catalogAssertWriterBlocked(t *testing.T, pool *sql.DB, engine, statement string) {
+	t.Helper()
+	conn, err := pool.Conn(context.Background())
+	require.NoError(t, err)
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if engine == "sqlite" {
+		_, err = conn.ExecContext(ctx, "PRAGMA busy_timeout = 0")
+		require.NoError(t, err)
+	}
+	writer, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer writer.Rollback()
+	_, err = writer.ExecContext(ctx, statement)
+	require.Error(t, err, "bypass writer completed before catalog commit: %s", statement)
+}
+
+func TestCatalogSyncReferenceRootRollback(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			registry := jsplugin.NewRegistry()
+			stopped := errors.New("stop before commit")
+			err := WithCatalogWriteBarrier(func() error {
+				return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+					require.NoError(t, tx.Create(&Option{Key: "rollback", Value: "uncommitted"}).Error)
+					called := false
+					err := catalogReferenceTransaction(context.Background(), tx, registry, func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error { called = true; return nil })
+					require.Error(t, err, "nested/savepoint entry must be refused")
+					require.False(t, called)
+					return stopped
+				})
+			})
+			require.ErrorIs(t, err, stopped)
+			var count int64
+			require.NoError(t, db.Model(&Option{}).Where(commonKeyCol+" = ?", "rollback").Count(&count).Error)
+			assert.Zero(t, count)
+			require.NoError(t, db.Create(&Option{Key: "after-rollback"}).Error)
+			// Explicit cancellation rejects the root before any business callback.
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			err = catalogReferenceTransaction(ctx, db, registry, func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+				t.Error("canceled callback ran")
+				return nil
+			})
+			require.ErrorIs(t, err, context.Canceled)
+		})
+	}
+}
+
+// The observer delegates every operation to the actual database transaction.
+// It only pauses the real COMMIT boundary, where callback-only leases are wrong.
+type catalogCommitObserver struct {
+	gorm.ConnPool
+	commit   func() error
+	rollback func() error
+}
+
+func (o *catalogCommitObserver) Commit() error   { return o.commit() }
+func (o *catalogCommitObserver) Rollback() error { return o.rollback() }
+
+func TestCatalogSyncReferenceCommitLease(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			registry := jsplugin.NewRegistry()
+			before := registry.Generation().Number
+			publication := make(chan struct{})
+			err := WithCatalogWriteBarrier(func() error {
+				return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, _ *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+					require.Equal(t, before, pin.Generation.Number)
+					require.NoError(t, tx.Create(&Option{Key: "lease-commit", Value: "durable"}).Error)
+					real := tx.Statement.ConnPool.(*sql.Tx)
+					tx.Statement.ConnPool = &catalogCommitObserver{ConnPool: real, rollback: real.Rollback, commit: func() error {
+						started := make(chan struct{})
+						go func() { close(started); registry.SetEnabled(false); close(publication) }()
+						<-started
+						require.Eventually(t, func() bool {
+							probe, err := registry.TryPinGeneration()
+							if probe != nil {
+								probe.Release()
+							}
+							return errors.Is(err, jsplugin.ErrGenerationBusy)
+						}, time.Second, time.Millisecond, "registry writer must actually be queued at COMMIT")
+						assert.Equal(t, before, registry.Generation().Number, "lease released on callback return")
+						select {
+						case <-publication:
+							t.Error("registry switched before COMMIT")
+						default:
+						}
+						err := real.Commit()
+						assert.Equal(t, before, registry.Generation().Number, "lease must span actual COMMIT return")
+						return err
+					}}
+					return nil
+				})
+			})
+			require.NoError(t, err)
+			select {
+			case <-publication:
+			case <-time.After(3 * time.Second):
+				t.Fatal("registry lease leaked after root return")
+			}
+			assert.Greater(t, registry.Generation().Number, before)
+			var option Option
+			require.NoError(t, db.First(&option, commonKeyCol+" = ?", "lease-commit").Error)
+			assert.Equal(t, "durable", option.Value)
+			// A lost COMMIT acknowledgement must remain distinguishable even when
+			// the actual database committed. The helper must not replay the callback.
+			calls := 0
+			err = WithCatalogWriteBarrier(func() error {
+				return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+					calls++
+					require.NoError(t, tx.Create(&Option{Key: "uncertain", Value: "committed"}).Error)
+					real := tx.Statement.ConnPool.(*sql.Tx)
+					tx.Statement.ConnPool = &catalogCommitObserver{ConnPool: real, rollback: real.Rollback, commit: func() error {
+						if err := real.Commit(); err != nil {
+							return err
+						}
+						return errors.New("test transport lost commit acknowledgement")
+					}}
+					return nil
+				})
+			})
+			require.ErrorIs(t, err, ErrCatalogCommitUncertain)
+			assert.Equal(t, 1, calls)
+			option = Option{}
+			require.NoError(t, db.First(&option, commonKeyCol+" = ?", "uncertain").Error)
+			assert.Equal(t, "committed", option.Value)
+		})
+	}
+}
+
+func TestCatalogSyncReferenceSchemaAndFailure(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			registry := jsplugin.NewRegistry()
+			callback := func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+				t.Error("unsafe schema reached callback")
+				return nil
+			}
+			if engine == "mysql" {
+				// The production legacy migration accepts this exact unique layout.
+				require.NoError(t, db.Exec("ALTER TABLE options DROP PRIMARY KEY, ADD UNIQUE INDEX legacy_option_key (`key`)").Error)
+				require.NoError(t, WithCatalogWriteBarrier(func() error {
+					return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+						pool, err := db.DB()
+						require.NoError(t, err)
+						catalogAssertWriterBlocked(t, pool, engine, "INSERT INTO options (`key`, value) VALUES ('legacy-gap', '')")
+						return tx.Create(&Option{Key: "legacy-index"}).Error
+					})
+				}))
+				require.NoError(t, db.Exec("ALTER TABLE options DROP INDEX legacy_option_key").Error)
+				require.Error(t, catalogReferenceTransaction(context.Background(), db, registry, callback))
+				require.NoError(t, db.Exec("ALTER TABLE options ADD UNIQUE INDEX legacy_option_key (`key`)").Error)
+				require.NoError(t, db.Exec("ALTER TABLE options ENGINE=MyISAM").Error)
+				require.Error(t, catalogReferenceTransaction(context.Background(), db, registry, callback))
+				require.NoError(t, db.Exec("ALTER TABLE options ENGINE=InnoDB").Error)
+			}
+			// A late missing relation cannot be treated as an empty reference set.
+			require.NoError(t, db.Migrator().DropTable(&Task{}))
+			require.Error(t, catalogReferenceTransaction(context.Background(), db, registry, callback))
+			require.NoError(t, db.AutoMigrate(&Task{}))
+			// Cancellation after a real scan obtained rows must release partial fences.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			seen := false
+			if engine == "postgres" {
+				require.NoError(t, db.Callback().Raw().After("gorm:raw").Register("cancel-fence", func(tx *gorm.DB) {
+					if strings.HasPrefix(tx.Statement.SQL.String(), "LOCK TABLE") && strings.Contains(tx.Statement.SQL.String(), "channels") {
+						seen = true
+						cancel()
+					}
+				}))
+			} else {
+				require.NoError(t, db.Callback().Row().After("gorm:row").Register("cancel-fence", func(tx *gorm.DB) {
+					if strings.HasPrefix(tx.Statement.SQL.String(), "SELECT `id` FROM `channels`") {
+						seen = true
+						cancel()
+					}
+				}))
+			}
+			err := WithCatalogWriteBarrier(func() error { return catalogReferenceTransaction(ctx, db, registry, callback) })
+			require.Error(t, err)
+			assert.True(t, seen, "cancellation must happen after actual partial fence acquisition")
+			require.NoError(t, db.Callback().Raw().Remove("cancel-fence"))
+			require.NoError(t, db.Callback().Row().Remove("cancel-fence"))
+			require.NoError(t, db.Create(&Channel{Key: "after-cancel"}).Error)
+			require.NoError(t, WithCatalogWriteBarrier(func() error {
+				return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+					return tx.Create(&Option{Key: "after-failure"}).Error
+				})
+			}))
+		})
+	}
+}
+
+// Poll actual server lock wait state; a goroutine start or elapsed sleep cannot
+// prove the fence acquisition reached the database before the other commit.
+func catalogWaitForDBLock(t *testing.T, db *gorm.DB, engine string, outcomes ...<-chan error) {
+	t.Helper()
+	query := "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
+	interval := 10 * time.Millisecond
+	if engine == "mysql" {
+		var version string
+		require.NoError(t, db.Raw("SELECT VERSION()").Scan(&version).Error)
+		query = "SELECT count(*) FROM performance_schema.data_lock_waits"
+		if strings.HasPrefix(version, "5.7.") {
+			query = "SELECT count(*) FROM information_schema.innodb_lock_waits"
+			// 5.7 caches InnoDB transaction metadata while queries arrive less
+			// than 0.1s apart; faster polling can keep an empty snapshot forever.
+			interval = 150 * time.Millisecond
+		}
+	}
+	require.Eventually(t, func() bool {
+		for _, outcome := range outcomes {
+			select {
+			case err := <-outcome:
+				t.Fatalf("root returned before database lock wait: %v", err)
+			default:
+			}
+		}
+		var count int64
+		err := db.Raw(query).Scan(&count).Error
+		return err == nil && count > 0
+	}, 5*time.Second, interval, "competing SQL must actually reach a lock wait")
+}
+
+func TestCatalogSyncReferenceWaitedSnapshot(t *testing.T) {
+	for _, engine := range []string{"mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			require.NoError(t, db.Create(&Channel{Id: 10, Key: "fixture", Status: 2}).Error)
+			// An opposite pool default catches accidental default-isolation use.
+			pool, err := db.DB()
+			require.NoError(t, err)
+			conn, err := pool.Conn(context.Background())
+			require.NoError(t, err)
+			writer, err := conn.BeginTx(context.Background(), nil)
+			require.NoError(t, err)
+			defer conn.Close()
+			defer writer.Rollback()
+			_, err = writer.Exec("UPDATE channels SET status = 1 WHERE id = 10")
+			require.NoError(t, err)
+			finished := make(chan error, 1)
+			go func() {
+				finished <- WithCatalogWriteBarrier(func() error {
+					return catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+						var status int
+						if err := tx.Model(&Channel{}).Select("status").Where("id = ?", 10).Scan(&status).Error; err != nil {
+							return err
+						}
+						if status != 1 {
+							return fmt.Errorf("stale pre-wait reference snapshot: status=%d", status)
+						}
+						return nil
+					})
+				})
+			}()
+			catalogWaitForDBLock(t, db, engine, finished)
+			require.NoError(t, writer.Commit())
+			require.NoError(t, <-finished)
+			// Now hold the same writer until the root deadline; all earlier fences
+			// and the anchor must roll back without entering business code.
+			writer, err = conn.BeginTx(context.Background(), nil)
+			require.NoError(t, err)
+			_, err = writer.Exec("UPDATE channels SET status = 2 WHERE id = 10")
+			require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+			defer cancel()
+			go func() {
+				finished <- WithCatalogWriteBarrier(func() error {
+					return catalogReferenceTransaction(ctx, db, jsplugin.NewRegistry(), func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+						return errors.New("unexpected callback")
+					})
+				})
+			}()
+			catalogWaitForDBLock(t, db, engine)
+			require.Error(t, <-finished)
+			require.NoError(t, writer.Rollback())
+			require.NoError(t, db.Create(&Ability{Group: "g", Model: "after-timeout", ChannelId: 10}).Error)
+		})
+	}
+}
+
+func TestCatalogSyncReferenceMySQLUnsafeGaps(t *testing.T) {
+	dsn := os.Getenv("TEST_MYSQL_UNSAFE_DSN")
+	if dsn == "" {
+		t.Skip("TEST_MYSQL_UNSAFE_DSN is not set")
+	}
+	t.Setenv("TEST_MYSQL_DSN", dsn)
+	db := catalogFenceTestDB(t, "mysql")
+	var unsafe int
+	require.NoError(t, db.Raw("SELECT @@global.innodb_locks_unsafe_for_binlog").Scan(&unsafe).Error)
+	require.Equal(t, 1, unsafe)
+	err := catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+		t.Error("unsafe gap configuration admitted")
+		return nil
+	})
+	require.ErrorContains(t, err, "gap locking")
+}
+
+func TestCatalogSyncReferenceMySQLTemporaryShadow(t *testing.T) {
+	db := catalogFenceTestDB(t, "mysql")
+	pool, err := db.DB()
+	require.NoError(t, err)
+	pool.SetMaxOpenConns(1)
+	require.NoError(t, db.Exec("CREATE TEMPORARY TABLE channels (id bigint PRIMARY KEY)").Error)
+	err = catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+		t.Error("temporary shadow hid persistent references")
+		return nil
+	})
+	require.Error(t, err)
+	require.NoError(t, db.Exec("DROP TEMPORARY TABLE channels").Error)
+}
+
+func TestCatalogSyncReferenceMySQLAnchorEngineRace(t *testing.T) {
+	db := catalogFenceTestDB(t, "mysql")
+	var before marketplaceOrderLock
+	require.NoError(t, db.First(&before).Error)
+	raced := false
+	swap := func(tx *gorm.DB) {
+		query := tx.Statement.SQL.String()
+		if !raced && (strings.HasPrefix(query, "UPDATE `marketplace_order_locks`") || strings.HasPrefix(query, "SELECT `name` FROM `marketplace_order_locks`")) {
+			raced = true
+			require.NoError(t, db.Exec("ALTER TABLE marketplace_order_locks ENGINE=MyISAM").Error)
+		}
+	}
+	require.NoError(t, db.Callback().Raw().Before("gorm:raw").Register("swap-anchor-engine", swap))
+	require.NoError(t, db.Callback().Row().Before("gorm:row").Register("swap-anchor-engine", swap))
+	err := catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+		t.Error("engine race reached callback")
+		return nil
+	})
+	require.Error(t, err)
+	require.NoError(t, db.Callback().Raw().Remove("swap-anchor-engine"))
+	require.NoError(t, db.Callback().Row().Remove("swap-anchor-engine"))
+	assert.True(t, raced)
+	var after marketplaceOrderLock
+	require.NoError(t, db.First(&after).Error)
+	assert.Equal(t, before.Version, after.Version, "unsupported engine must not leave a nontransactional anchor write")
+}
+
+func TestCatalogSyncReferenceRangesAndSession(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			// Seed only one pooled connection, configure a contrary isolation or
+			// long busy handler, then let root lease that exact connection first.
+			pool.SetMaxIdleConns(1)
+			switch engine {
+			case "mysql":
+				require.NoError(t, db.Exec("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED").Error)
+			case "postgres":
+				require.NoError(t, db.Exec("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ").Error)
+			case "sqlite":
+				require.NoError(t, db.Exec("PRAGMA busy_timeout = 60000").Error)
+			}
+			require.NoError(t, db.Create(&[]Channel{{Id: 10, Key: "fixture"}, {Id: 30, Key: "fixture"}}).Error)
+			require.NoError(t, WithCatalogWriteBarrier(func() error {
+				return catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+					if engine == "postgres" {
+						var isolation string
+						require.NoError(t, tx.Raw("SHOW transaction_isolation").Scan(&isolation).Error)
+						assert.Equal(t, "read committed", isolation)
+					}
+					for _, id := range []int{1, 20, 40} {
+						catalogAssertWriterBlocked(t, pool, engine, fmt.Sprintf("INSERT INTO channels (id, %s, molii_grok_management_access_token) VALUES (%d, 'fixture', '')", commonKeyCol, id))
+					}
+					catalogAssertWriterBlocked(t, pool, engine, "INSERT INTO channels ("+commonKeyCol+", molii_grok_management_access_token) VALUES ('auto', '')")
+					// SQLite reset must be checked on this exact leased connection.
+					if engine == "sqlite" {
+						var busy int
+						require.NoError(t, tx.Raw("PRAGMA busy_timeout").Scan(&busy).Error)
+						assert.Zero(t, busy)
+					}
+					return nil
+				})
+			}))
+			// Closing spare idle connections above lets the last-returning root
+			// replace any writer connection; query exact remaining session value.
+			if engine == "sqlite" {
+				// Reader above used a real file-backed DEFERRED connection. Normal
+				// post-commit writes still work after the temporary timeout override.
+				require.NoError(t, db.Create(&Channel{Key: "after-ranges"}).Error)
+			}
+		})
+	}
+}
+
+func TestCatalogSyncReferenceTrustedNaming(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			base := catalogFenceTestDB(t, engine)
+			pool, err := base.DB()
+			require.NoError(t, err)
+			cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent), NamingStrategy: schema.NamingStrategy{TablePrefix: "fence space_"}}
+			var dialector gorm.Dialector
+			switch engine {
+			case "sqlite":
+				dialector = sqlite.Dialector{Conn: pool}
+			case "mysql":
+				dialector = mysqlMigrationDialector{mysql.Dialector{Config: &mysql.Config{Conn: pool}}}
+			case "postgres":
+				dialector = postgresMigrationDialector{postgres.Dialector{Config: &postgres.Config{Conn: pool, PreferSimpleProtocol: true}}}
+			}
+			db, err := gorm.Open(dialector, cfg)
+			require.NoError(t, err)
+			// Use actual production migrations, then rename those physical tables.
+			// Custom-prefix migration support is separate from fence resolution.
+			for _, model := range []any{&Model{}, &Vendor{}, &Option{}, &Channel{}, &Ability{}, &Task{}, &TaskPlugin{}, &Midjourney{}, &SystemTask{}, &CatalogSyncState{}, &CatalogSyncPlan{}, &CatalogSyncBaseline{}, &CatalogSyncOperation{}} {
+				old, renamed := &gorm.Statement{DB: base}, &gorm.Statement{DB: db}
+				require.NoError(t, old.Parse(model))
+				require.NoError(t, renamed.Parse(model))
+				require.NoError(t, base.Migrator().RenameTable(old.Schema.Table, renamed.Schema.Table))
+			}
+			require.NoError(t, WithCatalogWriteBarrier(func() error {
+				return catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+					stmt := &gorm.Statement{DB: db}
+					require.NoError(t, stmt.Parse(&Channel{}))
+					query := "INSERT INTO " + stmt.Quote(stmt.Schema.Table) + " (" + commonKeyCol + ", molii_grok_management_access_token) VALUES ('naming', '')"
+					catalogAssertWriterBlocked(t, pool, engine, query)
+					return tx.Create(&Channel{Key: "naming"}).Error
+				})
+			}))
+		})
+	}
+}
+
+func TestCatalogSyncReferenceSessionReset(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			pool.SetMaxOpenConns(1)
+			pool.SetMaxIdleConns(1)
+			query, expected := "PRAGMA busy_timeout", "60000"
+			switch engine {
+			case "sqlite":
+				require.NoError(t, db.Exec("PRAGMA busy_timeout = 60000").Error)
+			case "mysql":
+				require.NoError(t, db.Exec("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED").Error)
+				var version string
+				require.NoError(t, db.Raw("SELECT VERSION()").Scan(&version).Error)
+				query, expected = "SELECT @@session.transaction_isolation", "READ-COMMITTED"
+				if strings.HasPrefix(version, "5.7.") {
+					query = "SELECT @@session.tx_isolation"
+				}
+			case "postgres":
+				require.NoError(t, db.Exec("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ").Error)
+				query, expected = "SHOW transaction_isolation", "repeatable read"
+			}
+			for _, failure := range []bool{false, true} {
+				err = WithCatalogWriteBarrier(func() error {
+					return catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+						if failure {
+							return errors.New("rollback")
+						}
+						return nil
+					})
+				})
+				if failure {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+				var actual string
+				require.NoError(t, db.Raw(query).Scan(&actual).Error)
+				assert.Equal(t, expected, actual, "session configuration leaked across root transaction")
+			}
+		})
+	}
+}
+
+func TestCatalogSyncReferencePostgresPrivileges(t *testing.T) {
+	db := catalogFenceTestDB(t, "postgres")
+	pool, err := db.DB()
+	require.NoError(t, err)
+	pool.SetMaxOpenConns(1)
+	role := fmt.Sprintf("catalog_fence_role_%d", time.Now().UnixNano())
+	require.NoError(t, db.Exec("CREATE ROLE "+role+" NOLOGIN").Error)
+	t.Cleanup(func() {
+		require.NoError(t, db.Exec("RESET ROLE").Error)
+		require.NoError(t, db.Exec("DROP OWNED BY "+role).Error)
+		require.NoError(t, db.Exec("DROP ROLE "+role).Error)
+	})
+	require.NoError(t, db.Exec("GRANT USAGE ON SCHEMA public TO "+role).Error)
+	require.NoError(t, db.Exec("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "+role).Error)
+	require.NoError(t, db.Exec("SET ROLE "+role).Error)
+	run := func() error {
+		return WithCatalogWriteBarrier(func() error {
+			return catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+				return tx.Create(&Option{Key: "ordinary-role"}).Error
+			})
+		})
+	}
+	require.NoError(t, run(), "ordinary application table permissions must suffice")
+	require.NoError(t, db.Exec("RESET ROLE").Error)
+	require.NoError(t, db.Exec("REVOKE UPDATE, DELETE ON channels FROM "+role).Error)
+	require.NoError(t, db.Exec("SET ROLE "+role).Error)
+	err = run()
+	require.ErrorContains(t, err, "permission denied", "SELECT-only channels cannot establish a DML fence")
+}
+
+func TestCatalogSyncReferenceDeadlockRollback(t *testing.T) {
+	for _, engine := range []string{"mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			require.NoError(t, db.Create(&Channel{Id: 10, Key: "fixture", Status: 2}).Error)
+			writer := db.Begin()
+			require.NoError(t, writer.Error)
+			defer writer.Rollback()
+			require.NoError(t, writer.Exec("UPDATE channels SET status = 1 WHERE id = 10").Error)
+			finished := make(chan error, 1)
+			go func() {
+				finished <- WithCatalogWriteBarrier(func() error {
+					return catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+						return tx.Create(&Option{Key: "deadlock-winner"}).Error
+					})
+				})
+			}()
+			catalogWaitForDBLock(t, db, engine, finished)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			writerErr := writer.WithContext(ctx).Exec("UPDATE marketplace_order_locks SET version = version + 1 WHERE name = ?", marketplaceOrderLockName).Error
+			_ = writer.Rollback().Error
+			rootErr := <-finished
+			combined := errors.Join(writerErr, rootErr)
+			require.Error(t, combined)
+			require.Contains(t, strings.ToLower(combined.Error()), "deadlock", "exercise an actual cross-table deadlock, not only a timeout")
+			var count int64
+			require.NoError(t, db.Model(&Option{}).Where(commonKeyCol+" = ?", "deadlock-winner").Count(&count).Error)
+			if rootErr != nil {
+				assert.Zero(t, count, "deadlock victim must fully roll back")
+			} else {
+				assert.Equal(t, int64(1), count)
+			}
+			require.NoError(t, db.Create(&Channel{Key: "after-deadlock"}).Error)
+		})
+	}
+}
+
+func TestCatalogSyncReferenceRealCommitFailure(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			registry := jsplugin.NewRegistry()
+			var reader *gorm.DB
+			if engine == "sqlite" {
+				// A real SHARED read lock prevents the RESERVED writer's COMMIT
+				// upgrade in rollback-journal mode, even after the callback succeeds.
+				reader = db.Begin()
+				require.NoError(t, reader.Error)
+				defer reader.Rollback()
+				var count int64
+				require.NoError(t, reader.Model(&Option{}).Count(&count).Error)
+			}
+			if engine == "postgres" {
+				require.NoError(t, db.Exec("CREATE TABLE fence_parent (id bigint PRIMARY KEY)").Error)
+				require.NoError(t, db.Exec("CREATE TABLE fence_child (id bigint PRIMARY KEY, parent_id bigint REFERENCES fence_parent(id) DEFERRABLE INITIALLY DEFERRED)").Error)
+			}
+			err := WithCatalogWriteBarrier(func() error {
+				return catalogReferenceTransaction(context.Background(), db, registry, func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+					if err := tx.Create(&Option{Key: "failed-commit"}).Error; err != nil {
+						return err
+					}
+					if engine == "postgres" {
+						return tx.Exec("INSERT INTO fence_child (id, parent_id) VALUES (1, 999)").Error
+					}
+					if engine == "mysql" {
+						var id int64
+						require.NoError(t, tx.Raw("SELECT CONNECTION_ID()").Scan(&id).Error)
+						return db.Exec(fmt.Sprintf("KILL CONNECTION %d", id)).Error
+					}
+					return nil
+				})
+			})
+			require.ErrorIs(t, err, ErrCatalogCommitUncertain)
+			if reader != nil {
+				require.NoError(t, reader.Rollback().Error)
+			}
+			var count int64
+			require.NoError(t, db.Model(&Option{}).Where(commonKeyCol+" = ?", "failed-commit").Count(&count).Error)
+			assert.Zero(t, count)
+			registry.SetEnabled(false) // no registry lease may survive COMMIT error
+			require.NoError(t, db.Create(&Option{Key: "after-commit-error"}).Error)
+		})
+	}
+}
+
+func TestCatalogSyncReferenceRegistryBusy(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			registry := jsplugin.NewRegistry()
+			entered, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+			go func() {
+				done <- registry.SetGenerationPreparer(func(candidate, current *jsplugin.RoutingGeneration) (jsplugin.PreparedRoutingGeneration, error) {
+					close(entered)
+					<-release
+					return jsplugin.PreparedRoutingGeneration{}, errors.New("test publication stopped")
+				})
+			}()
+			<-entered
+			err := WithCatalogWriteBarrier(func() error {
+				return catalogReferenceTransaction(context.Background(), db, registry, func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+					t.Error("busy registry admitted business callback")
+					return nil
+				})
+			})
+			close(release)
+			require.Error(t, <-done)
+			require.ErrorIs(t, err, jsplugin.ErrGenerationBusy)
+			require.NoError(t, db.Create(&Option{Key: "after-busy"}).Error)
+		})
+	}
+}
+
+func TestCatalogSyncReferenceMySQLVersionGate(t *testing.T) {
+	for _, version := range []string{"5.7.8", "5.7.43", "8.0.45", "8.4.10", "8.2.0", "9.0.0", "8.4.11-MariaDB", "8.4.bad"} {
+		require.Error(t, catalogMySQLFenceVersion(version, "MySQL Community Server - GPL"), version)
+	}
+	for _, variant := range []string{"MariaDB Server", "TiDB", "Percona Server", "unknown"} {
+		require.Error(t, catalogMySQLFenceVersion("8.4.11", variant), variant)
+	}
+}
+
+func TestCatalogSyncReferencePostgresSearchPath(t *testing.T) {
+	db := catalogFenceTestDB(t, "postgres")
+	require.NoError(t, db.Exec(`CREATE SCHEMA "fence schema"`).Error)
+	for _, model := range []any{&marketplaceOrderLock{}, &Model{}, &Vendor{}, &Option{}, &Channel{}, &Ability{}, &Task{}, &TaskPlugin{}, &Midjourney{}, &SystemTask{}, &CatalogSyncState{}, &CatalogSyncPlan{}, &CatalogSyncBaseline{}, &CatalogSyncOperation{}} {
+		stmt := &gorm.Statement{DB: db}
+		require.NoError(t, stmt.Parse(model))
+		require.NoError(t, db.Exec("ALTER TABLE "+stmt.Quote(stmt.Schema.Table)+` SET SCHEMA "fence schema"`).Error)
+	}
+	require.NoError(t, db.Exec(`SET search_path TO "fence schema"`).Error)
+	pool, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, WithCatalogWriteBarrier(func() error {
+		return catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+			catalogAssertWriterBlocked(t, pool, "postgres", `INSERT INTO "fence schema".channels (key, molii_grok_management_access_token) VALUES ('fixture', '')`)
+			return tx.Create(&Option{Key: "schema-bound"}).Error
+		})
+	}))
+	var count int64
+	require.NoError(t, db.Raw(`SELECT count(*) FROM "fence schema".options WHERE key = 'schema-bound'`).Scan(&count).Error)
+	assert.Equal(t, int64(1), count)
+}
+
+func TestCatalogSyncReferenceSQLiteBusyBound(t *testing.T) {
+	db := catalogFenceTestDB(t, "sqlite")
+	pool, err := db.DB()
+	require.NoError(t, err)
+	writer := db.Begin()
+	require.NoError(t, writer.Error)
+	defer writer.Rollback()
+	require.NoError(t, writer.Exec("UPDATE marketplace_order_locks SET version = version + 1").Error)
+	conn, err := pool.Conn(context.Background())
+	require.NoError(t, err)
+	_, err = conn.ExecContext(context.Background(), "PRAGMA busy_timeout = 60000")
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	finished := make(chan error, 1)
+	go func() {
+		finished <- catalogReferenceTransaction(ctx, db, jsplugin.NewRegistry(), func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+			return errors.New("unexpected callback")
+		})
+	}()
+	select {
+	case err := <-finished:
+		require.ErrorContains(t, err, "locked")
+	case <-time.After(2 * time.Second):
+		t.Fatal("root inherited the unbounded busy wait")
+	}
+	require.NoError(t, writer.Rollback().Error)
+	require.NoError(t, db.Create(&Option{Key: "after-sqlite-busy"}).Error)
+}
+
+func TestCatalogSyncReferencePostgresSearchPathShadow(t *testing.T) {
+	db := catalogFenceTestDB(t, "postgres")
+	require.NoError(t, db.Create(&Option{Key: "proof", Value: "fenced"}).Error)
+	require.NoError(t, db.Exec("CREATE SCHEMA fence_shadow").Error)
+	require.NoError(t, db.Exec("SET search_path TO fence_shadow, public").Error)
+	created := false
+	require.NoError(t, db.Callback().Raw().After("gorm:raw").Register("shadow-search-path", func(tx *gorm.DB) {
+		query := tx.Statement.SQL.String()
+		if !created && strings.HasPrefix(query, "LOCK TABLE") && strings.Contains(query, "options") {
+			created = true
+			require.NoError(t, db.Exec("CREATE TABLE fence_shadow.options (key text PRIMARY KEY, value text)").Error)
+			require.NoError(t, db.Exec("INSERT INTO fence_shadow.options (key, value) VALUES ('proof', 'unfenced')").Error)
+		}
+	}))
+	defer db.Callback().Raw().Remove("shadow-search-path")
+	err := WithCatalogWriteBarrier(func() error {
+		return catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(tx *gorm.DB, _ *CatalogSyncState, _ *jsplugin.GenerationPin) error {
+			var option Option
+			if err := tx.First(&option, "key = ?", "proof").Error; err != nil {
+				return err
+			}
+			if option.Value != "fenced" {
+				return errors.New("plain read followed an unfenced search_path shadow")
+			}
+			return nil
+		})
+	})
+	require.NoError(t, err)
+	assert.True(t, created)
+}
+
+func TestCatalogSyncReferencePostgresUnsupportedNamespaces(t *testing.T) {
+	for _, layout := range []string{"temporary", "mixed"} {
+		t.Run(layout, func(t *testing.T) {
+			db := catalogFenceTestDB(t, "postgres")
+			pool, err := db.DB()
+			require.NoError(t, err)
+			pool.SetMaxOpenConns(1)
+			if layout == "temporary" {
+				require.NoError(t, db.Exec("CREATE TEMPORARY TABLE options (key text PRIMARY KEY, value text)").Error)
+			} else {
+				require.NoError(t, db.Exec("CREATE SCHEMA mixed_fence").Error)
+				require.NoError(t, db.Exec("ALTER TABLE options SET SCHEMA mixed_fence").Error)
+				require.NoError(t, db.Exec("SET search_path TO mixed_fence, public").Error)
+			}
+			err = catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+				t.Error("unsupported namespace admitted")
+				return nil
+			})
+			require.Error(t, err)
+			if layout == "mixed" {
+				require.ErrorContains(t, err, "mixed unqualified")
+			}
+		})
+	}
+}
+
+func TestCatalogSyncReferenceUnsupportedTableLayouts(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			switch engine {
+			case "postgres":
+				require.NoError(t, db.Exec("ALTER TABLE channels ENABLE ROW LEVEL SECURITY").Error)
+				require.NoError(t, db.Exec("CREATE POLICY hidden_catalog_references ON channels USING (false)").Error)
+			case "mysql":
+				require.NoError(t, db.Exec("ALTER TABLE channels PARTITION BY HASH(id) PARTITIONS 2").Error)
+			case "sqlite":
+				require.NoError(t, db.Migrator().DropTable(&Channel{}))
+				require.NoError(t, db.Exec("CREATE VIRTUAL TABLE channels USING fts5(id)").Error)
+			}
+			callback := func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+				t.Error("unsupported physical layout reached callback")
+				return nil
+			}
+			require.Error(t, catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), callback))
+			if engine == "postgres" {
+				require.NoError(t, db.Exec("ALTER TABLE channels DISABLE ROW LEVEL SECURITY").Error)
+				require.NoError(t, db.Exec("ALTER TABLE channels FORCE ROW LEVEL SECURITY").Error)
+				require.Error(t, catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), callback))
+				require.NoError(t, db.Migrator().DropTable(&Channel{}))
+				require.NoError(t, db.Exec("CREATE TABLE channels (id bigint) PARTITION BY HASH(id)").Error)
+				require.Error(t, catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), callback))
+				require.NoError(t, db.Migrator().DropTable(&Channel{}))
+				require.NoError(t, db.Exec("CREATE TABLE channel_family (id bigint) PARTITION BY HASH(id)").Error)
+				require.NoError(t, db.Exec("CREATE TABLE channels PARTITION OF channel_family FOR VALUES WITH (MODULUS 1, REMAINDER 0)").Error)
+				require.Error(t, catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), callback))
+			}
+		})
+	}
+}
+
+func TestCatalogSyncReferenceSQLiteAttachedAndTemporary(t *testing.T) {
+	for _, layout := range []string{"attached", "temporary"} {
+		t.Run(layout, func(t *testing.T) {
+			db := catalogFenceTestDB(t, "sqlite")
+			pool, err := db.DB()
+			require.NoError(t, err)
+			pool.SetMaxOpenConns(1)
+			if layout == "attached" {
+				require.NoError(t, db.Exec("ATTACH DATABASE ? AS extra", filepath.Join(t.TempDir(), "extra.db")).Error)
+				require.NoError(t, db.Migrator().DropTable(&Channel{}))
+				require.NoError(t, db.Exec("CREATE TABLE extra.channels (id integer PRIMARY KEY)").Error)
+			} else {
+				require.NoError(t, db.Exec("CREATE TEMPORARY TABLE channels (id integer PRIMARY KEY)").Error)
+			}
+			err = catalogReferenceTransaction(context.Background(), db, jsplugin.NewRegistry(), func(*gorm.DB, *CatalogSyncState, *jsplugin.GenerationPin) error {
+				t.Error("references resolved outside the fenced main database")
+				return nil
+			})
+			require.Error(t, err)
+		})
 	}
 }
