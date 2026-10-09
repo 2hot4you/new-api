@@ -298,16 +298,22 @@ func TestCatalogSyncBusinessTaskReferences(t *testing.T) {
 			for _, tc := range []struct {
 				name, origin              string
 				terminal, frozen, perCall bool
+				grok, malformed           bool
 				blocked                   bool
 			}{
 				{name: "legacy-relevant", origin: "managed-model", blocked: true},
 				{name: "unrelated", origin: "local-model"},
 				{name: "terminal", origin: "managed-model", terminal: true},
 				{name: "frozen-expression", origin: "managed-model", frozen: true},
+				{name: "grok-frozen-expression", origin: "managed-model", frozen: true, grok: true},
+				{name: "grok-malformed-expression", origin: "managed-model", frozen: true, grok: true, malformed: true, blocked: true},
 				{name: "per-call-adjuster-unproven", origin: "managed-model", perCall: true, blocked: true},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					task := Task{TaskID: tc.name, Status: TaskStatusInProgress, Properties: Properties{OriginModelName: tc.origin}}
+					if tc.grok {
+						task.Platform = constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeMoliiGrokAIGC))
+					}
 					if tc.terminal {
 						task.Status = TaskStatusSuccess
 					}
@@ -316,6 +322,12 @@ func TestCatalogSyncBusinessTaskReferences(t *testing.T) {
 					}
 					if tc.frozen {
 						task.PrivateData.BillingContext = &TaskBillingContext{OriginModelName: tc.origin, TieredSnapshot: &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ModelName: tc.origin, ExprString: "p * 2", ExprHash: billingexpr.ExprHashString("p * 2"), TaskUsageBilling: true, QuotaPerUnit: 500000, GroupRatio: 1, SourceCurrency: "CNY", CNYPerUSD: 7}}
+					}
+					if tc.malformed {
+						task.PrivateData.BillingContext.TieredSnapshot.ExprHash = "invalid"
+						// A valid alternate V2 snapshot must not authorize falling
+						// through the actual malformed generic-tiered dispatch.
+						task.PrivateData.BillingContext.GrokVideoBilling = &GrokVideoBillingSnapshot{Version: 2, Model: "grok-imagine-video", Operation: "text_to_video", InputType: "text", EstimatedDurationSeconds: 6, EstimatedResolution: "480p", OutputUnitPrice: .05, SourceCurrency: "CNY", CNYPerUSD: 7, GroupRatio: 1}
 					}
 					require.NoError(t, db.Create(&task).Error)
 					plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
@@ -337,6 +349,56 @@ func catalogBusinessFixturePublished(t *testing.T, db *gorm.DB, result catalogma
 	t.Helper()
 	require.NoError(t, db.Model(&CatalogSyncState{}).Where("id = ?", CatalogSyncStateID).Updates(map[string]any{"publication_state": "ready", "runtime_revision": result.Revision, "pending_operation_id": ""}).Error)
 	require.NoError(t, db.Model(&CatalogSyncOperation{}).Where("id = ?", result.OperationID).Update("state", "succeeded").Error)
+}
+
+func TestCatalogSyncBusinessMidjourneyPriceRemoval(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			actor := catalogBusinessActor(t, db)
+			source := catalogBusinessPriceSource(t, db)
+			plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+			require.NoError(t, err)
+			result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "mj-price-baseline", actor)
+			require.NoError(t, err)
+			catalogBusinessFixturePublished(t, db, result)
+			source.Entries = slices.DeleteFunc(source.Entries, func(entry catalogmanifest.Entry) bool {
+				if entry.Kind != catalogmanifest.KindModelPrice {
+					return false
+				}
+				key, err := catalogmanifest.DecodePriceKey(entry.Key)
+				require.NoError(t, err)
+				if key.Option != "billing_setting.billing_expr" {
+					return false
+				}
+				source.Coverage[entry.Kind]--
+				return true
+			})
+			source.Digest, err = catalogmanifest.SnapshotDigest(source)
+			require.NoError(t, err)
+			channel := Channel{Key: "private", Status: 2, Models: "managed-model"}
+			require.NoError(t, db.Create(&channel).Error)
+			for _, tc := range []struct {
+				name      string
+				channelID int
+			}{{"related", channel.Id}, {"unresolved", 0}} {
+				t.Run(tc.name, func(t *testing.T) {
+					legacy := Midjourney{Status: "IN_PROGRESS", ChannelId: tc.channelID}
+					require.NoError(t, db.Create(&legacy).Error)
+					defer func() { require.NoError(t, db.Delete(&legacy).Error) }()
+					plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+					require.NoError(t, err)
+					blocked := false
+					for _, change := range plan.Changes {
+						if change.Kind == catalogmanifest.KindModelPrice && change.After == nil {
+							blocked = change.Action == "blocked" && change.Reason == "unfinished_task_reference"
+						}
+					}
+					assert.True(t, blocked, "MJ model uncertainty must still block model-price removal")
+				})
+			}
+		})
+	}
 }
 
 func TestCatalogSyncBusinessMatchRuleExpansion(t *testing.T) {
@@ -597,15 +659,48 @@ func TestCatalogSyncBusinessSpecialFrozenAndFallback(t *testing.T) {
 			}
 			source.Digest, err = catalogmanifest.SnapshotDigest(source)
 			require.NoError(t, err)
+			t.Run("unresolved-midjourney-unrelated-special", func(t *testing.T) {
+				legacy := Midjourney{Status: "IN_PROGRESS"}
+				require.NoError(t, db.Create(&legacy).Error)
+				defer func() { require.NoError(t, db.Delete(&legacy).Error) }()
+				plan, err := CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
+				require.NoError(t, err)
+				assert.True(t, catalogmanifest.PlanExecutable(plan, time.Now()), "known MJ family cannot consume Grok special prices")
+				starai := source
+				starai.Entries = slices.Clone(source.Entries)
+				for i := range starai.Entries {
+					if starai.Entries[i].Kind != catalogmanifest.KindSpecialPrice {
+						continue
+					}
+					starai.Entries[i].Key, err = catalogmanifest.EncodePriceKey(catalogmanifest.PriceKey{Option: "starai_video_price.standard_720p", Path: ""})
+					require.NoError(t, err)
+					encoded, err := common.Marshal(catalogmanifest.PriceValue{Value: "30", BillingCurrency: "CNY", Unit: "million_tokens"})
+					require.NoError(t, err)
+					starai.Entries[i].Value = string(encoded)
+				}
+				starai.Digest, err = catalogmanifest.SnapshotDigest(starai)
+				require.NoError(t, err)
+				plan, err = CreateCatalogSyncPlan(context.Background(), starai, actor, time.Now())
+				require.NoError(t, err)
+				assert.True(t, catalogmanifest.PlanExecutable(plan, time.Now()), "known MJ family cannot consume StarAI special prices")
+			})
 			for _, tc := range []struct {
 				name            string
 				frozen, related bool
-			}{{"incomplete-legacy", false, true}, {"valid-v2", true, true}, {"invalid-v2-operation", true, true}, {"unrelated-legacy", false, false}} {
+			}{{"incomplete-legacy", false, true}, {"valid-v2", true, true}, {"invalid-v2-operation", true, true}, {"unrelated-legacy", false, false}, {"unclassifiable", false, true}, {"starai-unknown-model", false, false}} {
 				t.Run(tc.name, func(t *testing.T) {
 					row := Task{TaskID: tc.name, Platform: constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeMoliiGrokAIGC)), Status: TaskStatusInProgress, Properties: Properties{OriginModelName: "grok-imagine-video"}}
 					if !tc.related {
 						row.Platform = "ordinary-plugin"
 						row.Properties.OriginModelName = "unrelated-model"
+					}
+					if tc.name == "unclassifiable" {
+						row.Platform = ""
+						row.Properties.OriginModelName = ""
+					}
+					if tc.name == "starai-unknown-model" {
+						row.Platform = constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeStarAI))
+						row.Properties.OriginModelName = ""
 					}
 					if tc.frozen {
 						row.PrivateData.BillingContext = &TaskBillingContext{OriginModelName: "grok-imagine-video", GroupRatio: 1, GrokVideoBilling: &GrokVideoBillingSnapshot{Version: 2, Model: "grok-imagine-video", Operation: "text_to_video", InputType: "text", EstimatedDurationSeconds: 6, EstimatedResolution: "480p", OutputUnitPrice: .05, SourceCurrency: "CNY", CNYPerUSD: 7, GroupRatio: 1}}

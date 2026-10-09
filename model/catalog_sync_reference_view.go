@@ -214,7 +214,9 @@ func captureCatalogReferencesTx(tx *gorm.DB, pin *jsplugin.GenerationPin) (catal
 					}
 				}
 			}
-			if task.Platform == fmt.Sprint(constant.ChannelTypeMoliiGrokAIGC) {
+			// Generic tiered settlement runs before the Grok adaptor. A
+			// nonnil but malformed tiered snapshot must not fall back to V2.
+			if task.Platform == fmt.Sprint(constant.ChannelTypeMoliiGrokAIGC) && context.TieredSnapshot == nil {
 				ref.Frozen = false
 				if snapshot := context.GrokVideoBilling; snapshot != nil {
 					ref.Names = append(ref.Names, snapshot.Model, snapshot.RequestedModel, snapshot.BilledModel)
@@ -227,7 +229,7 @@ func captureCatalogReferencesTx(tx *gorm.DB, pin *jsplugin.GenerationPin) (catal
 					}
 				}
 			}
-			if platform, err := strconv.Atoi(task.Platform); err == nil && (platform == constant.ChannelTypeStarAI || platform == constant.ChannelTypeByteDanceSeedance || platform == constant.ChannelTypeMoliiGrokAIGC) {
+			if platform, err := strconv.Atoi(task.Platform); context.TieredSnapshot == nil && err == nil && (platform == constant.ChannelTypeStarAI || platform == constant.ChannelTypeByteDanceSeedance || platform == constant.ChannelTypeMoliiGrokAIGC) {
 				_, overridden := pin.Generation.GetByChannelType(platform)
 				if overridden || ref.Plugin != "" {
 					ref.Frozen = false
@@ -273,7 +275,7 @@ func captureCatalogReferencesTx(tx *gorm.DB, pin *jsplugin.GenerationPin) (catal
 	}
 	for _, task := range legacy {
 		names := append(slices.Clone(byChannel[task.ChannelID]), byChannel[task.BillingChannelID]...)
-		view.Tasks = append(view.Tasks, catalogTaskReference{Names: names, Unknown: true})
+		view.Tasks = append(view.Tasks, catalogTaskReference{Names: names, Platform: string(constant.TaskPlatformMidjourney), Unknown: true})
 	}
 	var scheduled []struct{ Type string }
 	if err := tx.Model(&SystemTask{}).Select("type").Where("status IS NULL OR status NOT IN ?", []string{string(SystemTaskStatusSucceeded), string(SystemTaskStatusFailed)}).Scan(&scheduled).Error; err != nil {
@@ -419,11 +421,18 @@ func catalogReferenceDecision(view catalogReferenceView, plan catalogmanifest.Pl
 				// These task dispatch families are the actual special-price
 				// consumers. Tool fees and currently unused task factors have
 				// no durable async settlement reader in this checkout.
+				// Model uncertainty cannot escape a known consumer family.
+				// Unclassified families retain conservative identity handling.
+				knownFamily := false
+				switch task.Platform {
+				case string(constant.TaskPlatformMidjourney), string(constant.TaskPlatformSuno), fmt.Sprint(constant.ChannelTypeMoliiGrokAIGC), fmt.Sprint(constant.ChannelTypeStarAI), fmt.Sprint(constant.ChannelTypeByteDanceSeedance):
+					knownFamily = true
+				}
 				switch {
 				case strings.HasPrefix(option, "molii_grok_price."):
-					relevant = relevant || task.Platform == fmt.Sprint(constant.ChannelTypeMoliiGrokAIGC)
+					relevant = !knownFamily && relevant || task.Platform == fmt.Sprint(constant.ChannelTypeMoliiGrokAIGC)
 				case strings.HasPrefix(option, "starai_video_price."):
-					relevant = relevant || task.Platform == fmt.Sprint(constant.ChannelTypeStarAI) || task.Platform == fmt.Sprint(constant.ChannelTypeByteDanceSeedance)
+					relevant = !knownFamily && relevant || task.Platform == fmt.Sprint(constant.ChannelTypeStarAI) || task.Platform == fmt.Sprint(constant.ChannelTypeByteDanceSeedance)
 				default:
 					relevant = false
 				}
