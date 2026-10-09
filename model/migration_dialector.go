@@ -8,6 +8,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
 )
 
@@ -21,7 +22,46 @@ func (d mysqlMigrationDialector) Migrator(db *gorm.DB) gorm.Migrator {
 
 type mysqlSchemaMigrator struct{ mysql.Migrator }
 
+func (m mysqlSchemaMigrator) AddColumn(value any, name string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		field := stmt.Schema.LookUpField(name)
+		if field != nil && stmt.Table == "models" && strings.EqualFold(string(field.DataType), "text") {
+			if field.IgnoreMigration {
+				return nil
+			}
+			return m.DB.Exec("ALTER TABLE ? ADD ? ?", m.CurrentTable(stmt), clause.Column{Name: field.DBName}, m.FullDataTypeOf(field)).Error
+		}
+		return m.Migrator.AddColumn(value, name)
+	})
+}
+
+func (m mysqlSchemaMigrator) AlterColumn(value any, name string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		field := stmt.Schema.LookUpField(name)
+		if field != nil && stmt.Table == "models" && strings.EqualFold(string(field.DataType), "text") {
+			return m.DB.Exec("ALTER TABLE ? MODIFY COLUMN ? ?", m.CurrentTable(stmt), clause.Column{Name: field.DBName}, m.FullDataTypeOf(field)).Error
+		}
+		return m.Migrator.AlterColumn(value, name)
+	})
+}
+
+// MySQL 5.7 cannot default TEXT columns. Retain the model's Go/GORM defaults
+// for inserts, but omit them from DDL (including newer MySQL deployments).
+func (m mysqlSchemaMigrator) FullDataTypeOf(field *schema.Field) clause.Expr {
+	if field.Schema != nil && field.Schema.Table == "models" && strings.EqualFold(string(field.DataType), "text") {
+		copy := *field
+		copy.HasDefaultValue, copy.DefaultValue, copy.DefaultValueInterface = false, "", nil
+		return m.Migrator.FullDataTypeOf(&copy)
+	}
+	return m.Migrator.FullDataTypeOf(field)
+}
+
 func (m mysqlSchemaMigrator) MigrateColumn(value any, field *schema.Field, column gorm.ColumnType) error {
+	if field.Schema != nil && field.Schema.Table == "models" && strings.EqualFold(string(field.DataType), "text") {
+		copy := *field
+		copy.HasDefaultValue, copy.DefaultValue, copy.DefaultValueInterface = false, "", nil
+		return m.Migrator.MigrateColumn(value, &copy, column)
+	}
 	if !field.HasDefaultValue || !strings.EqualFold(column.DatabaseTypeName(), "decimal") {
 		return m.Migrator.MigrateColumn(value, field, column)
 	}
@@ -59,6 +99,15 @@ func (d postgresMigrationDialector) Migrator(db *gorm.DB) gorm.Migrator {
 type postgresSchemaMigrator struct{ postgres.Migrator }
 
 func (m postgresSchemaMigrator) MigrateColumn(value any, field *schema.Field, column gorm.ColumnType) error {
+	if field.Schema != nil && field.Schema.Table == "models" && field.Serializer != nil && field.HasDefaultValue {
+		if stored, ok := column.DefaultValue(); ok && strings.Trim(stored, "'") == strings.Trim(field.DefaultValue, "'") {
+			// GORM leaves serializer defaults quoted but PostgreSQL reports their
+			// literal value. Keep other schema comparisons while ignoring equality.
+			copy := *field
+			copy.HasDefaultValue, copy.DefaultValue, copy.DefaultValueInterface = false, "", nil
+			return m.Migrator.MigrateColumn(value, &copy, columnWithoutDefault{column})
+		}
+	}
 	if column.DatabaseTypeName() == "bpchar" && strings.HasPrefix(strings.ToLower(string(field.DataType)), "char(") {
 		// PostgreSQL reports CHAR(n) as bpchar. Normalize the name, retaining
 		// Length() so a real CHAR length change still triggers migration.

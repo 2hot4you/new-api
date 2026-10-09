@@ -377,10 +377,13 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
-	if err := InitializeMarketplaceDisplayOrders(DB); err != nil {
+	if err := MigrateCatalogSync(DB); err != nil {
 		return err
 	}
 	if err := ensureModelMarketplaceMetadataSchema(DB); err != nil {
+		return err
+	}
+	if err := InitializeMarketplaceDisplayOrders(DB); err != nil {
 		return err
 	}
 	if err := BackfillLocalMarketplaceMetadata(DB); err != nil {

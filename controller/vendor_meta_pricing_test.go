@@ -22,6 +22,7 @@ func TestUpdateVendorMetaRefreshesPricingVendorIntroduction(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "vendor-pricing.db")), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, model.MigrateCatalogSync(db))
 	model.DB = db
 	common.MemoryCacheEnabled = false
 	t.Cleanup(func() {

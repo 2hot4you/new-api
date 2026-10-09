@@ -29,7 +29,8 @@ func TestInitializeChannelCacheAtStartupAcceptsMultipleStarAIChannelsWithMemoryC
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.Option{}))
+	require.NoError(t, model.MigrateCatalogSync(db))
 	model.DB = db
 	for _, name := range []string{"first", "second"} {
 		require.NoError(t, db.Create(&model.Channel{
@@ -77,7 +78,8 @@ func TestInitializeChannelCacheAtStartupCreatesLocalMetadataDraftWithoutMemoryCa
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.Option{}))
+	require.NoError(t, model.MigrateCatalogSync(db))
 	channel := model.Channel{Status: common.ChannelStatusEnabled, Name: "catalog", Key: "test", Models: "glm-5.2", Group: "default"}
 	require.NoError(t, db.Create(&channel).Error)
 	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "glm-5.2", ChannelId: channel.Id, Enabled: true}).Error)

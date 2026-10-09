@@ -102,6 +102,17 @@ type Model struct {
 	SquareState              ModelSquareState `json:"square_state" gorm:"-"`
 }
 
+// MySQL has no portable TEXT defaults. Supply explicit empty arrays on insert;
+// SQLite/PostgreSQL retain their existing SQL defaults for external inserts.
+func (mi *Model) BeforeCreate(tx *gorm.DB) error {
+	for _, field := range []*[]string{&mi.SupportedParameters, &mi.SupportedResolutions, &mi.SupportedAspectRatios, &mi.OutputFormats, &mi.ReferenceModalities} {
+		if *field == nil {
+			*field = []string{}
+		}
+	}
+	return nil
+}
+
 func (mi *Model) Insert() error {
 	return insertModel(DB, mi)
 }

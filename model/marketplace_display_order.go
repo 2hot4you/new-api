@@ -72,14 +72,12 @@ func acquireMarketplaceOrderLock(tx *gorm.DB) error {
 }
 
 func withMarketplaceOrderTransaction(db *gorm.DB, operation func(tx *gorm.DB) error) error {
-	if err := ensureMarketplaceOrderLock(db); err != nil {
-		return err
-	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		if err := acquireMarketplaceOrderLock(tx); err != nil {
+	return WithCatalogWriteBarrier(func() error {
+		if err := catalogMutationTransaction(db, operation); err != nil {
 			return err
 		}
-		return operation(tx)
+		invalidateCatalogCaches()
+		return nil
 	})
 }
 

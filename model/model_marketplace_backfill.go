@@ -373,6 +373,19 @@ func ensureModelMarketplaceMetadataSchema(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("ensure model marketplace metadata schema: database is nil")
 	}
+	if db.Dialector.Name() == "mysql" {
+		// Adding NOT NULL TEXT columns to populated MySQL tables uses empty
+		// strings, since portable TEXT defaults are unavailable. Repair only
+		// those empty legacy values; preserve every configured JSON array.
+		return db.Transaction(func(tx *gorm.DB) error {
+			for _, column := range []string{"supported_parameters", "supported_resolutions", "supported_aspect_ratios", "output_formats", "reference_modalities"} {
+				if err := tx.Model(&Model{}).Where(column+" IS NULL OR "+column+" = ?", "").UpdateColumn(column, "[]").Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
 	if db.Dialector.Name() != "postgres" {
 		return nil
 	}
@@ -380,7 +393,25 @@ func ensureModelMarketplaceMetadataSchema(db *gorm.DB) error {
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", "molii-new-api-20260815-model-marketplace-metadata").Error; err != nil {
 			return fmt.Errorf("lock model marketplace metadata schema: %w", err)
 		}
-		if err := tx.Exec(`
+		expected := map[string]string{"display_name": "", "description_en": "", "marketplace_enabled": "false", "supported_parameters": "[]", "supported_resolutions": "[]", "supported_aspect_ratios": "[]", "max_input_images": "0", "output_formats": "[]", "min_duration": "0", "max_duration": "0", "reference_modalities": "[]"}
+		columns, err := tx.Migrator().ColumnTypes(&Model{})
+		if err != nil {
+			return err
+		}
+		converged := 0
+		for _, column := range columns {
+			want, exists := expected[column.Name()]
+			if !exists {
+				continue
+			}
+			value, hasDefault := column.DefaultValue()
+			nullable, known := column.Nullable()
+			if hasDefault && strings.Trim(value, "'") == want && known && !nullable {
+				converged++
+			}
+		}
+		if converged != len(expected) {
+			if err := tx.Exec(`
 			UPDATE public.models
 			SET display_name = COALESCE(display_name, ''),
 			    description_en = COALESCE(description_en, ''),
@@ -394,9 +425,9 @@ func ensureModelMarketplaceMetadataSchema(db *gorm.DB) error {
 			    max_duration = COALESCE(max_duration, 0),
 			    reference_modalities = COALESCE(reference_modalities, '[]')
 		`).Error; err != nil {
-			return fmt.Errorf("normalize model marketplace metadata nulls: %w", err)
-		}
-		if err := tx.Exec(`
+				return fmt.Errorf("normalize model marketplace metadata nulls: %w", err)
+			}
+			if err := tx.Exec(`
 			ALTER TABLE public.models
 			  ALTER COLUMN display_name SET DEFAULT '',
 			  ALTER COLUMN display_name SET NOT NULL,
@@ -421,14 +452,17 @@ func ensureModelMarketplaceMetadataSchema(db *gorm.DB) error {
 			  ALTER COLUMN reference_modalities SET DEFAULT '[]',
 			  ALTER COLUMN reference_modalities SET NOT NULL
 		`).Error; err != nil {
-			return fmt.Errorf("converge model marketplace metadata constraints: %w", err)
+				return fmt.Errorf("converge model marketplace metadata constraints: %w", err)
+			}
 		}
-		if err := tx.Exec(`
+		if !tx.Migrator().HasIndex(&Model{}, "idx_models_marketplace_enabled_status") {
+			if err := tx.Exec(`
 			CREATE INDEX IF NOT EXISTS idx_models_marketplace_enabled_status
 			ON public.models (marketplace_enabled, status)
 			WHERE deleted_at IS NULL
 		`).Error; err != nil {
-			return fmt.Errorf("create model marketplace publication index: %w", err)
+				return fmt.Errorf("create model marketplace publication index: %w", err)
+			}
 		}
 		return nil
 	})
@@ -448,7 +482,7 @@ func BackfillLocalMarketplaceMetadata(db *gorm.DB) error {
 		modelNames = append(modelNames, seed.ModelName)
 	}
 
-	return db.Transaction(func(tx *gorm.DB) error {
+	return withMarketplaceOrderTransaction(db, func(tx *gorm.DB) error {
 		if err := tx.Model(&Model{}).
 			Where("model_name = ? AND max_input_images = ?", "doubao-seedance-2-5-260628", 9).
 			UpdateColumn("max_input_images", 30).Error; err != nil {

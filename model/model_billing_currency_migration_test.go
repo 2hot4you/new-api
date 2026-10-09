@@ -34,7 +34,8 @@ func TestMigrateModelBillingCurrencyBackfillsOncePostgres(t *testing.T) {
 
 func testMigrateModelBillingCurrencyBackfillsOnce(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	require.NoError(t, db.AutoMigrate(&Option{}, &Model{}))
+	require.NoError(t, db.AutoMigrate(&Option{}, &Model{}, &Vendor{}))
+	require.NoError(t, MigrateCatalogSync(db))
 
 	models := []Model{
 		{ModelName: "minimax-m3", BillingCurrency: "USD"},
@@ -74,7 +75,8 @@ func testMigrateModelBillingCurrencyBackfillsOnce(t *testing.T, db *gorm.DB) {
 func TestMigrateModelBillingCurrencyV2RunsAfterCompletedV1(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "billing-currency-v2.db")), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&Option{}, &Model{}))
+	require.NoError(t, db.AutoMigrate(&Option{}, &Model{}, &Vendor{}))
+	require.NoError(t, MigrateCatalogSync(db))
 	require.NoError(t, db.Create(&Option{Key: modelBillingCurrencyMigrationKeyV1, Value: "completed"}).Error)
 	require.NoError(t, db.Create(&Model{ModelName: "deepseek-flash", BillingCurrency: "USD"}).Error)
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/brand_setting"
@@ -32,6 +33,8 @@ func AllOption() ([]*Option, error) {
 }
 
 func InitOptionMap() {
+	catalogBarrier.Lock()
+	defer catalogBarrier.Unlock()
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
 
@@ -201,10 +204,16 @@ func InitOptionMap() {
 	maps.Copy(common.OptionMap, modelConfigs)
 
 	common.OptionMapRWMutex.Unlock()
-	loadOptionsFromDatabase()
+	loadOptionsFromDatabaseGuarded()
 }
 
 func loadOptionsFromDatabase() {
+	catalogBarrier.Lock()
+	defer catalogBarrier.Unlock()
+	loadOptionsFromDatabaseGuarded()
+}
+
+func loadOptionsFromDatabaseGuarded() {
 	requestPolicyOptionMutex.Lock()
 	defer requestPolicyOptionMutex.Unlock()
 	defer func() {
@@ -237,6 +246,7 @@ func loadOptionsFromDatabase() {
 		}
 	}
 	applyPasskeyDomainOptions(passkeyOptions)
+	invalidateCatalogCaches()
 }
 
 func SyncOptions(frequency int) {
@@ -295,19 +305,22 @@ func UpdateOption(key string, value string) error {
 	if err := validateOptionValue(key, value); err != nil {
 		return err
 	}
-	// Save to database first
-	option := Option{
-		Key: key,
+	return UpdateOptionsBulk(map[string]string{key: value})
+}
+
+func hasCatalogOptions(values map[string]string) bool {
+	whitelist := catalogmanifest.PriceOptions()
+	for key := range values {
+		if _, exists := whitelist[key]; exists || catalogmanifest.IsPricingNamespace(key) {
+			return true
+		}
 	}
-	// https://gorm.io/docs/update.html#Save-All-Fields
-	DB.FirstOrCreate(&option, Option{Key: key})
-	option.Value = value
-	// Save is a combination function.
-	// If save value does not contain primary key, it will execute Create,
-	// otherwise it will execute Update (with all fields).
-	DB.Save(&option)
-	// Update OptionMap
-	return updateOptionMap(key, value)
+	return false
+}
+
+func needsCatalogOptionBarrier(values map[string]string) bool {
+	_, exchange := values["USDExchangeRate"]
+	return exchange || hasCatalogOptions(values)
 }
 
 // UpdateOptionsBulk persists multiple key/value pairs in a single database
@@ -336,13 +349,20 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
+	if needsCatalogOptionBarrier(normalizedValues) {
+		return WithCatalogWriteBarrier(func() error { return updateOptionsBulkGuarded(normalizedValues) })
+	}
+	return updateOptionsBulkGuarded(normalizedValues)
+}
+
+func updateOptionsBulkGuarded(normalizedValues map[string]string) error {
 	var policySnapshot *RequestPolicySnapshot
-	for key := range values {
+	for key := range normalizedValues {
 		if IsRequestPolicyOption(key) {
 			requestPolicyOptionMutex.Lock()
 			defer requestPolicyOptionMutex.Unlock()
 			options := maps.Clone(CurrentRequestPolicy().Options)
-			for key, value := range values {
+			for key, value := range normalizedValues {
 				if IsRequestPolicyOption(key) {
 					options[key] = value
 				}
@@ -356,7 +376,7 @@ func UpdateOptionsBulk(values map[string]string) error {
 		}
 	}
 
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	write := func(tx *gorm.DB) error {
 		for k, v := range normalizedValues {
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
@@ -368,7 +388,13 @@ func UpdateOptionsBulk(values map[string]string) error {
 			}
 		}
 		return nil
-	})
+	}
+	var err error
+	if hasCatalogOptions(normalizedValues) {
+		err = catalogMutationTransaction(DB, write)
+	} else {
+		err = DB.Transaction(write)
+	}
 	if err != nil {
 		return err
 	}
@@ -379,6 +405,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 	}
 	if policySnapshot != nil {
 		requestPolicySnapshot.Store(policySnapshot)
+	}
+	if hasCatalogOptions(normalizedValues) {
+		invalidateCatalogCaches()
 	}
 	return nil
 }

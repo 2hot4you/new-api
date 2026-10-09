@@ -26,6 +26,7 @@ func setupModelMetaCatalogControllerTest(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "model-meta-catalog.db")), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.Model{}, &model.Vendor{}, &model.Channel{}, &model.Ability{}))
+	require.NoError(t, model.MigrateCatalogSync(db))
 	model.DB = db
 	t.Cleanup(func() {
 		model.DB = previousDB

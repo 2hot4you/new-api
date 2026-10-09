@@ -94,6 +94,10 @@ func validatePasskeyRPIDWithTx(tx *gorm.DB, rpID string) error {
 // including unrelated keys from UpdateOptionsBulk. Preview rolls back even the
 // initial default rows and never publishes a local configuration change.
 func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirmation string) (*PasskeyDomainChange, error) {
+	if needsCatalogOptionBarrier(values) {
+		catalogBarrier.Lock()
+		defer catalogBarrier.Unlock()
+	}
 	passkeyOptionMutex.Lock()
 	defer passkeyOptionMutex.Unlock()
 	values = maps.Clone(values)
@@ -103,7 +107,7 @@ func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirma
 		}
 	}
 	var change *PasskeyDomainChange
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	write := func(tx *gorm.DB) error {
 		settings, serverAddress, err := lockPasskeyDomainSettings(tx)
 		if err != nil {
 			return err
@@ -243,7 +247,13 @@ func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirma
 			}
 		}
 		return nil
-	})
+	}
+	var err error
+	if hasCatalogOptions(values) {
+		err = catalogMutationTransaction(DB, write)
+	} else {
+		err = DB.Transaction(write)
+	}
 	if errors.Is(err, errPasskeyDomainPreview) {
 		return change, nil
 	}
@@ -257,6 +267,9 @@ func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirma
 				return change, err
 			}
 		}
+	}
+	if hasCatalogOptions(values) {
+		invalidateCatalogCaches()
 	}
 	return change, nil
 }

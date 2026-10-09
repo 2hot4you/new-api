@@ -693,10 +693,14 @@ func mutateModelPricingOptions(mutate func(*gorm.DB, map[string]map[string]any) 
 }
 
 func mutateModelPricingOptionsWithExtra(extraOptions map[string]string, publishOrder []string, mutate func(*gorm.DB, map[string]map[string]any) error) error {
+	return WithCatalogWriteBarrier(func() error { return mutateModelPricingOptionsGuarded(extraOptions, publishOrder, mutate) })
+}
+
+func mutateModelPricingOptionsGuarded(extraOptions map[string]string, publishOrder []string, mutate func(*gorm.DB, map[string]map[string]any) error) error {
 	modelPricingMutationMu.Lock()
 	defer modelPricingMutationMu.Unlock()
 	var committed map[string]map[string]any
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := catalogMutationTransaction(DB, func(tx *gorm.DB) error {
 		values, existing, duplicated, err := readModelPricingMaps(lockForUpdate(tx))
 		if err != nil {
 			return err
@@ -757,7 +761,7 @@ func mutateModelPricingOptionsWithExtra(extraOptions map[string]string, publishO
 			return err
 		}
 	}
-	RefreshPricing()
+	refreshPricingGuarded()
 	ratio_setting.InvalidateExposedDataCache()
 	return nil
 }

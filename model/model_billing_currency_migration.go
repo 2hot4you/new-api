@@ -36,7 +36,7 @@ var confirmedCNYCatalogModelsV2 = []string{
 // hard-coded catalog rules. After this one-time backfill, model metadata is the
 // only source of truth and administrators may freely change the value.
 func migrateModelBillingCurrency(db *gorm.DB) error {
-	return db.Transaction(func(tx *gorm.DB) error {
+	return withMarketplaceOrderTransaction(db, func(tx *gorm.DB) error {
 		if err := migrateConfirmedCNYModels(tx, modelBillingCurrencyMigrationKeyV1, legacyCNYCatalogModels); err != nil {
 			return err
 		}

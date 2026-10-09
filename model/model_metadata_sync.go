@@ -17,21 +17,22 @@ var metadataMutationMu sync.Mutex
 // metadataTransaction serializes changes to vendors and model ownership before
 // acquiring model/vendor row locks. The option anchor also covers empty tables.
 func metadataTransaction(change func(*gorm.DB) error) error {
+	return WithCatalogWriteBarrier(func() error { return metadataTransactionGuarded(change) })
+}
+
+func metadataTransactionGuarded(change func(*gorm.DB) error) error {
 	metadataMutationMu.Lock()
 	defer metadataMutationMu.Unlock()
-	if err := ensureMarketplaceOrderLock(DB); err != nil {
-		return err
-	}
-	return DB.Transaction(func(tx *gorm.DB) error {
-		// Marketplace order is always acquired before metadata and row locks.
-		if err := acquireMarketplaceOrderLock(tx); err != nil {
-			return err
-		}
+	err := catalogMutationTransaction(DB, func(tx *gorm.DB) error {
 		if err := lockMetadataMutation(tx); err != nil {
 			return err
 		}
 		return change(tx)
 	})
+	if err == nil {
+		invalidateCatalogCaches()
+	}
+	return err
 }
 
 func lockMetadataMutation(tx *gorm.DB) error {

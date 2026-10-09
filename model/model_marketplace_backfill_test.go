@@ -62,7 +62,8 @@ func newMarketplaceMigrationTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "marketplace-backfill.db")), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&Vendor{}, &Model{}))
+	require.NoError(t, db.AutoMigrate(&Vendor{}, &Model{}, &Option{}))
+	require.NoError(t, MigrateCatalogSync(db))
 	return db
 }
 
@@ -178,7 +179,8 @@ func TestMarketplacePostgresFreshBootstrapConverges(t *testing.T) {
 
 func TestBackfillLocalMarketplaceMetadataPreservesConcurrentAdministratorUpdate(t *testing.T) {
 	setupDB := openMarketplacePostgresTestDB(t)
-	require.NoError(t, setupDB.AutoMigrate(&Model{}))
+	require.NoError(t, setupDB.AutoMigrate(&Model{}, &Vendor{}, &Option{}))
+	require.NoError(t, MigrateCatalogSync(setupDB))
 	require.NoError(t, ensureModelMarketplaceMetadataSchema(setupDB))
 	require.NoError(t, setupDB.Exec("TRUNCATE TABLE public.models RESTART IDENTITY").Error)
 	require.NoError(t, setupDB.Create(&Model{

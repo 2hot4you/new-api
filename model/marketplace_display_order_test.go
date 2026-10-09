@@ -25,6 +25,7 @@ func newMarketplaceOrderTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&Option{}, &marketplaceOrderLock{}, &Model{}, &Vendor{}))
 	require.NoError(t, ensureMarketplaceOrderLock(db))
+	require.NoError(t, MigrateCatalogSync(db))
 	DB = db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	t.Cleanup(func() {
@@ -306,9 +307,10 @@ func openMarketplaceOrderPostgresPair(t *testing.T) (*gorm.DB, *gorm.DB) {
 		return db
 	}
 	first, second := open(), open()
-	require.NoError(t, first.AutoMigrate(&marketplaceOrderLock{}, &Model{}, &Vendor{}))
+	require.NoError(t, first.AutoMigrate(&marketplaceOrderLock{}, &Model{}, &Vendor{}, &Option{}))
 	require.NoError(t, first.Exec("TRUNCATE TABLE models, vendors, marketplace_order_locks RESTART IDENTITY CASCADE").Error)
 	require.NoError(t, ensureMarketplaceOrderLock(first))
+	require.NoError(t, MigrateCatalogSync(first))
 	return first, second
 }
 
