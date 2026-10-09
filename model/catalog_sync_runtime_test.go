@@ -195,6 +195,58 @@ func TestCatalogRuntimeOrdinaryOptions(t *testing.T) {
 	}
 }
 
+func TestCatalogRuntimeOrdinaryRawNoop(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			actor := catalogBusinessActor(t, db)
+			const key = "tool_price_setting.prices"
+			require.NoError(t, UpdateOptionsBulk(map[string]string{key: `{"web_search":12,"web_search:custom*":0}`}))
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			var before CatalogSyncState
+			require.NoError(t, db.First(&before, CatalogSyncStateID).Error)
+			for _, change := range []struct {
+				name, raw string
+				bulk      bool
+			}{
+				{"formatting", `{ "web_search" : 12, "web_search:custom*" : 0 }`, true},
+				{"ordering", `{"web_search:custom*":0,"web_search":12}`, false},
+			} {
+				t.Run(change.name, func(t *testing.T) {
+					if change.bulk {
+						require.NoError(t, UpdateOptionsBulk(map[string]string{key: change.raw}))
+					} else {
+						require.NoError(t, UpdateOption(key, change.raw))
+					}
+					var persisted Option
+					require.NoError(t, db.First(&persisted, commonKeyCol+" = ?", key).Error)
+					assert.Equal(t, change.raw, persisted.Value)
+					common.OptionMapRWMutex.RLock()
+					published := common.OptionMap[key]
+					common.OptionMapRWMutex.RUnlock()
+					assert.Equal(t, change.raw, published, "options reads must return the exact accepted raw value")
+					require.NoError(t, WithCatalogPricingRead(context.Background(), "plain-model", func() error {
+						assert.Equal(t, 12.0, operation_setting.GetToolPriceForModel("web_search", "plain-model"))
+						assert.Zero(t, operation_setting.GetToolPriceForModel("web_search", "custom-model"))
+						return nil
+					}))
+					var after CatalogSyncState
+					require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
+					assert.Equal(t, before, after, "format-only saves must preserve the entire coordination state")
+					fresh, err := GetCatalogSyncPlan(context.Background(), plan.ID, actor)
+					require.NoError(t, err)
+					assert.Equal(t, plan, fresh, "the prepared plan remains valid and unchanged")
+				})
+			}
+			var operations int64
+			require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&operations).Error)
+			assert.Zero(t, operations)
+		})
+	}
+}
+
 func TestCatalogRuntimeOrdinaryHistoricalRetention(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(engine, func(t *testing.T) {

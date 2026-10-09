@@ -163,6 +163,10 @@ func commitOrdinaryCatalogMutationGuarded(ctx context.Context, db *gorm.DB, prep
 		}
 	}
 	if !changed {
+		// A canonical no-op may still persist a new raw JSON representation.
+		// Publish the complete detached candidate after commit/pin release,
+		// under the retained writer, without changing revision or readiness.
+		prepared.stage.candidate.publishGuarded()
 		return nil
 	}
 	return publishCatalogRuntimeGuarded(ctx, prepared.stage)
