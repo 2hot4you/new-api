@@ -55,12 +55,17 @@ func setupResponsesWSRequestTest(t *testing.T) (*model.User, *model.Token) {
 	previousGroups := setting.ModelRequestRateLimitGroup
 	setting.ModelRequestRateLimitGroup = nil
 	setting.ModelRequestRateLimitMutex.Unlock()
-	t.Setenv("SQL_DSN", os.Getenv("TEST_RESPONSES_SQL_DSN"))
-	t.Setenv("LOG_SQL_DSN", os.Getenv("TEST_RESPONSES_LOG_SQL_DSN"))
-	common.IsMasterNode, common.MemoryCacheEnabled, common.RedisEnabled = true, false, false
-	common.SQLitePath = filepath.Join(t.TempDir(), "responses.db")
-	require.NoError(t, model.InitDB())
-	db := model.DB
+	var db *gorm.DB
+	if catalogPostgresOnly(t) {
+		db = catalogControllerPostgres(t, nil)
+	} else {
+		t.Setenv("SQL_DSN", os.Getenv("TEST_RESPONSES_SQL_DSN"))
+		t.Setenv("LOG_SQL_DSN", os.Getenv("TEST_RESPONSES_LOG_SQL_DSN"))
+		common.IsMasterNode, common.MemoryCacheEnabled, common.RedisEnabled = true, false, false
+		common.SQLitePath = filepath.Join(t.TempDir(), "responses.db")
+		require.NoError(t, model.InitDB())
+		db = model.DB
+	}
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)

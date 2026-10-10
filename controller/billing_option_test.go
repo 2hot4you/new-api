@@ -26,6 +26,9 @@ import (
 )
 
 func TestUpdateOptionRejectsInvalidTaskBillingExpressions(t *testing.T) {
+	if catalogPostgresOnly(t) {
+		modelManagementDB(t, "postgres", os.Getenv("TEST_POSTGRES_DSN"))
+	}
 	const pluginKey = "billing-save-probe"
 	const modelName = "billing-save-model"
 	source := `
@@ -39,7 +42,7 @@ export function parseSubmitResponse() { return {}; }
 export function buildQueryRequest() { return {}; }
 export function parseTaskResult() { return {}; }
 `
-	_, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+	_, err := catalogControllerRegisterPlugin(t, source)
 	require.NoError(t, err)
 	t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister(pluginKey) })
 
@@ -84,6 +87,9 @@ export function parseTaskResult() { return {}; }
 }
 
 func TestUpdateOptionRejectsUsageExpressionWithoutTaskPlugin(t *testing.T) {
+	if catalogPostgresOnly(t) {
+		modelManagementDB(t, "postgres", os.Getenv("TEST_POSTGRES_DSN"))
+	}
 	const modelName = "billing-save-model-without-plugin"
 	expressions, err := common.Marshal(map[string]string{
 		modelName: `u("mode") == "std" ? 1 : 2`,
@@ -127,7 +133,7 @@ export function parseSubmitResponse() { return {}; }
 export function buildQueryRequest() { return {}; }
 export function parseTaskResult() { return {}; }
 `
-	_, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+	_, err := catalogControllerRegisterPlugin(t, source)
 	require.NoError(t, err)
 	t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister(pluginKey) })
 
@@ -198,7 +204,7 @@ func TestPreConsumePolicyDatabaseMatrix(t *testing.T) {
 		require.NoError(t, config.GlobalConfig.LoadFromDB(previousConfig))
 		common.QuotaPerUnit, common.BatchUpdateEnabled = previousUnit, previousBatch
 	})
-	for _, dialect := range []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}} {
+	for _, dialect := range catalogControllerDialects(t) {
 		t.Run(dialect.kind, func(t *testing.T) {
 			if dialect.env != "" && os.Getenv(dialect.env) == "" {
 				t.Skip("set " + dialect.env + " to run this database")
@@ -306,6 +312,9 @@ func TestPreConsumePolicyDatabaseMatrix(t *testing.T) {
 }
 
 func TestPreConsumeMultiplierRejectsInvalidRuntimeAndOverflow(t *testing.T) {
+	if catalogPostgresOnly(t) {
+		modelManagementDB(t, "postgres", os.Getenv("TEST_POSTGRES_DSN"))
+	}
 	previous := config.GlobalConfig.ExportAllConfigs()
 	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(previous)) })
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
@@ -320,6 +329,7 @@ func TestPreConsumeMultiplierRejectsInvalidRuntimeAndOverflow(t *testing.T) {
 		info := &relaycommon.RelayInfo{OriginModelName: "policy-overflow", UserGroup: "default", UsingGroup: "default", BillingRequestInput: &billingexpr.RequestInput{}}
 		_, err := helper.ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
 		require.Error(t, err)
+		assert.NotErrorIs(t, err, model.ErrCatalogPublicationPending)
 		assert.Nil(t, info.Billing)
 	}
 }

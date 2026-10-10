@@ -2,9 +2,11 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay/channel/moliigrok"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -26,6 +29,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -40,10 +44,56 @@ import (
 // loopback PostgreSQL server and owns a freshly created, exactly dropped DB.
 func catalogImagePostgres(t *testing.T, options map[string]string) *gorm.DB {
 	t.Helper()
+	return catalogControllerPostgres(t, options)
+}
+
+func catalogPostgresOnly(t *testing.T) bool {
+	t.Helper()
+	mode := os.Getenv("CATALOG_SYNC_POSTGRES_ONLY")
+	require.Contains(t, []string{"", "1"}, mode, "unsupported PostgreSQL-only mode")
+	return mode == "1"
+}
+
+func catalogControllerDialects(t *testing.T) []struct{ kind, env string } {
+	t.Helper()
+	if catalogPostgresOnly(t) {
+		require.NotEmpty(t, os.Getenv("TEST_POSTGRES_DSN"))
+		return []struct{ kind, env string }{{"postgres", "TEST_POSTGRES_DSN"}}
+	}
+	return []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}}
+}
+
+// Register exactly the source persisted in the disposable database. Recovery
+// must prove desired/effective identity parity before a pricing mutation.
+func catalogControllerRegisterPlugin(t *testing.T, source string) (*jsplugin.LoadedPlugin, error) {
+	t.Helper()
+	plugin, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+	if err != nil || !catalogPostgresOnly(t) {
+		return plugin, err
+	}
+	require.NoError(t, model.DB.Where("key = ?", plugin.Meta.Key).Delete(&model.TaskPlugin{}).Error)
+	require.NoError(t, model.DB.Create(&model.TaskPlugin{Key: plugin.Meta.Key, APIVersion: plugin.Meta.APIVersion, Version: plugin.Meta.Version, Source: model.LongText(source), SourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))), Active: true, Enabled: true}).Error)
+	require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+	return plugin, nil
+}
+
+func catalogControllerUnregisterPlugin(t *testing.T, key string) error {
+	t.Helper()
+	err := jsplugin.DefaultRegistry.Unregister(key)
+	if err == nil && catalogPostgresOnly(t) {
+		require.NoError(t, model.DB.Where("key = ?", key).Delete(&model.TaskPlugin{}).Error)
+		require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+	}
+	return err
+}
+
+func catalogControllerPostgres(t *testing.T, options map[string]string) *gorm.DB {
+	t.Helper()
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	require.NotEmpty(t, dsn, "task PostgreSQL is required")
 	u, err := url.Parse(dsn)
 	require.NoError(t, err)
+	require.Contains(t, []string{"postgres", "postgresql"}, u.Scheme)
 	require.Contains(t, []string{"127.0.0.1", "localhost", "::1"}, u.Hostname())
 	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
 	admin, err := gorm.Open(postgres.Open(dsn), cfg)
@@ -66,7 +116,32 @@ func catalogImagePostgres(t *testing.T, options map[string]string) *gorm.DB {
 	previousDB, previousLogDB, previousRegistry := model.DB, model.LOG_DB, jsplugin.DefaultRegistry
 	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	previousRedis, previousBatch, previousLogs, previousCache := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.MemoryCacheEnabled
+	common.OptionMapRWMutex.RLock()
+	previousOptions := maps.Clone(common.OptionMap)
+	common.OptionMapRWMutex.RUnlock()
+	previousRate, previousName := operation_setting.USDExchangeRate, common.SystemName
+	previousConfig := config.GlobalConfig.ExportAllConfigs()
+	restoreRatios := []struct {
+		value   string
+		restore func(string) error
+	}{
+		{ratio_setting.ModelPrice2JSONString(), ratio_setting.UpdateModelPriceByJSONString},
+		{ratio_setting.ModelRatio2JSONString(), ratio_setting.UpdateModelRatioByJSONString},
+		{ratio_setting.CompletionRatio2JSONString(), ratio_setting.UpdateCompletionRatioByJSONString},
+		{ratio_setting.CacheRatio2JSONString(), ratio_setting.UpdateCacheRatioByJSONString},
+		{ratio_setting.CreateCacheRatio2JSONString(), ratio_setting.UpdateCreateCacheRatioByJSONString},
+		{ratio_setting.ImageRatio2JSONString(), ratio_setting.UpdateImageRatioByJSONString},
+		{ratio_setting.AudioRatio2JSONString(), ratio_setting.UpdateAudioRatioByJSONString},
+		{ratio_setting.AudioCompletionRatio2JSONString(), ratio_setting.UpdateAudioCompletionRatioByJSONString},
+		{ratio_setting.GroupRatio2JSONString(), ratio_setting.UpdateGroupRatioByJSONString},
+	}
 	model.DB, model.LOG_DB, jsplugin.DefaultRegistry = db, db, jsplugin.NewRegistry()
+	for _, meta := range previousRegistry.Snapshot().Factory {
+		source, sourceErr := plugins.Source(meta.Key)
+		require.NoError(t, sourceErr)
+		_, registerErr := jsplugin.DefaultRegistry.RegisterFactory(source, jsplugin.Options{Key: meta.Key})
+		require.NoError(t, registerErr)
+	}
 	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.MemoryCacheEnabled = false, false, true, false
 	common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
 	common.SetLogDatabaseType(common.DatabaseTypePostgreSQL)
@@ -77,12 +152,20 @@ func catalogImagePostgres(t *testing.T, options map[string]string) *gorm.DB {
 	common.IsMasterNode = master
 	require.NoError(t, err)
 	t.Cleanup(func() {
+		for _, ratio := range restoreRatios {
+			require.NoError(t, ratio.restore(ratio.value))
+		}
+		require.NoError(t, config.GlobalConfig.LoadFromDB(previousConfig))
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousOptions
+		common.OptionMapRWMutex.Unlock()
+		operation_setting.USDExchangeRate, common.SystemName = previousRate, previousName
 		model.DB, model.LOG_DB, jsplugin.DefaultRegistry = previousDB, previousLogDB, previousRegistry
 		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.MemoryCacheEnabled = previousRedis, previousBatch, previousLogs, previousCache
 		common.SetMainDatabaseType(previousType)
 		common.SetLogDatabaseType(previousLogType)
 	})
-	require.NoError(t, db.AutoMigrate(&model.Model{}, &model.Vendor{}, &model.Option{}, &model.Channel{}, &model.Ability{}, &model.Task{}, &model.TaskPlugin{}, &model.Midjourney{}, &model.SystemTask{}, &model.User{}, &model.Token{}, &model.Log{}, &model.MoliiFile{}))
+	require.NoError(t, db.AutoMigrate(&model.Model{}, &model.Vendor{}, &model.Option{}, &model.Channel{}, &model.Ability{}, &model.Task{}, &model.TaskPlugin{}, &model.TaskBillingJob{}, &model.Midjourney{}, &model.SystemTask{}, &model.User{}, &model.Token{}, &model.Log{}, &model.MoliiFile{}, &model.AuditLog{}, &model.SubscriptionPlan{}, &model.UserSubscription{}, &model.SubscriptionPreConsumeRecord{}))
 	require.NoError(t, model.MigrateCatalogSync(db))
 	for key, value := range options {
 		require.NoError(t, db.Create(&model.Option{Key: key, Value: value}).Error)

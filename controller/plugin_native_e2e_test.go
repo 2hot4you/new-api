@@ -73,7 +73,13 @@ func TestKlingNativeRouteSubmitPollSettleAndQuery(t *testing.T) {
 	previousBatchUpdate := common.BatchUpdateEnabled
 	previousLogConsume := common.LogConsumeEnabled
 	previousRedisEnabled := common.RedisEnabled
-	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	var database *gorm.DB
+	var err error
+	if catalogPostgresOnly(t) {
+		database = catalogControllerPostgres(t, nil)
+	} else {
+		database, err = gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	}
 	require.NoError(t, err)
 	require.NoError(t, database.AutoMigrate(&model.User{}, &model.Channel{}, &model.Task{}, &model.TaskBillingJob{}, &model.Log{}))
 	model.DB = database

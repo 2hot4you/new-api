@@ -15,6 +15,9 @@ import (
 )
 
 func TestRelayMoliiGrokImagePricingErrorDoesNotPanic(t *testing.T) {
+	if catalogPostgresOnly(t) {
+		catalogControllerPostgres(t, nil)
+	}
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)

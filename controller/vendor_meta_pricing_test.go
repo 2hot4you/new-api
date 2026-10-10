@@ -19,7 +19,13 @@ import (
 func TestUpdateVendorMetaRefreshesPricingVendorIntroduction(t *testing.T) {
 	previousDB := model.DB
 	previousMemoryCache := common.MemoryCacheEnabled
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "vendor-pricing.db")), &gorm.Config{})
+	var db *gorm.DB
+	var err error
+	if catalogPostgresOnly(t) {
+		db = catalogControllerPostgres(t, nil)
+	} else {
+		db, err = gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "vendor-pricing.db")), &gorm.Config{})
+	}
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
 	require.NoError(t, model.MigrateCatalogSync(db))
@@ -61,6 +67,9 @@ func TestUpdateVendorMetaRefreshesPricingVendorIntroduction(t *testing.T) {
 	payload, err := json.Marshal(prices)
 	require.NoError(t, err)
 	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(payload)))
+	if catalogPostgresOnly(t) {
+		require.NoError(t, model.UpdateOptionsBulk(map[string]string{"ModelPrice": string(payload)}))
+	}
 	channel := model.Channel{Name: "channel", Key: "test", Type: 1, Status: common.ChannelStatusEnabled, Models: entry.ModelName, Group: "default"}
 	require.NoError(t, db.Create(&channel).Error)
 	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: entry.ModelName, ChannelId: channel.Id, Enabled: true}).Error)

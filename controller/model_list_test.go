@@ -36,6 +36,14 @@ type userModelsResponse struct {
 
 func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	if catalogPostgresOnly(t) {
+		// Listing tests deliberately include invalid/empty runtime expressions;
+		// bootstrap a valid catalog first, then restore that explicit test input.
+		previous := config.GlobalConfig.ExportAllConfigs()
+		db := catalogControllerPostgres(t, nil)
+		require.NoError(t, config.GlobalConfig.LoadFromDB(previous))
+		return db
+	}
 
 	initModelListColumnNames(t)
 
@@ -270,15 +278,6 @@ func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
-	withTieredBillingConfig(t, map[string]string{
-		"zz-tiered-visible-model":      "tiered_expr",
-		"zz-tiered-empty-expr-model":   "tiered_expr",
-		"zz-tiered-missing-expr-model": "tiered_expr",
-	}, map[string]string{
-		"zz-tiered-visible-model":    `tier("base", p * 1 + c * 2)`,
-		"zz-tiered-empty-expr-model": "   ",
-	})
-
 	db := setupModelListControllerTestDB(t)
 	vendor := model.Vendor{Name: "Tiered Billing Vendor", Status: 1}
 	require.NoError(t, vendor.Insert())
@@ -327,6 +326,13 @@ func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	for i := range entries {
 		require.NoError(t, db.Create(&entries[i]).Error)
 	}
+	// Vendor insertion publishes the authoritative catalog. Apply the deliberate
+	// invalid/empty runtime inputs after that real mutation, before listing.
+	withTieredBillingConfig(t, map[string]string{
+		"zz-tiered-visible-model": "tiered_expr", "zz-tiered-empty-expr-model": "tiered_expr", "zz-tiered-missing-expr-model": "tiered_expr",
+	}, map[string]string{
+		"zz-tiered-visible-model": `tier("base", p * 1 + c * 2)`, "zz-tiered-empty-expr-model": "   ",
+	})
 	model.InvalidatePricingCache()
 
 	recorder := httptest.NewRecorder()

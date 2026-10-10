@@ -614,6 +614,11 @@ func taskSubmissionRelayInfo(billing relaycommon.BillingSettler) *relaycommon.Re
 // runs leave a record.
 func openTaskDialectDatabase(t *testing.T, models ...any) (*gorm.DB, common.DatabaseType) {
 	t.Helper()
+	if catalogPostgresOnly(t) {
+		db := catalogControllerPostgres(t, nil)
+		require.NoError(t, db.AutoMigrate(models...))
+		return db, common.DatabaseTypePostgreSQL
+	}
 	dialect := common.DatabaseType(os.Getenv("TEST_TASK_DB_DIALECT"))
 	var driver gorm.Dialector
 	switch dialect {

@@ -75,6 +75,9 @@ func TestPrepareImageRequestBillingRejectsMappingBeforeEstimateOrPreconsume(t *t
 }
 
 func TestPrepareImageRequestBillingAllowsGrokImageIdentity(t *testing.T) {
+	if catalogPostgresOnly(t) {
+		catalogControllerPostgres(t, nil)
+	}
 	for _, modelName := range []string{"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0"} {
 		t.Run(modelName, func(t *testing.T) {
 			mapping := fmt.Sprintf(`{%q:%q}`, modelName, modelName)
@@ -103,7 +106,11 @@ func TestPrepareImageRequestBillingAllowsGrokImageIdentity(t *testing.T) {
 }
 
 func TestPrepareGrokImageUnknownFileIDFailsBeforeSnapshotOrPreconsume(t *testing.T) {
-	setupFilesControllerDB(t)
+	if catalogPostgresOnly(t) {
+		catalogControllerPostgres(t, nil)
+	} else {
+		setupFilesControllerDB(t)
+	}
 	body := `{"model":"grok-imagine-image","prompt":"edit","images":[{"url":"https://images.example/a.png"},{"file_id":"file_abc"}]}`
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(body))
@@ -135,6 +142,9 @@ func TestPrepareGrokImageUnknownFileIDFailsBeforeSnapshotOrPreconsume(t *testing
 }
 
 func TestPrepareImageRequestBillingPreservesOrdinaryImageMapping(t *testing.T) {
+	if catalogPostgresOnly(t) {
+		catalogControllerPostgres(t, nil)
+	}
 	c := imageBillingMappingContext(t, "dall-e-3", `{"dall-e-3":"gpt-image-1"}`, constant.ChannelTypeOpenAI)
 	request := &dto.ImageRequest{Model: "dall-e-3", Prompt: "cat"}
 	info := &relaycommon.RelayInfo{
@@ -158,13 +168,22 @@ func TestOrdinaryImageAttemptPreparationTracksSelectedChannelAndRetry(t *testing
 	originalMemoryCacheEnabled := common.MemoryCacheEnabled
 	originalModelPrices := ratio_setting.ModelPrice2JSONString()
 	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
-	db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
+	var db *gorm.DB
+	var err error
+	if catalogPostgresOnly(t) {
+		db = catalogControllerPostgres(t, nil)
+	} else {
+		db, err = gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
+	}
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
 	model.DB = db
 	common.MemoryCacheEnabled = true
 	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"upstream-b":0.1,"upstream-c":0.2}`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+	if catalogPostgresOnly(t) {
+		require.NoError(t, model.UpdateOptionsBulk(map[string]string{"ModelPrice": `{"upstream-b":0.1,"upstream-c":0.2}`, "GroupRatio": `{"default":1}`}))
+	}
 	t.Cleanup(func() {
 		model.DB = originalDB
 		common.MemoryCacheEnabled = originalMemoryCacheEnabled
@@ -212,7 +231,10 @@ func TestOrdinaryImageAttemptPreparationTracksSelectedChannelAndRetry(t *testing
 	selected, channelErr := getChannel(c, info, retryParam)
 	require.Nil(t, channelErr)
 	require.Equal(t, channelB.Id, selected.Id, "first attempt must preserve the middleware-selected channel")
-	require.Nil(t, prepareSelectedImageBilling(c, info, request, meta, 1))
+	apiErr := prepareSelectedImageBilling(c, info, request, meta, 1)
+	if apiErr != nil {
+		t.Fatalf("selected image billing: %v", apiErr)
+	}
 	assert.Equal(t, channelB.Id, info.ChannelId)
 	assert.Equal(t, "upstream-b", info.UpstreamModelName)
 	assert.Equal(t, "key-b", info.ApiKey)
@@ -259,13 +281,22 @@ func TestMoliiGrokFailureCallsSelectedUpstreamOnceWithEligibleFallback(t *testin
 	originalMemoryCacheEnabled := common.MemoryCacheEnabled
 	originalModelPrices := ratio_setting.ModelPrice2JSONString()
 	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
-	db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
+	var db *gorm.DB
+	var err error
+	if catalogPostgresOnly(t) {
+		db = catalogControllerPostgres(t, nil)
+	} else {
+		db, err = gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
+	}
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
 	model.DB = db
 	common.MemoryCacheEnabled = true
 	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"grok-imagine-image":0.02}`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+	if catalogPostgresOnly(t) {
+		require.NoError(t, model.UpdateOptionsBulk(map[string]string{"ModelPrice": `{"grok-imagine-image":0.02}`, "GroupRatio": `{"default":1}`}))
+	}
 	t.Cleanup(func() {
 		model.DB = originalDB
 		common.MemoryCacheEnabled = originalMemoryCacheEnabled

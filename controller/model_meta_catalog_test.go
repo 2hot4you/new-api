@@ -22,6 +22,9 @@ import (
 
 func setupModelMetaCatalogControllerTest(t *testing.T) *gorm.DB {
 	t.Helper()
+	if catalogPostgresOnly(t) {
+		return catalogControllerPostgres(t, nil)
+	}
 	previousDB := model.DB
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "model-meta-catalog.db")), &gorm.Config{})
 	require.NoError(t, err)

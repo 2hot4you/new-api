@@ -31,6 +31,9 @@ import (
 
 func modelManagementDB(t *testing.T, kind, dsn string) *gorm.DB {
 	t.Helper()
+	if catalogPostgresOnly(t) {
+		return catalogControllerPostgres(t, map[string]string{"ModelPrice": "{}", "ModelRatio": "{}", "CompletionRatio": "{}", "CacheRatio": "{}", "CreateCacheRatio": "{}", "ImageRatio": "{}", "AudioRatio": "{}", "AudioCompletionRatio": "{}", "billing_setting.billing_mode": "{}", "billing_setting.billing_expr": "{}", "billing_setting.plugin_billing_expr": "{}"})
+	}
 	database, isolatedDSN := newAuditTestDatabase(t, kind, dsn)
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
@@ -115,7 +118,7 @@ func TestModelPricingConversionDatabaseMatrix(t *testing.T) {
 	previousQuota := common.QuotaPerUnit
 	common.QuotaPerUnit = 500000
 	t.Cleanup(func() { common.QuotaPerUnit = previousQuota })
-	for _, dialect := range []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}} {
+	for _, dialect := range catalogControllerDialects(t) {
 		t.Run(dialect.kind, func(t *testing.T) {
 			if dialect.env != "" && os.Getenv(dialect.env) == "" {
 				t.Skip("set " + dialect.env + " to run this database")
@@ -554,21 +557,22 @@ func TestUpdateOptionRejectsIncompleteSeedancePriceMatrix(t *testing.T) {
 }
 
 func TestModelManagementDatabaseMatrix(t *testing.T) {
-	_, err := jsplugin.DefaultRegistry.Register(`
+	const source = `
 export const meta = {apiVersion: 1, key: "model-management-task", name: "Management task fixture", version: "1.0.0", author: {name: "Test"}, models: ["matrix-task"], fetchMode: "per_task", usageSchema: {seconds: {type: "number", unit: "second"}}};
 export function buildSubmitRequest() { return {}; }
 export function parseSubmitResponse() { return {}; }
 export function buildQueryRequest() { return {}; }
 export function parseTaskResult() { return {}; }
-`, jsplugin.Options{})
-	require.NoError(t, err)
-	t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister("model-management-task") })
-	for _, dialect := range []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}} {
+`
+	for _, dialect := range catalogControllerDialects(t) {
 		t.Run(dialect.kind, func(t *testing.T) {
 			if dialect.env != "" && os.Getenv(dialect.env) == "" {
 				t.Skip("set " + dialect.env + " to run this database")
 			}
 			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
+			_, err := catalogControllerRegisterPlugin(t, source)
+			require.NoError(t, err)
+			t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister("model-management-task") })
 
 			t.Run("square_states_follow_catalog_policy", func(t *testing.T) {
 				records := []model.Model{
@@ -891,17 +895,27 @@ export function parseTaskResult() { return {}; }
 				// A physical failure after earlier option writes must roll back all
 				// rows and leave the previously published runtime price intact.
 				writes := 0
-				require.NoError(t, db.Callback().Update().Before("gorm:update").Register("fail_pricing_matrix", func(tx *gorm.DB) {
+				failWrite := func(tx *gorm.DB) {
 					if tx.Statement.Table == "options" {
 						writes++
-						if writes == 3 {
+						if writes == 2 {
 							tx.AddError(errors.New("injected write failure"))
 						}
 					}
-				}))
-				err = model.UpdateModelPricing([]model.ModelPricingChange{other})
+				}
+				require.NoError(t, db.Callback().Update().Before("gorm:update").Register("fail_pricing_matrix", failWrite))
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("fail_pricing_matrix", failWrite))
+				t.Cleanup(func() {
+					_ = db.Callback().Update().Remove("fail_pricing_matrix")
+					_ = db.Callback().Create().Remove("fail_pricing_matrix")
+				})
+				failing := other
+				failing.Pricing = model.PricingValues{"ModelRatio": float64(9), "CompletionRatio": float64(3)}
+				err = model.UpdateModelPricing([]model.ModelPricingChange{failing})
 				require.Error(t, err)
+				assert.Equal(t, 2, writes, "failure must follow an earlier real option write")
 				require.NoError(t, db.Callback().Update().Remove("fail_pricing_matrix"))
+				require.NoError(t, db.Callback().Create().Remove("fail_pricing_matrix"))
 				after, err = model.GetModelPricingSnapshot([]string{"matrix-priced", "matrix-other"})
 				require.NoError(t, err)
 				assert.Equal(t, loaded.Entries, after.Entries)
@@ -1075,7 +1089,7 @@ func TestMetadataSyncLocaleAndEndpointValidation(t *testing.T) {
 }
 
 func TestVendorManagementDatabaseMatrix(t *testing.T) {
-	for _, dialect := range []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}} {
+	for _, dialect := range catalogControllerDialects(t) {
 		t.Run(dialect.kind, func(t *testing.T) {
 			if dialect.env != "" && os.Getenv(dialect.env) == "" {
 				t.Skip("set " + dialect.env)
@@ -1295,7 +1309,7 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 }
 
 func TestModelDeletionDatabaseMatrix(t *testing.T) {
-	for _, dialect := range []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}} {
+	for _, dialect := range catalogControllerDialects(t) {
 		t.Run(dialect.kind, func(t *testing.T) {
 			if dialect.env != "" && os.Getenv(dialect.env) == "" {
 				t.Skip("set " + dialect.env + " to run this database")
@@ -1532,7 +1546,7 @@ func TestSharedModelPluginPricingDatabaseMatrix(t *testing.T) {
 	const name = "shared-model::priced"
 	const base = `tier("base", u("seconds") * 0.4)`
 	const variant = `tier("beta", u("credits") * 2)`
-	for _, dialect := range []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}} {
+	for _, dialect := range catalogControllerDialects(t) {
 		t.Run(dialect.kind, func(t *testing.T) {
 			if dialect.env != "" && os.Getenv(dialect.env) == "" {
 				t.Skip("set " + dialect.env + " to run this database")
@@ -1540,7 +1554,9 @@ func TestSharedModelPluginPricingDatabaseMatrix(t *testing.T) {
 			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
 			record := model.Model{ModelName: name, NameRule: model.NameRuleExact, Status: 1}
 			require.NoError(t, record.Insert())
-			t.Cleanup(func() { require.NoError(t, record.Delete()) })
+			if !catalogPostgresOnly(t) {
+				t.Cleanup(func() { require.NoError(t, record.Delete()) })
+			}
 			for _, spec := range []struct{ key, field, unit string }{{"matrix-alpha", "seconds", "second"}, {"matrix-beta", "credits", "credit"}} {
 				source := fmt.Sprintf(`
 		export const meta = {apiVersion:1,key:%q,name:%q,version:"1.0.0",author:{name:"Test"},models:[%q],fetchMode:"per_task",usageSchema:{%s:{type:"number",unit:%q}}};
@@ -1549,12 +1565,15 @@ func TestSharedModelPluginPricingDatabaseMatrix(t *testing.T) {
 		export function buildQueryRequest(){return {};}
 		export function parseTaskResult(){return {};}
 		`, spec.key, spec.key, name, spec.field, spec.unit)
-				_, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+				_, err := catalogControllerRegisterPlugin(t, source)
 				require.NoError(t, err)
 				t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister(spec.key) })
 			}
 
 			// Representative existing options have no plugin-expression row.
+			if catalogPostgresOnly(t) {
+				require.NoError(t, db.Where("key IN ?", []string{"ModelPrice", "billing_setting.billing_expr", "billing_setting.billing_mode"}).Delete(&model.Option{}).Error)
+			}
 			baseJSON, err := common.Marshal(map[string]string{name: base})
 			require.NoError(t, err)
 			modeJSON, err := common.Marshal(map[string]string{name: "tiered_expr"})
@@ -1633,7 +1652,7 @@ func TestSharedModelPluginPricingDatabaseMatrix(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, variant, final.Entries[0].PluginVariants[1].Effective)
 			// A provider may disappear without making every legacy price save fail.
-			require.NoError(t, jsplugin.DefaultRegistry.Unregister("matrix-beta"))
+			require.NoError(t, catalogControllerUnregisterPlugin(t, "matrix-beta"))
 			stale, err := model.GetModelPricingSnapshot([]string{name})
 			require.NoError(t, err)
 			require.Len(t, stale.Entries[0].PluginVariants, 2)
@@ -1664,15 +1683,15 @@ func TestSharedModelPluginPricingDatabaseMatrix(t *testing.T) {
 			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{billing_setting.PluginBillingExprOption: final.Options[billing_setting.PluginBillingExprOption]}))
 			// Updating a plugin to stop declaring this model also leaves the
 			// stored override visible and inert, even with no active providers.
-			_, err = jsplugin.DefaultRegistry.Register(`
+			_, err = catalogControllerRegisterPlugin(t, `
 export const meta = {apiVersion:1,key:"matrix-beta",name:"Beta updated",version:"2.0.0",author:{name:"Test"},models:["replacement-model"],fetchMode:"per_task",usageSchema:{credits:{type:"number",unit:"credit"}}};
 export function buildSubmitRequest(){return {};}
 export function parseSubmitResponse(){return {};}
 export function buildQueryRequest(){return {};}
 export function parseTaskResult(){return {};}
-`, jsplugin.Options{})
+`)
 			require.NoError(t, err)
-			require.NoError(t, jsplugin.DefaultRegistry.Unregister("matrix-alpha"))
+			require.NoError(t, catalogControllerUnregisterPlugin(t, "matrix-alpha"))
 			stale, err = model.GetModelPricingSnapshot([]string{name})
 			require.NoError(t, err)
 			require.Len(t, stale.Entries[0].PluginVariants, 1)
