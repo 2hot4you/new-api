@@ -28,6 +28,18 @@ type catalogReferenceFence struct {
 	unqualified bool
 	oid         uint32
 	persistence string
+	readVersion catalogPostgresReadVersion
+}
+
+// Short-lived optimistic metadata proof, never a durable identity or wire
+// field. The target mutation fence does not use or enforce these read tokens.
+type catalogPostgresReadVersion struct {
+	relationXmin  string
+	relationCTID  string
+	namespaceOID  uint32
+	namespaceXmin string
+	namespaceCTID string
+	hasSubclass   bool
 }
 
 // catalogReferenceTransaction owns a REAL root transaction. The caller must
@@ -359,7 +371,7 @@ func catalogRelationSchema(db *gorm.DB, models []any) ([]catalogReferenceFence, 
 		case "postgres":
 			var kind, persistence, namespace, relation string
 			var rowSecurity, forceRowSecurity, inheritance bool
-			if err := db.Raw("SELECT c.relkind, c.relpersistence, n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity, EXISTS (SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhrelid = c.oid OR i.inhparent = c.oid), c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = pg_catalog.to_regclass(?)", fence.table).Row().Scan(&kind, &persistence, &namespace, &relation, &rowSecurity, &forceRowSecurity, &inheritance, &fence.oid); err != nil {
+			if err := db.Raw("SELECT c.relkind, c.relpersistence, n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity, EXISTS (SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhrelid = c.oid OR i.inhparent = c.oid), c.oid, c.xmin::text, c.ctid::text, n.oid, n.xmin::text, n.ctid::text, c.relhassubclass FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = pg_catalog.to_regclass(?)", fence.table).Row().Scan(&kind, &persistence, &namespace, &relation, &rowSecurity, &forceRowSecurity, &inheritance, &fence.oid, &fence.readVersion.relationXmin, &fence.readVersion.relationCTID, &fence.readVersion.namespaceOID, &fence.readVersion.namespaceXmin, &fence.readVersion.namespaceCTID, &fence.readVersion.hasSubclass); err != nil {
 				return nil, err
 			}
 			if kind != "r" || persistence == "t" || rowSecurity || forceRowSecurity || inheritance {
@@ -414,6 +426,8 @@ func pinCatalogPostgresNamespaceTx(tx *gorm.DB, fences []catalogReferenceFence) 
 // COMMITTED because authoritative auth validation locks user/session rows.
 // Resolve before BEGIN, lock before the first snapshot query, then verify OIDs:
 // a same-name DDL replacement cannot inherit the preflight completeness proof.
+// ACCESS SHARE does not exclude INHERIT or schema renames. Before returning a
+// claim, fresh postcommit metadata must prove no intervening version changes.
 func catalogPostgresReadTransaction(ctx context.Context, models []any, options *sql.TxOptions, read func(*gorm.DB) error) (result error) {
 	if DB == nil || DB.Dialector.Name() != "postgres" {
 		return errors.New("catalog read proof requires PostgreSQL")
@@ -445,6 +459,12 @@ func catalogPostgresReadTransaction(ctx context.Context, models []any, options *
 		if fence.persistence != "p" {
 			return errors.New("catalog read proof requires permanent relations")
 		}
+		// PostgreSQL only updates the parent's pg_class tuple on INHERIT if
+		// this lazy historical hint was false. Requiring false makes every
+		// attachment observable by the final version check, even after detach.
+		if fence.readVersion.hasSubclass {
+			return errors.New("catalog read proof rejects historical inheritance hints")
+		}
 	}
 	tx := root.Begin(options)
 	if tx.Error != nil {
@@ -475,7 +495,7 @@ func catalogPostgresReadTransaction(ctx context.Context, models []any, options *
 		return err
 	}
 	for i, fence := range fences {
-		if fence.table != verified[i].table || fence.oid != verified[i].oid || verified[i].persistence != "p" {
+		if !sameCatalogReadFence(fence, verified[i]) {
 			return errors.New("catalog relation changed during read acquisition")
 		}
 	}
@@ -489,7 +509,26 @@ func catalogPostgresReadTransaction(ctx context.Context, models []any, options *
 		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 		return err
 	}
-	return nil
+	// Explicit catalog SELECTs inside the source's REPEATABLE READ transaction
+	// cannot see concurrent DDL, unlike PostgreSQL's internal name resolution.
+	// Stay on the reserved connection but leave that snapshot before checking.
+	// All consumers have finished: later DDL cannot change captured data. Names
+	// and OIDs alone miss rename-away/back ABA; namespace MVCC tokens do not.
+	current, err := catalogRelationSchema(root, models)
+	if err != nil {
+		return err
+	}
+	for i, fence := range fences {
+		if !sameCatalogReadFence(fence, current[i]) {
+			return errors.New("catalog metadata changed during read")
+		}
+	}
+	return ctx.Err()
+}
+
+func sameCatalogReadFence(before, after catalogReferenceFence) bool {
+	return before.table == after.table && before.oid == after.oid &&
+		after.persistence == "p" && before.readVersion == after.readVersion
 }
 
 func catalogMySQLFenceVersion(version, comment string) error {

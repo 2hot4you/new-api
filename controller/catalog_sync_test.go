@@ -531,11 +531,14 @@ func (c catalogReadLostAckConnector) Connect(context.Context) (driver.Conn, erro
 }
 func (c catalogReadLostAckConnector) Driver() driver.Driver { return c.driver }
 
-// All SQL reaches the real native PostgreSQL connection. Only the successful
-// COMMIT response is lost, after the server has committed and released locks.
+// All SQL reaches the real native PostgreSQL connection. The default fault
+// loses its successful COMMIT response; afterCommit can instead interleave
+// actual external DDL after server commit and before the helper returns.
 type catalogReadLostAckConnection struct {
 	driver.Conn
-	commits atomic.Int64
+	commits                 atomic.Int64
+	postCommitMetadataReads atomic.Int64
+	afterCommit             func() error
 }
 
 func (c *catalogReadLostAckConnection) Close() error { return nil } // original loan owns the native connection
@@ -543,6 +546,9 @@ func (c *catalogReadLostAckConnection) ExecContext(ctx context.Context, query st
 	return c.Conn.(driver.ExecerContext).ExecContext(ctx, query, args)
 }
 func (c *catalogReadLostAckConnection) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	if c.commits.Load() > 0 && strings.Contains(query, "FROM pg_catalog.pg_class") {
+		c.postCommitMetadataReads.Add(1)
+	}
 	return c.Conn.(driver.QueryerContext).QueryContext(ctx, query, args)
 }
 func (c *catalogReadLostAckConnection) CheckNamedValue(value *driver.NamedValue) error {
@@ -569,6 +575,9 @@ func (tx *catalogReadLostAckTx) Commit() error {
 		return err
 	}
 	tx.connection.commits.Add(1)
+	if tx.connection.afterCommit != nil {
+		return tx.connection.afterCommit()
+	}
 	return errors.New("injected lost read COMMIT acknowledgement")
 }
 
@@ -661,4 +670,283 @@ func TestCatalogSyncSourceRejectsUnsafePhysicalView(t *testing.T) {
 			assert.False(t, snapshot.Complete)
 		})
 	}
+}
+
+func catalogSyncBeforeQueryDDL(t *testing.T, db *gorm.DB, table string, statements ...string) *atomic.Bool {
+	t.Helper()
+	var ran atomic.Bool
+	name := "catalog-read-concurrent-ddl"
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register(name, func(tx *gorm.DB) {
+		if tx.Statement.Table != table || ran.Swap(true) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		require.NoError(t, db.WithContext(ctx).Transaction(func(ddl *gorm.DB) error {
+			for _, statement := range statements {
+				if err := ddl.Exec(statement).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}), "DDL must actually commit after the helper's final metadata check")
+	}))
+	t.Cleanup(func() { require.NoError(t, db.Callback().Query().Remove(name)) })
+	return &ran
+}
+
+func TestCatalogSyncSourceConcurrentInheritance(t *testing.T) {
+	db := catalogSyncPostgres(t)
+	require.NoError(t, db.Exec("CREATE TABLE unrelated_vendors (LIKE vendors INCLUDING ALL)").Error)
+	require.NoError(t, db.Exec("INSERT INTO unrelated_vendors (id, name) VALUES (100, 'outside-verified-relation')").Error)
+	ran := catalogSyncBeforeQueryDDL(t, db, "vendors", "ALTER TABLE unrelated_vendors INHERIT vendors")
+	snapshot, err := model.ExportManagedCatalog(context.Background(), "dev")
+	require.True(t, ran.Load())
+	if err != nil {
+		assert.False(t, snapshot.Complete)
+		return
+	}
+	assert.Equal(t, 0, snapshot.Coverage[catalogmanifest.KindVendor], "concurrent inheritance must not expand the verified physical source")
+}
+
+func TestCatalogSyncReceiptConcurrentInheritance(t *testing.T) {
+	db, actor, plan := catalogSyncTarget(t)
+	result, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "inherited-receipt", actor)
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE TABLE unrelated_operations (LIKE catalog_sync_operations INCLUDING ALL)").Error)
+	// Move the actual Apply receipt; never fabricate a successful operation.
+	require.NoError(t, db.Exec("WITH moved AS (DELETE FROM catalog_sync_operations RETURNING *) INSERT INTO unrelated_operations SELECT * FROM moved").Error)
+	ran := catalogSyncBeforeQueryDDL(t, db, "catalog_sync_operations", "ALTER TABLE unrelated_operations INHERIT catalog_sync_operations")
+	got, found, err := model.LookupCatalogSyncOperationResult(context.Background(), plan.ID, plan.Digest, result.OperationID, actor)
+	require.True(t, ran.Load())
+	assert.False(t, found, "receipt must not come from an unverified child relation")
+	assert.Equal(t, catalogmanifest.Result{}, got)
+	if err != nil {
+		t.Logf("lookup failed closed: %v", err)
+	}
+}
+
+func TestCatalogSyncSourceConcurrentSchemaSwap(t *testing.T) {
+	db := catalogSyncPostgres(t)
+	require.NoError(t, db.Exec("CREATE SCHEMA shadow").Error)
+	for _, table := range []string{"models", "vendors", "options"} {
+		require.NoError(t, db.Exec("CREATE TABLE shadow."+table+" (LIKE public."+table+" INCLUDING ALL)").Error)
+		require.NoError(t, db.Exec("INSERT INTO shadow."+table+" SELECT * FROM public."+table).Error)
+	}
+	require.NoError(t, db.Exec("UPDATE shadow.models SET display_name = 'outside-verified-schema'").Error)
+	ran := catalogSyncBeforeQueryDDL(t, db, "vendors", "ALTER SCHEMA public RENAME TO original", "ALTER SCHEMA shadow RENAME TO public")
+	snapshot, err := model.ExportManagedCatalog(context.Background(), "dev")
+	require.True(t, ran.Load())
+	if err != nil {
+		assert.False(t, snapshot.Complete)
+		return
+	}
+	encoded, err := common.Marshal(snapshot)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "outside-verified-schema", "name reuse must not redirect verified source consumers")
+}
+
+func TestCatalogSyncReceiptConcurrentSchemaSwap(t *testing.T) {
+	db, actor, plan := catalogSyncTarget(t)
+	result, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "schema-receipt", actor)
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE SCHEMA shadow").Error)
+	for _, table := range []string{"users", "user_sessions", "catalog_sync_operations"} {
+		require.NoError(t, db.Exec("CREATE TABLE shadow."+table+" (LIKE public."+table+" INCLUDING ALL)").Error)
+		require.NoError(t, db.Exec("INSERT INTO shadow."+table+" SELECT * FROM public."+table).Error)
+	}
+	require.NoError(t, db.Exec("UPDATE public.users SET role = ?", common.RoleAdminUser).Error)
+	ran := catalogSyncBeforeQueryDDL(t, db, "users", "ALTER SCHEMA public RENAME TO original", "ALTER SCHEMA shadow RENAME TO public")
+	got, found, err := model.LookupCatalogSyncOperationResult(context.Background(), plan.ID, plan.Digest, result.OperationID, actor)
+	require.True(t, ran.Load())
+	assert.Error(t, err, "shadow root must not override authoritative real-root demotion")
+	assert.False(t, found)
+	assert.Equal(t, catalogmanifest.Result{}, got)
+}
+
+func TestCatalogSyncReadSchemaSwapABA(t *testing.T) {
+	for _, consumer := range []string{"source", "receipt"} {
+		t.Run(consumer, func(t *testing.T) {
+			var db *gorm.DB
+			var actor catalogmanifest.Actor
+			var plan catalogmanifest.Plan
+			tables, first, last := []string{"models", "vendors", "options"}, "vendors", "models"
+			if consumer == "source" {
+				db = catalogSyncPostgres(t)
+			} else {
+				db, actor, plan = catalogSyncTarget(t)
+				_, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "aba-receipt", actor)
+				require.NoError(t, err)
+				tables, first, last = []string{"users", "user_sessions", "catalog_sync_operations"}, "users", "catalog_sync_operations"
+			}
+			require.NoError(t, db.Exec("CREATE SCHEMA shadow").Error)
+			for _, table := range tables {
+				require.NoError(t, db.Exec("CREATE TABLE shadow."+table+" (LIKE public."+table+" INCLUDING ALL)").Error)
+				require.NoError(t, db.Exec("INSERT INTO shadow."+table+" SELECT * FROM public."+table).Error)
+			}
+			if consumer == "source" {
+				require.NoError(t, db.Exec("UPDATE shadow.models SET display_name = 'aba-shadow'").Error)
+			} else {
+				require.NoError(t, db.Exec("UPDATE public.users SET role = ?", common.RoleAdminUser).Error)
+			}
+			ran := catalogSyncBeforeQueryDDL(t, db, first, "ALTER SCHEMA public RENAME TO original", "ALTER SCHEMA shadow RENAME TO public")
+			var restored atomic.Bool
+			require.NoError(t, db.Callback().Query().After("gorm:query").Register("catalog-schema-restore", func(tx *gorm.DB) {
+				if tx.Statement.Table != last || restored.Swap(true) {
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				require.NoError(t, db.WithContext(ctx).Transaction(func(ddl *gorm.DB) error {
+					if err := ddl.Exec("ALTER SCHEMA public RENAME TO shadow").Error; err != nil {
+						return err
+					}
+					return ddl.Exec("ALTER SCHEMA original RENAME TO public").Error
+				}))
+			}))
+			t.Cleanup(func() { require.NoError(t, db.Callback().Query().Remove("catalog-schema-restore")) })
+			if consumer == "source" {
+				snapshot, err := model.ExportManagedCatalog(context.Background(), "dev")
+				assert.Error(t, err, "restoring names cannot erase intervening shadow reads")
+				assert.False(t, snapshot.Complete)
+			} else {
+				got, found, err := model.LookupCatalogSyncOperationResult(context.Background(), plan.ID, plan.Digest, "aba-receipt", actor)
+				assert.Error(t, err, "restoring names cannot erase shadow authorization")
+				assert.False(t, found)
+				assert.Equal(t, catalogmanifest.Result{}, got)
+			}
+			require.True(t, ran.Load())
+			require.True(t, restored.Load())
+		})
+	}
+}
+
+func TestCatalogSyncSourceConcurrentEmptySchemaSwap(t *testing.T) {
+	db := catalogSyncPostgres(t)
+	require.NoError(t, db.Exec("CREATE SCHEMA shadow").Error)
+	for _, table := range []string{"models", "vendors", "options"} {
+		require.NoError(t, db.Exec("CREATE TABLE shadow."+table+" (LIKE public."+table+" INCLUDING ALL)").Error)
+	}
+	ran := catalogSyncBeforeQueryDDL(t, db, "vendors", "ALTER SCHEMA public RENAME TO original", "ALTER SCHEMA shadow RENAME TO public")
+	snapshot, err := model.ExportManagedCatalog(context.Background(), "dev")
+	require.True(t, ran.Load())
+	assert.Error(t, err, "empty shadow tables must not establish a false complete deletion source")
+	assert.False(t, snapshot.Complete)
+}
+
+func TestCatalogSyncReadInheritanceDetachedAfterCommit(t *testing.T) {
+	for _, consumer := range []string{"source", "receipt"} {
+		t.Run(consumer, func(t *testing.T) {
+			var db *gorm.DB
+			var actor catalogmanifest.Actor
+			var plan catalogmanifest.Plan
+			table := "vendors"
+			if consumer == "source" {
+				db = catalogSyncPostgres(t)
+			} else {
+				db, actor, plan = catalogSyncTarget(t)
+				_, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "detached-receipt", actor)
+				require.NoError(t, err)
+				table = "catalog_sync_operations"
+			}
+			require.NoError(t, db.Exec("CREATE TABLE detached_child (LIKE "+table+" INCLUDING ALL)").Error)
+			if consumer == "source" {
+				require.NoError(t, db.Exec("INSERT INTO detached_child (id, name) VALUES (100, 'detached-vendor')").Error)
+			} else {
+				require.NoError(t, db.Exec("WITH moved AS (DELETE FROM catalog_sync_operations RETURNING *) INSERT INTO detached_child SELECT * FROM moved").Error)
+			}
+			ran := catalogSyncBeforeQueryDDL(t, db, table, "ALTER TABLE detached_child INHERIT "+table)
+			pool, err := db.DB()
+			require.NoError(t, err)
+			loan, err := pool.Conn(context.Background())
+			require.NoError(t, err)
+			defer loan.Close()
+			var detached bool
+			require.NoError(t, loan.Raw(func(native any) error {
+				connection := &catalogReadLostAckConnection{Conn: native.(driver.Conn), afterCommit: func() error {
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					defer cancel()
+					err := db.WithContext(ctx).Exec("ALTER TABLE detached_child NO INHERIT " + table).Error
+					detached = err == nil
+					return err
+				}}
+				observed := sql.OpenDB(catalogReadLostAckConnector{connection: connection, driver: pool.Driver()})
+				observed.SetMaxOpenConns(1)
+				defer observed.Close()
+				root := db.Session(&gorm.Session{NewDB: true, Context: context.Background()})
+				root.Statement.ConnPool = observed
+				model.DB = root
+				defer func() { model.DB = db }()
+				if consumer == "source" {
+					snapshot, err := model.ExportManagedCatalog(context.Background(), "dev")
+					assert.Error(t, err, "post-commit detach cannot erase intervening unverified inheritance")
+					assert.False(t, snapshot.Complete)
+				} else {
+					got, found, err := model.LookupCatalogSyncOperationResult(context.Background(), plan.ID, plan.Digest, "detached-receipt", actor)
+					assert.Error(t, err)
+					assert.False(t, found)
+					assert.Equal(t, catalogmanifest.Result{}, got)
+				}
+				assert.Equal(t, int64(1), connection.commits.Load())
+				assert.Positive(t, connection.postCommitMetadataReads.Load(), "fresh metadata proof must use the same reserved native connection")
+				return nil
+			}))
+			require.True(t, ran.Load())
+			require.True(t, detached, "real DDL detached after read commit, before any completion claim")
+			var count int64
+			require.NoError(t, db.Raw("SELECT count(*) FROM pg_catalog.pg_inherits WHERE inhparent = ?::regclass", table).Scan(&count).Error)
+			require.Zero(t, count)
+		})
+	}
+}
+
+func TestCatalogSyncReadRejectsHistoricalInheritanceHint(t *testing.T) {
+	for _, consumer := range []string{"source", "receipt"} {
+		t.Run(consumer, func(t *testing.T) {
+			var db *gorm.DB
+			var actor catalogmanifest.Actor
+			var plan catalogmanifest.Plan
+			table := "vendors"
+			if consumer == "source" {
+				db = catalogSyncPostgres(t)
+			} else {
+				db, actor, plan = catalogSyncTarget(t)
+				_, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "historic-hint-receipt", actor)
+				require.NoError(t, err)
+				table = "catalog_sync_operations"
+			}
+			require.NoError(t, db.Exec("CREATE TABLE historical_child (LIKE "+table+" INCLUDING ALL)").Error)
+			require.NoError(t, db.Exec("ALTER TABLE historical_child INHERIT "+table).Error)
+			require.NoError(t, db.Exec("ALTER TABLE historical_child NO INHERIT "+table).Error)
+			var hint bool
+			require.NoError(t, db.Raw("SELECT relhassubclass FROM pg_catalog.pg_class WHERE oid = ?::regclass", table).Scan(&hint).Error)
+			require.True(t, hint, "PostgreSQL retains the historical hint after detachment")
+			if consumer == "source" {
+				snapshot, err := model.ExportManagedCatalog(context.Background(), "dev")
+				assert.Error(t, err, "read proof conservatively rejects stale true inheritance hints")
+				assert.False(t, snapshot.Complete)
+			} else {
+				got, found, err := model.LookupCatalogSyncOperationResult(context.Background(), plan.ID, plan.Digest, "historic-hint-receipt", actor)
+				assert.Error(t, err)
+				assert.False(t, found)
+				assert.Equal(t, catalogmanifest.Result{}, got)
+			}
+		})
+	}
+}
+
+func TestCatalogSyncTargetHistoricalHintPolicyUnchanged(t *testing.T) {
+	db, actor, plan := catalogSyncTarget(t)
+	require.NoError(t, db.Exec("CREATE TABLE historical_vendors (LIKE vendors INCLUDING ALL)").Error)
+	require.NoError(t, db.Exec("ALTER TABLE historical_vendors INHERIT vendors").Error)
+	require.NoError(t, db.Exec("ALTER TABLE historical_vendors NO INHERIT vendors").Error)
+	var hint bool
+	require.NoError(t, db.Raw("SELECT relhassubclass FROM pg_catalog.pg_class WHERE oid = 'vendors'::regclass").Scan(&hint).Error)
+	require.True(t, hint)
+	result, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "unchanged-target-hint-policy", actor)
+	require.NoError(t, err, "new read-only proof restriction must not change the original target fence policy")
+	assert.Equal(t, "unchanged-target-hint-policy", result.OperationID)
+	var operation model.CatalogSyncOperation
+	require.NoError(t, db.First(&operation, "id = ?", result.OperationID).Error)
+	assert.Equal(t, "succeeded", operation.State)
 }
