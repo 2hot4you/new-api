@@ -16,7 +16,7 @@ jobs:
     name: Backend vet, build, and test
     if: github.event.action != 'closed' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       GOWORK: 'off'
       TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/new_api_ci?sslmode=disable
@@ -98,6 +98,12 @@ jobs:
 
       - name: Test root and relaykit modules
         run: make test
+
+      - name: Mandatory catalog PostgreSQL acceptance (missing DSN and skips fail)
+        run: bash deploy/tests/catalog_postgres_gate.sh normal
+
+      - name: Catalog PostgreSQL race acceptance
+        run: bash deploy/tests/catalog_postgres_gate.sh race
 
       - name: Run request lifecycle Race Detector
         run: go test -race ./common ./middleware ./service ./controller ./relay ./router -count=1

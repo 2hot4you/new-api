@@ -143,6 +143,12 @@ SQL_DSN=postgresql://app:secret@postgres.example:5432/molii?sslmode=require
 REDIS_CONN_STRING=redis://default:secret@redis.example:6379/0
 SESSION_SECRET=session-secret-with-at-least-32-random-characters
 CRYPTO_SECRET=crypto-secret-with-at-least-32-random-characters
+CATALOG_SYNC_ROLE=target
+CATALOG_SYNC_SOURCE_ID=dev
+CATALOG_SYNC_TARGET_ID=fixture-target
+CATALOG_SYNC_TOKEN=fixture-only-never-valid-secret
+CATALOG_SYNC_EXTERNAL_ORIGIN=https://example.com
+CATALOG_SYNC_SINGLE_INSTANCE=true
 TZ=Asia/Shanghai
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_TRUSTED_URL=https://example.com
@@ -209,12 +215,20 @@ test_maps_all_deployment_targets() {
   local fixture target directory health_url deploy_environment project saved_project
   while IFS='|' read -r target directory health_url deploy_environment project; do
     fixture=$(new_fixture)
+    cp "$fixture/$directory/.env.runtime" "$fixture/original-runtime"
     run_deploy \
       "$fixture" \
       "$target" \
       ghcr.io/2hot4you/new-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
       "$health_url"
     saved_project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$fixture/$directory/.deploy.env")
+    if cmp -s "$fixture/$directory/.env.runtime" "$fixture/original-runtime"; then
+      pass "$target preserves every existing runtime secret and catalog setting byte-for-byte"
+    else
+      fail "$target changed existing runtime secrets or catalog settings"
+    fi
+    assert_not_contains "$(<"$fixture/$directory/.deploy.env")" 'CATALOG_SYNC_TOKEN' "$target keeps catalog credentials out of deployment metadata"
+    assert_not_contains "$(<"$fixture/mock.log")" 'fixture-only-never-valid-secret' "$target does not log catalog credentials"
     assert_equals "$saved_project" "$project" "$target uses its isolated Compose project"
     assert_contains \
       "$(<"$fixture/$directory/.deploy.env")" \

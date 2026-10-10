@@ -75,7 +75,7 @@ jobs:
     needs: prepare
     name: Verify backend and frontend
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     env:
       GOWORK: 'off'
       TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/new_api_ci?sslmode=disable
@@ -144,6 +144,12 @@ jobs:
         working-directory: web
         run: bun run typecheck
 
+      - name: Test frontend and translation completeness
+        working-directory: web
+        run: |
+          bun run test
+          bun run i18n:check
+
       - name: Build Molii verification frontend
         working-directory: web
         env:
@@ -178,6 +184,12 @@ jobs:
 
       - name: Test root and relaykit modules
         run: make test
+
+      - name: Mandatory catalog PostgreSQL acceptance (missing DSN and skips fail)
+        run: bash deploy/tests/catalog_postgres_gate.sh normal
+
+      - name: Catalog PostgreSQL race acceptance
+        run: bash deploy/tests/catalog_postgres_gate.sh race
 
       - name: Run request lifecycle Race Detector
         run: go test -race ./common ./middleware ./service ./controller ./relay ./router -count=1

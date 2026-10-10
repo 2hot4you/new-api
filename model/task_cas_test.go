@@ -17,6 +17,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") != "" {
+		os.Exit(runCatalogPostgresTests(m))
+	}
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		panic("failed to open test db: " + err.Error())

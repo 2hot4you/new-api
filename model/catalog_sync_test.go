@@ -809,6 +809,7 @@ func catalogBusinessActor(t *testing.T, db *gorm.DB) catalogmanifest.Actor {
 	prior := jsplugin.DefaultRegistry
 	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
 	t.Cleanup(func() { jsplugin.DefaultRegistry = prior })
+	catalogPostgresLegacyPrerequisite(t, db, "actor")
 	return catalogmanifest.Actor{UserID: user.Id, SessionID: "catalog-session", TargetID: "target", AuthVersion: 1, SessionVersion: 1}
 }
 
@@ -2439,6 +2440,7 @@ func TestCatalogSyncSourceConcurrentMutation(t *testing.T) {
 // loopback test DSN. Production dialectors are essential migration coverage.
 func catalogSyncTestDB(t *testing.T, engine string) *gorm.DB {
 	t.Helper()
+	engine = catalogPostgresFixtureEngine(t, engine)
 	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
 	var db *gorm.DB
 	var err error
@@ -2506,6 +2508,7 @@ func catalogSyncTestDB(t *testing.T, engine string) *gorm.DB {
 	}
 	initCol()
 	t.Cleanup(func() { DB = previous; common.SetMainDatabaseType(previousType); initCol() })
+	catalogPostgresLegacyPrerequisite(t, db, "ordinary")
 	return db
 }
 
@@ -2612,6 +2615,7 @@ func catalogFenceTestDB(t *testing.T, engine string) *gorm.DB {
 	db := catalogSyncTestDB(t, engine)
 	require.NoError(t, db.AutoMigrate(&Model{}, &Vendor{}, &Option{}, &Channel{}, &Ability{}, &Task{}, &TaskPlugin{}, &Midjourney{}, &SystemTask{}))
 	require.NoError(t, MigrateCatalogSync(db))
+	catalogPostgresLegacyPrerequisite(t, db, "fence")
 	return db
 }
 
