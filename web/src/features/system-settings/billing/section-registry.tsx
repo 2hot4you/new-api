@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { parseCurrencyDisplayType } from '@/lib/currency'
 
+import { CatalogSyncSection } from '../catalog-sync'
 import { CheckinSettingsSection } from '../general/checkin-settings-section'
 import { PricingSection } from '../general/pricing-section'
 import { QuotaSettingsSection } from '../general/quota-settings-section'
@@ -129,6 +130,7 @@ const buildUnifiedModelPricing = (settings: BillingSettings) => (
         }}
       />
     }
+    catalogSync={<CatalogSyncSection />}
   />
 )
 

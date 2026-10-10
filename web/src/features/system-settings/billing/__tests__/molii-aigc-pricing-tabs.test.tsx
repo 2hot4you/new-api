@@ -17,9 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { afterAll as after, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, describe, test } from 'vitest'
+
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 const domWindow = new Window()
 const domGlobals = [
@@ -79,6 +82,9 @@ describe('Molii Volcengine Imagine API pricing tabs', () => {
   })
 
   test('mounts only the active pricing form and its save action', async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 1, username: 'root', role: ROLE.SUPER_ADMIN })
     const container = document.createElement('div')
     const titleContainer = document.createElement('span')
     const actionsContainer = document.createElement('div')
@@ -96,6 +102,7 @@ describe('Molii Volcengine Imagine API pricing tabs', () => {
               modelPricing={<MarkerForm name='models' />}
               seedance={<MarkerForm name='seedance' />}
               grokImagine={<MarkerForm name='grok' />}
+              catalogSync={<MarkerForm name='catalog' />}
             />
           </SettingsPageProvider>
         </I18nextProvider>
@@ -104,12 +111,13 @@ describe('Molii Volcengine Imagine API pricing tabs', () => {
 
     assert.equal(
       titleContainer.textContent,
-      'General modelsSeedance 2.0Grok Imagine'
+      'General modelsSeedance 2.0Grok ImagineEnvironment sync'
     )
     assert.match(container.textContent ?? '', /models-form/)
     assert.doesNotMatch(container.textContent ?? '', /seedance-form/)
     assert.doesNotMatch(container.textContent ?? '', /grok-form/)
     assert.equal(actionsContainer.textContent, 'models-save')
+    assert.match(titleContainer.textContent ?? '', /Environment sync/)
 
     const grokTab = [...titleContainer.querySelectorAll('button')].find(
       (button) => button.textContent === 'Grok Imagine'
@@ -124,9 +132,51 @@ describe('Molii Volcengine Imagine API pricing tabs', () => {
     assert.match(container.textContent ?? '', /grok-form/)
     assert.equal(actionsContainer.textContent, 'grok-save')
 
+    const catalogTab = [...titleContainer.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Environment sync'
+    )
+    assert.ok(catalogTab)
+    await act(async () => catalogTab.click())
+    assert.match(container.textContent ?? '', /catalog-form/)
+    assert.equal(actionsContainer.textContent, 'catalog-save')
+
     await act(async () => root.unmount())
     container.remove()
     titleContainer.remove()
     actionsContainer.remove()
+    useAuthStore.getState().auth.reset()
+  })
+
+  test('admin role does not receive the environment sync tab', async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 2, username: 'admin', role: ROLE.ADMIN })
+    const container = document.createElement('div')
+    const titleContainer = document.createElement('span')
+    document.body.append(container, titleContainer)
+    const root = createRoot(container)
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <SettingsPageProvider
+            actionsContainer={null}
+            titleStatusContainer={titleContainer}
+          >
+            <MoliiAigcPricingTabs
+              modelPricing={<MarkerForm name='models' />}
+              seedance={<MarkerForm name='seedance' />}
+              grokImagine={<MarkerForm name='grok' />}
+              catalogSync={<MarkerForm name='catalog' />}
+            />
+          </SettingsPageProvider>
+        </I18nextProvider>
+      )
+    )
+    assert.doesNotMatch(titleContainer.textContent ?? '', /Environment sync/)
+    assert.doesNotMatch(container.textContent ?? '', /catalog-form/)
+    await act(async () => root.unmount())
+    container.remove()
+    titleContainer.remove()
+    useAuthStore.getState().auth.reset()
   })
 })

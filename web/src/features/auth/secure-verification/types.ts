@@ -38,6 +38,8 @@ export type SecurityProofScope =
   | 'account.password.set'
   | 'account.password.change'
   | 'account.delete'
+  | 'catalog.sync.apply'
+  | 'catalog.sync.restore'
 
 export type VerificationOperation =
   | { scope: 'channel.key.read'; context: { channel_id: number } }
@@ -47,9 +49,31 @@ export type VerificationOperation =
     }
   | { scope: 'account.binding.unbind'; context: { provider_id: number } }
   | {
+      scope: 'catalog.sync.apply'
+      context: {
+        plan_digest: string
+        target_id: string
+        kind: 'sync'
+        operation_id: string
+      }
+    }
+  | {
+      scope: 'catalog.sync.restore'
+      context: {
+        plan_digest: string
+        target_id: string
+        kind: 'restore'
+        operation_id: string
+      }
+    }
+  | {
       scope: Exclude<
         SecurityProofScope,
-        'channel.key.read' | 'account.binding.bind' | 'account.binding.unbind'
+        | 'channel.key.read'
+        | 'account.binding.bind'
+        | 'account.binding.unbind'
+        | 'catalog.sync.apply'
+        | 'catalog.sync.restore'
       >
       context?: Record<string, never>
     }

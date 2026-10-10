@@ -20,20 +20,30 @@ import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
 
-type AigcPricingTab = 'model-pricing' | 'seedance' | 'grok-imagine'
+type AigcPricingTab =
+  | 'model-pricing'
+  | 'seedance'
+  | 'grok-imagine'
+  | 'catalog-sync'
 
 type MoliiAigcPricingTabsProps = {
   modelPricing: ReactNode
   seedance: ReactNode
   grokImagine: ReactNode
+  catalogSync: ReactNode
 }
 
 export function MoliiAigcPricingTabs(props: MoliiAigcPricingTabsProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<AigcPricingTab>('model-pricing')
+  const isRoot = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
 
   return (
     <Tabs
@@ -44,10 +54,15 @@ export function MoliiAigcPricingTabs(props: MoliiAigcPricingTabsProps) {
       className='h-full min-h-0 gap-6'
     >
       <SettingsPageTitleStatusPortal>
-        <TabsList className='grid w-fit max-w-full grid-cols-3'>
+        <TabsList className='flex w-fit max-w-full flex-wrap'>
           <TabsTrigger value='model-pricing'>{t('General models')}</TabsTrigger>
           <TabsTrigger value='seedance'>{t('Seedance 2.0')}</TabsTrigger>
           <TabsTrigger value='grok-imagine'>{t('Grok Imagine')}</TabsTrigger>
+          {isRoot && (
+            <TabsTrigger value='catalog-sync'>
+              {t('Environment sync')}
+            </TabsTrigger>
+          )}
         </TabsList>
       </SettingsPageTitleStatusPortal>
 
@@ -64,6 +79,11 @@ export function MoliiAigcPricingTabs(props: MoliiAigcPricingTabsProps) {
       {activeTab === 'grok-imagine' && (
         <TabsContent value='grok-imagine' className='min-h-0'>
           {props.grokImagine}
+        </TabsContent>
+      )}
+      {isRoot && activeTab === 'catalog-sync' && (
+        <TabsContent value='catalog-sync' className='min-h-0'>
+          {props.catalogSync}
         </TabsContent>
       )}
     </Tabs>
