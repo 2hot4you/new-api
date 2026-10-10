@@ -1,0 +1,17 @@
+{
+  "id": "push-managed-catalog-sync",
+  "title": "将已审查的受管目录同步功能推送到远端 develop",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "release",
+  "currentPhase": "completed",
+  "nextAction": "业务提交已推送且ls-remote核实一致；归档记录随docs-only提交推送，不另行触发部署或目录apply",
+  "createdAt": "2026-10-10",
+  "branch": "upgrade/rc40",
+  "sourceHead": "e81d4b9b8bcfa195994ab22bf44264c819ed75d7",
+  "authorization": "用户明确请求提交并push；沿用已确认的远端develop目标",
+  "verification": "push退出0，develop由f5f61f1b1快进到e81d4b9b8；ls-remote与本地HEAD精确一致；对c9e1416f7排除.ccg/tasks的代码diff为空",
+  "ciBoundary": "develop代码push触发现有deploy.yml；该工作流忽略.ccg/tasks-only归档，CI结果/部署成功尚未确认",
+  "preserved": "用户所有未跟踪的2.ts/2.tsx文件、原工作树和分支均保留；未执行外部模型、数据库测试、手动部署或目录同步"
+}
