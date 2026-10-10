@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import axios from 'axios'
 import i18next from 'i18next'
+import { StrictMode, useState } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import en from '@/i18n/locales/en.json'
@@ -17,6 +18,7 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { listCatalogSyncHistory } from '../api'
+import { CatalogChangelog } from '../changelog'
 import { CatalogSyncSection } from '../index'
 import type { CatalogChange, CatalogSyncPlan } from '../types'
 
@@ -133,6 +135,51 @@ afterEach(async () => {
 })
 
 describe('managed catalog sync', () => {
+  test('StrictMode keeps one conflict choice for a model and price sharing an opaque unit across filtering', async () => {
+    const changes = [
+      change({ action: 'conflict', key: 'model-a' }),
+      change({
+        action: 'conflict',
+        kind: 'model_price',
+        key: '{"model":"model-a","option":"ModelPrice","path":"/input"}',
+      }),
+    ]
+    function Harness() {
+      const [units, setUnits] = useState<string[]>([])
+      return (
+        <CatalogChangelog
+          changes={changes}
+          selectedUnits={units}
+          onSelectedUnitsChange={setUnits}
+        />
+      )
+    }
+    render(
+      <StrictMode>
+        <Harness />
+      </StrictMode>
+    )
+    expect(
+      screen.getAllByRole('checkbox', { name: /Use dev for entire item/ })
+    ).toHaveLength(1)
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /Use dev for entire item/ })
+    )
+    expect(
+      screen.getByRole('checkbox', { name: /Use dev for entire item/ })
+    ).toBeChecked()
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Search models' }),
+      'ModelPrice'
+    )
+    expect(
+      screen.getAllByRole('checkbox', { name: /Use dev for entire item/ })
+    ).toHaveLength(1)
+    expect(
+      screen.getByRole('checkbox', { name: /Use dev for entire item/ })
+    ).toBeChecked()
+  })
+
   test('non-root user cannot mount a sync control or fetch status', () => {
     const get = vi.spyOn(api, 'get')
     renderSection(ROLE.ADMIN)
@@ -419,6 +466,106 @@ describe('managed catalog sync', () => {
     )
     expect(await screen.findByText(final.digest)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Confirm sync' })).toBeEnabled()
+  })
+
+  test('editing a non-executable saved choice resolves against its latest digest before proof and apply', async () => {
+    const initial = plan([change({ action: 'conflict' })])
+    const first = plan(initial.changes, {
+      digest: 'd'.repeat(64),
+      executable: false,
+      resolution: { overwrite_keys: null, confirm_deletes: false },
+    })
+    const final = plan(
+      initial.changes.map((item) => ({ ...item, action: 'update' })),
+      {
+        digest: 'e'.repeat(64),
+        resolution: {
+          overwrite_keys: ['opaque-model-unit'],
+          confirm_deletes: false,
+        },
+      }
+    )
+    let resolveCount = 0
+    vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+      data: {
+        success: true,
+        data: targetResponseData(url, 'catalog.sync.apply'),
+      },
+    }))
+    const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
+      if (url.endsWith('/preview')) {
+        return { data: { success: true, data: initial } }
+      }
+      if (url.endsWith('/resolve')) {
+        return {
+          data: { success: true, data: resolveCount++ === 0 ? first : final },
+        }
+      }
+      if (url === '/api/verify') {
+        return {
+          data: {
+            success: true,
+            data: {
+              proof_token: 'latest-plan-proof',
+              scope: 'catalog.sync.apply',
+              method: 'session',
+              expires_at: Math.floor(Date.now() / 1000) + 300,
+            },
+          },
+        }
+      }
+      return new Promise<never>(() => undefined)
+    })
+    renderSection()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Check dev updates' })
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Review and confirm' })
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save choices' }))
+    expect(await screen.findByText(first.digest)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm sync' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /Use dev for entire item/ })
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Review and confirm' })
+    )
+    expect(screen.getByText(first.digest)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Save choices' }))
+    await waitFor(() =>
+      expect(
+        post.mock.calls.filter(([url]) => String(url).endsWith('/resolve'))
+      ).toHaveLength(2)
+    )
+    const secondResolve = post.mock.calls.filter(([url]) =>
+      String(url).endsWith('/resolve')
+    )[1]
+    expect(secondResolve[1]).toEqual({
+      digest: first.digest,
+      overwrite_keys: ['opaque-model-unit'],
+      confirm_deletes: false,
+    })
+    expect(await screen.findByText(final.digest)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm sync' }))
+    await waitFor(() =>
+      expect(
+        post.mock.calls.some(([url]) => String(url).endsWith('/apply'))
+      ).toBe(true)
+    )
+    expect(post).toHaveBeenCalledWith(
+      '/api/verify',
+      expect.objectContaining({
+        scope: 'catalog.sync.apply',
+        context: expect.objectContaining({ plan_digest: final.digest }),
+      }),
+      expect.anything()
+    )
+    expect(
+      post.mock.calls.find(([url]) => String(url).endsWith('/apply'))?.[1]
+    ).toMatchObject({ plan_id: final.id, digest: final.digest })
   })
 
   test('no-op cannot be applied but ownership-only preview remains confirmable', async () => {

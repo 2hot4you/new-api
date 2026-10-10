@@ -197,7 +197,15 @@ export function CatalogChangelog(props: ChangelogProps) {
       ),
     [props.changes, category, search]
   )
-  const shownUnits = new Set<string>()
+  const representativeByUnit = new Map<string, CatalogChange>()
+  for (const change of visible) {
+    if (
+      change.action === 'conflict' &&
+      !representativeByUnit.has(change.confirmation_unit)
+    ) {
+      representativeByUnit.set(change.confirmation_unit, change)
+    }
+  }
   const categories = [
     { value: 'all', label: t('All categories') },
     { value: 'vendor', label: t('Vendors') },
@@ -282,11 +290,11 @@ export function CatalogChangelog(props: ChangelogProps) {
                     cell: (change) => {
                       if (
                         change.action !== 'conflict' ||
-                        shownUnits.has(change.confirmation_unit)
+                        representativeByUnit.get(change.confirmation_unit) !==
+                          change
                       ) {
                         return null
                       }
-                      shownUnits.add(change.confirmation_unit)
                       const unit = change.confirmation_unit
                       return (
                         <label className='flex items-center gap-2 text-sm'>

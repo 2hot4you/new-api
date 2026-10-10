@@ -136,6 +136,7 @@ function CatalogSyncRootSection(): React.JSX.Element {
   const verification = useSecureVerification()
   const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
   const [plan, setPlan] = useState<CatalogSyncPlan | null>(null)
+  const [currentPlan, setCurrentPlan] = useState<CatalogSyncPlan | null>(null)
   const [finalPlan, setFinalPlan] = useState<CatalogSyncPlan | null>(null)
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
   const [confirmDeletes, setConfirmDeletes] = useState(false)
@@ -163,6 +164,7 @@ function CatalogSyncRootSection(): React.JSX.Element {
 
   function acceptPreview(next: CatalogSyncPlan) {
     setPlan(next)
+    setCurrentPlan(next)
     setFinalPlan(null)
     setSelectedUnits(next.resolution.overwrite_keys ?? [])
     setConfirmDeletes(next.resolution.confirm_deletes)
@@ -199,6 +201,7 @@ function CatalogSyncRootSection(): React.JSX.Element {
       ),
     retry: false,
     onSuccess: (result) => {
+      setCurrentPlan(result)
       setFinalPlan(result)
       if (!result.executable) {
         setFeedback(
@@ -229,6 +232,7 @@ function CatalogSyncRootSection(): React.JSX.Element {
         setBinding(null)
         writeStoredBinding(userId, null)
         setPlan(null)
+        setCurrentPlan(null)
         setFinalPlan(null)
       }
       void client.invalidateQueries({ queryKey: ['catalog-sync', 'history'] })
@@ -273,7 +277,7 @@ function CatalogSyncRootSection(): React.JSX.Element {
     resolve.isPending ||
     apply.isPending ||
     verification.isActive
-  const activePlan = finalPlan ?? plan
+  const activePlan = finalPlan ?? currentPlan
   const expired = activePlan !== null && activePlan.expires_at * 1000 <= now
   const blocked =
     plan?.changes.some((change) => change.action === 'blocked') ?? false
@@ -285,10 +289,10 @@ function CatalogSyncRootSection(): React.JSX.Element {
     ) ?? false
 
   async function confirm() {
-    if (!plan || busy || expired || mutationLocked) return
+    if (!plan || !currentPlan || busy || expired || mutationLocked) return
     if (!finalPlan) {
       resolve.mutate({
-        source: plan,
+        source: currentPlan,
         units: selectedUnits,
         deletes: confirmDeletes,
       })
@@ -483,7 +487,9 @@ function CatalogSyncRootSection(): React.JSX.Element {
           <ConfirmSyncDialog
             open={confirmOpen}
             onOpenChange={setConfirmOpen}
-            plan={plan}
+            plan={
+              currentPlan ? { ...currentPlan, changes: plan.changes } : plan
+            }
             finalPlan={finalPlan}
             confirmDeletes={confirmDeletes}
             onConfirmDeletesChange={(value) => {
