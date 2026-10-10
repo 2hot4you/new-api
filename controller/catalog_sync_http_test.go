@@ -170,10 +170,20 @@ func TestCatalogSyncHTTPBusinessAndReceiptQuery(t *testing.T) {
 	db, router, identity, access := catalogHTTPTarget(t, catalogHTTPFetch(t, body, token, &requests))
 	preview := catalogHTTPRequest(router, "POST", "/preview", access, "", `{}`)
 	plan := catalogHTTPPlan(t, preview)
+	catalogHTTPAssertStoredChanges(t, db, preview, plan.ID)
+	groupedKinds := map[string]bool{}
+	for _, change := range catalogHTTPWireChanges(t, preview) {
+		if change.Kind == catalogmanifest.KindModel || change.Kind == catalogmanifest.KindModelPrice {
+			assert.Equal(t, `["model","source-model"]`, change.ConfirmationUnit)
+			groupedKinds[change.Kind] = true
+		}
+	}
+	require.Len(t, groupedKinds, 2, "actual source model and model price must share one confirmation unit")
 	catalogHTTPAssertSnapshotMetadata(t, preview, source.Data)
 	resolveBody := fmt.Sprintf(`{"digest":%q,"overwrite_keys":[],"confirm_deletes":false}`, plan.Digest)
 	resolved := catalogHTTPRequest(router, "POST", "/plans/"+plan.ID+"/resolve", access, "", resolveBody)
 	plan = catalogHTTPPlan(t, resolved)
+	catalogHTTPAssertStoredChanges(t, db, resolved, plan.ID)
 	catalogHTTPAssertSnapshotMetadata(t, resolved, source.Data)
 	assert.Equal(t, int64(1), requests.Load(), "resolve uses the sealed snapshot without another source request")
 	require.True(t, plan.Executable)
@@ -326,6 +336,7 @@ func TestCatalogSyncHTTPProofOrderingAndRestore(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	restoreResponse := catalogHTTPRequest(router, "POST", "/operations/sync-one/restore-preview", access, "", `{}`)
 	restored := catalogHTTPPlan(t, restoreResponse)
+	catalogHTTPAssertStoredChanges(t, db, restoreResponse, restored.ID)
 	var storedRestore model.CatalogSyncPlan
 	require.NoError(t, db.First(&storedRestore, "id = ?", restored.ID).Error)
 	var inverse catalogmanifest.Plan
@@ -356,6 +367,58 @@ func TestCatalogSyncHTTPProofOrderingAndRestore(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, response.Code, "only latest operation is restorable")
 	response = catalogHTTPRequest(router, "POST", "/plans/"+restored.ID+"/apply", access, "", catalogHTTPApplyBody(t, restored, "restore-one"))
 	assert.Equal(t, http.StatusOK, response.Code, "restore exact replay needs no new proof")
+}
+
+type catalogHTTPWireChange struct {
+	catalogmanifest.Change
+	ConfirmationUnit string `json:"confirmation_unit"`
+}
+
+func catalogHTTPWireChanges(t *testing.T, response *httptest.ResponseRecorder) []catalogHTTPWireChange {
+	t.Helper()
+	var envelope struct {
+		Data struct {
+			Changes []catalogHTTPWireChange `json:"changes"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &envelope))
+	return envelope.Data.Changes
+}
+
+func catalogHTTPAssertStoredChanges(t *testing.T, db *gorm.DB, response *httptest.ResponseRecorder, planID string) {
+	t.Helper()
+	var row model.CatalogSyncPlan
+	require.NoError(t, db.First(&row, "id = ?", planID).Error)
+	var stored catalogmanifest.Plan
+	require.NoError(t, common.UnmarshalJsonStr(string(row.Body), &stored))
+	wire := catalogHTTPWireChanges(t, response)
+	require.Len(t, wire, len(stored.Changes))
+	for i, change := range wire {
+		require.Equal(t, stored.Changes[i], change.Change, "every original raw change field must survive projection")
+		require.Equal(t, catalogmanifest.ConfirmationUnit(stored.Changes[i]), change.ConfirmationUnit)
+	}
+}
+
+func TestCatalogSyncHTTPConfirmationUnitProjection(t *testing.T) {
+	name := "a<>&\"\\/\u2028\u2029雪"
+	want := `["model","a\u003c\u003e\u0026\"\\/\u2028\u2029雪"]`
+	changes := []catalogmanifest.Change{{Kind: catalogmanifest.KindModel, Key: name, Action: "conflict", Reason: "local_modified"}}
+	for _, kind := range []string{catalogmanifest.KindModelPrice, catalogmanifest.KindPluginPrice} {
+		key, err := catalogmanifest.EncodePriceKey(catalogmanifest.PriceKey{Option: "price", Model: name, Plugin: "plugin", Path: "/raw~1price"})
+		require.NoError(t, err)
+		entry := &catalogmanifest.Entry{Kind: kind, Key: key, Value: `{"currency":"CNY","value":0.000123}`}
+		changes = append(changes, catalogmanifest.Change{Kind: kind, Key: key, Action: "conflict", Reason: "local_modified", Before: entry, Base: entry, After: entry})
+	}
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	catalogPlanSuccess(c, catalogmanifest.Plan{Digest: "sha256:" + strings.Repeat("a", 64), Changes: changes})
+	require.Equal(t, http.StatusOK, response.Code)
+	wire := catalogHTTPWireChanges(t, response)
+	require.Len(t, wire, 3)
+	for i, change := range wire {
+		assert.Equal(t, changes[i], change.Change)
+		assert.Equal(t, want, change.ConfirmationUnit, "model and both price kinds share the exact escaped opaque model unit")
+	}
 }
 
 func catalogHTTPAssertSnapshotMetadata(t *testing.T, response *httptest.ResponseRecorder, snapshot catalogmanifest.Snapshot) {
@@ -671,7 +734,9 @@ func TestCatalogSyncHTTPBlockResolveExpiryAndProofDeadline(t *testing.T) {
 	initialResponse := catalogHTTPRequest(router, "POST", "/plans/"+initial.ID+"/apply", access, initialProof, catalogHTTPApplyBody(t, initial, "initial-baseline"))
 	require.Equal(t, 200, initialResponse.Code, initialResponse.Body.String())
 	require.NoError(t, db.Model(&model.Vendor{}).Where("name = ?", "http-vendor").Update("description", "target local value").Error)
-	plan := catalogHTTPPlan(t, catalogHTTPRequest(router, "POST", "/preview", access, "", `{}`))
+	preview := catalogHTTPRequest(router, "POST", "/preview", access, "", `{}`)
+	plan := catalogHTTPPlan(t, preview)
+	catalogHTTPAssertStoredChanges(t, db, preview, plan.ID)
 	require.False(t, plan.Executable)
 	proof, op := catalogHTTPProof(t, identity, plan, "blocked-operation")
 	response := catalogHTTPRequest(router, "POST", "/plans/"+plan.ID+"/apply", access, proof, catalogHTTPApplyBody(t, plan, "blocked-operation"))
@@ -679,15 +744,16 @@ func TestCatalogSyncHTTPBlockResolveExpiryAndProofDeadline(t *testing.T) {
 	_, err := service.ConsumeOperationProof(proof, identity, op)
 	require.NoError(t, err, "blocked precheck must leave proof unconsumed")
 	var units []string
-	for _, change := range plan.Changes {
+	for _, change := range catalogHTTPWireChanges(t, preview) {
 		if change.Action == "conflict" {
-			units = append(units, catalogmanifest.ConfirmationUnit(change))
+			units = append(units, change.ConfirmationUnit)
 		}
 	}
 	require.NotEmpty(t, units)
 	request, err := common.Marshal(map[string]any{"digest": plan.Digest, "overwrite_keys": units, "confirm_deletes": false})
 	require.NoError(t, err)
 	resolved := catalogHTTPPlan(t, catalogHTTPRequest(router, "POST", "/plans/"+plan.ID+"/resolve", access, "", string(request)))
+	assert.Equal(t, units, resolved.Resolution.OverwriteKeys, "resolve accepts the exact opaque server-provided units")
 	assert.NotEqual(t, plan.Digest, resolved.Digest)
 	require.True(t, resolved.Executable)
 	assert.Equal(t, 409, catalogHTTPRequest(router, "POST", "/plans/"+plan.ID+"/resolve", access, "", string(request)).Code, "stale browser resolve cannot overwrite final choices")

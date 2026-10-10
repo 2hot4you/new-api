@@ -117,8 +117,13 @@ type catalogPlanResponse struct {
 	Digest             string                     `json:"digest"`
 	ExpiresAt          int64                      `json:"expires_at"`
 	Resolution         catalogmanifest.Resolution `json:"resolution"`
-	Changes            []catalogmanifest.Change   `json:"changes"`
+	Changes            []catalogChangeResponse    `json:"changes"`
 	Executable         bool                       `json:"executable"`
+}
+
+type catalogChangeResponse struct {
+	catalogmanifest.Change
+	ConfirmationUnit string `json:"confirmation_unit"`
 }
 
 func catalogPlanSuccess(c *gin.Context, plan catalogmanifest.Plan) {
@@ -127,7 +132,14 @@ func catalogPlanSuccess(c *gin.Context, plan catalogmanifest.Plan) {
 		catalogSyncError(c, err)
 		return
 	}
-	common.ApiSuccess(c, catalogPlanResponse{ID: plan.ID, Kind: plan.Kind, RestoreOperationID: plan.RestoreOperationID, SourceID: plan.Snapshot.SourceID, SourceExportedAt: plan.Snapshot.ExportedAt, SourceDigest: plan.Snapshot.Digest, TargetID: plan.Actor.TargetID, Digest: digest, ExpiresAt: plan.ExpiresAt, Resolution: plan.Resolution, Changes: plan.Changes, Executable: catalogmanifest.PlanExecutable(plan, time.Now())})
+	var changes []catalogChangeResponse
+	if plan.Changes != nil {
+		changes = make([]catalogChangeResponse, len(plan.Changes))
+		for i, change := range plan.Changes {
+			changes[i] = catalogChangeResponse{Change: change, ConfirmationUnit: catalogmanifest.ConfirmationUnit(change)}
+		}
+	}
+	common.ApiSuccess(c, catalogPlanResponse{ID: plan.ID, Kind: plan.Kind, RestoreOperationID: plan.RestoreOperationID, SourceID: plan.Snapshot.SourceID, SourceExportedAt: plan.Snapshot.ExportedAt, SourceDigest: plan.Snapshot.Digest, TargetID: plan.Actor.TargetID, Digest: digest, ExpiresAt: plan.ExpiresAt, Resolution: plan.Resolution, Changes: changes, Executable: catalogmanifest.PlanExecutable(plan, time.Now())})
 }
 
 type catalogOperationResponse struct {
