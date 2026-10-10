@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -33,6 +34,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
@@ -87,14 +89,56 @@ func catalogControllerUnregisterPlugin(t *testing.T, key string) error {
 	return err
 }
 
+func catalogControllerPostgresDSN(dsn string) (*url.URL, error) {
+	u, err := url.Parse(dsn)
+	if err != nil || u == nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || !net.ParseIP(u.Hostname()).IsLoopback() || u.User == nil || u.User.Username() == "" || u.Path == "" || u.Path == "/" || strings.Contains(u.Path[1:], "/") || u.Fragment != "" {
+		return nil, fmt.Errorf("controller PostgreSQL tests require a numeric loopback PostgreSQL URL with user and database")
+	}
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(query) != 1 || len(query["sslmode"]) != 1 || query["sslmode"][0] != "disable" {
+		return nil, fmt.Errorf("controller PostgreSQL tests require only sslmode=disable and reject connection overrides")
+	}
+	parsed, err := pgx.ParseConfig(dsn)
+	if err != nil || parsed.Host != u.Hostname() || parsed.Database != u.Path[1:] || parsed.TLSConfig != nil {
+		return nil, fmt.Errorf("controller PostgreSQL tests reject ambiguous connection targets")
+	}
+	for _, fallback := range parsed.Fallbacks {
+		if fallback.Host != parsed.Host || fallback.Port != parsed.Port {
+			return nil, fmt.Errorf("controller PostgreSQL tests reject host fallbacks")
+		}
+	}
+	return u, nil
+}
+
+func TestControllerPostgresDSNGuard(t *testing.T) {
+	const base = "postgresql://fixture@127.0.0.1:5432/postgres?sslmode=disable"
+	for _, valid := range []string{base, "postgres://fixture@[::1]:5432/postgres?sslmode=disable"} {
+		u, err := catalogControllerPostgresDSN(valid)
+		require.NoError(t, err)
+		u.Path = "/catalog_controller_guard"
+		parsed, err := pgx.ParseConfig(u.String())
+		require.NoError(t, err)
+		require.Equal(t, "catalog_controller_guard", parsed.Database, "the owned path must determine the fixture database")
+	}
+	for _, suffix := range []string{"&dbname=postgres", "&database=postgres", "&host=127.0.0.1", "&port=5432", "&service=fixture", "&sslmode=disable", "&unknown=1", "&bad=%zz", "#fragment"} {
+		t.Run(suffix, func(t *testing.T) {
+			_, err := catalogControllerPostgresDSN(base + suffix)
+			require.Error(t, err, "connection overrides must not survive the database path rewrite")
+		})
+	}
+	for _, invalid := range []string{"", "postgresql://fixture@localhost:5432/postgres?sslmode=disable", "postgresql://fixture@192.0.2.1:5432/postgres?sslmode=disable", "http://fixture@127.0.0.1:5432/postgres?sslmode=disable", "postgresql://127.0.0.1:5432/postgres?sslmode=disable", "postgresql://fixture@127.0.0.1:5432/?sslmode=disable", "postgresql://fixture@127.0.0.1:5432/db/nested?sslmode=disable", "postgresql://fixture@127.0.0.1:5432/postgres", "postgresql://fixture@127.0.0.1:5432/postgres?sslmode=require"} {
+		t.Run(invalid, func(t *testing.T) {
+			_, err := catalogControllerPostgresDSN(invalid)
+			require.Error(t, err)
+		})
+	}
+}
+
 func catalogControllerPostgres(t *testing.T, options map[string]string) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
-	require.NotEmpty(t, dsn, "task PostgreSQL is required")
-	u, err := url.Parse(dsn)
+	u, err := catalogControllerPostgresDSN(dsn)
 	require.NoError(t, err)
-	require.Contains(t, []string{"postgres", "postgresql"}, u.Scheme)
-	require.Contains(t, []string{"127.0.0.1", "localhost", "::1"}, u.Hostname())
 	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
 	admin, err := gorm.Open(postgres.Open(dsn), cfg)
 	require.NoError(t, err)

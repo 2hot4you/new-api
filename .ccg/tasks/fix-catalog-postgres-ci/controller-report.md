@@ -18,7 +18,7 @@ All existing business assertions remain. The rollback injection now observes GOR
 
 ## Exact inventory
 
-51 top-level controller tests; all nested assertions retained. Six database matrices must use /postgres$ in gate selectors; their normal mode=1 enumeration independently excludes legacy children.
+52 top-level controller tests including the later pure DSN guard; all nested assertions retained. Six database matrices must use /postgres$ in gate selectors; their normal mode=1 enumeration independently excludes legacy children.
 
 - TestUpdateVendorMetaRefreshesPricingVendorIntroduction
 - TestUpdateOptionRejectsInvalidTaskBillingExpressions
@@ -71,6 +71,7 @@ All existing business assertions remain. The rollback injection now observes GOR
 - TestImmediateTaskSettlementDatabase
 - TestResponsesInterruptedStreamHealth
 - TestResponsesWebSocketReusesConnectionAndSettlesEachRequest
+- TestControllerPostgresDSNGuard
 
 ## Verification
 
@@ -86,3 +87,9 @@ Normal: PASS, 82.161s, 51 top-level / 168 total passing tests, zero failures/ski
 The first race command exhausted its 240s process timeout while compiling embedded factory source for a subsequent fixture, after 45 top-level passes with zero assertion failures or race warnings. This is a runtime-budget failure, not a green race claim. The identical selection is running with -timeout=480s, with evidence in /tmp/controller-pg-race-final.jsonl. Root acceptance permits 900s per process. The single disconnected disposable database left by timeout, catalog_image_1791634088165359000, was positively identified on the owned test container and dropped; active fixture databases were untouched.
 
 Independent read-only review found a cleanup gap in standalone USDExchangeRate/SystemName and unsynchronized OptionMap access. The fixture now restores the standalone values and snapshots OptionMap with maps.Clone under its mutex. Post-review focused PostgreSQL CatalogImageQualityCountAndQuotaBounds plus vendor-pricing verification passed (3.756s); git diff --check passed. No broad controller/package or cross-engine suite was invoked.
+
+The longer original 51-test race selection completed PASS in 253.479s: 51 top-level / 168 total passing tests, zero failures/skips/SQLite/MySQL children (/tmp/controller-pg-race-final.jsonl). This binary was built before the later cleanup and DSN guard additions; those received focused verification below, and root final expanded acceptance validates the committed combination.
+
+## Follow-up strict DSN guard
+
+Root review found that query dbname/database parameters equal to the original URL path could override the newly generated database path. Extracted pure catalogControllerPostgresDSN and added TestControllerPostgresDSNGuard before fixing it. Parser-only RED reproduced acceptance of forbidden overrides in /tmp/controller-pg-dsn-red.log; no connection was opened. Strict validation now requires PostgreSQL URL scheme, numeric loopback host, user, one database path segment, no fragment, and exactly one query value sslmode=disable. pgx parsing verifies the effective target/database and rejects host/port fallbacks before the fixture opens any connection. Tests cover original-path dbname/database, host/port/service/unknown/repeated/malformed query overrides, missing user/path, nested paths, incorrect scheme/SSL mode, and nonnumeric/nonloopback hosts. Valid IPv4/IPv6 URLs are rewritten and re-parsed to prove the owned database path wins. Pure guard normal PASS 1.129s; race PASS 2.862s. Actual task DSN unchanged. Root mandatory pure group must include TestControllerPostgresDSNGuard; no further full controller rerun was performed.
