@@ -105,6 +105,9 @@ func refreshChannelCache(db *gorm.DB, lifecycle bool) error {
 		}
 		groups := strings.SplitSeq(channel.Group, ",")
 		for group := range groups {
+			if newGroup2model2channels[group] == nil {
+				newGroup2model2channels[group] = make(map[string][]int)
+			}
 			models := channel.GetModels()
 			for _, model := range models {
 				if _, ok := newGroup2model2channels[group][model]; !ok {

@@ -246,6 +246,11 @@ func withPreparedOrdinaryCatalogMutation(prepare func(context.Context) (*catalog
 // this is never managed-source completeness or prospective-write attestation.
 func captureCatalogRuntimeTx(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) (catalogRuntimeInput, error) {
 	input := catalogRuntimeInput{state: *state, options: make(map[string]string), generation: pin.Generation}
+	if state.PendingOperationID != "" {
+		if err := catalogSensitiveInstanceTx(tx); err != nil {
+			return input, err
+		}
+	}
 	empty := catalogmanifest.Snapshot{SchemaVersion: catalogmanifest.SchemaVersion, SourceID: "runtime-dependencies", Complete: true, Capabilities: catalogmanifest.RequiredCapabilities(), Coverage: map[string]int{}}
 	for _, kind := range catalogmanifest.Kinds() {
 		empty.Coverage[kind] = 0

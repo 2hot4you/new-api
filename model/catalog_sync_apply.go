@@ -82,6 +82,9 @@ func prepareCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot
 	var revision int64
 	err := TryWithCatalogWriteBarrier(ctx, func() error {
 		return catalogReferenceTransaction(ctx, DB, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
+			if err := catalogSensitiveInstanceTx(tx); err != nil {
+				return err
+			}
 			if state.PublicationState != "ready" {
 				return ErrCatalogPublicationPending
 			}
@@ -236,6 +239,9 @@ func prepareCatalogSyncPlan(ctx context.Context, source catalogmanifest.Snapshot
 }
 
 func recheckCatalogPlanTx(ctx context.Context, tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin, row CatalogSyncPlan, plan catalogmanifest.Plan) (catalogmanifest.Snapshot, error) {
+	if err := catalogSensitiveInstanceTx(tx); err != nil {
+		return catalogmanifest.Snapshot{}, err
+	}
 	if (plan.Kind != "sync" && plan.Kind != "restore") || row.TargetRevision != state.Revision || row.BaselineGeneration != state.BaselineGeneration {
 		return catalogmanifest.Snapshot{}, ErrCatalogSyncPlanStale
 	}

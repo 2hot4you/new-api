@@ -109,10 +109,6 @@ func main() {
 		}
 	}()
 
-	if common.RedisEnabled {
-		// for compatibility with old versions
-		common.MemoryCacheEnabled = true
-	}
 	initializeChannelCacheAtStartup()
 	wsmanager.StartSubscriber(context.Background())
 
@@ -344,19 +340,38 @@ func InitResources() error {
 			common.SysError("failed to migrate retired frontend options: " + err.Error())
 		}
 	}
-	model.InitOptionMap()
+	startupCtx, cancelStartup := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelStartup()
+	if err := model.InitOptionMapBootstrap(startupCtx); err != nil {
+		return fmt.Errorf("initialize option prerequisites: %w", err)
+	}
+	if err := common.InitRedisClient(); err != nil {
+		return err
+	}
+	if common.RedisEnabled {
+		// Preserve the existing effective cache mode before required recovery.
+		common.MemoryCacheEnabled = true
+	}
+	if _, err := controller.InitializeTaskPlugins(startupCtx); err != nil {
+		return fmt.Errorf("initialize task plugins: %w", err)
+	}
+	if err := service.ReportCurrentSystemInstance(); err != nil {
+		// Enrollment is optional for ordinary startup. Managed pending recovery
+		// independently requires authoritative current heartbeat evidence.
+		common.SysError("initial system instance report failed: " + err.Error())
+	}
+	if err := model.CompleteOptionMapInitialization(startupCtx); err != nil {
+		return fmt.Errorf("recover committed catalog: %w", err)
+	}
+	if err := model.RunCatalogDataMigrations(); err != nil {
+		return fmt.Errorf("migrate recovered catalog data: %w", err)
+	}
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()
 
 	// Initialize SQL Database
 	err = model.InitLogDB()
-	if err != nil {
-		return err
-	}
-
-	// Initialize Redis
-	err = common.InitRedisClient()
 	if err != nil {
 		return err
 	}

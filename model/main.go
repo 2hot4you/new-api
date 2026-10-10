@@ -383,15 +383,6 @@ func migrateDB() error {
 	if err := ensureModelMarketplaceMetadataSchema(DB); err != nil {
 		return err
 	}
-	if err := InitializeMarketplaceDisplayOrders(DB); err != nil {
-		return err
-	}
-	if err := BackfillLocalMarketplaceMetadata(DB); err != nil {
-		return err
-	}
-	if err := migrateModelBillingCurrency(DB); err != nil {
-		return err
-	}
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err
 	}
@@ -408,6 +399,22 @@ func migrateDB() error {
 		}
 	}
 	return nil
+}
+
+// RunCatalogDataMigrations resumes the catalog-mutating startup migrations
+// after authoritative recovery. Each retains its ordinary publication gate;
+// pending recovery is never bypassed to permit a migration.
+func RunCatalogDataMigrations() error {
+	if !common.IsMasterNode {
+		return nil
+	}
+	if err := InitializeMarketplaceDisplayOrders(DB); err != nil {
+		return err
+	}
+	if err := BackfillLocalMarketplaceMetadata(DB); err != nil {
+		return err
+	}
+	return migrateModelBillingCurrency(DB)
 }
 
 func migrateLOGDB() error {

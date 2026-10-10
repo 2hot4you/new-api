@@ -715,10 +715,39 @@ func syncTaskPluginsOnce() error {
 }
 
 func syncTaskPluginsOnceContext(ctx context.Context) error {
-	started := time.Now()
 	taskPluginSyncState.Lock()
 	defer taskPluginSyncState.Unlock()
-	databaseSnapshot, err := model.GetTaskPluginSyncSnapshot()
+	return syncTaskPluginsGuarded(ctx)
+}
+
+// TaskPluginInitialization identifies an actual completed desired-set attempt.
+// Recovery independently rechecks desired source identities against its pinned
+// generation; this receipt cannot waive that authoritative freshness proof.
+type TaskPluginInitialization struct {
+	Generation       uint64
+	DatabaseRevision string
+}
+
+// InitializeTaskPlugins completes the first sync before startup reconstruction.
+// Periodic/ordinary sync retains incumbent compatibility, but a partial result
+// cannot attest that the desired initial generation is ready.
+func InitializeTaskPlugins(ctx context.Context) (TaskPluginInitialization, error) {
+	taskPluginSyncState.Lock()
+	defer taskPluginSyncState.Unlock()
+	err := syncTaskPluginsGuarded(ctx)
+	result := TaskPluginInitialization{Generation: taskPluginSyncState.lastRebuild.Generation, DatabaseRevision: taskPluginSyncState.lastRebuild.DatabaseRevision}
+	if err != nil {
+		return result, err
+	}
+	if taskPluginSyncState.lastRebuild.Status != "success" {
+		return result, errors.New("initial desired task plugin generation is incomplete")
+	}
+	return result, ctx.Err()
+}
+
+func syncTaskPluginsGuarded(ctx context.Context) error {
+	started := time.Now()
+	databaseSnapshot, err := model.GetTaskPluginSyncSnapshotContext(ctx)
 	if err != nil {
 		syncErr := fmt.Errorf("sync task plugins: %w", err)
 		taskPluginSyncState.lastRebuild = taskPluginRebuildOutcome{
@@ -752,6 +781,9 @@ func syncTaskPluginsOnceContext(ctx context.Context) error {
 	nextHashes := make(map[string]string, len(databasePlugins))
 	seen := make(map[string]bool, len(databasePlugins))
 	for _, plugin := range databasePlugins {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		seen[plugin.Key] = true
 		if current := currentOverrides[plugin.Key]; current != nil && taskPluginSyncState.hashes[plugin.Key] == plugin.SourceHash {
 			nextOverrides = append(nextOverrides, current)
@@ -771,7 +803,7 @@ func syncTaskPluginsOnceContext(ctx context.Context) error {
 			plugin.Version,
 		)
 		var compiled *jsplugin.LoadedPlugin
-		source, compileErr := model.GetTaskPluginSource(plugin.Id)
+		source, compileErr := model.GetTaskPluginSourceContext(ctx, plugin.Id)
 		if compileErr != nil {
 			compileErr = fmt.Errorf("load source: %w", compileErr)
 		} else {
@@ -806,6 +838,9 @@ func syncTaskPluginsOnceContext(ctx context.Context) error {
 			plugin.Key,
 			plugin.Version,
 		)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err = jsplugin.DefaultRegistry.ReplaceOverrides(nextOverrides); err != nil {
 		syncErr := fmt.Errorf("publish task plugin generation: %w", err)
@@ -866,7 +901,6 @@ func SyncTaskPluginsOnce() {
 }
 
 func SyncTaskPlugins() {
-	SyncTaskPluginsOnce()
 	for range time.NewTicker(30 * time.Second).C {
 		SyncTaskPluginsOnce()
 	}

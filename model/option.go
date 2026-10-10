@@ -35,9 +35,24 @@ func AllOption() ([]*Option, error) {
 	return options, err
 }
 
-// InitOptionMap initializes startup defaults. Its caller must handle errors
-// and arrange effective plugin initialization before authoritative recovery.
+// InitOptionMap retains the combined initialization API. Actual application
+// startup uses the split phases to load desired plugins before reconstruction.
 func InitOptionMap() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := InitOptionMapBootstrap(ctx); err != nil {
+		return err
+	}
+	return CompleteOptionMapInitialization(ctx)
+}
+
+// InitOptionMapBootstrap is startup-only, before any request or pricing
+// consumer. It loads target-local prerequisites without publishing catalog
+// rows, mutating the catalog revision, or acknowledging pending publication.
+func InitOptionMapBootstrap(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	catalogBarrier.Lock()
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
@@ -209,7 +224,13 @@ func InitOptionMap() error {
 
 	common.OptionMapRWMutex.Unlock()
 	catalogBarrier.Unlock()
-	return loadOptionsFromDatabase()
+	return TryWithCatalogWriteBarrier(ctx, func() error { return loadNonCatalogOptionsGuarded(ctx, nil) })
+}
+
+// CompleteOptionMapInitialization reconstructs and acknowledges the committed
+// catalog only after actual plugin and instance prerequisites are initialized.
+func CompleteOptionMapInitialization(ctx context.Context) error {
+	return recoverCatalogSyncRuntime(ctx, loadOptionsFromDatabaseGuarded)
 }
 
 // Authoritative reload retains the same-revision durable publication gate
@@ -223,6 +244,12 @@ func loadOptionsFromDatabase() error {
 }
 
 func loadOptionsFromDatabaseGuarded(ctx context.Context, stage *catalogRuntimeStage) error {
+	return loadNonCatalogOptionsGuarded(ctx, stage)
+}
+
+// A nil stage is reserved for startup bootstrap. Live authoritative reloads
+// must supply their captured stage and prove exact catalog/FX input freshness.
+func loadNonCatalogOptionsGuarded(ctx context.Context, stage *catalogRuntimeStage) error {
 	requestPolicyOptionMutex.Lock()
 	defer requestPolicyOptionMutex.Unlock()
 	passkeyOptionMutex.Lock()
@@ -238,7 +265,7 @@ func loadOptionsFromDatabaseGuarded(ctx context.Context, stage *catalogRuntimeSt
 			catalogOptions[option.Key] = option.Value
 		}
 	}
-	if !maps.Equal(catalogOptions, stage.input.options) {
+	if stage != nil && !maps.Equal(catalogOptions, stage.input.options) {
 		return ErrCatalogSyncPlanStale
 	}
 	passkeyOptions := make(map[string]string)
@@ -249,7 +276,7 @@ func loadOptionsFromDatabaseGuarded(ctx context.Context, stage *catalogRuntimeSt
 		if option.Key == "USDExchangeRate" {
 			// FX remains target-local, outside the price candidate whitelist.
 			// Publish only the value bound by capture and both fresh rechecks.
-			if err := updateOptionMap(option.Key, stage.input.options[option.Key]); err != nil {
+			if err := updateOptionMap(option.Key, catalogOptions[option.Key]); err != nil {
 				return err
 			}
 			continue

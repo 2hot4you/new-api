@@ -2,14 +2,18 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -22,8 +26,116 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
+
+func initialTaskPluginPostgres(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	require.NotEmpty(t, dsn, "task PostgreSQL is required")
+	u, err := url.Parse(dsn)
+	require.NoError(t, err)
+	require.Contains(t, []string{"127.0.0.1", "localhost", "::1"}, u.Hostname())
+	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
+	admin, err := gorm.Open(postgres.Open(dsn), cfg)
+	require.NoError(t, err)
+	name := fmt.Sprintf("catalog_plugin_boot_%d", time.Now().UnixNano())
+	require.NoError(t, admin.Exec(`CREATE DATABASE "`+name+`"`).Error)
+	u.Path = "/" + name
+	db, err := gorm.Open(postgres.Open(u.String()), cfg)
+	require.NoError(t, err)
+	previous, registry := model.DB, jsplugin.DefaultRegistry
+	model.DB, jsplugin.DefaultRegistry = db, jsplugin.NewRegistry()
+	taskPluginSyncState.Lock()
+	hashes, syncErrors, outcome := taskPluginSyncState.hashes, taskPluginSyncState.errors, taskPluginSyncState.lastRebuild
+	taskPluginSyncState.hashes, taskPluginSyncState.errors = map[string]string{}, map[string]string{}
+	taskPluginSyncState.Unlock()
+	t.Cleanup(func() {
+		model.DB, jsplugin.DefaultRegistry = previous, registry
+		taskPluginSyncState.Lock()
+		taskPluginSyncState.hashes, taskPluginSyncState.errors, taskPluginSyncState.lastRebuild = hashes, syncErrors, outcome
+		taskPluginSyncState.Unlock()
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		require.NoError(t, sqlDB.Close())
+		require.NoError(t, admin.Exec(`DROP DATABASE "`+name+`"`).Error)
+		adminSQL, err := admin.DB()
+		require.NoError(t, err)
+		require.NoError(t, adminSQL.Close())
+	})
+	require.NoError(t, db.AutoMigrate(&model.TaskPlugin{}))
+	var version string
+	require.NoError(t, db.Raw("SELECT version()").Scan(&version).Error)
+	t.Log(version)
+	return db
+}
+
+func TestInitialTaskPluginReadinessPostgres(t *testing.T) {
+	initialTaskPluginPostgres(t)
+	source := taskPluginControllerTestSource("initial-plugin", "1.0.0")
+	require.NoError(t, model.SaveTaskPlugin(&model.TaskPlugin{Key: "initial-plugin", APIVersion: 1, Version: "1.0.0", Source: model.LongText(source), SourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))), Enabled: true}))
+	result, err := InitializeTaskPlugins(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, jsplugin.DefaultRegistry.Generation().Number, result.Generation)
+	snapshot, err := model.GetTaskPluginSyncSnapshot()
+	require.NoError(t, err)
+	assert.Equal(t, snapshot.Revision, result.DatabaseRevision)
+	require.NoError(t, model.SaveTaskPlugin(&model.TaskPlugin{Key: "initial-plugin", APIVersion: 1, Version: "2.0.0", Source: "invalid javascript {", SourceHash: "changed", Enabled: true}))
+	require.NoError(t, model.ActivateTaskPlugin("initial-plugin", "2.0.0"))
+	_, err = InitializeTaskPlugins(context.Background())
+	require.Error(t, err)
+	retained, ok := jsplugin.DefaultRegistry.Get("initial-plugin")
+	require.True(t, ok)
+	assert.Equal(t, "1.0.0", retained.Meta.Version)
+	require.NoError(t, syncTaskPluginsOnce(), "ordinary sync compatibility continues to retain the incumbent")
+}
+
+func TestInitialTaskPluginSQLCancellationPostgres(t *testing.T) {
+	for _, site := range []string{"snapshot", "source"} {
+		t.Run(site, func(t *testing.T) {
+			db := initialTaskPluginPostgres(t)
+			source := taskPluginControllerTestSource("initial-plugin", "1.0.0")
+			require.NoError(t, model.SaveTaskPlugin(&model.TaskPlugin{Key: "initial-plugin", APIVersion: 1, Version: "1.0.0", Source: model.LongText(source), SourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))), Enabled: true}))
+			blockers := make(chan *gorm.DB, 1)
+			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("initial-plugin-block", func(tx *gorm.DB) {
+				if tx.Statement.Table != "task_plugins" || (site == "source") != (len(tx.Statement.Selects) == 1 && tx.Statement.Selects[0] == "source") {
+					return
+				}
+				blocker := db.Begin()
+				tx.AddError(blocker.Exec("LOCK TABLE task_plugins IN ACCESS EXCLUSIVE MODE").Error)
+				blockers <- blocker
+			}))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			finished := make(chan error, 1)
+			go func() { _, err := InitializeTaskPlugins(ctx); finished <- err }()
+			var blocker *gorm.DB
+			select {
+			case blocker = <-blockers:
+			case <-time.After(3 * time.Second):
+				t.Fatal("initial plugin SQL site not reached")
+			}
+			defer blocker.Rollback()
+			require.Eventually(t, func() bool {
+				var count int64
+				return db.Raw("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'").Scan(&count).Error == nil && count > 0
+			}, 3*time.Second, 10*time.Millisecond)
+			cancel()
+			select {
+			case err := <-finished:
+				require.ErrorIs(t, err, context.Canceled)
+			case <-time.After(3 * time.Second):
+				t.Fatal("initial plugin SQL ignored cancellation")
+			}
+			require.NoError(t, blocker.Rollback().Error)
+			require.NoError(t, db.Callback().Query().Remove("initial-plugin-block"))
+			_, err := InitializeTaskPlugins(context.Background())
+			require.NoError(t, err)
+		})
+	}
+}
 
 func setupTaskPluginControllerTest(t *testing.T) {
 	t.Helper()
