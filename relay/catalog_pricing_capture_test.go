@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -23,6 +24,9 @@ import (
 	kittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,9 +64,29 @@ func catalogPricingPostgres(t *testing.T, options map[string]string) *gorm.DB {
 	previousType := common.MainDatabaseType()
 	previousLogType := common.LogDatabaseType()
 	previousRedis, previousBatch, previousLogs := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
+	previousCache := common.MemoryCacheEnabled
+	previousConfig := config.GlobalConfig.ExportAllConfigs()
+	previousRate, previousName := operation_setting.USDExchangeRate, common.SystemName
+	common.OptionMapRWMutex.RLock()
+	previousOptions := maps.Clone(common.OptionMap)
+	common.OptionMapRWMutex.RUnlock()
+	restorePricing := []struct {
+		value   string
+		restore func(string) error
+	}{
+		{ratio_setting.ModelPrice2JSONString(), ratio_setting.UpdateModelPriceByJSONString},
+		{ratio_setting.ModelRatio2JSONString(), ratio_setting.UpdateModelRatioByJSONString},
+		{ratio_setting.CompletionRatio2JSONString(), ratio_setting.UpdateCompletionRatioByJSONString},
+		{ratio_setting.CacheRatio2JSONString(), ratio_setting.UpdateCacheRatioByJSONString},
+		{ratio_setting.CreateCacheRatio2JSONString(), ratio_setting.UpdateCreateCacheRatioByJSONString},
+		{ratio_setting.ImageRatio2JSONString(), ratio_setting.UpdateImageRatioByJSONString},
+		{ratio_setting.AudioRatio2JSONString(), ratio_setting.UpdateAudioRatioByJSONString},
+		{ratio_setting.AudioCompletionRatio2JSONString(), ratio_setting.UpdateAudioCompletionRatioByJSONString},
+	}
 	model.DB, jsplugin.DefaultRegistry = db, jsplugin.NewRegistry()
 	model.LOG_DB = db
 	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
+	common.MemoryCacheEnabled = false
 	common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
 	common.SetLogDatabaseType(common.DatabaseTypePostgreSQL)
 	// Initialize the model package's dialect-aware columns through its public
@@ -74,8 +98,17 @@ func catalogPricingPostgres(t *testing.T, options map[string]string) *gorm.DB {
 	common.IsMasterNode = master
 	require.NoError(t, err)
 	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(previousConfig))
+		for _, pricing := range restorePricing {
+			require.NoError(t, pricing.restore(pricing.value))
+		}
+		operation_setting.USDExchangeRate, common.SystemName = previousRate, previousName
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousOptions
+		common.OptionMapRWMutex.Unlock()
 		model.DB, model.LOG_DB, jsplugin.DefaultRegistry = previousDB, previousLogDB, previousRegistry
 		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousRedis, previousBatch, previousLogs
+		common.MemoryCacheEnabled = previousCache
 		common.SetMainDatabaseType(previousType)
 		common.SetLogDatabaseType(previousLogType)
 	})

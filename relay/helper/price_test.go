@@ -1,15 +1,21 @@
 package helper
 
 import (
+	"context"
 	"fmt"
+	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -21,12 +27,28 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestMain(m *testing.M) {
+	if mode := os.Getenv("CATALOG_SYNC_POSTGRES_ONLY"); mode != "" {
+		if mode != "1" {
+			fmt.Fprintln(os.Stderr, "CATALOG_SYNC_POSTGRES_ONLY must be exactly 1 when set")
+			os.Exit(1)
+		}
+		if _, err := helperPricingPostgresDSN(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		// Every selected persistent regression owns its database. An omitted
+		// fixture fails instead of inheriting a legacy SQLite database.
+		os.Exit(m.Run())
+	}
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		panic(err)
@@ -38,12 +60,110 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func helperPricingPostgresDSN() (*url.URL, error) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	u, err := url.Parse(dsn)
+	if err != nil || u == nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || !net.ParseIP(u.Hostname()).IsLoopback() || u.Path == "" || u.Path == "/" || u.Query().Get("sslmode") != "disable" {
+		return nil, fmt.Errorf("helper PostgreSQL gate requires a loopback TEST_POSTGRES_DSN URL with sslmode=disable")
+	}
+	parsed, err := pgx.ParseConfig(dsn)
+	if err != nil || parsed.Host != u.Hostname() || parsed.Database != u.Path[1:] || parsed.TLSConfig != nil {
+		return nil, fmt.Errorf("helper PostgreSQL tests reject ambiguous TEST_POSTGRES_DSN overrides")
+	}
+	for _, fallback := range parsed.Fallbacks {
+		if fallback.Host != parsed.Host || fallback.Port != parsed.Port {
+			return nil, fmt.Errorf("helper PostgreSQL tests reject TEST_POSTGRES_DSN host fallbacks")
+		}
+	}
+	return u, nil
+}
+
+func setupHelperPricingPostgres(t *testing.T) *gorm.DB {
+	t.Helper()
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") == "" {
+		return nil
+	}
+	require.Equal(t, "1", os.Getenv("CATALOG_SYNC_POSTGRES_ONLY"))
+	u, err := helperPricingPostgresDSN()
+	require.NoError(t, err)
+	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
+	admin, err := gorm.Open(postgres.Open(u.String()), cfg)
+	require.NoError(t, err)
+	adminPool, err := admin.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, adminPool.Close()) })
+	name := fmt.Sprintf("catalog_helper_%d", time.Now().UnixNano())
+	require.NoError(t, admin.Exec(`CREATE DATABASE "`+name+`"`).Error)
+	t.Cleanup(func() { require.NoError(t, admin.Exec(`DROP DATABASE "`+name+`"`).Error) })
+	u.Path = "/" + name
+	db, err := gorm.Open(postgres.Open(u.String()), cfg)
+	require.NoError(t, err)
+	pool, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, pool.Close()) })
+	previousDB, previousLogDB, previousRegistry := model.DB, model.LOG_DB, jsplugin.DefaultRegistry
+	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
+	previousCache, previousRedis, previousBatch := common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled
+	previousConfig := config.GlobalConfig.ExportAllConfigs()
+	previousRate, previousName := operation_setting.USDExchangeRate, common.SystemName
+	common.OptionMapRWMutex.RLock()
+	previousOptions := maps.Clone(common.OptionMap)
+	common.OptionMapRWMutex.RUnlock()
+	restorePricing := []struct {
+		value   string
+		restore func(string) error
+	}{
+		{ratio_setting.ModelPrice2JSONString(), ratio_setting.UpdateModelPriceByJSONString},
+		{ratio_setting.ModelRatio2JSONString(), ratio_setting.UpdateModelRatioByJSONString},
+		{ratio_setting.CompletionRatio2JSONString(), ratio_setting.UpdateCompletionRatioByJSONString},
+		{ratio_setting.CacheRatio2JSONString(), ratio_setting.UpdateCacheRatioByJSONString},
+		{ratio_setting.CreateCacheRatio2JSONString(), ratio_setting.UpdateCreateCacheRatioByJSONString},
+		{ratio_setting.ImageRatio2JSONString(), ratio_setting.UpdateImageRatioByJSONString},
+		{ratio_setting.AudioRatio2JSONString(), ratio_setting.UpdateAudioRatioByJSONString},
+		{ratio_setting.AudioCompletionRatio2JSONString(), ratio_setting.UpdateAudioCompletionRatioByJSONString},
+	}
+	model.DB, model.LOG_DB, jsplugin.DefaultRegistry = db, db, jsplugin.NewRegistry()
+	common.SetDatabaseTypes(common.DatabaseTypePostgreSQL, common.DatabaseTypePostgreSQL)
+	common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = false, false, false
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(previousConfig))
+		for _, pricing := range restorePricing {
+			require.NoError(t, pricing.restore(pricing.value))
+		}
+		operation_setting.USDExchangeRate, common.SystemName = previousRate, previousName
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousOptions
+		common.OptionMapRWMutex.Unlock()
+		model.DB, model.LOG_DB, jsplugin.DefaultRegistry = previousDB, previousLogDB, previousRegistry
+		common.SetDatabaseTypes(previousMain, previousLog)
+		common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = previousCache, previousRedis, previousBatch
+	})
+	t.Setenv("LOG_SQL_DSN", "")
+	master := common.IsMasterNode
+	common.IsMasterNode = false
+	err = model.InitLogDB()
+	common.IsMasterNode = master
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Model{}, &model.Vendor{}, &model.Option{}, &model.Channel{}, &model.Ability{}, &model.Task{}, &model.TaskPlugin{}, &model.Midjourney{}, &model.SystemTask{}, &model.User{}))
+	require.NoError(t, model.MigrateCatalogSync(db))
+	require.NoError(t, model.InitOptionMapBootstrap(context.Background()))
+	require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+	var version string
+	require.NoError(t, db.Raw("SELECT version()").Scan(&version).Error)
+	t.Log(version)
+	return db
+}
+
 func TestModelPriceHelperTieredUsesFrozenBillingModelCurrency(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	previousDB := model.DB
-	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, database.AutoMigrate(&model.Model{}))
+	database := setupHelperPricingPostgres(t)
+	if database == nil {
+		var err error
+		database, err = gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, database.AutoMigrate(&model.Model{}))
+	}
 	model.DB = database
 	t.Cleanup(func() { model.DB = previousDB })
 	require.NoError(t, database.Create(&model.Model{
@@ -95,6 +215,7 @@ func TestModelPriceHelperTieredUsesFrozenBillingModelCurrency(t *testing.T) {
 }
 
 func TestModelPriceHelperLegacyRatioIgnoresBillingCurrencyMetadata(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	require.NoError(t, model.DB.Create(&model.Model{
 		ModelName: "legacy-cny-ratio", NameRule: model.NameRuleExact, BillingCurrency: "CNY",
 	}).Error)
@@ -127,6 +248,7 @@ func TestModelPriceHelperLegacyRatioIgnoresBillingCurrencyMetadata(t *testing.T)
 }
 
 func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	saved := map[string]string{}
@@ -175,6 +297,7 @@ func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 }
 
 func TestFixedPricePreConsumeAndRealtimeRejection(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	saved := map[string]string{}
 	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
 		saved[key] = value
@@ -216,6 +339,7 @@ func TestFixedPricePreConsumeAndRealtimeRejection(t *testing.T) {
 }
 
 func TestModelPriceHelperTieredInputPreConsumeMultiplier(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	saved := map[string]string{}
@@ -287,6 +411,7 @@ func TestModelPriceHelperTieredInputPreConsumeMultiplier(t *testing.T) {
 }
 
 func TestModelPriceHelperTieredRejectsPreConsumeOverflow(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	saved := map[string]string{}
@@ -326,6 +451,7 @@ func TestModelPriceHelperTieredRejectsPreConsumeOverflow(t *testing.T) {
 }
 
 func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 	savedModelPrices := ratio_setting.ModelPrice2JSONString()
 	savedModelRatios := ratio_setting.ModelRatio2JSONString()
@@ -370,6 +496,7 @@ func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 			ctx.Set("group", "default")
 			info := &relaycommon.RelayInfo{
 				OriginModelName: tt.model,
@@ -393,6 +520,7 @@ func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T)
 
 	newInfo := func(model string) (*gin.Context, *relaycommon.RelayInfo) {
 		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		ctx.Set("group", "default")
 		return ctx, &relaycommon.RelayInfo{
 			OriginModelName: model,
@@ -424,6 +552,7 @@ func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T)
 // gemini-2.5-flash-thinking-* wildcard must keep the client origin as the
 // consume-log name.
 func TestModelPriceHelperUsesSuffixedOriginLikeMain(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	savedRatios := ratio_setting.ModelRatio2JSONString()
@@ -442,6 +571,7 @@ func TestModelPriceHelperUsesSuffixedOriginLikeMain(t *testing.T) {
 	t.Cleanup(func() { operation_setting.SelfUseModeEnabled = oldSelfUse })
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("group", "default")
 
 	suffixed := &relaycommon.RelayInfo{
@@ -484,6 +614,7 @@ func TestModelPriceHelperUsesSuffixedOriginLikeMain(t *testing.T) {
 }
 
 func TestModelPriceHelperHonorsCustomClaudeThinkingAlias(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	savedRatios := ratio_setting.ModelRatio2JSONString()
@@ -507,6 +638,7 @@ func TestModelPriceHelperHonorsCustomClaudeThinkingAlias(t *testing.T) {
 	t.Cleanup(func() { claudeSettings.ThinkingAdapterEnabled = oldThinking })
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("group", "default")
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "claude-3-7-sonnet-thinking",
@@ -521,6 +653,7 @@ func TestModelPriceHelperHonorsCustomClaudeThinkingAlias(t *testing.T) {
 }
 
 func TestModelPriceHelperCanonicalBillingLadder(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	savedRatios := ratio_setting.ModelRatio2JSONString()
@@ -532,6 +665,7 @@ func TestModelPriceHelperCanonicalBillingLadder(t *testing.T) {
 	t.Cleanup(func() { operation_setting.SelfUseModeEnabled = oldSelfUse })
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("group", "default")
 
 	t.Run("level2 full form", func(t *testing.T) {
@@ -614,6 +748,7 @@ func TestModelPriceHelperCanonicalBillingLadder(t *testing.T) {
 }
 
 func TestModelPriceHelperMigratesLegacyGeminiWildcardToCanonical(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	savedRatios := ratio_setting.ModelRatio2JSONString()
@@ -638,6 +773,7 @@ func TestModelPriceHelperMigratesLegacyGeminiWildcardToCanonical(t *testing.T) {
 	t.Cleanup(func() { geminiSettings.ThinkingAdapterEnabled = oldThinking })
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("group", "default")
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "gemini-2.5-flash-thinking-8192",
@@ -651,6 +787,7 @@ func TestModelPriceHelperMigratesLegacyGeminiWildcardToCanonical(t *testing.T) {
 }
 
 func TestModelPriceHelperModifierNameFallsBackToBase(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	savedRatios := ratio_setting.ModelRatio2JSONString()
@@ -668,6 +805,7 @@ func TestModelPriceHelperModifierNameFallsBackToBase(t *testing.T) {
 	t.Cleanup(func() { operation_setting.SelfUseModeEnabled = oldSelfUse })
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("group", "default")
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "qwen3.8-max@thinking:on@temperature:0.2",
@@ -681,6 +819,7 @@ func TestModelPriceHelperModifierNameFallsBackToBase(t *testing.T) {
 }
 
 func TestModelPriceHelperExemptAtNameBillsVerbatim(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	settings := model_setting.GetGlobalSettings()
@@ -704,6 +843,7 @@ func TestModelPriceHelperExemptAtNameBillsVerbatim(t *testing.T) {
 	t.Cleanup(func() { operation_setting.SelfUseModeEnabled = oldSelfUse })
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("group", "default")
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "opaque@sha256:deadbeef",
@@ -718,6 +858,7 @@ func TestModelPriceHelperExemptAtNameBillsVerbatim(t *testing.T) {
 }
 
 func TestModelPriceHelperPreservesGpt51CodexMaxIdentity(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	savedRatios := ratio_setting.ModelRatio2JSONString()
@@ -736,6 +877,7 @@ func TestModelPriceHelperPreservesGpt51CodexMaxIdentity(t *testing.T) {
 	t.Cleanup(func() { operation_setting.SelfUseModeEnabled = oldSelfUse })
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("group", "default")
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "gpt-5.1-codex-max",
@@ -750,6 +892,7 @@ func TestModelPriceHelperPreservesGpt51CodexMaxIdentity(t *testing.T) {
 }
 
 func TestModelPriceHelperNativeGeminiNoThinkingDoesNotAliasBillingModel(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 
 	savedRatios := ratio_setting.ModelRatio2JSONString()
@@ -773,6 +916,7 @@ func TestModelPriceHelperNativeGeminiNoThinkingDoesNotAliasBillingModel(t *testi
 
 	budget := 0
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Set("group", "default")
 	info := &relaycommon.RelayInfo{
 		OriginModelName: "gemini-3-pro",
@@ -796,6 +940,7 @@ func TestModelPriceHelperNativeGeminiNoThinkingDoesNotAliasBillingModel(t *testi
 }
 
 func TestInputPreConsumeMultiplierLegacyAndRequestPrices(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	previous := config.GlobalConfig.ExportAllConfigs()
 	previousRatios, previousPrices := ratio_setting.ModelRatio2JSONString(), ratio_setting.ModelPrice2JSONString()
 	t.Cleanup(func() {

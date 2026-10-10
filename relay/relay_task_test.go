@@ -1,8 +1,11 @@
 package relay
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,6 +31,21 @@ import (
 
 func setupRelayChannelDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	if mode := os.Getenv("CATALOG_SYNC_POSTGRES_ONLY"); mode != "" {
+		require.Equal(t, "1", mode)
+		// These request regressions include deliberately invalid pricing and
+		// historical usage schemas. Bootstrap a real catalog first, then restore
+		// their request inputs through the same setters used by the legacy tests.
+		options := config.GlobalConfig.ExportAllConfigs()
+		prices, ratios := ratio_setting.ModelPrice2JSONString(), ratio_setting.ModelRatio2JSONString()
+		rate := operation_setting.USDExchangeRate
+		database := catalogPricingPostgres(t, nil)
+		require.NoError(t, config.GlobalConfig.LoadFromDB(options))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(prices))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(ratios))
+		operation_setting.USDExchangeRate = rate
+		return database
+	}
 	previousDB := model.DB
 	previousType := common.MainDatabaseType()
 	previousCache := common.MemoryCacheEnabled
@@ -127,9 +145,32 @@ export function parseTaskResult(){return {status:"SUCCESS"};}
 
 func pinMappingOrderPlugin(t *testing.T, c *gin.Context, source string) {
 	t.Helper()
-	plugin, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
+	registry := pluginruntime.NewRegistry()
+	plugin, err := registry.Register(source, pluginruntime.Options{})
 	require.NoError(t, err)
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") != "" {
+		publishRelayTaskPluginRegistry(t, registry, map[string]string{plugin.Meta.Key: source})
+		c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: plugin, Generation: registry.Generation()})
+		return
+	}
 	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: plugin})
+}
+
+func publishRelayTaskPluginRegistry(t *testing.T, registry *pluginruntime.Registry, sources map[string]string) {
+	t.Helper()
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") == "" {
+		return
+	}
+	require.Equal(t, "1", os.Getenv("CATALOG_SYNC_POSTGRES_ONLY"))
+	for key, source := range sources {
+		plugin, found := registry.Get(key)
+		require.True(t, found)
+		require.NoError(t, model.SaveTaskPlugin(&model.TaskPlugin{
+			Key: key, APIVersion: plugin.Meta.APIVersion, Version: plugin.Meta.Version,
+			Source: model.LongText(source), SourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))), Enabled: true,
+		}))
+	}
+	pluginruntime.DefaultRegistry = registry
 }
 
 func newTaskSubmitContext(t *testing.T, originalModel, mapping string) (*gin.Context, *relaycommon.RelayInfo) {
@@ -169,6 +210,7 @@ export function extractUsage(){return {tokens:1000000};}
 	registry := pluginruntime.NewRegistry()
 	plugin, err := registry.Register(source, pluginruntime.Options{})
 	require.NoError(t, err)
+	publishRelayTaskPluginRegistry(t, registry, map[string]string{plugin.Meta.Key: source})
 	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Generation: registry.Generation(), Plugin: plugin})
 	c.Set("task_plugin_key", plugin.Meta.Key)
 	c.Set("group", "default")
@@ -236,7 +278,11 @@ func TestRelayTaskSubmitEmptyOriginKeepsLateMapping(t *testing.T) {
 	synthesized := service.CoverTaskActionToModelName(constant.TaskPlatform(plugin.Meta.Key), "text_to_video")
 	c, info := newTaskSubmitContext(t, "pre-validate-upstream",
 		`{"pre-validate-upstream":"should-not-apply-early","`+synthesized+`":"legacy-tail"}`)
-	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: plugin})
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") != "" {
+		pinMappingOrderPlugin(t, c, mappingOrderSubmitPlugin)
+	} else {
+		c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: plugin})
+	}
 	info.OriginModelName = ""
 
 	_, taskErr := RelayTaskSubmit(c, info)
@@ -482,6 +528,7 @@ func TestSharedTaskBillingExpressionSelectionAndFrozenSettlement(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			saveBillingConfig(t)
 			registry := pluginruntime.NewRegistry()
+			sources := make(map[string]string)
 			for _, spec := range []struct{ key, field, unit string }{{"billing-alpha", "seconds", "second"}, {"billing-beta", "credits", "credit"}} {
 				source := strings.ReplaceAll(billingFallbackPlugin, "bill-fallback", spec.key)
 				schema := `usageSchema:{` + spec.field + `:{type:"number",unit:"` + spec.unit + `"}}`
@@ -493,6 +540,7 @@ func TestSharedTaskBillingExpressionSelectionAndFrozenSettlement(t *testing.T) {
 				source += `export function extractUsage(){return {` + spec.field + `:2};}`
 				_, err := registry.Register(source, pluginruntime.Options{})
 				require.NoError(t, err)
+				sources[spec.key] = source
 			}
 			variants := tc.variants
 			if variants == nil {
@@ -508,6 +556,7 @@ func TestSharedTaskBillingExpressionSelectionAndFrozenSettlement(t *testing.T) {
 				billing_setting.PluginBillingExprOption: string(rawVariants), "billing_setting.billing_mode": string(modes), "billing_setting.billing_expr": string(expressions),
 			}))
 			c, info := newTaskSubmitContext(t, tc.model, tc.mapping)
+			publishRelayTaskPluginRegistry(t, registry, sources)
 			c.Set("group", "default")
 			c.Set("task_plugin_key", tc.plugin)
 			info.UserGroup = "default"

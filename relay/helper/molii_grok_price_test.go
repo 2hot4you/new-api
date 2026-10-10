@@ -1,6 +1,8 @@
 package helper
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -30,8 +32,10 @@ func TestMoliiGrokModelsUseDirectCostAnchors(t *testing.T) {
 }
 
 func TestMoliiGrokFixedPriceAnchorsAreAvailable(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(nil)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
 	info := &relaycommon.RelayInfo{OriginModelName: "grok-imagine-video-1.5", UsingGroup: "default"}
 
 	price, err := ModelPriceHelperPerCall(c, info)

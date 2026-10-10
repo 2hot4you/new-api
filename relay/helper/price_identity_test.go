@@ -1,15 +1,18 @@
 package helper
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-	"net/http/httptest"
-	"testing"
 )
 
 func TestPerCallPricingUsesBillingIdentity(t *testing.T) {
+	setupHelperPricingPostgres(t)
 	oldPrices := ratio_setting.ModelPrice2JSONString()
 	oldRatios := ratio_setting.ModelRatio2JSONString()
 	t.Cleanup(func() {
@@ -28,6 +31,7 @@ func TestPerCallPricingUsesBillingIdentity(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
 			info := &relaycommon.RelayInfo{OriginModelName: tc.origin, BillingModelName: tc.billing, UserGroup: "default", UsingGroup: "default", ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "routed-provider"}}
 			price, err := ModelPriceHelperPerCall(c, info)
 			require.NoError(t, err)
