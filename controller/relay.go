@@ -276,6 +276,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 func prepareSelectedImageBilling(c *gin.Context, relayInfo *relaycommon.RelayInfo, imageRequest *dto.ImageRequest, meta *types.TokenCountMeta, tokens int) *types.NewAPIError {
 	relayInfo.InitChannelMeta(c)
 	imageRequest.SetModelName(relayInfo.OriginModelName)
+	// These snapshots belong to the selected attempt. A retry may map to a
+	// different model or switch from expression billing to legacy pricing.
+	relayInfo.PricingSelection = nil
+	relayInfo.BillingModelName = ""
+	relayInfo.TieredBillingSnapshot = nil
 	relayInfo.GrokImageBilling = nil
 	if err := helper.ModelMappedHelper(c, relayInfo, imageRequest); err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeChannelModelMappedError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -283,6 +288,14 @@ func prepareSelectedImageBilling(c *gin.Context, relayInfo *relaycommon.RelayInf
 	adaptor := relay.GetAdaptor(relayInfo.ApiType)
 	if adaptor == nil {
 		return types.NewError(fmt.Errorf("invalid api type: %d", relayInfo.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
+	}
+	if relayInfo.UpstreamModelName != "" {
+		relayInfo.BillingModelName = relayInfo.UpstreamModelName
+	}
+	// Select direct rates, their anchor, currency and base pricing together,
+	// before any estimator body/media work. ModelPriceHelper reuses this value.
+	if err := helper.CaptureRequestPricing(c, relayInfo); err != nil {
+		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 	}
 	var ratios map[string]float64
 	if estimator, ok := adaptor.(channel.ImageBillingEstimator); ok {
@@ -300,9 +313,6 @@ func prepareSelectedImageBilling(c *gin.Context, relayInfo *relaycommon.RelayInf
 		meta = &types.TokenCountMeta{}
 	}
 	meta.BillingRatios = ratios
-	if relayInfo.UpstreamModelName != "" {
-		relayInfo.BillingModelName = relayInfo.UpstreamModelName
-	}
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))

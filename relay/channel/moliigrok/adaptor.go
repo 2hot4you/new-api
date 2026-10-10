@@ -202,9 +202,39 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 	if aspectRatio == "" {
 		aspectRatio = "16:9"
 	}
-	outputPrice, inputPrice, ok := ratio_setting.GetMoliiGrokImagePricesForQuality(billedModel, resolution, quality)
+	var outputPrice, inputPrice, basePrice float64
+	var moneyContext billingmoney.Context
+	var ok, hasAnchor bool
+	if selected := info.PricingSelection; selected != nil {
+		pricing, found := selected.Model(billedModel)
+		if !found {
+			return nil, errors.New("Molii Grok image model is outside the request pricing selection")
+		}
+		outputPrice, inputPrice, ok = selected.GrokPrices().ImagePricesForQuality(billedModel, resolution, quality)
+		basePrice, hasAnchor = pricing.Price, pricing.HasPrice
+		if !hasAnchor {
+			basePrice, hasAnchor = pricing.DefaultPrice, pricing.HasDefaultPrice
+		}
+		moneyContext = pricing.Money
+	} else {
+		// Compatibility for historical direct adaptor callers with no attempt
+		// selection. The HTTP image controller always supplies one; never fill
+		// a missing/zero selected value from live pricing or capture half an attempt.
+		outputPrice, inputPrice, ok = ratio_setting.GetMoliiGrokImagePricesForQuality(billedModel, resolution, quality)
+		basePrice, hasAnchor = ratio_setting.GetModelPrice(billedModel, false)
+		if !hasAnchor {
+			basePrice, hasAnchor = ratio_setting.GetDefaultModelPriceMap()[billedModel]
+		}
+		moneyContext, _, err = model.ResolveBillingMoneyContext(model.DB, billedModel)
+		if err != nil {
+			return nil, fmt.Errorf("Molii Grok image billing currency is invalid: %w", err)
+		}
+	}
 	if !ok {
 		return nil, errors.New("Molii Grok image pricing is not configured")
+	}
+	if !hasAnchor || basePrice <= 0 {
+		return nil, errors.New("Molii Grok image pricing anchor is invalid")
 	}
 	n := 1
 	if raw.N != nil {
@@ -226,22 +256,11 @@ func (a *Adaptor) EstimateImageBilling(c *gin.Context, info *relaycommon.RelayIn
 		}
 		inputCount = len(media)
 	}
-	basePrice, ok := ratio_setting.GetModelPrice(billedModel, false)
-	if !ok {
-		basePrice, ok = ratio_setting.GetDefaultModelPriceMap()[billedModel]
-	}
-	if !ok || basePrice <= 0 {
-		return nil, errors.New("Molii Grok image pricing anchor is invalid")
-	}
 	c.Set(imageBillingOutputPriceContextKey, outputPrice)
 	c.Set(imageBillingInputPriceContextKey, inputPrice)
 	c.Set(imageBillingInputCountContextKey, inputCount)
 	c.Set(imageBillingBasePriceContextKey, basePrice)
 	cost := outputPrice*float64(n) + inputPrice*float64(inputCount)
-	moneyContext, _, err := model.ResolveBillingMoneyContext(model.DB, billedModel)
-	if err != nil {
-		return nil, fmt.Errorf("Molii Grok image billing currency is invalid: %w", err)
-	}
 	amounts, err := moneyContext.Normalize(cost)
 	if err != nil {
 		return nil, fmt.Errorf("Molii Grok image cost is invalid: %w", err)
