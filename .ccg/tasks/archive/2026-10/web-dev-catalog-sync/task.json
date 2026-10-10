@@ -1,0 +1,27 @@
+{
+  "id": "web-dev-catalog-sync",
+  "title": "超级管理员 Web 端从 dev 同步供应商、模型元数据与定价并预览变更",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "databaseVerificationScope": "postgresql_only",
+  "databaseScopeInstruction": "用户2026-10-10明确只使用PostgreSQL，不检查SQLite/MySQL；覆盖旧三库和五引擎验收要求，不扩展或删除生产跨库代码",
+  "nextAction": "本地实施、PostgreSQL验收及整功能审查和单次修复复审完成；归档后保留upgrade/rc40分支，等待用户选择集成方式；不得擅自push、合并、部署或同步生产数据",
+  "implementationHead": "c9e1416f7ef6bdc9a80c188ce18c2a97e4c15f73",
+  "verificationBoundary": "完整PostgreSQL普通/race门禁各27组824测试及子测试位于0dbc5053b；最终修复c9e1416f7覆盖前端2755测试、专项50、传输普通/race、类型/lint/i18n/格式及前后端构建，未重跑全PG门禁或其他数据库",
+  "remainingLimitations": "测试预期诊断与可选模块拆分；既有Grok数量/零价预留及Seedance零价基础收费未改；仅代表性旧版目录升级和本地30k历史规模；单实例限制；未执行云CI、真实站点凭证/发布或生产同步",
+  "createdAt": "2026-10-09T06:32:07Z",
+  "branch": "upgrade/rc40",
+  "designPath": "architectural",
+  "checklist": [
+    { "step": "检查现有目录同步、定价和超级管理员鉴权流程", "status": "completed" },
+    { "step": "确认删除边界与同步范围", "status": "completed" },
+    { "step": "比较方案并评审设计", "status": "completed" },
+    { "step": "编写并自审设计文件，提交用户评审", "status": "completed" },
+    { "step": "设计批准后编写实施计划", "status": "completed" },
+    { "step": "用户评审计划并选择执行方式", "status": "completed" },
+    { "step": "业务代码实施与验证", "status": "completed" }
+  ]
+}

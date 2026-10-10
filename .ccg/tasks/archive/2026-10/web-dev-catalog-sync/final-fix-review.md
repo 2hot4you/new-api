@@ -1,0 +1,37 @@
+# Catalog final fix scoped re-review
+
+## Finding verdicts
+
+1. **I1 — proof refusal leaves an unused persisted operation binding locked: ADDRESSED.** `web/src/features/system-settings/catalog-sync/index.tsx:48` enumerates the finite shared refusal codes; `:249` requires an Axios response with HTTP 403 and `success: false`. The exact contract matches `middleware/secure_verification.go:39` and `:78`; generic internal failures are excluded. At `index.tsx:255` the handler checks the exact operation/plan/digest receipt cache, as well as the response-derived and mounted receipts, before clearing both memory and session storage at `:268`. Proof refusal retains the plan; invalid-plan handling remains separate. Existing confirmation at `:331` checks expiry and locks, creates a fresh operation ID at `:344`, and requests fresh scope/context-bound verification at `:355`. No automatic apply retry was added. Tests at `__tests__/catalog-sync.test.tsx:702` exercise real-shaped 403 expiry and method-mismatch responses, enabled Review, cleared storage, remount, a new operation ID, and a new bound proof followed by success. At `:844`, disconnect, unknown commit, unrecognized code and wrong status remain locked after an actual-shaped receipt 404. The existing publication-pending guard remains intact. This addresses the unused-binding dead end without treating a missing receipt as rollback evidence.
+
+2. **M1 — null numeric map coverage accepted for an empty kind: ADDRESSED.** `internal/catalogtransport/transport.go:177` now decodes maps through `common.Unmarshal` and recursively validates each authoritative `t.Elem()`; numeric null reaches the existing leaf rejection at `:201`. Null maps are rejected too. `internal/catalogtransport/transport_test.go:159` starts with a genuinely empty, valid zero-coverage snapshot, confirms the zero form succeeds, changes only `"vendor":0` to `"vendor":null`, and verifies the controlled transport rejects it. No second manifest schema, production dependency, or transport destination/limit changes were introduced.
+
+3. **M2 — restore changelog uses sync/dev wording: ADDRESSED.** `web/src/features/system-settings/catalog-sync/index.tsx:498` passes the actual plan kind. `changelog.tsx:177` renders “After restore” for restore, while `:200` selects saved-value wording used by both visible text and accessible checkbox name at `:330`. The two keys are present at lines 3–4 of all seven changed locale files. The actual restore flow asserts the header and absence of “After sync” at `__tests__/catalog-sync.test.tsx:1023`; the separate component test at `:1289` explicitly characterizes hypothetical defensive conflict wording, not a newly reachable backend restore-conflict path.
+
+4. **M3 — keyboard verification/consent/focus flow not covered: ADDRESSED as coverage, not a production behavior fix.** `web/src/features/system-settings/catalog-sync/__tests__/catalog-sync.test.tsx:1134` renders the composed feature with real shared UI and mocks API methods. It uses bounded Tab traversal, Enter, Space and typed code without direct focus/click or dialog substitution. It checks disabled Save before deletion consent, cancellation returning to Review, consent and saved final digest, verification input focus, no early verification/apply, cancellation without a persisted binding, and exactly one final apply with matching proof context. The test passing on the existing implementation is valid characterization evidence; it is not presented as a behavioral RED or accessibility repair.
+
+## New breakage in the fix diff
+
+None found. Counts: **0 Critical, 0 Important, 0 Minor new findings**.
+
+## Checks and coverage
+
+- Reviewed the supplied `review-0dbc5053b..c9e1416f7.diff` exactly once in three bounded passes (all 1,135 lines, 12 changed files), against fix base `0dbc5053b4ecb357d46b69c04c78c756a0c9fb20` and head `c9e1416f7ef6bdc9a80c188ce18c2a97e4c15f73`. Read the fix brief/report and applied the scoped re-review method; this was not a second whole-feature review.
+- Completed cutoff validation and recovery functions to check null handling, receipt-cache key identity, binding lifecycle, and fresh confirmation. Focused unchanged-code checks were limited to the shared proof-refusal HTTP contract and the test harness's use of real composed UI. No test, database, container, live-site, git-diff reconstruction, external executor, or subagent was run. Only this report was written.
+- The fix report identifies the covering runs and their output: 50 tests across three covering web files; 291 files / 2,755 tests in the one final full-web run; transport normal/race; type check, affected lint, seven-locale parity, web build, final untagged Go build, and formatting. These run outcomes are supplied evidence, already log-checked by the root, not newly executed or independently reproduced by this reviewer. The changed tests exercise the reported defects and conservative branches.
+- Evidence qualification: the initial I1 failures were translated-message fixture failures, not behavioral RED. The later corrected baseline failures for both actual 403 codes demonstrated disabled Review. M1 has the reported null-acceptance RED; M2 has the restore-copy RED. M3 was initially green on existing production UI. The final successful Go build followed completion of the web build; the earlier parallel embedding failure is not counted as passing evidence.
+
+## Out-of-scope observations and declined judgments
+
+- No newly discovered out-of-scope defect is raised. **Original M4 diagnostic-noise cleanup remains explicitly deferred and nonblocking**, as does optional module splitting; neither is claimed fixed.
+- No new PostgreSQL execution occurred in this wave. The whole-feature PostgreSQL evidence remains tied to the prior `0dbc5053b` gate; this review makes no fresh whole-gate, SQLite/MySQL, or cross-database acceptance claim. The fix changes no database, authorization implementation, billing formula, or deployment implementation.
+- The prior broad review's bounded upgrade/load, pre-existing billing-defect, single-instance operational, and production-authorization limitations remain unchanged. This narrow diff does not justify reopening them or claiming stronger deployment readiness. No production synchronization, push, or deployment is authorized by this verdict.
+- Browser/screen-reader and real deployment behavior were not freshly exercised. M3 establishes the tested keyboard path through the composed shared UI, not universal accessibility certification. Seven-locale key coverage is established; this is not a native-language editorial certification.
+
+## Resulting verdict
+
+**Spec: PASS within the agreed feature scope and previously recorded limitations.** The identified recovery, strict wire-shape, restore-copy and keyboard-evidence gaps are closed. This diff preserves the fixed dev-only transport, 15-second / 10-MiB bounds, ten-minute plan lifetime, whole-batch managed synchronization, explicit destructive/conflict consent, existing billing semantics, current-root proof boundary, and single-instance restriction; it introduces no dependency or unrelated data mutation.
+
+**Fix round: all four in-scope findings addressed; no new Critical/Important breakage.**
+
+**Ready to Merge: YES, bounded to the reviewed branch and consolidated fix with the recorded nonblocking M4/structural deferrals and prior acceptance limitations.** This is a code-review disposition, not a claim of fresh whole-system verification or authorization to deploy/apply production data.
