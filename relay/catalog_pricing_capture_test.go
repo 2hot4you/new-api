@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -28,6 +29,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
@@ -37,13 +39,10 @@ import (
 
 func catalogPricingPostgres(t *testing.T, options map[string]string) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("TEST_POSTGRES_DSN")
-	require.NotEmpty(t, dsn, "task PostgreSQL is required")
-	u, err := url.Parse(dsn)
+	u, err := catalogPricingPostgresDSN()
 	require.NoError(t, err)
-	require.Contains(t, []string{"127.0.0.1", "localhost", "::1"}, u.Hostname())
 	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
-	admin, err := gorm.Open(postgres.Open(dsn), cfg)
+	admin, err := gorm.Open(postgres.Open(u.String()), cfg)
 	require.NoError(t, err)
 	name := fmt.Sprintf("catalog_request_%d", time.Now().UnixNano())
 	require.NoError(t, admin.Exec(`CREATE DATABASE "`+name+`"`).Error)
@@ -123,6 +122,63 @@ func catalogPricingPostgres(t *testing.T, options map[string]string) *gorm.DB {
 	require.NoError(t, db.Raw("SELECT version()").Scan(&version).Error)
 	t.Log(version)
 	return db
+}
+
+func catalogPricingPostgresDSN() (*url.URL, error) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	u, err := url.Parse(dsn)
+	if err != nil || u == nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || !net.ParseIP(u.Hostname()).IsLoopback() || u.User == nil || u.User.Username() == "" || u.Path == "" || u.Path == "/" || strings.Contains(u.Path[1:], "/") || u.Fragment != "" || u.Query().Get("sslmode") != "disable" {
+		return nil, fmt.Errorf("catalog PostgreSQL tests require a loopback TEST_POSTGRES_DSN URL with sslmode=disable")
+	}
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(query) != 1 || len(query["sslmode"]) != 1 || query["sslmode"][0] != "disable" {
+		return nil, fmt.Errorf("catalog PostgreSQL tests reject ambiguous TEST_POSTGRES_DSN overrides")
+	}
+	parsed, err := pgx.ParseConfig(dsn)
+	if err != nil || parsed.Host != u.Hostname() || parsed.Database != u.Path[1:] || parsed.TLSConfig != nil {
+		return nil, fmt.Errorf("catalog PostgreSQL tests reject ambiguous TEST_POSTGRES_DSN overrides")
+	}
+	for _, fallback := range parsed.Fallbacks {
+		if fallback.Host != parsed.Host || fallback.Port != parsed.Port {
+			return nil, fmt.Errorf("catalog PostgreSQL tests reject TEST_POSTGRES_DSN host fallbacks")
+		}
+	}
+	return u, nil
+}
+
+func TestCatalogPricingPostgresDSNGuard(t *testing.T) {
+	const base = "postgresql://fixture@127.0.0.1:5432/postgres?sslmode=disable"
+	t.Setenv("TEST_POSTGRES_DSN", base)
+	u, err := catalogPricingPostgresDSN()
+	require.NoError(t, err)
+	u.Path = "/catalog_request_guard"
+	parsed, err := pgx.ParseConfig(u.String())
+	require.NoError(t, err)
+	require.Equal(t, "catalog_request_guard", parsed.Database)
+	for _, query := range []string{
+		"&dbname=postgres", "&database=postgres", "&port=5432",
+		"&service=fixture", "&host=127.0.0.1", "&sslmode=disable",
+	} {
+		t.Run(query, func(t *testing.T) {
+			t.Setenv("TEST_POSTGRES_DSN", base+query)
+			_, err := catalogPricingPostgresDSN()
+			require.Error(t, err, "query overrides must not survive the owned database path rewrite")
+		})
+	}
+	for _, dsn := range []string{
+		"", "mysql://fixture@127.0.0.1/postgres?sslmode=disable",
+		"postgresql://fixture@localhost/postgres?sslmode=disable",
+		"postgresql://127.0.0.1/postgres?sslmode=disable",
+		"postgresql://fixture@127.0.0.1/?sslmode=disable",
+		"postgresql://fixture@127.0.0.1/nested/postgres?sslmode=disable",
+		base + "#fragment", base + "&malformed=%",
+	} {
+		t.Run(dsn, func(t *testing.T) {
+			t.Setenv("TEST_POSTGRES_DSN", dsn)
+			_, err := catalogPricingPostgresDSN()
+			require.Error(t, err)
+		})
+	}
 }
 
 type catalogPricingBody struct {
