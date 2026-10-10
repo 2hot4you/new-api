@@ -1,7 +1,9 @@
 package model
 
 import (
+	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -117,6 +120,33 @@ func ValidateAuthSessionWithTx(tx *gorm.DB, identity AuthSessionIdentity) error 
 		return ErrUserSessionInactive
 	}
 	return nil
+}
+
+// ValidateCatalogRootAuthSession authorizes a catalog management read from the
+// current root/session records. It changes no data, but uses row locks (so the
+// transaction is not SQL READ ONLY). The shared PostgreSQL read fence proves
+// that schema replacement did not redirect authorization, including after
+// COMMIT. Mutations must still recheck authorization in their own transaction.
+func ValidateCatalogRootAuthSession(ctx context.Context, identity AuthSessionIdentity) error {
+	if identity.UserID <= 0 || identity.SessionID == "" || identity.UserAuthVersion <= 0 || identity.SessionVersion <= 0 {
+		return ErrUserSessionInactive
+	}
+	return catalogPostgresReadTransaction(ctx, []any{&User{}, &UserSession{}}, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *gorm.DB) error {
+		if err := catalogAuthStorageTx(tx, catalogmanifest.Actor{UserID: identity.UserID, SessionID: identity.SessionID}); err != nil {
+			return err
+		}
+		if err := ValidateAuthSessionWithTx(tx, identity); err != nil {
+			return err
+		}
+		var user User
+		if err := lockForUpdate(tx).Select("id", "role").First(&user, identity.UserID).Error; err != nil {
+			return err
+		}
+		if user.Role != common.RoleRootUser {
+			return ErrUserSessionInactive
+		}
+		return nil
+	})
 }
 
 func applyAuthFlowMatch(query *gorm.DB, token string, match AuthFlowMatch) *gorm.DB {

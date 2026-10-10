@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -37,6 +40,260 @@ func catalogSourceEnvironment(t *testing.T) (map[string]string, string) {
 	token := "reader-a." + base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("a", 32)))
 	verifier := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(token)))
 	return map[string]string{"CATALOG_SYNC_ROLE": "source", "CATALOG_SYNC_SOURCE_ID": "dev", "CATALOG_SYNC_SINGLE_INSTANCE": "true", "CATALOG_SYNC_READERS_JSON": `{"reader-a":{"verifier":"` + verifier + `","status":"active"}}`}, token
+}
+
+func catalogManagementRuntime(t *testing.T) *service.CatalogSyncRuntime {
+	t.Helper()
+	env, token := catalogSourceEnvironment(t)
+	delete(env, "CATALOG_SYNC_READERS_JSON")
+	env["CATALOG_SYNC_ROLE"], env["CATALOG_SYNC_TARGET_ID"], env["CATALOG_SYNC_TOKEN"] = "target", "target", token
+	env["CATALOG_SYNC_EXTERNAL_ORIGIN"] = "https://EXAMPLE.com:443"
+	runtime, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	return runtime
+}
+
+func catalogGuardRequest(router http.Handler, method, token string, headers http.Header) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, "http://untrusted-proxy/probe", nil)
+	request.Header = headers.Clone()
+	if request.Header == nil {
+		request.Header = make(http.Header)
+	}
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	return response
+}
+
+func catalogManagementRouter(runtime *service.CatalogSyncRuntime) *gin.Engine {
+	router := gin.New()
+	router.Any("/probe", middleware.RootAuth(), catalogSyncManagementGuard(runtime, nil), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	return router
+}
+
+func TestCatalogSecurityManagementCredentials(t *testing.T) {
+	user, identity, access := setupCatalogSecurityTest(t)
+	router := catalogManagementRouter(catalogManagementRuntime(t))
+	headers := http.Header{"Origin": {"https://example.com"}}
+	require.Equal(t, http.StatusNoContent, catalogGuardRequest(router, "GET", access, headers).Code)
+	op := catalogSecurityOperation("catalog.sync.apply")
+	proof, err := service.VerifySecurityInput(identity, service.VerificationInput{Scope: op.Scope, Context: op.Context, Method: "password", Password: "catalog-test-password"})
+	require.NoError(t, err)
+	headers.Set("X-Security-Proof", proof.ProofToken)
+	for range 2 {
+		require.Equal(t, http.StatusNoContent, catalogGuardRequest(router, "GET", access, headers).Code)
+	}
+	_, err = service.ConsumeOperationProof(proof.ProofToken, identity, op)
+	require.NoError(t, err, "management guard must never consume a business operation proof")
+	require.NoError(t, model.UpdateUserAccessToken(user.Id, "catalog-root-pat"))
+	require.NoError(t, model.DB.Create(&model.Token{UserId: user.Id, Key: "catalog-relay-key", Status: common.TokenStatusEnabled, Name: "catalog-test"}).Error)
+	for _, token := range []string{"", "catalog-root-pat", "catalog-relay-key", "invalid.jwt.value"} {
+		response := catalogGuardRequest(router, "GET", token, headers)
+		assert.NotEqual(t, http.StatusNoContent, response.Code)
+		assert.NotContains(t, response.Body.String(), "catalog-root-pat")
+	}
+	refreshOnly := headers.Clone()
+	refreshOnly.Set("Cookie", "refresh_token=only-refresh; session_hint=present")
+	assert.NotEqual(t, http.StatusNoContent, catalogGuardRequest(router, "GET", "", refreshOnly).Code)
+	for _, role := range []int{common.RoleCommonUser, common.RoleAdminUser} {
+		require.NoError(t, model.DB.Model(user).Update("role", role).Error)
+		assert.NotEqual(t, http.StatusNoContent, catalogGuardRequest(router, "GET", access, headers).Code)
+	}
+	// Standalone Gin roles cannot supply an authenticated session.
+	raw := gin.New()
+	raw.GET("/probe", func(c *gin.Context) { c.Set("role", common.RoleRootUser) }, catalogSyncManagementGuard(catalogManagementRuntime(t), nil), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	assert.NotEqual(t, http.StatusNoContent, catalogGuardRequest(raw, "GET", "", headers).Code)
+}
+
+func TestCatalogSecurityManagementLiveState(t *testing.T) {
+	for _, change := range []string{"revoked", "expired", "session-version", "user-version", "disabled", "demoted"} {
+		t.Run(change, func(t *testing.T) {
+			user, identity, access := setupCatalogSecurityTest(t)
+			var changed bool
+			router := gin.New()
+			router.GET("/probe", middleware.RootAuth(), func(c *gin.Context) {
+				// Change AFTER actual JWT/RootAuth accepted, before the guard.
+				changed = true
+				query := model.DB.Model(&model.UserSession{}).Where("sid = ?", identity.SessionID)
+				switch change {
+				case "revoked":
+					require.NoError(t, query.Update("revoked_at", time.Now().Unix()).Error)
+				case "expired":
+					require.NoError(t, query.Update("expires_at", time.Now().Unix()).Error)
+				case "session-version":
+					require.NoError(t, query.Update("version", 2).Error)
+				case "user-version":
+					require.NoError(t, model.DB.Model(user).Update("auth_version", 2).Error)
+				case "disabled":
+					require.NoError(t, model.DB.Model(user).Update("status", common.UserStatusDisabled).Error)
+				case "demoted":
+					require.NoError(t, model.DB.Model(user).Update("role", common.RoleAdminUser).Error)
+				}
+			}, catalogSyncManagementGuard(catalogManagementRuntime(t), nil), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+			assert.NotEqual(t, http.StatusNoContent, catalogGuardRequest(router, "GET", access, http.Header{"Origin": {"https://example.com"}}).Code)
+			require.True(t, changed)
+		})
+	}
+}
+
+func TestCatalogSecurityStrictOrigin(t *testing.T) {
+	_, _, access := setupCatalogSecurityTest(t)
+	previousSecure, previousTrusted := common.SessionCookieSecure, common.SessionCookieTrustedURLs
+	t.Cleanup(func() { common.SessionCookieSecure, common.SessionCookieTrustedURLs = previousSecure, previousTrusted })
+	common.SessionCookieSecure = false
+	common.SessionCookieTrustedURLs = []string{"https://foreign.example"}
+	router := catalogManagementRouter(catalogManagementRuntime(t))
+	for _, tc := range []struct {
+		name    string
+		origin  []string
+		referer string
+		allowed bool
+	}{
+		{"valid", []string{"https://example.com"}, "", true},
+		{"normalized", []string{"https://EXAMPLE.com:443"}, "", true},
+		{"referer", nil, "https://example.com/history?page=1", true},
+		{"missing", nil, "", false}, {"null", []string{"null"}, "https://example.com", false},
+		{"empty", []string{""}, "https://example.com", false},
+		{"multiple", []string{"https://example.com", "https://example.com"}, "", false},
+		{"comma", []string{"https://example.com, https://example.com"}, "", false},
+		{"suffix", []string{"https://example.com.attacker.test"}, "", false},
+		{"http", []string{"http://example.com"}, "", false},
+		{"path", []string{"https://example.com/path"}, "", false},
+		{"root-path", []string{"https://example.com/"}, "", false},
+		{"query", []string{"https://example.com?"}, "", false},
+		{"fragment", []string{"https://example.com#"}, "", false},
+		{"userinfo", []string{"https://user@example.com"}, "", false},
+		{"empty-port", []string{"https://example.com:"}, "", false},
+		{"referer-empty-port", nil, "https://example.com:/path", false},
+		{"foreign", []string{"https://foreign.example"}, "https://example.com/path", false},
+		{"bad-referer", nil, "https://user@example.com/path", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := http.Header{"Forwarded": {"host=foreign.example;proto=https"}, "X-Forwarded-Host": {"foreign.example"}, "X-Forwarded-Proto": {"https"}}
+			if tc.origin != nil {
+				headers["Origin"] = tc.origin
+			}
+			if tc.referer != "" {
+				headers.Set("Referer", tc.referer)
+			}
+			for _, method := range []string{"GET", "POST"} {
+				response := catalogGuardRequest(router, method, access, headers)
+				if tc.allowed {
+					assert.Equal(t, http.StatusNoContent, response.Code)
+				} else {
+					assert.Equal(t, http.StatusForbidden, response.Code)
+				}
+			}
+		})
+	}
+	for _, runtime := range []*service.CatalogSyncRuntime{nil, {}} {
+		assert.NotEqual(t, http.StatusNoContent, catalogGuardRequest(catalogManagementRouter(runtime), "GET", access, http.Header{"Origin": {"https://example.com"}}).Code)
+	}
+}
+
+func TestCatalogSecuritySourceGuard(t *testing.T) {
+	user, _, access := setupCatalogSecurityTest(t)
+	require.NoError(t, model.UpdateUserAccessToken(user.Id, "catalog-root-pat"))
+	env, token := catalogSourceEnvironment(t)
+	runtime, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	router := gin.New()
+	router.Any("/probe", catalogSyncSourceGuard(runtime, nil), func(c *gin.Context) {
+		_, hasIdentity := middleware.GetSessionAuthIdentity(c)
+		assert.False(t, hasIdentity)
+		assert.Zero(t, c.GetInt("role"))
+		c.Status(http.StatusNoContent)
+	})
+	for _, header := range []string{"", token, "Basic " + token, "Bearer " + access, "Bearer catalog-root-pat", "Bearer " + token + ",other"} {
+		response := catalogGuardRequest(router, "GET", "", http.Header{"Authorization": {header}})
+		assert.Equal(t, http.StatusUnauthorized, response.Code)
+		assert.NotContains(t, response.Body.String(), token)
+	}
+	assert.Equal(t, http.StatusUnauthorized, catalogGuardRequest(router, "GET", "", http.Header{"Authorization": {"Bearer " + token, "Bearer " + token}}).Code)
+	assert.Equal(t, http.StatusNoContent, catalogGuardRequest(router, "GET", token, nil).Code)
+	assert.NotEqual(t, http.StatusNoContent, catalogGuardRequest(router, "POST", token, nil).Code)
+	assert.NotEqual(t, http.StatusNoContent, catalogGuardRequest(catalogManagementRouter(catalogManagementRuntime(t)), "GET", token, http.Header{"Origin": {"https://example.com"}}).Code)
+	// A second handler shares the same counter; constructing guards cannot reset it.
+	for range 59 {
+		catalogGuardRequest(router, "GET", token, nil)
+	}
+	second := gin.New()
+	second.GET("/probe", catalogSyncSourceGuard(runtime, nil), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	assert.Equal(t, http.StatusUnauthorized, catalogGuardRequest(second, "GET", token, nil).Code)
+	for _, bad := range []*service.CatalogSyncRuntime{nil, catalogManagementRuntime(t)} {
+		denied := gin.New()
+		denied.GET("/probe", catalogSyncSourceGuard(bad, nil), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+		assert.NotEqual(t, http.StatusNoContent, catalogGuardRequest(denied, "GET", token, nil).Code)
+	}
+	env["CATALOG_SYNC_READERS_JSON"] = strings.ReplaceAll(env["CATALOG_SYNC_READERS_JSON"], "active", "revoked")
+	revoked, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	denied := gin.New()
+	denied.GET("/probe", catalogSyncSourceGuard(revoked, nil), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	assert.Equal(t, http.StatusUnauthorized, catalogGuardRequest(denied, "GET", token, nil).Code)
+}
+
+func TestCatalogSecuritySourceSingleton(t *testing.T) {
+	// A separate process tests the real restart-only singleton without poisoning
+	// other tests' process configuration or adding a production reset escape hatch.
+	if os.Getenv("CATALOG_SECURITY_SINGLETON_CHILD") != "1" {
+		env, _ := catalogSourceEnvironment(t)
+		for _, key := range []string{"CATALOG_SYNC_ROLE", "CATALOG_SYNC_SOURCE_ID", "CATALOG_SYNC_TARGET_ID", "CATALOG_SYNC_TOKEN", "CATALOG_SYNC_READERS_JSON", "CATALOG_SYNC_SINGLE_INSTANCE", "CATALOG_SYNC_EXTERNAL_ORIGIN"} {
+			t.Setenv(key, env[key])
+		}
+		command := exec.Command(os.Args[0], "-test.run=^TestCatalogSecuritySourceSingleton$", "-test.v")
+		command.Env = append(os.Environ(), "CATALOG_SECURITY_SINGLETON_CHILD=1")
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, "%s", output)
+		t.Log(string(output))
+		return
+	}
+	gin.SetMode(gin.TestMode)
+	_, token := catalogSourceEnvironment(t)
+	first, second := gin.New(), gin.New()
+	first.GET("/probe", CatalogSyncSourceGuard(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	// A changed environment must not reconstruct readers/counters per guard.
+	t.Setenv("CATALOG_SYNC_READERS_JSON", "invalid-after-initialization")
+	second.GET("/probe", CatalogSyncSourceGuard(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	for range 60 {
+		require.Equal(t, http.StatusNoContent, catalogGuardRequest(first, "GET", token, nil).Code)
+	}
+	assert.Equal(t, http.StatusUnauthorized, catalogGuardRequest(second, "GET", token, nil).Code)
+}
+
+func TestCatalogSecurityAuthoritativeReadBoundary(t *testing.T) {
+	_, identity, _ := setupCatalogSecurityTest(t)
+	db := model.DB
+	require.NoError(t, model.ValidateCatalogRootAuthSession(context.Background(), identity))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.ErrorIs(t, model.ValidateCatalogRootAuthSession(ctx, identity), context.Canceled)
+	for _, invalid := range []service.AuthIdentity{{}, {UserID: identity.UserID, SessionID: identity.SessionID}, {UserID: identity.UserID, SessionID: "absent", UserAuthVersion: 1, SessionVersion: 1}} {
+		assert.Error(t, model.ValidateCatalogRootAuthSession(context.Background(), invalid))
+	}
+	require.NoError(t, db.Exec("CREATE SCHEMA shadow").Error)
+	for _, table := range []string{"users", "user_sessions"} {
+		require.NoError(t, db.Exec("CREATE TABLE shadow."+table+" (LIKE public."+table+" INCLUDING ALL)").Error)
+		require.NoError(t, db.Exec("INSERT INTO shadow."+table+" SELECT * FROM public."+table).Error)
+	}
+	// Only auth tables are needed: no target state/anchor/catalog schema assumed.
+	require.NoError(t, db.Exec("UPDATE public.users SET role = ?", common.RoleAdminUser).Error)
+	ran := catalogSyncBeforeQueryDDL(t, db, "users", "ALTER SCHEMA public RENAME TO original", "ALTER SCHEMA shadow RENAME TO public")
+	err := model.ValidateCatalogRootAuthSession(context.Background(), identity)
+	require.True(t, ran.Load())
+	assert.Error(t, err, "shadow root cannot replace the authoritative demoted user")
+	require.NoError(t, db.Callback().Query().Remove("catalog-read-concurrent-ddl"))
+	require.NoError(t, db.Exec("ALTER SCHEMA public RENAME TO shadow").Error)
+	require.NoError(t, db.Exec("ALTER SCHEMA original RENAME TO public").Error)
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", identity.UserID).Update("role", common.RoleRootUser).Error)
+	catalogSyncObserveTarget(t, db, func(connection *catalogReadLostAckConnection) {
+		connection.afterCommit = func() error { return errors.New("private lost auth read COMMIT acknowledgement") }
+		assert.Error(t, model.ValidateCatalogRootAuthSession(context.Background(), identity), "lost read commit cannot claim authorization")
+		assert.Equal(t, int64(1), connection.commits.Load())
+	})
+	require.NoError(t, model.ValidateCatalogRootAuthSession(context.Background(), identity), "read failure drains locks")
 }
 
 func TestCatalogSyncConfiguration(t *testing.T) {

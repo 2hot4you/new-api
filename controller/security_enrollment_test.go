@@ -39,6 +39,406 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+// Catalog policy tests deliberately use the mandatory disposable PostgreSQL
+// fixture; the legacy security fixture below remains unchanged.
+func setupCatalogSecurityTest(t *testing.T) (*model.User, service.AuthIdentity, string) {
+	t.Helper()
+	db := catalogSyncPostgres(t)
+	require.NoError(t, i18n.Init())
+	gin.SetMode(gin.TestMode)
+	priorLog, priorMainType, priorLogType := model.LOG_DB, common.MainDatabaseType(), common.LogDatabaseType()
+	priorRedis, priorMemory, priorSecret := common.RedisEnabled, common.MemoryCacheEnabled, common.SessionSecret
+	priorEncryption, priorPassword := common.PasswordLoginEncryptionEnabled, common.PasswordLoginEnabled
+	priorPasskey := *system_setting.GetPasskeySettings()
+	model.LOG_DB = db
+	common.SetDatabaseTypes(common.DatabaseTypePostgreSQL, common.DatabaseTypePostgreSQL)
+	common.RedisEnabled, common.MemoryCacheEnabled = false, false
+	common.SessionSecret = "catalog-security-test-only"
+	common.PasswordLoginEncryptionEnabled, common.PasswordLoginEnabled = false, true
+	*system_setting.GetPasskeySettings() = system_setting.PasskeySettings{Enabled: true, RPID: "example.com", Origins: "https://example.com", RPDisplayName: "new-api"}
+	t.Cleanup(func() {
+		model.LOG_DB = priorLog
+		common.SetDatabaseTypes(priorMainType, priorLogType)
+		common.RedisEnabled, common.MemoryCacheEnabled, common.SessionSecret = priorRedis, priorMemory, priorSecret
+		common.PasswordLoginEncryptionEnabled, common.PasswordLoginEnabled = priorEncryption, priorPassword
+		*system_setting.GetPasskeySettings() = priorPasskey
+	})
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.PasskeyCredential{}, &model.AuthFlow{}, &model.UserOAuthBinding{}, &model.Token{}, &model.AuditLog{}))
+	password, err := common.Password2Hash("catalog-test-password")
+	require.NoError(t, err)
+	user := &model.User{Username: "catalog-policy-root", Password: password, Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1}
+	require.NoError(t, db.Create(user).Error)
+	bundle, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "catalog-policy-test")
+	require.NoError(t, err)
+	identity, err := service.ParseAccessToken(bundle.AccessToken)
+	require.NoError(t, err)
+	return user, identity, bundle.AccessToken
+}
+
+func catalogSecurityOperation(scope string) service.VerificationOperation {
+	kind := "sync"
+	if scope == "catalog.sync.restore" {
+		kind = "restore"
+	}
+	return service.VerificationOperation{Scope: scope, Context: []byte(fmt.Sprintf(`{"plan_digest":"%s","target_id":"target","kind":"%s","operation_id":"operation-1"}`, strings.Repeat("a", 64), kind))}
+}
+
+func TestCatalogSecurityContext(t *testing.T) {
+	for _, scope := range []string{"catalog.sync.apply", "catalog.sync.restore"} {
+		op := catalogSecurityOperation(scope)
+		binding, err := service.BindVerificationOperation(op)
+		require.NoError(t, err)
+		var fields map[string]any
+		require.NoError(t, common.Unmarshal(op.Context, &fields))
+		for _, key := range []string{"plan_digest", "target_id", "kind", "operation_id"} {
+			for _, invalid := range []any{nil, 1, true, "", " padded "} {
+				original := fields[key]
+				fields[key] = invalid
+				raw, err := common.Marshal(fields)
+				require.NoError(t, err)
+				_, err = service.BindVerificationOperation(service.VerificationOperation{Scope: scope, Context: raw})
+				assert.ErrorIs(t, err, service.ErrVerificationContextInvalid, "%s=%v", key, invalid)
+				fields[key] = original
+			}
+		}
+		for _, invalid := range []string{
+			strings.Replace(string(op.Context), "plan_digest", "PLAN_DIGEST", 1),
+			strings.Replace(string(op.Context), `"target_id":"target"`, `"target_id":"target","target_id":"other"`, 1),
+			strings.TrimSuffix(string(op.Context), "}") + `,"extra":true}`,
+			strings.Replace(string(op.Context), strings.Repeat("a", 64), strings.Repeat("A", 64), 1),
+			strings.Replace(string(op.Context), "operation-1", strings.Repeat("x", 65), 1),
+			string(op.Context) + `{}`, `null`, `[]`, `{}`,
+		} {
+			_, err := service.BindVerificationOperation(service.VerificationOperation{Scope: scope, Context: []byte(invalid)})
+			assert.ErrorIs(t, err, service.ErrVerificationContextInvalid)
+		}
+		raw, err := common.Marshal(fields)
+		require.NoError(t, err)
+		reordered, err := service.BindVerificationOperation(service.VerificationOperation{Scope: scope, Context: raw})
+		require.NoError(t, err)
+		assert.Equal(t, binding, reordered)
+	}
+}
+
+func TestCatalogSecurityProofBindingAndConsumption(t *testing.T) {
+	_, identity, _ := setupCatalogSecurityTest(t)
+	for _, scope := range []string{"catalog.sync.apply", "catalog.sync.restore"} {
+		op := catalogSecurityOperation(scope)
+		proof, err := service.VerifySecurityInput(identity, service.VerificationInput{Scope: scope, Context: op.Context, Method: "password", Password: "catalog-test-password"})
+		require.NoError(t, err)
+		for _, field := range []string{"plan_digest", "target_id", "operation_id"} {
+			var fields map[string]string
+			require.NoError(t, common.Unmarshal(op.Context, &fields))
+			fields[field] = "other"
+			if field == "plan_digest" {
+				fields[field] = strings.Repeat("b", 64)
+			}
+			raw, err := common.Marshal(fields)
+			require.NoError(t, err)
+			_, err = service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: scope, Context: raw})
+			assert.ErrorIs(t, err, service.ErrProofContext)
+		}
+		otherScope := "catalog.sync.restore"
+		if scope == otherScope {
+			otherScope = "catalog.sync.apply"
+		}
+		_, err = service.ConsumeOperationProof(proof.ProofToken, identity, catalogSecurityOperation(otherScope))
+		assert.ErrorIs(t, err, service.ErrProofScope)
+		for _, field := range []string{"user", "sid", "auth", "session"} {
+			other := identity
+			switch field {
+			case "user":
+				other.UserID++
+			case "sid":
+				other.SessionID += "x"
+			case "auth":
+				other.UserAuthVersion++
+			case "session":
+				other.SessionVersion++
+			}
+			_, err = service.ConsumeOperationProof(proof.ProofToken, other, op)
+			assert.ErrorIs(t, err, service.ErrAuthTokenInvalid)
+		}
+		results := make(chan error, 4)
+		for range 4 {
+			go func() { _, err := service.ConsumeOperationProof(proof.ProofToken, identity, op); results <- err }()
+		}
+		winners := 0
+		for range 4 {
+			if err := <-results; err == nil {
+				winners++
+			} else {
+				assert.ErrorIs(t, err, service.ErrProofConsumed)
+			}
+		}
+		assert.Equal(t, 1, winners)
+	}
+}
+
+func TestCatalogSecurityFactorPolicy(t *testing.T) {
+	for _, scenario := range []string{"password", "password-disabled", "passkey", "passkey-disabled", "twofa", "twofa-locked", "oauth", "oauth-unlinked", "oauth-disabled", "nonroot"} {
+		t.Run(scenario, func(t *testing.T) {
+			user, identity, _ := setupCatalogSecurityTest(t)
+			wantMethod, available := "password", true
+			switch scenario {
+			case "password-disabled":
+				common.PasswordLoginEnabled = false
+				available = false
+			case "passkey", "passkey-disabled":
+				require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: "enrolled", PublicKey: "test-only"}).Error)
+				wantMethod, available = "passkey", scenario == "passkey"
+				system_setting.GetPasskeySettings().Enabled = available
+			case "twofa", "twofa-locked":
+				factor := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
+				wantMethod, available = "2fa", scenario == "twofa"
+				if !available {
+					until := time.Now().Add(time.Hour)
+					factor.LockedUntil = &until
+				}
+				require.NoError(t, model.DB.Create(factor).Error)
+			case "oauth", "oauth-unlinked", "oauth-disabled":
+				require.NoError(t, model.DB.Model(user).Update("password", "").Error)
+				wantMethod, available = "oauth", scenario == "oauth"
+				if scenario != "oauth-unlinked" {
+					require.NoError(t, model.DB.Model(user).Update("github_id", "linked-user").Error)
+					oauth.Register("catalog-oauth", &enrollmentOAuthProvider{externalID: "linked-user", disabled: scenario == "oauth-disabled"})
+					t.Cleanup(func() { oauth.Unregister("catalog-oauth") })
+				}
+			case "nonroot":
+				require.NoError(t, model.DB.Model(user).Update("role", common.RoleAdminUser).Error)
+			}
+			for _, scope := range []string{"catalog.sync.apply", "catalog.sync.restore"} {
+				requirements, err := service.GetVerificationRequirements(identity, scope)
+				if scenario == "nonroot" {
+					assert.ErrorIs(t, err, service.ErrVerificationForbidden)
+					continue
+				}
+				require.NoError(t, err)
+				require.Len(t, requirements.Methods, 1)
+				assert.Equal(t, wantMethod, requirements.Methods[0].Method)
+				assert.Equal(t, available, requirements.Methods[0].Available)
+				op := catalogSecurityOperation(scope)
+				_, err = service.VerifySecurityInput(identity, service.VerificationInput{Scope: scope, Context: op.Context, Method: "session"})
+				assert.ErrorIs(t, err, service.ErrProofMethod)
+				if available && (wantMethod == "passkey" || wantMethod == "oauth") {
+					_, err = service.VerifySecurityInput(identity, service.VerificationInput{Scope: scope, Context: op.Context, Method: wantMethod})
+					assert.ErrorIs(t, err, service.ErrVerificationFlowRequired)
+				}
+				// Existing sensitive credential policy must remain equivalent.
+				regression, err := service.GetVerificationRequirements(identity, service.VerificationScopeAccountUnbind)
+				require.NoError(t, err)
+				assert.Equal(t, requirements.Methods, regression.Methods)
+			}
+		})
+	}
+}
+
+func TestCatalogSecurityProofLifetimeAndLivePolicy(t *testing.T) {
+	for _, change := range []string{"deadline", "deleted-proof", "factor-enrolled", "password-disabled", "demoted", "revoked", "user-version", "session-version"} {
+		t.Run(change, func(t *testing.T) {
+			user, identity, _ := setupCatalogSecurityTest(t)
+			op := catalogSecurityOperation("catalog.sync.apply")
+			proof, err := service.VerifySecurityInput(identity, service.VerificationInput{Scope: op.Scope, Context: op.Context, Method: "password", Password: "catalog-test-password"})
+			require.NoError(t, err)
+			var flow model.AuthFlow
+			require.NoError(t, model.DB.Where("purpose = ?", model.AuthFlowPurposeSecurityProof).First(&flow).Error)
+			claims := jwt.MapClaims{}
+			_, _, err = jwt.NewParser().ParseUnverified(proof.ProofToken, claims)
+			require.NoError(t, err)
+			assert.Equal(t, float64(60), claims["exp"].(float64)-claims["iat"].(float64))
+			assert.Equal(t, proof.ExpiresAt, flow.ExpiresAt.Unix())
+			assert.NotContains(t, claims, "context")
+			assert.NotEqual(t, proof.ProofToken, flow.TokenHash)
+			switch change {
+			case "deadline":
+				require.NoError(t, model.DB.Model(&flow).Update("expires_at", time.Now()).Error)
+			case "deleted-proof":
+				require.NoError(t, model.DB.Delete(&flow).Error)
+			case "factor-enrolled":
+				require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: "new-factor", PublicKey: "test-only"}).Error)
+			case "password-disabled":
+				common.PasswordLoginEnabled = false
+			case "demoted":
+				require.NoError(t, model.DB.Model(user).Update("role", common.RoleAdminUser).Error)
+			case "revoked":
+				_, err = model.RevokeUserSession(user.Id, identity.SessionID, "test-only")
+				require.NoError(t, err)
+			case "user-version":
+				require.NoError(t, model.DB.Model(user).Update("auth_version", 2).Error)
+			case "session-version":
+				require.NoError(t, model.DB.Model(&model.UserSession{}).Where("sid = ?", identity.SessionID).Update("version", 2).Error)
+			}
+			_, err = service.ConsumeOperationProof(proof.ProofToken, identity, op)
+			require.Error(t, err)
+			if change == "deadline" {
+				assert.ErrorIs(t, err, service.ErrAuthTokenExpired)
+			}
+			if change == "deleted-proof" {
+				assert.ErrorIs(t, err, service.ErrAuthTokenInvalid)
+			}
+			if change != "deadline" && change != "deleted-proof" {
+				binding, err := service.BindVerificationOperation(op)
+				require.NoError(t, err)
+				_, err = service.CompleteSecurityVerification(identity, binding, "password")
+				assert.Error(t, err, "post-ceremony current session/factor policy must be rechecked")
+				require.NoError(t, model.DB.First(&flow, flow.Id).Error)
+				assert.Nil(t, flow.ConsumedAt)
+			}
+		})
+	}
+}
+
+func TestCatalogSecurityVerificationHTTP(t *testing.T) {
+	user, identity, access := setupCatalogSecurityTest(t)
+	require.NoError(t, model.UpdateUserAccessToken(user.Id, "catalog-test-pat"))
+	op := catalogSecurityOperation("catalog.sync.restore")
+	router := gin.New()
+	router.POST("/verify", middleware.UserAuth(), UniversalVerify)
+	router.POST("/consume", middleware.RootAuth(), func(c *gin.Context) {
+		if middleware.RequireSecurityProof(c, op) != nil {
+			c.Status(http.StatusNoContent)
+		}
+	})
+	body, err := common.Marshal(service.VerificationInput{Scope: op.Scope, Context: op.Context, Method: "password", Password: "catalog-test-password"})
+	require.NoError(t, err)
+	for _, token := range []string{"catalog-test-pat", access} {
+		r := httptest.NewRequest("POST", "/verify", bytes.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		if token != access {
+			assert.NotContains(t, w.Body.String(), "proof_token")
+			continue
+		}
+		var wire securityEnrollmentResponse
+		require.NoError(t, common.Unmarshal(w.Body.Bytes(), &wire))
+		require.True(t, wire.Success, wire.Message)
+		var proof service.SecurityProof
+		require.NoError(t, common.Unmarshal(wire.Data, &proof))
+		for _, expected := range []int{http.StatusNoContent, http.StatusForbidden} {
+			r = httptest.NewRequest("POST", "/consume", nil)
+			r.Header.Set("Authorization", "Bearer "+access)
+			r.Header.Set("X-Security-Proof", proof.ProofToken)
+			w = httptest.NewRecorder()
+			router.ServeHTTP(w, r)
+			assert.Equal(t, expected, w.Code)
+		}
+		_, err = service.ConsumeOperationProof(proof.ProofToken, identity, op)
+		assert.ErrorIs(t, err, service.ErrProofConsumed)
+	}
+}
+
+func catalogSecurityHTTP(t *testing.T, router http.Handler, access, method, path string, body []byte) securityEnrollmentResponse {
+	t.Helper()
+	request := httptest.NewRequest(method, path, bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+access)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	var result securityEnrollmentResponse
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	return result
+}
+
+func TestCatalogSecurityDedicatedPasskey(t *testing.T) {
+	for _, change := range []string{"none", "disabled-after-begin", "revoked-after-begin"} {
+		t.Run(change, func(t *testing.T) {
+			user, identity, access := setupCatalogSecurityTest(t)
+			// Real software authenticator key; only enrollment is a fixture.
+			key := newSecurityLoginPasskey(t, user.Id)
+			op := catalogSecurityOperation("catalog.sync.apply")
+			router := gin.New()
+			router.POST("/begin", middleware.UserAuth(), PasskeyVerifyBegin)
+			router.POST("/finish", middleware.UserAuth(), PasskeyVerifyFinish)
+			payload, err := common.Marshal(op)
+			require.NoError(t, err)
+			result := catalogSecurityHTTP(t, router, access, "POST", "/begin", payload)
+			require.True(t, result.Success, result.Message)
+			var begin struct {
+				FlowToken string `json:"flow_token"`
+				Options   struct {
+					PublicKey struct {
+						Challenge string `json:"challenge"`
+					} `json:"publicKey"`
+				} `json:"options"`
+			}
+			require.NoError(t, common.Unmarshal(result.Data, &begin))
+			require.NotEmpty(t, begin.Options.PublicKey.Challenge)
+			payload, err = common.Marshal(passkeyFinishRequest{FlowToken: begin.FlowToken, Credential: securityPasskeyResponse(t, key, begin.Options.PublicKey.Challenge, false, 1)})
+			require.NoError(t, err)
+			if change == "disabled-after-begin" {
+				system_setting.GetPasskeySettings().Enabled = false
+			}
+			if change == "revoked-after-begin" {
+				_, err = model.RevokeUserSession(user.Id, identity.SessionID, "test-only")
+				require.NoError(t, err)
+			}
+			result = catalogSecurityHTTP(t, router, access, "POST", "/finish", payload)
+			if change != "none" {
+				assert.False(t, result.Success)
+				assert.NotContains(t, string(result.Data), "proof_token")
+				return
+			}
+			require.True(t, result.Success, result.Message)
+			var proof service.SecurityProof
+			require.NoError(t, common.Unmarshal(result.Data, &proof))
+			assert.Equal(t, "passkey", proof.Method)
+			_, err = service.ConsumeOperationProof(proof.ProofToken, identity, op)
+			require.NoError(t, err)
+			result = catalogSecurityHTTP(t, router, access, "POST", "/finish", payload)
+			assert.False(t, result.Success)
+		})
+	}
+}
+
+func TestCatalogSecurityDedicatedOAuth(t *testing.T) {
+	for _, change := range []string{"none", "binding-after-begin", "factor-after-begin"} {
+		t.Run(change, func(t *testing.T) {
+			user, identity, access := setupCatalogSecurityTest(t)
+			require.NoError(t, model.DB.Model(user).Updates(map[string]any{"password": "", "github_id": "linked-user"}).Error)
+			// Only the remote provider transport is substituted. The real OAuth
+			// state, callback, linked account and proof services all execute.
+			oauth.Register("catalog-oauth", &enrollmentOAuthProvider{externalID: "linked-user"})
+			t.Cleanup(func() { oauth.Unregister("catalog-oauth") })
+			op := catalogSecurityOperation("catalog.sync.restore")
+			router := gin.New()
+			router.POST("/state", middleware.UserAuth(), GenerateOAuthCode)
+			router.GET("/callback/:provider", middleware.UserAuth(), HandleOAuth)
+			payload, err := common.Marshal(map[string]any{"provider": "catalog-oauth", "intent": "verify", "scope": op.Scope, "context": op.Context})
+			require.NoError(t, err)
+			result := catalogSecurityHTTP(t, router, access, "POST", "/state", payload)
+			require.True(t, result.Success, result.Message)
+			var started struct {
+				FlowToken string `json:"flow_token"`
+			}
+			require.NoError(t, common.Unmarshal(result.Data, &started))
+			require.NotEmpty(t, started.FlowToken)
+			if change == "binding-after-begin" {
+				require.NoError(t, model.DB.Model(user).Update("github_id", "other").Error)
+			}
+			if change == "factor-after-begin" {
+				newSecurityLoginPasskey(t, user.Id)
+			}
+			path := "/callback/catalog-oauth?state=" + started.FlowToken + "&code=test-authorization-code"
+			result = catalogSecurityHTTP(t, router, access, "GET", path, nil)
+			if change != "none" {
+				assert.False(t, result.Success)
+				assert.NotContains(t, string(result.Data), "proof_token")
+				return
+			}
+			require.True(t, result.Success, result.Message)
+			var proof service.SecurityProof
+			require.NoError(t, common.Unmarshal(result.Data, &proof))
+			assert.Equal(t, "oauth", proof.Method)
+			_, err = service.ConsumeOperationProof(proof.ProofToken, identity, op)
+			require.NoError(t, err)
+			result = catalogSecurityHTTP(t, router, access, "GET", path, nil)
+			assert.False(t, result.Success)
+		})
+	}
+}
+
 func setupSecurityEnrollmentTest(t *testing.T) (*model.User, service.AuthIdentity) {
 	t.Helper()
 	require.NoError(t, i18n.Init())

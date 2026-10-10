@@ -34,6 +34,8 @@ const (
 	VerificationScopePasswordSet         = "account.password.set"
 	VerificationScopePasswordChange      = "account.password.change"
 	VerificationScopeAccountDelete       = "account.delete"
+	VerificationScopeCatalogSyncApply    = "catalog.sync.apply"
+	VerificationScopeCatalogSyncRestore  = "catalog.sync.restore"
 )
 
 var (
@@ -54,6 +56,16 @@ type VerificationOperation struct {
 
 type ChannelKeyReadContext struct {
 	ChannelID int `json:"channel_id"`
+}
+
+// CatalogSyncVerificationContext binds intent only; callers must obtain the
+// final digest, target and kind from the authoritative stored plan before use.
+// Values are exact (no trimming or case folding); JSON key order is immaterial.
+type CatalogSyncVerificationContext struct {
+	PlanDigest  string `json:"plan_digest"`
+	TargetID    string `json:"target_id"`
+	Kind        string `json:"kind"`
+	OperationID string `json:"operation_id"`
 }
 
 type AccountBindingContext struct {
@@ -82,6 +94,29 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 	}
 	var normalized any
 	switch operation.Scope {
+	case VerificationScopeCatalogSyncApply, VerificationScopeCatalogSyncRestore:
+		var context CatalogSyncVerificationContext
+		if common.ValidateJsonNoDuplicateKeys(operation.Context) != nil || len(fields) != 4 || common.Unmarshal(operation.Context, &context) != nil {
+			return VerificationBinding{}, ErrVerificationContextInvalid
+		}
+		for _, key := range []string{"plan_digest", "target_id", "kind", "operation_id"} {
+			if _, ok := fields[key]; !ok {
+				return VerificationBinding{}, ErrVerificationContextInvalid
+			}
+		}
+		kind := "sync"
+		if operation.Scope == VerificationScopeCatalogSyncRestore {
+			kind = "restore"
+		}
+		if context.Kind != kind || !catalogSyncID(context.TargetID) || context.OperationID == "" || len(context.OperationID) > 64 || strings.TrimSpace(context.OperationID) != context.OperationID || len(context.PlanDigest) != 64 {
+			return VerificationBinding{}, ErrVerificationContextInvalid
+		}
+		for _, char := range context.PlanDigest {
+			if !(char >= '0' && char <= '9' || char >= 'a' && char <= 'f') {
+				return VerificationBinding{}, ErrVerificationContextInvalid
+			}
+		}
+		normalized = context
 	case VerificationScopeChannelKeyRead:
 		var context ChannelKeyReadContext
 		if len(fields) != 1 || common.Unmarshal(fields["channel_id"], &context.ChannelID) != nil || context.ChannelID <= 0 {
@@ -184,6 +219,7 @@ func securityVerificationPolicy(scope string, state model.UserVerificationState)
 			return nil, model.ErrTwoFANotEnabled
 		}
 	case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,
+		VerificationScopeCatalogSyncApply, VerificationScopeCatalogSyncRestore,
 		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenRevoke,
 		VerificationScopeAccountBind, VerificationScopeAccountUnbind,
 		VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete:
@@ -231,7 +267,7 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 	if state.Status != common.UserStatusEnabled || state.AuthVersion != identity.UserAuthVersion {
 		return nil, ErrAuthTokenInvalid
 	}
-	if scope == VerificationScopeChannelKeyRead && state.Role != common.RoleRootUser {
+	if (scope == VerificationScopeChannelKeyRead || scope == VerificationScopeCatalogSyncApply || scope == VerificationScopeCatalogSyncRestore) && state.Role != common.RoleRootUser {
 		return nil, ErrVerificationForbidden
 	}
 	methods, err := securityVerificationPolicy(scope, *state)
@@ -242,7 +278,8 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 	for i := range methods {
 		if methods[i].Method == VerificationMethodPassword && !common.PasswordLoginEnabled {
 			switch scope {
-			case VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete:
+			case VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
+				VerificationScopeCatalogSyncApply, VerificationScopeCatalogSyncRestore:
 				methods[i].Available, methods[i].Reason = false, "Password authentication is disabled."
 			}
 		}

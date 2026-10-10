@@ -58,6 +58,28 @@ func requestBrowserOrigin(request *http.Request) (string, bool) {
 	return origin, err == nil
 }
 
+// StrictRequestBrowserOrigin opts sensitive catalog requests into a stricter
+// Origin grammar without changing the legacy refresh-cookie policy. Referer
+// retains ordinary URL paths/queries, and is considered only without Origin.
+func StrictRequestBrowserOrigin(request *http.Request) (string, bool) {
+	values := request.Header.Values("Origin")
+	originPresent := len(values) > 0
+	if !originPresent {
+		values = request.Header.Values("Referer")
+	}
+	if len(values) == 1 {
+		raw := strings.TrimSpace(values[0])
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Opaque != "" || parsed.User != nil || strings.HasSuffix(parsed.Host, ":") {
+			return "", false
+		}
+		if originPresent && (parsed.Path != "" || parsed.RawPath != "" || parsed.ForceQuery || strings.ContainsAny(raw, "?#")) {
+			return "", false
+		}
+	}
+	return requestBrowserOrigin(request)
+}
+
 func isAllowedSessionOrigin(request *http.Request, origin string) bool {
 	requestScheme := "http"
 	if request.TLS != nil {
