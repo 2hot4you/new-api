@@ -26,6 +26,8 @@ type catalogReferenceFence struct {
 	index       string
 	namespace   string
 	unqualified bool
+	oid         uint32
+	persistence string
 }
 
 // catalogReferenceTransaction owns a REAL root transaction. The caller must
@@ -143,24 +145,7 @@ func catalogReferenceTransaction(ctx context.Context, db *gorm.DB, registry *jsp
 		}
 	}()
 	if engine == "postgres" {
-		// Every unqualified GORM read must resolve the relation we lock. Locking
-		// public.options does not prevent CREATE earlier_schema.options from
-		// shadowing it through an inherited search_path. Pin one trusted schema;
-		// explicitly put pg_temp last so its implicit precedence cannot win.
-		var namespace string
-		for _, fence := range fences {
-			if !fence.unqualified {
-				continue
-			}
-			if namespace != "" && namespace != fence.namespace {
-				return errors.New("catalog references span mixed unqualified PostgreSQL namespaces")
-			}
-			namespace = fence.namespace
-		}
-		if namespace == "" {
-			return errors.New("catalog reference namespace unavailable")
-		}
-		if err := tx.Exec("SET LOCAL search_path TO " + tx.Statement.Quote(clause.Column{Name: namespace}) + ", pg_catalog, pg_temp").Error; err != nil {
+		if err := pinCatalogPostgresNamespaceTx(tx, fences); err != nil {
 			return err
 		}
 		if err := tx.Exec("SET LOCAL lock_timeout = '15s'").Error; err != nil {
@@ -286,6 +271,10 @@ func catalogReferenceKeyFence(tx *gorm.DB, fence catalogReferenceFence) error {
 // subsequent readers. No source, credentials, task JSON or option values are
 // selected by the fence scans. All rows and insertion gaps are covered.
 func catalogReferenceFenceSchema(db *gorm.DB) ([]catalogReferenceFence, error) {
+	return catalogRelationSchema(db, []any{&marketplaceOrderLock{}, &CatalogSyncState{}, &Ability{}, &Channel{}, &Midjourney{}, &Model{}, &Option{}, &SystemTask{}, &TaskPlugin{}, &Task{}, &Vendor{}, &CatalogSyncPlan{}, &CatalogSyncBaseline{}, &CatalogSyncOperation{}})
+}
+
+func catalogRelationSchema(db *gorm.DB, models []any) ([]catalogReferenceFence, error) {
 	indexVisibility := "IS_VISIBLE"
 	if db.Dialector.Name() == "mysql" {
 		var version string
@@ -296,7 +285,6 @@ func catalogReferenceFenceSchema(db *gorm.DB) ([]catalogReferenceFence, error) {
 			indexVisibility = "'YES'"
 		}
 	}
-	models := []any{&marketplaceOrderLock{}, &CatalogSyncState{}, &Ability{}, &Channel{}, &Midjourney{}, &Model{}, &Option{}, &SystemTask{}, &TaskPlugin{}, &Task{}, &Vendor{}, &CatalogSyncPlan{}, &CatalogSyncBaseline{}, &CatalogSyncOperation{}}
 	fences := make([]catalogReferenceFence, 0, len(models))
 	for _, model := range models {
 		stmt := &gorm.Statement{DB: db}
@@ -371,7 +359,7 @@ func catalogReferenceFenceSchema(db *gorm.DB) ([]catalogReferenceFence, error) {
 		case "postgres":
 			var kind, persistence, namespace, relation string
 			var rowSecurity, forceRowSecurity, inheritance bool
-			if err := db.Raw("SELECT c.relkind, c.relpersistence, n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity, EXISTS (SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhrelid = c.oid OR i.inhparent = c.oid) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = pg_catalog.to_regclass(?)", fence.table).Row().Scan(&kind, &persistence, &namespace, &relation, &rowSecurity, &forceRowSecurity, &inheritance); err != nil {
+			if err := db.Raw("SELECT c.relkind, c.relpersistence, n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity, EXISTS (SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhrelid = c.oid OR i.inhparent = c.oid), c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = pg_catalog.to_regclass(?)", fence.table).Row().Scan(&kind, &persistence, &namespace, &relation, &rowSecurity, &forceRowSecurity, &inheritance, &fence.oid); err != nil {
 				return nil, err
 			}
 			if kind != "r" || persistence == "t" || rowSecurity || forceRowSecurity || inheritance {
@@ -379,6 +367,7 @@ func catalogReferenceFenceSchema(db *gorm.DB) ([]catalogReferenceFence, error) {
 			}
 			fence.table = stmt.Quote(clause.Column{Name: namespace}) + "." + stmt.Quote(clause.Column{Name: relation})
 			fence.namespace, fence.unqualified = namespace, !strings.Contains(name, ".")
+			fence.persistence = persistence
 		case "sqlite":
 			parts := strings.Split(name, ".")
 			if len(parts) > 2 || (len(parts) == 2 && parts[0] != "main") {
@@ -399,6 +388,108 @@ func catalogReferenceFenceSchema(db *gorm.DB) ([]catalogReferenceFence, error) {
 		fences = append(fences, fence)
 	}
 	return fences, nil
+}
+
+// Pin all unqualified consumers to the same resolved schema. In particular,
+// implicit pg_temp precedence must not redirect reads after metadata locks.
+func pinCatalogPostgresNamespaceTx(tx *gorm.DB, fences []catalogReferenceFence) error {
+	var namespace string
+	for _, fence := range fences {
+		if !fence.unqualified {
+			continue
+		}
+		if namespace != "" && namespace != fence.namespace {
+			return errors.New("catalog references span mixed unqualified PostgreSQL namespaces")
+		}
+		namespace = fence.namespace
+	}
+	if namespace == "" {
+		return errors.New("catalog reference namespace unavailable")
+	}
+	return tx.Exec("SET LOCAL search_path TO " + tx.Statement.Quote(clause.Column{Name: namespace}) + ", pg_catalog, pg_temp").Error
+}
+
+// A narrow PostgreSQL read transaction, not the target mutation engine. Source
+// capture supplies READ ONLY / REPEATABLE READ; receipt lookup supplies READ
+// COMMITTED because authoritative auth validation locks user/session rows.
+// Resolve before BEGIN, lock before the first snapshot query, then verify OIDs:
+// a same-name DDL replacement cannot inherit the preflight completeness proof.
+func catalogPostgresReadTransaction(ctx context.Context, models []any, options *sql.TxOptions, read func(*gorm.DB) error) (result error) {
+	if DB == nil || DB.Dialector.Name() != "postgres" {
+		return errors.New("catalog read proof requires PostgreSQL")
+	}
+	pool := DB.Statement.ConnPool
+	if prepared, ok := pool.(*gorm.PreparedStmtDB); ok {
+		pool = prepared.ConnPool
+	}
+	sqlDB, ok := pool.(*sql.DB)
+	if !ok {
+		return errors.New("catalog read proof requires a root database pool")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	conn, err := sqlDB.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	// Close drains database/sql's asynchronous rollback on context cancellation
+	// before the caller releases its source read barrier or returns a receipt.
+	defer func() { result = errors.Join(result, conn.Close()) }()
+	root := DB.Session(&gorm.Session{NewDB: true, Context: ctx})
+	root.Statement.ConnPool = conn
+	fences, err := catalogRelationSchema(root, models)
+	if err != nil {
+		return err
+	}
+	for _, fence := range fences {
+		if fence.persistence != "p" {
+			return errors.New("catalog read proof requires permanent relations")
+		}
+	}
+	tx := root.Begin(options)
+	if tx.Error != nil {
+		return tx.Error
+	}
+	defer func() {
+		if err := tx.Statement.ConnPool.(gorm.TxCommitter).Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+			result = errors.Join(result, err)
+		}
+	}()
+	if err := pinCatalogPostgresNamespaceTx(tx, fences); err != nil {
+		return err
+	}
+	if err := tx.Exec("SET LOCAL lock_timeout = '15s'").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("SET LOCAL statement_timeout = '15s'").Error; err != nil {
+		return err
+	}
+	for _, fence := range fences {
+		if err := tx.Exec("LOCK TABLE " + fence.table + " IN ACCESS SHARE MODE").Error; err != nil {
+			return err
+		}
+	}
+	verified, err := catalogRelationSchema(tx, models)
+	if err != nil {
+		return err
+	}
+	for i, fence := range fences {
+		if fence.table != verified[i].table || fence.oid != verified[i].oid || verified[i].persistence != "p" {
+			return errors.New("catalog relation changed during read acquisition")
+		}
+	}
+	if err := read(tx); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := tx.Commit().Error; err != nil {
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		return err
+	}
+	return nil
 }
 
 func catalogMySQLFenceVersion(version, comment string) error {

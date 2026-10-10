@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"maps"
 	"slices"
@@ -471,6 +472,29 @@ func catalogOperationResult(tx *gorm.DB, operationID string, binding catalogOper
 		return catalogmanifest.Result{}, true, ErrCatalogSyncOperationConflict
 	}
 	return result, true, nil
+}
+
+// LookupCatalogSyncOperationResult authenticates an exact committed receipt
+// without running the mutation engine. Historic plan expiry/pruning and pending
+// publication do not invalidate a receipt; current actor authorization does.
+func LookupCatalogSyncOperationResult(ctx context.Context, planID, finalDigest, operationID string, actor catalogmanifest.Actor) (catalogmanifest.Result, bool, error) {
+	if !validCatalogActor(actor) || planID == "" || finalDigest == "" || operationID == "" || len(operationID) > 64 || strings.TrimSpace(operationID) != operationID {
+		return catalogmanifest.Result{}, false, ErrCatalogSyncPlanUnavailable
+	}
+	var result catalogmanifest.Result
+	var found bool
+	err := catalogPostgresReadTransaction(ctx, []any{&User{}, &UserSession{}, &CatalogSyncOperation{}}, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *gorm.DB) error {
+		if err := authenticateCatalogActorTx(tx, actor); err != nil {
+			return err
+		}
+		var err error
+		result, found, err = catalogOperationResult(tx, operationID, catalogOperationBinding{Actor: actor, PlanID: planID, Digest: finalDigest})
+		return err
+	})
+	if err != nil {
+		return catalogmanifest.Result{}, false, err
+	}
+	return result, found, nil
 }
 
 // Result is the immutable original receipt, including its pending state. The

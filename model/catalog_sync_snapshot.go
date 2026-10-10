@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,6 +16,42 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// ExportManagedCatalog owns the source completeness proof. The transaction is
+// physically read-only; only the three exported relations are locked, against
+// DDL rather than ordinary row writers. Never use the target mutation engine.
+func ExportManagedCatalog(ctx context.Context, sourceID string) (catalogmanifest.Snapshot, error) {
+	if strings.TrimSpace(sourceID) == "" {
+		return catalogmanifest.Snapshot{}, fmt.Errorf("catalog source identity is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return catalogmanifest.Snapshot{}, err
+	}
+	if !catalogBarrier.TryRLock() {
+		return catalogmanifest.Snapshot{}, ErrCatalogWriterBusy
+	}
+	var snapshot catalogmanifest.Snapshot
+	err := func() error {
+		defer catalogBarrier.RUnlock()
+		return catalogPostgresReadTransaction(ctx, []any{&Model{}, &Vendor{}, &Option{}}, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead}, func(tx *gorm.DB) error {
+			var err error
+			snapshot, err = exportManagedCatalogTx(ctx, tx, sourceID, true)
+			return err
+		})
+	}()
+	if err != nil {
+		return catalogmanifest.Snapshot{}, err
+	}
+	// Validate expression semantics only after releasing SQL and process locks.
+	// The detached immutable snapshot already contains the exact MVCC content.
+	if err := catalogmanifest.ValidateSnapshot(snapshot); err != nil {
+		return catalogmanifest.Snapshot{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return catalogmanifest.Snapshot{}, err
+	}
+	return snapshot, nil
+}
 
 // CaptureCatalogTargetTx adds local opaque incarnation evidence. HMAC prevents
 // IDs from being exposed or guessed from the wire; soft-delete/recreate obtains

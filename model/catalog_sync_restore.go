@@ -272,6 +272,52 @@ type CatalogSyncOperationSummary struct {
 	Actions            map[string]int `json:"actions"`
 }
 
+// History needs retained sealed-plan provenance. Unlike receipt replay, it
+// derives source and action details and must reject missing/corrupt plans.
+func projectCatalogSyncOperationTx(tx *gorm.DB, row CatalogSyncOperation) (CatalogSyncOperation, error) {
+	var binding catalogOperationBinding
+	if common.UnmarshalJsonStr(string(row.History), &binding) != nil {
+		return CatalogSyncOperation{}, ErrCatalogSyncOperationConflict
+	}
+	var stored CatalogSyncPlan
+	if err := tx.Select("id", "body", "digest", "expires_at", "baseline_generation").First(&stored, "id = ?", row.PlanID).Error; err != nil {
+		return CatalogSyncOperation{}, err
+	}
+	// As in restore provenance, the historic actor need not be live and normal
+	// preview expiry is irrelevant. Reuse the sealed-body decoder at epoch.
+	plan, err := decodeCatalogSyncPlan(stored, binding.Actor, time.Unix(0, 0))
+	if err != nil || binding.PlanID != row.PlanID ||
+		binding.Kind != plan.Kind || binding.RestoreOperationID != plan.RestoreOperationID || binding.Digest != plan.Digest ||
+		(binding.Kind != "sync" && binding.Kind != "restore") ||
+		(binding.Kind == "sync" && binding.RestoreOperationID != "") || (binding.Kind == "restore" && binding.RestoreOperationID == "") {
+		return CatalogSyncOperation{}, ErrCatalogSyncOperationConflict
+	}
+	summary := &CatalogSyncOperationSummary{Kind: binding.Kind, RestoreOperationID: binding.RestoreOperationID, SourceID: plan.Snapshot.SourceID, TargetID: binding.Actor.TargetID, ActorUserID: binding.Actor.UserID, Digest: binding.Digest, Actions: make(map[string]int)}
+	for _, change := range plan.Changes {
+		summary.Actions[change.Action]++
+	}
+	row.Summary, row.History, row.Backup, row.Result = summary, "", "", ""
+	return row, nil
+}
+
+// GetCatalogSyncOperation returns only the same safe projection as List.
+// The future management transport owns its interactive-root authorization.
+func GetCatalogSyncOperation(ctx context.Context, operationID string) (CatalogSyncOperation, error) {
+	var row CatalogSyncOperation
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Select("id", "plan_id", "state", "revision", "created_at", "history").First(&row, "id = ?", operationID).Error; err != nil {
+			return err
+		}
+		var err error
+		row, err = projectCatalogSyncOperationTx(tx, row)
+		return err
+	})
+	if err != nil {
+		return CatalogSyncOperation{}, err
+	}
+	return row, nil
+}
+
 func ListCatalogSyncOperations(ctx context.Context, offset, limit int) ([]CatalogSyncOperation, int64, error) {
 	if offset < 0 {
 		offset = 0
@@ -292,24 +338,11 @@ func ListCatalogSyncOperations(ctx context.Context, offset, limit int) ([]Catalo
 			return err
 		}
 		for i := range rows {
-			row := &rows[i]
-			var binding catalogOperationBinding
-			if common.UnmarshalJsonStr(string(row.History), &binding) != nil {
-				return ErrCatalogSyncOperationConflict
-			}
-			var stored CatalogSyncPlan
-			if err := tx.Select("body").First(&stored, "id = ?", row.PlanID).Error; err != nil {
+			var err error
+			rows[i], err = projectCatalogSyncOperationTx(tx, rows[i])
+			if err != nil {
 				return err
 			}
-			var plan catalogmanifest.Plan
-			if common.UnmarshalJsonStr(string(stored.Body), &plan) != nil || binding.PlanID != row.PlanID || binding.Kind != plan.Kind || binding.RestoreOperationID != plan.RestoreOperationID || binding.Digest != plan.Digest {
-				return ErrCatalogSyncOperationConflict
-			}
-			summary := &CatalogSyncOperationSummary{Kind: binding.Kind, RestoreOperationID: binding.RestoreOperationID, SourceID: plan.Snapshot.SourceID, TargetID: binding.Actor.TargetID, ActorUserID: binding.Actor.UserID, Digest: binding.Digest, Actions: make(map[string]int)}
-			for _, change := range plan.Changes {
-				summary.Actions[change.Action]++
-			}
-			row.Summary, row.History, row.Backup, row.Result = summary, "", "", ""
 		}
 		return nil
 	})
