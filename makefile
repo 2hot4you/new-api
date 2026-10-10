@@ -11,7 +11,7 @@ DEV_SQLITE_PATH ?= one-api.db
 
 .PHONY: all build-web build-all-web start-api prepare-api-assets \
 	infra-up infra-down infra-logs infra-reset dev dev-api dev-web \
-	reset-setup test
+	reset-setup test test-postgres test-postgres-race
 
 all: build-all-web start-api
 
@@ -80,6 +80,13 @@ test:
 		GOWORK=off go test $$root_packages
 	@echo "Testing relaykit Go module..."
 	@cd relaykit && GOWORK=off go test ./...
+
+# PostgreSQL deployment acceptance; never enters legacy implicit DB fixtures.
+test-postgres:
+	@python3 deploy/tests/test_postgres_ci.py --run normal
+
+test-postgres-race:
+	@python3 deploy/tests/test_postgres_ci.py --run race
 
 reset-setup:
 	@echo "Resetting local setup wizard state..."

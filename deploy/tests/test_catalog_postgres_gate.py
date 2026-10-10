@@ -16,6 +16,114 @@ from urllib.parse import urlsplit, parse_qs
 ROOT = Path(__file__).resolve().parents[2]
 GROUPS = [
   {
+    "name": "controller-ci-legacy-matrix",
+    "pkg": "./controller",
+    "tests": [
+      "TestPreConsumePolicyDatabaseMatrix",
+      "TestModelManagementDatabaseMatrix",
+      "TestSharedModelPluginPricingDatabaseMatrix",
+      "TestModelPricingConversionDatabaseMatrix",
+      "TestVendorManagementDatabaseMatrix",
+      "TestModelDeletionDatabaseMatrix"
+    ],
+    "matrix": True
+  },
+  {
+    "name": "controller-ci-legacy-regressions",
+    "pkg": "./controller",
+    "tests": [
+      "TestUpdateOptionAliasBillingExprUsesPluginSchema",
+      "TestGetUserModelsExpandsAutoGroupsInConfiguredOrder",
+      "TestListModelsIncludesTieredBillingModel",
+      "TestCreateModelMetaPersistsNormalizedCatalogFields",
+      "TestUpdateModelMetaRejectsInvalidCatalogFieldsWithoutChangingRow",
+      "TestUpdateModelMetaRejectsChangedModelName",
+      "TestCreateModelMetaAllowsCompleteMarketplacePublication",
+      "TestCreateModelMetaAllowsIncompleteDraft",
+      "TestUpdateModelMetaRejectsIncompleteNewPublicationWithoutChangingDraft",
+      "TestUpdateModelMetaAllowsCompleteNewPublication",
+      "TestUpdateModelMetaWithdrawsIncompletePublishedModel",
+      "TestGetModelMetaDynamicBlockersDoNotChangePublicationIntent",
+      "TestModelMarketplaceRuleCustomObjectEndpointUsesRuntimeEndpointSet",
+      "TestModelMarketplaceRuleMatchedRuntimeEndpointsUseUnion",
+      "TestModelMarketplaceRuleStaleEndpointArrayDoesNotCountAsRuntimeEndpoint",
+      "TestKlingNativeRouteSubmitPollSettleAndQuery",
+      "TestPrepareImageRequestBillingAllowsGrokImageIdentity",
+      "TestPrepareGrokImageUnknownFileIDFailsBeforeSnapshotOrPreconsume",
+      "TestPrepareImageRequestBillingPreservesOrdinaryImageMapping",
+      "TestOrdinaryImageAttemptPreparationTracksSelectedChannelAndRetry",
+      "TestMoliiGrokFailureCallsSelectedUpstreamOnceWithEligibleFallback",
+      "TestRelayMoliiGrokImagePricingErrorDoesNotPanic",
+      "TestImmediateTaskSettlementDatabase",
+      "TestResponsesInterruptedStreamHealth",
+      "TestResponsesWebSocketReusesConnectionAndSettlesEachRequest",
+      "TestUpdateVendorMetaRefreshesPricingVendorIntroduction",
+      "TestUpdateOptionRejectsInvalidTaskBillingExpressions",
+      "TestUpdateOptionRejectsUsageExpressionWithoutTaskPlugin",
+      "TestPreConsumeMultiplierRejectsInvalidRuntimeAndOverflow",
+      "TestCreateModelMetaRejectsInvalidCatalogFields",
+      "TestCreateModelMetaRejectsIncompleteMarketplacePublicationWithAllMissingFields",
+      "TestModelMarketplaceBlockersAreStableAndComplete",
+      "TestGetUserModelsFiltersByRequestedGroup",
+      "TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache",
+      "TestListModelsTokenLimitIncludesTieredBillingModel",
+      "TestListModelsTokenLimitUsesResolvedCustomAutoGroups",
+      "TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted",
+      "TestUpdateOptionSavesSeedanceMatrixAndGeneratedExpressionsTogether",
+      "TestUpdateOptionRejectsIncompleteSeedancePriceMatrix",
+      "TestMetadataSyncLocaleAndEndpointValidation"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "relay-ci-legacy-regressions",
+    "pkg": "./relay",
+    "tests": [
+      "TestTaskRetryRecomputesInferredBillingAndPreservesOverride",
+      "TestTaskSelfUseDefaultDoesNotMaskMappedExpression",
+      "TestRelayTaskSubmitTieredUsesFrozenBillingModelCurrency",
+      "TestRelayTaskSubmitAliasBillingIdentityAndExprFallback",
+      "TestRelayTaskSubmitPerCallBillingIdentity",
+      "TestEstimateTaskSubmitReusesBillingWithoutPreconsumingOrCallingUpstream",
+      "TestSharedTaskBillingExpressionSelectionAndFrozenSettlement",
+      "TestRelayTaskSubmitAcceptsAnySuccessfulUpstreamStatus",
+      "TestApplyChannelPinPreservesOriginTasksAndRetryMode",
+      "TestRelayTaskSubmitMapsBeforeValidateWhenOriginSet",
+      "TestRelayTaskSubmitDeclaredNameWithoutMappingIsUnchanged",
+      "TestRelayTaskSubmitDoesNotApplyMappingTwice",
+      "TestRelayTaskSubmitEmptyOriginKeepsLateMapping",
+      "TestCatalogPricingPostgresDSNGuard"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "helper-ci-legacy-regressions",
+    "pkg": "./relay/helper",
+    "tests": [
+      "TestMoliiGrokFixedPriceAnchorsAreAvailable",
+      "TestPerCallPricingUsesBillingIdentity",
+      "TestModelPriceHelperTieredUsesFrozenBillingModelCurrency",
+      "TestModelPriceHelperLegacyRatioIgnoresBillingCurrencyMetadata",
+      "TestModelPriceHelperTieredUsesPreloadedRequestInput",
+      "TestFixedPricePreConsumeAndRealtimeRejection",
+      "TestModelPriceHelperTieredInputPreConsumeMultiplier",
+      "TestModelPriceHelperTieredRejectsPreConsumeOverflow",
+      "TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice",
+      "TestModelPriceHelperUsesSuffixedOriginLikeMain",
+      "TestModelPriceHelperHonorsCustomClaudeThinkingAlias",
+      "TestModelPriceHelperCanonicalBillingLadder",
+      "TestModelPriceHelperMigratesLegacyGeminiWildcardToCanonical",
+      "TestModelPriceHelperModifierNameFallsBackToBase",
+      "TestModelPriceHelperExemptAtNameBillsVerbatim",
+      "TestModelPriceHelperPreservesGpt51CodexMaxIdentity",
+      "TestModelPriceHelperNativeGeminiNoThinkingDoesNotAliasBillingModel",
+      "TestInputPreConsumeMultiplierLegacyAndRequestPrices",
+      "TestMoliiGrokModelsUseDirectCostAnchors",
+      "TestHelperPostgresDSNGuard"
+    ],
+    "matrix": False
+  },
+  {
     "name": "common-json-contract",
     "pkg": "./common",
     "tests": ["TestValidateJsonNoDuplicateKeys", "TestHostJSONCodecConformance", "TestDecodeJsonWithValidation"],
@@ -24,7 +132,7 @@ GROUPS = [
   {
     "name": "controller-pure-regressions",
     "pkg": "./controller",
-    "tests": ["TestSecurityEnrollmentOperationContext", "TestSecurityEnrollmentPublicErrorsDiscardWrappedDetails", "TestMoliiImagineSyncRequestsNeverRetryOrSwitchChannel", "TestOrdinarySyncChannelRetainsRetryBehavior", "TestPrepareImageRequestBillingRejectsMappingBeforeEstimateOrPreconsume"],
+    "tests": ["TestSecurityEnrollmentOperationContext", "TestSecurityEnrollmentPublicErrorsDiscardWrappedDetails", "TestMoliiImagineSyncRequestsNeverRetryOrSwitchChannel", "TestOrdinarySyncChannelRetainsRetryBehavior", "TestPrepareImageRequestBillingRejectsMappingBeforeEstimateOrPreconsume", "TestControllerPostgresDSNGuard"],
     "matrix": False
   },
   {
@@ -198,7 +306,8 @@ GROUPS = [
       "TestCatalogSyncTargetNamespaceManagedRollback",
       "TestCatalogSyncTargetNamespaceShadowAuthorization",
       "TestCatalogSyncTargetNamespaceProofFailures",
-      "TestCatalogSyncTargetNamespaceLostCommitAck"
+      "TestCatalogSyncTargetNamespaceLostCommitAck",
+      "TestCatalogSyncHeartbeatCreationAcrossSecond"
     ],
     "matrix": False
   },
@@ -328,6 +437,7 @@ GROUPS = [
       "TestCatalogStartupEligibilityFacts",
       "TestCatalogStartupApplyRechecksHeartbeat",
       "TestCatalogStartupHeartbeatLock",
+      "TestCatalogStartupHeartbeatTimestamps",
       "TestCatalogStartupPendingEligibility",
       "TestCatalogStartupFinalAckEligibility",
       "TestCatalogStartupInstanceStorage",
@@ -498,6 +608,12 @@ def validate_dsn(dsn):
     if not valid:
         raise ValueError("required loopback TEST_POSTGRES_DSN URL with sslmode=disable")
 
+def validate_regression_inventory(groups, required):
+    selected = {name for group in groups for name in group["tests"]}
+    missing = sorted(set(required) - selected)
+    if missing:
+        raise ValueError("required CI regression missing from PostgreSQL acceptance: " + ", ".join(missing))
+
 def verify_events(events, required, matrix=False):
     passed = {e.get("Test") for e in events if e.get("Action") == "pass" and e.get("Test")}
     for event in events:
@@ -516,18 +632,23 @@ def verify_events(events, required, matrix=False):
 
 def run_gate(mode):
     validate_dsn(os.environ.get("TEST_POSTGRES_DSN", ""))
-    env = dict(os.environ, CATALOG_SYNC_POSTGRES_ONLY="1", GOFLAGS="",
+    env = dict(os.environ, CATALOG_SYNC_POSTGRES_ONLY="1", GOFLAGS="", GOWORK="off",
                TEST_CATALOG_SYNC_POSTGRES_DSN=os.environ["TEST_POSTGRES_DSN"])
     directory = Path(tempfile.mkdtemp(prefix="catalog-postgres-" + mode + "-"))
     print("Catalog gate logs: " + str(directory), flush=True)
     # Negative tests exercise actual guarded TestMain, never the legacy branch.
     if mode == "normal":
-        for name, override, diagnostic in [
-            ("missing-dsn", {"TEST_POSTGRES_DSN": ""}, "requires a loopback TEST_POSTGRES_DSN"),
-            ("invalid-mode", {"CATALOG_SYNC_POSTGRES_ONLY": "invalid"}, "must be exactly 1"),
-            ("host-override", {"TEST_POSTGRES_DSN": "postgresql://fixture@127.0.0.1/task?sslmode=disable&host=remote.example"}, "requires a loopback TEST_POSTGRES_DSN"),
+        for name, package, test, override, diagnostic in [
+            ("missing-dsn", "./model", "TestCatalogPostgresDSNGuard", {"TEST_POSTGRES_DSN": ""}, "requires a loopback TEST_POSTGRES_DSN"),
+            ("invalid-mode", "./model", "TestCatalogPostgresDSNGuard", {"CATALOG_SYNC_POSTGRES_ONLY": "invalid"}, "must be exactly 1"),
+            ("host-override", "./model", "TestCatalogPostgresDSNGuard", {"TEST_POSTGRES_DSN": "postgresql://fixture@127.0.0.1/task?sslmode=disable&host=remote.example"}, "requires a loopback TEST_POSTGRES_DSN"),
+            ("helper-missing-dsn", "./relay/helper", "TestPerCallPricingUsesBillingIdentity", {"TEST_POSTGRES_DSN": ""}, "requires a loopback TEST_POSTGRES_DSN"),
+            ("helper-invalid-mode", "./relay/helper", "TestPerCallPricingUsesBillingIdentity", {"CATALOG_SYNC_POSTGRES_ONLY": "invalid"}, "must be exactly 1"),
+            ("helper-host-override", "./relay/helper", "TestPerCallPricingUsesBillingIdentity", {"TEST_POSTGRES_DSN": "postgresql://fixture@127.0.0.1/task?sslmode=disable&host=remote.example"}, "reject ambiguous TEST_POSTGRES_DSN overrides"),
+            ("helper-dbname-override", "./relay/helper", "TestHelperPostgresDSNGuard", {"TEST_POSTGRES_DSN": "postgresql://fixture@127.0.0.1/task?sslmode=disable&dbname=task"}, "reject ambiguous TEST_POSTGRES_DSN overrides"),
+            ("helper-database-override", "./relay/helper", "TestHelperPostgresDSNGuard", {"TEST_POSTGRES_DSN": "postgresql://fixture@127.0.0.1/task?sslmode=disable&database=task"}, "reject ambiguous TEST_POSTGRES_DSN overrides"),
         ]:
-            command = ["go", "test", "./model", "-run", "^TestCatalogPostgresDSNGuard$", "-count=1", "-timeout=30s"]
+            command = ["go", "test", package, "-run", "^" + test + "$", "-count=1", "-timeout=30s"]
             result = subprocess.run(command, cwd=ROOT, env=dict(env, **override), capture_output=True, text=True)
             output = result.stdout + result.stderr
             (directory / (name + ".log")).write_text(output)

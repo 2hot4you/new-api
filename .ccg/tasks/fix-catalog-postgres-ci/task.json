@@ -1,0 +1,14 @@
+{
+  "id": "fix-catalog-postgres-ci",
+  "title": "修复受管目录同步 PostgreSQL CI 集成并推送 develop",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "test-integration",
+  "currentPhase": "review",
+  "nextAction": "完整普通及 race 门禁均通过，提交精确范围后非强制 push develop，确认自动 CI 触发并归档",
+  "createdAt": "2026-10-10",
+  "branch": "upgrade/rc40",
+  "base": "275423c64",
+  "authorization": "用户确认修复、验证并 push develop；PostgreSQL ONLY；禁止外部 antigravity/Claude 执行器"
+}

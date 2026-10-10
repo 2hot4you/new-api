@@ -182,17 +182,11 @@ jobs:
         working-directory: relaykit
         run: go build ./...
 
-      - name: Test root and relaykit modules
-        run: make test
+      - name: PostgreSQL and complete independent suites (missing prerequisites and test skips fail)
+        run: make test-postgres
 
-      - name: Mandatory catalog PostgreSQL acceptance (missing DSN and skips fail)
-        run: bash deploy/tests/catalog_postgres_gate.sh normal
-
-      - name: Catalog PostgreSQL race acceptance
-        run: bash deploy/tests/catalog_postgres_gate.sh race
-
-      - name: Run request lifecycle Race Detector
-        run: go test -race ./common ./middleware ./service ./controller ./relay ./router -count=1
+      - name: PostgreSQL and complete independent suites Race Detector
+        run: make test-postgres-race
 
       - name: Test deployment contracts
         run: |
