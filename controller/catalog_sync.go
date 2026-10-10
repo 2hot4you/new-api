@@ -111,6 +111,8 @@ type catalogPlanResponse struct {
 	Kind               string                     `json:"kind"`
 	RestoreOperationID string                     `json:"restore_operation_id,omitempty"`
 	SourceID           string                     `json:"source_id"`
+	SourceExportedAt   int64                      `json:"source_exported_at"`
+	SourceDigest       string                     `json:"source_digest"`
 	TargetID           string                     `json:"target_id"`
 	Digest             string                     `json:"digest"`
 	ExpiresAt          int64                      `json:"expires_at"`
@@ -125,7 +127,7 @@ func catalogPlanSuccess(c *gin.Context, plan catalogmanifest.Plan) {
 		catalogSyncError(c, err)
 		return
 	}
-	common.ApiSuccess(c, catalogPlanResponse{ID: plan.ID, Kind: plan.Kind, RestoreOperationID: plan.RestoreOperationID, SourceID: plan.Snapshot.SourceID, TargetID: plan.Actor.TargetID, Digest: digest, ExpiresAt: plan.ExpiresAt, Resolution: plan.Resolution, Changes: plan.Changes, Executable: catalogmanifest.PlanExecutable(plan, time.Now())})
+	common.ApiSuccess(c, catalogPlanResponse{ID: plan.ID, Kind: plan.Kind, RestoreOperationID: plan.RestoreOperationID, SourceID: plan.Snapshot.SourceID, SourceExportedAt: plan.Snapshot.ExportedAt, SourceDigest: plan.Snapshot.Digest, TargetID: plan.Actor.TargetID, Digest: digest, ExpiresAt: plan.ExpiresAt, Resolution: plan.Resolution, Changes: plan.Changes, Executable: catalogmanifest.PlanExecutable(plan, time.Now())})
 }
 
 type catalogOperationResponse struct {

@@ -18,6 +18,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func catalogHTTPSource(t *testing.T) ([]byte, string) {
 	return append([]byte(nil), response.Body.Bytes()...), token
 }
 
-func catalogHTTPFetch(t *testing.T, body []byte, token string) func(context.Context) (catalogmanifest.Snapshot, error) {
+func catalogHTTPFetch(t *testing.T, body []byte, token string, requests ...*atomic.Int64) func(context.Context) (catalogmanifest.Snapshot, error) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -75,6 +76,9 @@ func catalogHTTPFetch(t *testing.T, body []byte, token string) func(context.Cont
 	roots := x509.NewCertPool()
 	roots.AddCert(parsed)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(requests) > 0 {
+			requests[0].Add(1)
+		}
 		assert.Equal(t, "/api/catalog_sync/export", r.URL.Path)
 		assert.Equal(t, "dev.molii.co", r.Host)
 		assert.Equal(t, "dev.molii.co", r.TLS.ServerName)
@@ -158,8 +162,20 @@ func catalogHTTPProof(t *testing.T, identity service.AuthIdentity, plan catalogP
 
 func TestCatalogSyncHTTPBusinessAndReceiptQuery(t *testing.T) {
 	body, token := catalogHTTPSource(t)
-	db, router, identity, access := catalogHTTPTarget(t, catalogHTTPFetch(t, body, token))
-	plan := catalogHTTPPlan(t, catalogHTTPRequest(router, "POST", "/preview", access, "", `{}`))
+	var source struct {
+		Data catalogmanifest.Snapshot `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(body, &source))
+	var requests atomic.Int64
+	db, router, identity, access := catalogHTTPTarget(t, catalogHTTPFetch(t, body, token, &requests))
+	preview := catalogHTTPRequest(router, "POST", "/preview", access, "", `{}`)
+	plan := catalogHTTPPlan(t, preview)
+	catalogHTTPAssertSnapshotMetadata(t, preview, source.Data)
+	resolveBody := fmt.Sprintf(`{"digest":%q,"overwrite_keys":[],"confirm_deletes":false}`, plan.Digest)
+	resolved := catalogHTTPRequest(router, "POST", "/plans/"+plan.ID+"/resolve", access, "", resolveBody)
+	plan = catalogHTTPPlan(t, resolved)
+	catalogHTTPAssertSnapshotMetadata(t, resolved, source.Data)
+	assert.Equal(t, int64(1), requests.Load(), "resolve uses the sealed snapshot without another source request")
 	require.True(t, plan.Executable)
 	assert.NotEmpty(t, plan.Changes)
 	assert.Equal(t, 403, catalogHTTPRequest(router, "POST", "/plans/"+plan.ID+"/apply", access, "", catalogHTTPApplyBody(t, plan, "http-operation")).Code)
@@ -254,7 +270,8 @@ func TestCatalogSyncHTTPNetworkOutageCannotDelete(t *testing.T) {
 
 func TestCatalogSyncHTTPProofOrderingAndRestore(t *testing.T) {
 	body, token := catalogHTTPSource(t)
-	db, router, identity, access := catalogHTTPTarget(t, catalogHTTPFetch(t, body, token))
+	var requests atomic.Int64
+	db, router, identity, access := catalogHTTPTarget(t, catalogHTTPFetch(t, body, token, &requests))
 	plan := catalogHTTPPlan(t, catalogHTTPRequest(router, "POST", "/preview", access, "", `{}`))
 	proof, operation := catalogHTTPProof(t, identity, plan, "sync-one")
 	for _, mismatch := range []string{"digest", "operation", "scope", "target", "kind"} {
@@ -307,7 +324,14 @@ func TestCatalogSyncHTTPProofOrderingAndRestore(t *testing.T) {
 	proof, _ = catalogHTTPProof(t, identity, plan, "sync-one")
 	response = catalogHTTPRequest(router, "POST", "/plans/"+plan.ID+"/apply", access, proof, catalogHTTPApplyBody(t, plan, "sync-one"))
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	restored := catalogHTTPPlan(t, catalogHTTPRequest(router, "POST", "/operations/sync-one/restore-preview", access, "", `{}`))
+	restoreResponse := catalogHTTPRequest(router, "POST", "/operations/sync-one/restore-preview", access, "", `{}`)
+	restored := catalogHTTPPlan(t, restoreResponse)
+	var storedRestore model.CatalogSyncPlan
+	require.NoError(t, db.First(&storedRestore, "id = ?", restored.ID).Error)
+	var inverse catalogmanifest.Plan
+	require.NoError(t, common.UnmarshalJsonStr(string(storedRestore.Body), &inverse))
+	catalogHTTPAssertSnapshotMetadata(t, restoreResponse, inverse.Snapshot)
+	assert.Equal(t, int64(1), requests.Load(), "restore constructs its local inverse without fetching dev")
 	assert.Equal(t, "restore", restored.Kind)
 	resolveBody := fmt.Sprintf(`{"digest":%q,"overwrite_keys":[],"confirm_deletes":true}`, restored.Digest)
 	restored = catalogHTTPPlan(t, catalogHTTPRequest(router, "POST", "/plans/"+restored.ID+"/resolve", access, "", resolveBody))
@@ -332,6 +356,21 @@ func TestCatalogSyncHTTPProofOrderingAndRestore(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, response.Code, "only latest operation is restorable")
 	response = catalogHTTPRequest(router, "POST", "/plans/"+restored.ID+"/apply", access, "", catalogHTTPApplyBody(t, restored, "restore-one"))
 	assert.Equal(t, http.StatusOK, response.Code, "restore exact replay needs no new proof")
+}
+
+func catalogHTTPAssertSnapshotMetadata(t *testing.T, response *httptest.ResponseRecorder, snapshot catalogmanifest.Snapshot) {
+	t.Helper()
+	var envelope struct {
+		Data struct {
+			SourceExportedAt int64  `json:"source_exported_at"`
+			SourceDigest     string `json:"source_digest"`
+			ExpiresAt        int64  `json:"expires_at"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &envelope))
+	require.Equal(t, snapshot.ExportedAt, envelope.Data.SourceExportedAt, "snapshot time must come from the sealed source/inverse, not plan expiry")
+	require.Equal(t, snapshot.Digest, envelope.Data.SourceDigest, "source digest retains its original algorithm prefix")
+	assert.NotEqual(t, envelope.Data.ExpiresAt, envelope.Data.SourceExportedAt)
 }
 
 func TestCatalogSyncHTTPPendingReplayAndUnknownCommit(t *testing.T) {
@@ -458,7 +497,55 @@ func TestCatalogSyncHTTPAuthOriginAndAudit(t *testing.T) {
 	registerCatalogSyncRoutes(router.Group("/api"), catalogManagementRuntime(t), nil, service.FetchDevCatalog)
 	require.NoError(t, model.UpdateUserAccessToken(user.Id, "http-root-pat"))
 	require.NoError(t, model.DB.Create(&model.Token{UserId: user.Id, Key: "http-relay-token", Status: common.TokenStatusEnabled, Name: "http-test"}).Error)
-	for _, route := range []struct{ method, path, body string }{{"GET", "/status", ""}, {"POST", "/preview", `{}`}, {"POST", "/plans/id/resolve", `{}`}, {"POST", "/plans/id/apply", `{}`}, {"GET", "/history", ""}, {"GET", "/operations/id", ""}, {"POST", "/operations/id/restore-preview", `{}`}} {
+	routes := []struct{ method, path, body string }{{"GET", "/status", ""}, {"POST", "/preview", `{}`}, {"POST", "/plans/id/resolve", `{}`}, {"POST", "/plans/id/apply", `{}`}, {"GET", "/history", ""}, {"GET", "/operations/id", ""}, {"POST", "/operations/id/restore-preview", `{}`}}
+	t.Run("refresh-cookie-only", func(t *testing.T) {
+		bundle, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "catalog-http-refresh-only")
+		require.NoError(t, err)
+		require.NotEmpty(t, bundle.RefreshToken)
+		cookieResponse := httptest.NewRecorder()
+		cookieContext, _ := gin.CreateTestContext(cookieResponse)
+		service.WriteRefreshCookie(cookieContext, bundle.RefreshToken)
+		cookies := cookieResponse.Result().Cookies()
+		require.Len(t, cookies, 2, "actual refresh cookie plus session hint")
+		var refreshCookie *http.Cookie
+		for _, cookie := range cookies {
+			if cookie.Name == service.RefreshCookieName {
+				refreshCookie = cookie
+			}
+		}
+		require.NotNil(t, refreshCookie)
+		require.Equal(t, bundle.RefreshToken, refreshCookie.Value)
+		before := catalogSyncDurableRows(t, model.DB, "public", []string{"models", "vendors", "options", "user_sessions"})
+		for _, route := range routes {
+			request := httptest.NewRequest(route.method, "https://example.com/api/catalog_sync"+route.path, strings.NewReader(route.body))
+			request.Header.Set("Origin", "https://example.com")
+			request.Header.Set("Content-Type", "application/json")
+			// Deliberately send even the path-scoped refresh cookie to management:
+			// possessing a valid refresh credential must not grant root access.
+			for _, cookie := range cookies {
+				request.AddCookie(cookie)
+			}
+			require.Empty(t, request.Header.Get("Authorization"))
+			sent, err := request.Cookie(service.RefreshCookieName)
+			require.NoError(t, err)
+			require.Equal(t, bundle.RefreshToken, sent.Value)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Equal(t, http.StatusUnauthorized, response.Code, route.method+" "+route.path+": "+response.Body.String())
+			assert.Contains(t, response.Body.String(), `"success":false`)
+			assert.NotContains(t, response.Body.String(), bundle.RefreshToken)
+		}
+		assert.Equal(t, before, catalogSyncDurableRows(t, model.DB, "public", []string{"models", "vendors", "options", "user_sessions"}), "denied requests cannot mutate catalog or refresh-session state")
+		assert.False(t, model.DB.Migrator().HasTable(&model.CatalogSyncPlan{}))
+		assert.False(t, model.DB.Migrator().HasTable(&model.CatalogSyncOperation{}))
+		// The exact cookie used above remains valid for its actual refresh flow;
+		// these denials must not be explained by an invalid or expired secret.
+		refreshed, refreshedUser, err := service.RefreshLoginSession(bundle.RefreshToken, bundle.Session.SID, "127.0.0.1", "catalog-http-refresh-only")
+		require.NoError(t, err)
+		assert.Equal(t, user.Id, refreshedUser.Id)
+		assert.Equal(t, bundle.Session.SID, refreshed.Session.SID)
+	})
+	for _, route := range routes {
 		for _, credential := range []string{"", "http-root-pat", "http-relay-token", "reader-a." + strings.Repeat("a", 43)} {
 			response := catalogHTTPRequest(router, route.method, route.path, credential, "", route.body)
 			assert.Contains(t, []int{401, 403}, response.Code, response.Body.String())
