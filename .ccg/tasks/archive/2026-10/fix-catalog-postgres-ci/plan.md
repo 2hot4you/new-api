@@ -71,8 +71,8 @@ Incident-driven production correction: final race acceptance exposed the real fi
 - [x] Review each owned task diff for spec compliance and quality; fix material findings without weakening requirements.
 - [x] Run exact complete normal/race PostgreSQL CI acceptance, deployment contracts, Go vet/build root and relaykit, relevant frontend checks if changed. Required cases have zero skips.
 - [x] Record limits: PostgreSQL-only acceptance is not the historical cross-engine full-suite result; no claim all old fixtures were migrated.
-- [ ] Independent whole-change review with no external executors; archive task and exact evidence.
-- [ ] Fetch origin/develop, verify nonforce fast-forward and only expected commits; push HEAD:refs/heads/develop. Inspect triggered workflow and report actual CI/deployment outcome.
+- [x] Independent whole-change review with no external executors; archive task and exact evidence.
+- [x] Fetch origin/develop, verify nonforce fast-forward and only expected commits; push HEAD:refs/heads/develop. Inspect triggered workflow and report actual CI/deployment outcome (triggered/in progress, deployment not yet confirmed).
 
 ## Decisions / execution ledger
 
