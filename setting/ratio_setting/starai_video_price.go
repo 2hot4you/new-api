@@ -252,7 +252,10 @@ func init() {
 
 // GetStarAIVideoPrice returns the configured direct price per 1M tokens.
 func GetStarAIVideoPrice(model, resolution string, hasVideo bool) (float64, bool) {
-	prices := GetStarAIVideoPriceSettingCopy()
+	return GetStarAIVideoPriceSettingCopy().VideoPrice(model, resolution, hasVideo)
+}
+
+func (prices StarAIVideoPriceSetting) VideoPrice(model, resolution string, hasVideo bool) (float64, bool) {
 	var price float64
 	switch model {
 	case "doubao-seedance-2-0-260128":

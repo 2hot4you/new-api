@@ -50,10 +50,13 @@ func init() {
 }
 
 func getMoliiGrokToolPrice(toolName, modelName string) (float64, bool) {
+	return GetMoliiGrokToolPriceSettingCopy().toolPrice(toolName, modelName)
+}
+
+func (prices MoliiGrokToolPriceSetting) toolPrice(toolName, modelName string) (float64, bool) {
 	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelName)), "grok-") {
 		return 0, false
 	}
-	prices := GetMoliiGrokToolPriceSettingCopy()
 	var price float64
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "web_search", "web_search_preview":

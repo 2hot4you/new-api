@@ -233,16 +233,31 @@ func buildToolPriceIndex(prices map[string]float64) *toolPriceIndex {
 // GetToolPriceForModel returns the price ($/1K calls) for a tool given a model name.
 // Lookup: longest prefix match → tool default → 0.
 func GetToolPriceForModel(toolName, modelName string) float64 {
-	if price, ok := getMoliiGrokToolPrice(toolName, modelName); ok {
+	if currentIndex.Load() == nil {
+		RebuildToolPriceIndex()
+	}
+	return CaptureToolPrices().PriceForModel(toolName, modelName)
+}
+
+// ToolPrices holds the complete immutable lookup state, including prices for
+// custom function names that may first appear in an upstream response.
+type ToolPrices struct {
+	index *toolPriceIndex
+	grok  MoliiGrokToolPriceSetting
+}
+
+// CaptureToolPrices must share the caller's catalog reader with base selection.
+func CaptureToolPrices() ToolPrices {
+	return ToolPrices{index: currentIndex.Load(), grok: GetMoliiGrokToolPriceSettingCopy()}
+}
+
+func (prices ToolPrices) PriceForModel(toolName, modelName string) float64 {
+	if price, ok := prices.grok.toolPrice(toolName, modelName); ok {
 		return price
 	}
-	idx := currentIndex.Load()
+	idx := prices.index
 	if idx == nil {
-		RebuildToolPriceIndex()
-		idx = currentIndex.Load()
-		if idx == nil {
-			return 0
-		}
+		return 0
 	}
 
 	if entries, ok := idx.prefixes[toolName]; ok && modelName != "" {

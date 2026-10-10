@@ -568,8 +568,21 @@ func publishCatalogRuntimeAndOptionsGuarded(ctx context.Context, stage *catalogR
 // plugins, network/body work, or reenter a catalog barrier. Real consumers are
 // integrated in Task5b; existing frozen requests do not call this boundary.
 func WithCatalogPricingRead(ctx context.Context, modelName string, capture func() error) error {
+	return WithCatalogPricingReads(ctx, []string{modelName}, capture)
+}
+
+// WithCatalogPricingReads protects every possible pricing and money identity
+// selected by one request. Its callback has the same short-capture contract.
+func WithCatalogPricingReads(ctx context.Context, modelNames []string, capture func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	identities := make(map[string]bool, len(modelNames))
+	for _, name := range modelNames {
+		if strings.TrimSpace(name) == "" {
+			return ErrCatalogPublicationPending
+		}
+		identities[name] = true
 	}
 	if !catalogBarrier.TryRLock() {
 		return ErrCatalogWriterBusy
@@ -578,7 +591,7 @@ func WithCatalogPricingRead(ctx context.Context, modelName string, capture func(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if capture == nil || strings.TrimSpace(modelName) == "" || !catalogRuntime.ready || catalogRuntime.db != DB {
+	if capture == nil || len(identities) == 0 || !catalogRuntime.ready || catalogRuntime.db != DB {
 		return ErrCatalogPublicationPending
 	}
 	options := &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead}
@@ -626,7 +639,7 @@ func WithCatalogPricingRead(ctx context.Context, modelName string, capture func(
 					return ErrCatalogPublicationPending
 				}
 			case catalogmanifest.KindModel:
-				if entry.Key == modelName || (entry.Exists && (entry.Model == nil || entry.Model.ModelName != entry.Key || entry.Model.NameRule != NameRuleExact)) {
+				if identities[entry.Key] || (entry.Exists && (entry.Model == nil || entry.Model.ModelName != entry.Key || entry.Model.NameRule != NameRuleExact)) {
 					return ErrCatalogPublicationPending
 				}
 			default:

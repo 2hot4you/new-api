@@ -259,7 +259,8 @@ type RelayInfo struct {
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
 
-	PriceData hosttypes.PriceData
+	PriceData        hosttypes.PriceData
+	PricingSelection *RequestPricingSelection
 
 	GrokImageBilling *GrokImageBillingSnapshot
 	GrokVideoBilling *GrokVideoBillingSnapshot

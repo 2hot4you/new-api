@@ -107,7 +107,10 @@ func GetMoliiGrokImagePrices(model, resolution string) (outputPrice, inputPrice 
 // GetMoliiGrokImagePricesForQuality returns output and per-input-image prices.
 // Image 2.0 defaults to the official medium tier when quality is omitted.
 func GetMoliiGrokImagePricesForQuality(model, resolution, quality string) (outputPrice, inputPrice float64, ok bool) {
-	prices := GetMoliiGrokPriceSettingCopy()
+	return GetMoliiGrokPriceSettingCopy().ImagePricesForQuality(model, resolution, quality)
+}
+
+func (prices MoliiGrokPriceSetting) ImagePricesForQuality(model, resolution, quality string) (outputPrice, inputPrice float64, ok bool) {
 	resolution = strings.ToLower(strings.TrimSpace(resolution))
 	quality = strings.ToLower(strings.TrimSpace(quality))
 	if resolution != "1k" && resolution != "2k" {
@@ -157,7 +160,10 @@ func GetMoliiGrokImagePricesForQuality(model, resolution, quality string) (outpu
 
 // GetMoliiGrokVideoPrices returns output/sec, input-image and input-video/sec prices.
 func GetMoliiGrokVideoPrices(model, resolution string) (outputPrice, imageInputPrice, videoInputPrice float64, ok bool) {
-	prices := GetMoliiGrokPriceSettingCopy()
+	return GetMoliiGrokPriceSettingCopy().VideoPrices(model, resolution)
+}
+
+func (prices MoliiGrokPriceSetting) VideoPrices(model, resolution string) (outputPrice, imageInputPrice, videoInputPrice float64, ok bool) {
 	resolution = strings.ToLower(strings.TrimSpace(resolution))
 	switch model {
 	case "grok-imagine-video-1.5":
