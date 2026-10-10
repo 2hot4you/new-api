@@ -22,6 +22,8 @@ type ModelPricing struct {
 	Ratio                float64
 	HasRatio             bool
 	RatioMatch           string
+	DefaultRatio         float64
+	HasDefaultRatio      bool
 	CompletionRatio      float64
 	CacheRatio           float64
 	CacheCreationRatio   float64
@@ -29,6 +31,17 @@ type ModelPricing struct {
 	AudioRatio           float64
 	AudioCompletionRatio float64
 	Money                billingmoney.Context
+}
+
+// TaskPricing is the effective task expression decision, including a present
+// empty override. PluginKey identifies the already pinned request plugin.
+type TaskPricing struct {
+	BillingModelName  string
+	PluginKey         string
+	UseExpression     bool
+	Expression        string
+	HasExpression     bool
+	ExpressionVersion int
 }
 
 // RequestPricingSelection owns one catalog generation. The private map and
@@ -40,10 +53,23 @@ type RequestPricingSelection struct {
 	tools    operation_setting.ToolPrices
 	grok     ratio_setting.MoliiGrokPriceSetting
 	seedance ratio_setting.StarAIVideoPriceSetting
+	task     *TaskPricing
 }
 
-func NewRequestPricingSelection(models map[string]ModelPricing, tools operation_setting.ToolPrices, grok ratio_setting.MoliiGrokPriceSetting, seedance ratio_setting.StarAIVideoPriceSetting) *RequestPricingSelection {
-	return &RequestPricingSelection{models: maps.Clone(models), tools: tools, grok: grok, seedance: seedance}
+func NewRequestPricingSelection(models map[string]ModelPricing, tools operation_setting.ToolPrices, grok ratio_setting.MoliiGrokPriceSetting, seedance ratio_setting.StarAIVideoPriceSetting, task ...TaskPricing) *RequestPricingSelection {
+	selection := &RequestPricingSelection{models: maps.Clone(models), tools: tools, grok: grok, seedance: seedance}
+	if len(task) > 0 {
+		value := task[0]
+		selection.task = &value
+	}
+	return selection
+}
+
+func (s *RequestPricingSelection) Task() (TaskPricing, bool) {
+	if s == nil || s.task == nil {
+		return TaskPricing{}, false
+	}
+	return *s.task, true
 }
 
 func (s *RequestPricingSelection) Model(name string) (ModelPricing, bool) {

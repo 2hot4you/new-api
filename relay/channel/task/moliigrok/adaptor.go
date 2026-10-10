@@ -584,23 +584,45 @@ func taskRequestContainsFileID(req relaycommon.TaskSubmitReq) bool {
 }
 
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	ratios, _ := a.EstimateBillingValidated(c, info)
+	return ratios
+}
+
+func (a *TaskAdaptor) EstimateBillingValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]float64, error) {
 	if info == nil {
-		return nil
+		return nil, errors.New("task relay info is missing")
 	}
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	modelName := strings.TrimSpace(info.UpstreamModelName)
 	if modelName == "" {
 		modelName = strings.TrimSpace(info.OriginModelName)
 	}
-	basePrice, ok := ratio_setting.GetModelPrice(modelName, false)
-	if !ok {
-		basePrice, ok = ratio_setting.GetDefaultModelPriceMap()[modelName]
+	var basePrice float64
+	var ok bool
+	var prices ratio_setting.MoliiGrokPriceSetting
+	if selected := info.PricingSelection; selected != nil {
+		anchor, found := selected.Model(modelName)
+		if !found {
+			return nil, fmt.Errorf("model %s is outside the task pricing selection", modelName)
+		}
+		basePrice, ok = anchor.Price, anchor.HasPrice
+		if !ok {
+			basePrice, ok = anchor.DefaultPrice, anchor.HasDefaultPrice
+		}
+		prices = selected.GrokPrices()
+	} else {
+		// Compatibility for callers without a request-owned selection.
+		basePrice, ok = ratio_setting.GetModelPrice(modelName, false)
+		if !ok {
+			basePrice, ok = ratio_setting.GetDefaultModelPriceMap()[modelName]
+		}
+		prices = ratio_setting.GetMoliiGrokPriceSettingCopy()
 	}
 	if !ok || basePrice <= 0 {
-		return nil
+		return nil, fmt.Errorf("model %s task price anchor is not configured", modelName)
 	}
 	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
 	seconds := float64(req.Duration)
@@ -610,9 +632,9 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	} else if info.Action == videoExtensionAction {
 		resolution = strings.ToLower(strings.TrimSpace(info.EstimatedVideoResolution))
 	}
-	outputPrice, imageInputPrice, videoInputPrice, ok := ratio_setting.GetMoliiGrokVideoPrices(modelName, resolution)
+	outputPrice, imageInputPrice, videoInputPrice, ok := prices.VideoPrices(modelName, resolution)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("model %s task prices are not configured for %s", modelName, resolution)
 	}
 	cost := seconds * outputPrice
 	if info.Action == videoEditAction {
@@ -630,7 +652,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 		info.EstimatedVideoInputUnitPrice = videoInputPrice
 		info.EstimatedVideoOutputUnitPrices = make(map[string]float64, 2)
 		for _, candidate := range []string{"480p", "720p"} {
-			candidateOutput, _, _, configured := ratio_setting.GetMoliiGrokVideoPrices(modelName, candidate)
+			candidateOutput, _, _, configured := prices.VideoPrices(modelName, candidate)
 			if configured {
 				info.EstimatedVideoOutputUnitPrices[candidate] = candidateOutput
 			}
@@ -638,7 +660,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	} else if info.Action == referenceToVideoAction || strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 {
 		info.EstimatedVideoInputUnitPrice = imageInputPrice
 	}
-	return map[string]float64{"molii_grok_direct_cost": cost / basePrice}
+	return map[string]float64{"molii_grok_direct_cost": cost / basePrice}, nil
 }
 
 func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int {

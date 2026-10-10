@@ -330,20 +330,37 @@ func (a *TaskAdaptor) GetChannelName() string {
 // Duration is intentionally not multiplied here: StarAI's returned
 // total_tokens already reflects the generated video quantity.
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	ratios, _ := a.EstimateBillingValidated(c, info)
+	return ratios
+}
+
+func (a *TaskAdaptor) EstimateBillingValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]float64, error) {
 	estimate, err := a.seedanceBillingEstimate(c, info)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	price, ok := ratio_setting.GetStarAIVideoPrice(estimate.model, estimate.payload.Resolution, estimate.hasVideo)
-	if !ok {
-		return nil
+	var price, modelRatio float64
+	var priceOK, ratioOK bool
+	if selected := info.PricingSelection; selected != nil {
+		anchor, found := selected.Model(estimate.model)
+		if !found {
+			return nil, fmt.Errorf("model %s is outside the task pricing selection", estimate.model)
+		}
+		price, priceOK = selected.SeedancePrices().VideoPrice(estimate.model, estimate.payload.Resolution, estimate.hasVideo)
+		modelRatio, ratioOK = anchor.Ratio, anchor.HasRatio
+		if !ratioOK {
+			modelRatio, ratioOK = anchor.DefaultRatio, anchor.HasDefaultRatio
+		}
+	} else {
+		// Compatibility for callers without a request-owned selection.
+		price, priceOK = ratio_setting.GetStarAIVideoPrice(estimate.model, estimate.payload.Resolution, estimate.hasVideo)
+		modelRatio, ratioOK, _ = ratio_setting.GetModelRatio(estimate.model)
+		if !ratioOK {
+			modelRatio, ratioOK = ratio_setting.GetDefaultModelRatioMap()[estimate.model]
+		}
 	}
-	modelRatio, ok, _ := ratio_setting.GetModelRatio(estimate.model)
-	if !ok {
-		modelRatio, ok = ratio_setting.GetDefaultModelRatioMap()[estimate.model]
-	}
-	if !ok || modelRatio <= 0 {
-		return nil
+	if !priceOK || !ratioOK || modelRatio <= 0 {
+		return nil, fmt.Errorf("model %s task pricing is not configured", estimate.model)
 	}
 	// A model ratio of 1 represents 2 platform-currency units per 1M tokens.
 	// Reverse the configured absolute price into an OtherRatio so the value in
@@ -357,7 +374,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	}
 	return map[string]float64{
 		fmt.Sprintf("seedance-%s-%s", strings.ToLower(estimate.payload.Resolution), inputTier): priceRatio,
-	}
+	}, nil
 }
 
 type seedanceBillingEstimate struct {

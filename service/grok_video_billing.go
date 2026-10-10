@@ -193,14 +193,24 @@ func BuildGrokVideoBillingSnapshot(c *gin.Context, info *relaycommon.RelayInfo, 
 			return nil
 		}
 	}
-	outputPrice, imageInputPrice, videoInputPrice, ok := ratio_setting.GetMoliiGrokVideoPrices(
-		billedModel, info.EstimatedVideoResolution,
-	)
-	if !ok {
-		return nil
+	var prices ratio_setting.MoliiGrokPriceSetting
+	var moneyContext billingmoney.Context
+	if selected := info.PricingSelection; selected != nil {
+		anchor, found := selected.Model(billedModel)
+		if !found {
+			return nil
+		}
+		prices, moneyContext = selected.GrokPrices(), anchor.Money
+	} else {
+		// Historical direct callers without a selection keep the prior fallback.
+		prices = ratio_setting.GetMoliiGrokPriceSettingCopy()
+		moneyContext, _, err = model.ResolveBillingMoneyContext(model.DB, billedModel)
+		if err != nil {
+			return nil
+		}
 	}
-	moneyContext, _, err := model.ResolveBillingMoneyContext(model.DB, billedModel)
-	if err != nil {
+	outputPrice, imageInputPrice, videoInputPrice, ok := prices.VideoPrices(billedModel, info.EstimatedVideoResolution)
+	if !ok {
 		return nil
 	}
 

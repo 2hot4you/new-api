@@ -2,6 +2,7 @@ package helper
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -18,6 +19,16 @@ import (
 // Helpers reuse an existing selection; image/task orchestration may explicitly
 // call this again only when beginning a newly selected attempt.
 func CaptureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo) error {
+	return captureRequestPricing(c, info, nil)
+}
+
+// CaptureTaskPricing starts a task attempt after validation and identity mapping,
+// before any usage hook. The plugin key comes from the pinned request binding.
+func CaptureTaskPricing(c *gin.Context, info *relaycommon.RelayInfo, pluginKey string) error {
+	return captureRequestPricing(c, info, &pluginKey)
+}
+
+func captureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo, taskPluginKey *string) error {
 	if info == nil || c == nil || c.Request == nil {
 		return fmt.Errorf("request pricing requires a request context")
 	}
@@ -41,8 +52,39 @@ func CaptureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo) error {
 		if info.BillingModelName == "" {
 			billingName = ResolveBillingModelName(info.GetOriginModelName())
 		}
+		var taskSelection []relaycommon.TaskPricing
+		if taskPluginKey != nil {
+			value := relaycommon.TaskPricing{PluginKey: *taskPluginKey}
+			explicitBillingModel := info.BillingModelName != ""
+			if value.PluginKey != "" {
+				value.Expression, value.HasExpression = billing_setting.GetPluginBillingExpr(value.PluginKey, billingName)
+				if !explicitBillingModel && !value.HasExpression && info.IsModelMapped {
+					tailModel := ResolveBillingModelName(info.UpstreamModelName)
+					value.Expression, value.HasExpression = billing_setting.GetPluginBillingExpr(value.PluginKey, tailModel)
+				}
+				value.UseExpression = value.HasExpression
+			}
+			if !value.UseExpression {
+				if billing_setting.GetBillingMode(billingName) == billing_setting.BillingModeTieredExpr {
+					value.Expression, value.HasExpression = billing_setting.GetBillingExpr(billingName)
+					value.UseExpression = true
+				} else if !explicitBillingModel && !HasPriceOrRatioEntry(billingName) && info.IsModelMapped {
+					tailModel := ResolveBillingModelName(info.UpstreamModelName)
+					if billing_setting.GetBillingMode(tailModel) == billing_setting.BillingModeTieredExpr {
+						if expr, ok := billing_setting.GetBillingExpr(tailModel); ok && strings.TrimSpace(expr) != "" {
+							value.Expression, value.HasExpression, value.UseExpression = expr, true, true
+							billingName = tailModel
+						}
+					}
+				}
+			}
+			value.BillingModelName = billingName
+			value.ExpressionVersion = billingexpr.ExprVersion(value.Expression)
+			taskSelection = append(taskSelection, value)
+		}
 		values := make(map[string]relaycommon.ModelPricing, len(names))
 		defaultPrices := ratio_setting.GetDefaultModelPriceMap()
+		defaultRatios := ratio_setting.GetDefaultModelRatioMap()
 		for _, name := range names {
 			value := relaycommon.ModelPricing{Mode: billing_setting.GetBillingMode(name)}
 			value.Expression, value.HasExpression = billing_setting.GetBillingExpr(name)
@@ -50,6 +92,7 @@ func CaptureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo) error {
 			value.Price, value.HasPrice = ratio_setting.GetModelPrice(name, false)
 			value.DefaultPrice, value.HasDefaultPrice = defaultPrices[name]
 			value.Ratio, value.HasRatio, value.RatioMatch = ratio_setting.GetModelRatio(name)
+			value.DefaultRatio, value.HasDefaultRatio = defaultRatios[name]
 			value.CompletionRatio = ratio_setting.GetCompletionRatio(name)
 			value.CacheRatio, _ = ratio_setting.GetCacheRatio(name)
 			value.CacheCreationRatio, _ = ratio_setting.GetCreateCacheRatio(name)
@@ -66,7 +109,7 @@ func CaptureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo) error {
 		if _, ok := values[billingName]; !ok {
 			return fmt.Errorf("billing identity %q was not guarded", billingName)
 		}
-		selected = relaycommon.NewRequestPricingSelection(values, operation_setting.CaptureToolPrices(), ratio_setting.GetMoliiGrokPriceSettingCopy(), ratio_setting.GetStarAIVideoPriceSettingCopy())
+		selected = relaycommon.NewRequestPricingSelection(values, operation_setting.CaptureToolPrices(), ratio_setting.GetMoliiGrokPriceSettingCopy(), ratio_setting.GetStarAIVideoPriceSettingCopy(), taskSelection...)
 		return nil
 	})
 	if err != nil {

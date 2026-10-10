@@ -345,6 +345,20 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 	info.InferredBillingModelName = ""
 	// The selected channel may use a different expression or per-call pricing.
 	info.TieredBillingSnapshot = nil
+	info.PricingSelection = nil
+	info.GrokVideoBilling = nil
+	info.EstimatedVideoTokens = 0
+	info.EstimatedVideoWidth = 0
+	info.EstimatedVideoHeight = 0
+	info.EstimatedVideoFPS = 0
+	info.EstimatedVideoSeconds = 0
+	info.EstimatedVideoResolution = ""
+	info.EstimatedVideoRatio = ""
+	info.EstimatedVideoHasInput = false
+	info.EstimatedVideoPrice = 0
+	info.EstimatedVideoUnitPrice = 0
+	info.EstimatedVideoInputUnitPrice = 0
+	info.EstimatedVideoOutputUnitPrices = nil
 	info.InitChannelMeta(c)
 
 	// 1. 确定 platform → 创建适配器 → 验证请求
@@ -397,7 +411,6 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 	// 4. 价格计算：基础模型价格
 	info.OriginModelName = modelName
 	explicitBillingModel := info.BillingModelName != ""
-	billingModelName := helper.ResolveRelayBillingModelName(info)
 	var priceData types.PriceData
 	var err error
 	pluginKey := c.GetString("task_plugin_key")
@@ -406,42 +419,16 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 	if pinnedPlugin.Plugin != nil {
 		pluginKey = pinnedPlugin.Plugin.Meta.Key
 	}
-	useTiered := false
-	var exprStr string
-	var exists bool
-	if pluginKey != "" {
-		if explicitBillingModel {
-			exprStr, exists = billing_setting.GetPluginBillingExpr(pluginKey, billingModelName)
-		} else {
-			exprStr, exists = billing_setting.GetPluginBillingExpr(pluginKey, billingModelName)
-			if !exists && info.IsModelMapped {
-				tailModel := helper.ResolveBillingModelName(info.UpstreamModelName)
-				exprStr, exists = billing_setting.GetPluginBillingExpr(pluginKey, tailModel)
-			}
-		}
-		useTiered = exists
+	if err := helper.CaptureTaskPricing(c, info, pluginKey); err != nil {
+		return nil, service.TaskErrorWrapper(err, "model_price_error", http.StatusBadRequest)
 	}
-	if !useTiered {
-		if billing_setting.GetBillingMode(billingModelName) == billing_setting.BillingModeTieredExpr {
-			exprStr, exists = billing_setting.GetBillingExpr(billingModelName)
-			useTiered = true
-		} else if !explicitBillingModel && !helper.HasPriceOrRatioEntry(billingModelName) && info.IsModelMapped {
-			tailModel := helper.ResolveBillingModelName(info.UpstreamModelName)
-			if billing_setting.GetBillingMode(tailModel) == billing_setting.BillingModeTieredExpr {
-				if tailExpr, tailOK := billing_setting.GetBillingExpr(tailModel); tailOK && strings.TrimSpace(tailExpr) != "" {
-					exprStr = tailExpr
-					exists = true
-					useTiered = true
-					billingModelName = tailModel
-					info.BillingModelName = tailModel
-				}
-			}
-		}
-	}
+	selectedTask, _ := info.PricingSelection.Task()
+	billingModelName := selectedTask.BillingModelName
+	exprStr, exists := selectedTask.Expression, selectedTask.HasExpression
 	if !explicitBillingModel {
 		info.InferredBillingModelName = info.BillingModelName
 	}
-	if useTiered {
+	if selectedTask.UseExpression {
 		provider, supported := adaptor.(channel.TaskUsageFactsProvider)
 		if billingexpr.UsesFixedPricing(exprStr) {
 			return nil, service.TaskErrorWrapper(fmt.Errorf("fixed pricing is not supported for task usage expressions"), "model_price_error", http.StatusBadRequest)
@@ -473,10 +460,8 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 			}
 			return nil, service.TaskErrorWrapper(runErr, "model_price_error", http.StatusBadRequest)
 		}
-		moneyContext, _, moneyErr := model.ResolveBillingMoneyContext(model.DB, billingModelName)
-		if moneyErr != nil {
-			return nil, service.TaskErrorWrapper(fmt.Errorf("model %s billing currency resolution failed: %w", billingModelName, moneyErr), "model_price_error", http.StatusBadRequest)
-		}
+		selectedModel, _ := info.PricingSelection.Model(billingModelName)
+		moneyContext := selectedModel.Money
 		snapshot := &billingexpr.BillingSnapshot{
 			EvaluationTime:       evaluationTime,
 			BillingMode:          billing_setting.BillingModeTieredExpr,
@@ -485,7 +470,7 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 			ExprHash:             billingexpr.ExprHashString(exprStr),
 			EstimatedTier:        trace.MatchedTier,
 			QuotaPerUnit:         common.QuotaPerUnit,
-			ExprVersion:          billingexpr.ExprVersion(exprStr),
+			ExprVersion:          selectedTask.ExpressionVersion,
 			TaskUsageBilling:     true,
 			UsageFacts:           facts,
 			SourceCurrency:       string(moneyContext.SourceCurrency),
