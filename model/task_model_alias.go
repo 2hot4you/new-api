@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -76,6 +77,22 @@ func rebuildTaskAliasView() {
 	taskAliasViewPtr.Store(buildTaskAliasView(jsplugin.DefaultRegistry.Generation()))
 }
 
+// The publisher owns the common writer and has ended SQL/pin lifetimes. Use
+// the same builder mutex so a previously started rebuild cannot overwrite the
+// freshly bound alias postimage. Contention must leave the revision pending.
+func publishCatalogTaskAliasView(stage *catalogRuntimeStage) error {
+	if !taskAliasRebuildMu.TryLock() {
+		return ErrCatalogWriterBusy
+	}
+	defer taskAliasRebuildMu.Unlock()
+	taskAliasViewPtr.Store(&taskAliasView{
+		generation: stage.input.generation.Number,
+		expiresAt:  time.Now().Add(taskAliasViewTTL),
+		byFold:     maps.Clone(stage.aliases),
+	})
+	return nil
+}
+
 type taskAliasDraft struct {
 	spellings []string
 	byPlugin  map[string]map[string]struct{}
@@ -93,6 +110,22 @@ func buildTaskAliasView(generation *jsplugin.RoutingGeneration) *taskAliasView {
 // Parsing/aggregation is shared with ordinary cached alias resolution. Strict
 // failures contain no mapping contents, credentials or channel names.
 func buildTaskAliasViewTx(tx *gorm.DB, generation *jsplugin.RoutingGeneration, strict bool) (*taskAliasView, error) {
+	var channels []Channel
+	if tx != nil {
+		err := tx.Select("id", "type", "models", "model_mapping").
+			Where("status = ?", common.ChannelStatusEnabled).
+			Find(&channels).Error
+		if err != nil {
+			view, _ := buildTaskAliasViewChannels(nil, generation, strict)
+			return view, err
+		}
+	}
+	return buildTaskAliasViewChannels(channels, generation, strict)
+}
+
+// The existing aggregation also accepts detached enabled-channel facts for
+// explicit ordinary removal preparation. It reads no database or live cache.
+func buildTaskAliasViewChannels(channels []Channel, generation *jsplugin.RoutingGeneration, strict bool) (*taskAliasView, error) {
 	genNum := uint64(0)
 	if generation != nil {
 		genNum = generation.Number
@@ -102,18 +135,6 @@ func buildTaskAliasViewTx(tx *gorm.DB, generation *jsplugin.RoutingGeneration, s
 		expiresAt:  time.Now().Add(taskAliasViewTTL),
 		byFold:     make(map[string]TaskAliasTarget),
 	}
-	if tx == nil {
-		return view, nil
-	}
-
-	var channels []Channel
-	err := tx.Select("id", "type", "models", "model_mapping").
-		Where("status = ?", common.ChannelStatusEnabled).
-		Find(&channels).Error
-	if err != nil {
-		return view, err
-	}
-
 	drafts := make(map[string]*taskAliasDraft)
 	for i := range channels {
 		channel := &channels[i]

@@ -1,14 +1,17 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 
 	"gorm.io/gorm"
 )
@@ -475,17 +478,11 @@ func DeleteModelMetadata(ids []int, removeFromChannels, removePricing bool) (Mod
 				return err
 			}
 			for _, channel := range channels {
-				models := channel.GetModels()
-				remaining := make([]string, 0, len(models))
-				for _, name := range models {
-					if _, remove := names[strings.TrimSpace(name)]; !remove {
-						remaining = append(remaining, name)
-					}
-				}
-				if len(remaining) == len(models) {
+				models, changed := channelModelsWithoutNames(channel, names)
+				if !changed {
 					continue
 				}
-				channel.Models = strings.Join(remaining, ",")
+				channel.Models = models
 				if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).Update("models", channel.Models).Error; err != nil {
 					return err
 				}
@@ -523,7 +520,15 @@ func DeleteModelMetadata(ids []int, removeFromChannels, removePricing bool) (Mod
 			return nil
 		})
 	} else {
-		err = metadataTransaction(deleteRecords)
+		if removeFromChannels {
+			err = withPreparedOrdinaryCatalogMutation(func(ctx context.Context) (*catalogOrdinaryMutation, error) {
+				return prepareCatalogModelRemoval(ctx, DB, modelIDs)
+			}, func(prepared *catalogOrdinaryMutation) error {
+				return metadataTransactionGuarded(prepared, deleteRecords)
+			})
+		} else {
+			err = metadataTransaction(deleteRecords)
+		}
 	}
 	if err != nil {
 		return ModelDeleteResult{}, err
@@ -533,6 +538,122 @@ func DeleteModelMetadata(ids []int, removeFromChannels, removePricing bool) (Mod
 	}
 	RefreshPricing()
 	return result, nil
+}
+
+// Only explicit metadata deletion owns this prospective channel mutation.
+// Selected records bind identities/name rules; all routing facts bind alias
+// aggregation and the existing UpdateAbilities inputs, including disabled rows.
+type catalogModelRemoval struct {
+	ids      []int
+	records  []Model
+	channels []Channel
+	after    []Channel
+}
+
+func catalogRemovalChannels(tx *gorm.DB) ([]Channel, error) {
+	var channels []Channel
+	err := tx.Select("id", "type", "models", "model_mapping", "status", "group", "priority", "weight", "tag").Order("id").Find(&channels).Error
+	return channels, err
+}
+
+func (removal *catalogModelRemoval) capture(tx *gorm.DB) error {
+	if err := tx.Where("id IN ?", removal.ids).Order("id").Find(&removal.records).Error; err != nil {
+		return err
+	}
+	if len(removal.records) != len(removal.ids) {
+		return errors.New("selected models changed; reload before deleting")
+	}
+	for _, record := range removal.records {
+		if record.NameRule != NameRuleExact {
+			return errors.New("only exact-match models can be removed from channels")
+		}
+	}
+	var err error
+	removal.channels, err = catalogRemovalChannels(tx)
+	return err
+}
+
+func (removal *catalogModelRemoval) verify(tx *gorm.DB, post bool) error {
+	var records []Model
+	if err := tx.Where("id IN ?", removal.ids).Order("id").Find(&records).Error; err != nil {
+		return err
+	}
+	if post && len(records) != 0 || !post && !reflect.DeepEqual(records, removal.records) {
+		return ErrCatalogSyncPlanStale
+	}
+	channels, err := catalogRemovalChannels(tx)
+	if err != nil {
+		return err
+	}
+	expected := removal.channels
+	if post {
+		expected = removal.after
+	}
+	if !reflect.DeepEqual(channels, expected) {
+		return ErrCatalogSyncPlanStale
+	}
+	return nil
+}
+
+func prepareCatalogModelRemoval(ctx context.Context, db *gorm.DB, ids []int) (*catalogOrdinaryMutation, error) {
+	removal := &catalogModelRemoval{ids: append([]int(nil), ids...)}
+	previous, err := captureOrdinaryCatalogMutationWithRemoval(ctx, db, removal)
+	if err != nil {
+		return nil, err
+	}
+	// All SQL, pins and common writer have ended. Project only this operation's
+	// exact existing trim/removal behavior without replaying its SQL callback.
+	names := make(map[string]struct{}, len(removal.records))
+	for _, record := range removal.records {
+		names[record.ModelName] = struct{}{}
+	}
+	removal.after = append([]Channel{}, removal.channels...)
+	var enabled []Channel
+	for i := range removal.after {
+		channel := &removal.after[i]
+		channel.Models, _ = channelModelsWithoutNames(*channel, names)
+		if channel.Status == common.ChannelStatusEnabled {
+			enabled = append(enabled, *channel)
+		}
+	}
+	aliases, err := buildTaskAliasViewChannels(enabled, previous.generation, true)
+	if err != nil {
+		return nil, err
+	}
+	var dependencies catalogValidationData
+	if err := common.UnmarshalJsonStr(previous.dependencies.canonical, &dependencies); err != nil {
+		return nil, err
+	}
+	dependencies.Aliases = aliases.byFold
+	encoded, err := common.Marshal(dependencies)
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := catalogmanifest.CanonicalJSON(string(encoded))
+	if err != nil {
+		return nil, err
+	}
+	prospective := previous
+	prospective.dependencies = catalogValidationInput{canonical: canonical}
+	stage, err := stageProspectiveCatalogRuntime(prospective, previous.options, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &catalogOrdinaryMutation{previous: previous, stage: stage, removal: removal}, nil
+}
+
+func channelModelsWithoutNames(channel Channel, names map[string]struct{}) (string, bool) {
+	models := channel.GetModels()
+	remaining := make([]string, 0, len(models))
+	for _, name := range models {
+		if _, remove := names[strings.TrimSpace(name)]; !remove {
+			remaining = append(remaining, name)
+		}
+	}
+	if len(remaining) == len(models) {
+		return channel.Models, false
+	}
+	return strings.Join(remaining, ","), true
 }
 
 func (mi *Model) BeforeDelete(tx *gorm.DB) error {

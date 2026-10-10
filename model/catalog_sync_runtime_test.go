@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"maps"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,26 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestCatalogRuntimeOrdinaryAliasDeletion(t *testing.T) {
+	require.NotEmpty(t, os.Getenv("TEST_POSTGRES_DSN"), "requires task PostgreSQL")
+	db := catalogFenceTestDB(t, "postgres")
+	initializeOrdinaryCatalogTest(t, db)
+	priorAliases := taskAliasViewPtr.Load()
+	t.Cleanup(func() { taskAliasViewPtr.Store(priorAliases) })
+	catalogBusinessActor(t, db)
+	catalogValidationFixture(t, db, jsplugin.DefaultRegistry)
+	require.NoError(t, db.Create(&Option{Key: "billing_setting.billing_mode", Value: `{}`}).Error)
+	require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+	alias := Model{ModelName: "ordinary-alias", BillingCurrency: "USD"}
+	require.NoError(t, alias.Insert())
+	mapping := `{"ordinary-alias":"pricing-usage-model"}`
+	channel := Channel{Key: "test", Name: "ordinary-alias-channel", Models: alias.ModelName, ModelMapping: &mapping, Status: common.ChannelStatusEnabled}
+	require.NoError(t, db.Create(&channel).Error)
+	require.NoError(t, db.Create(&Ability{Group: "default", Model: alias.ModelName, ChannelId: channel.Id, Enabled: true}).Error)
+	_, err := DeleteModelMetadata([]int{alias.Id}, true, false)
+	require.NoError(t, err, "ordinary channel-removing metadata deletion changes alias dependencies")
+}
 
 func runtimePendingOperation(t *testing.T, db *gorm.DB) catalogmanifest.Result {
 	t.Helper()
@@ -1563,7 +1584,9 @@ func TestCatalogRuntimeAdvancedCacheContention(t *testing.T) {
 					entered := make(chan struct{})
 					var once sync.Once
 					require.NoError(t, db.Callback().Query().After("gorm:query").Register("runtime-advanced-entered", func(tx *gorm.DB) {
-						if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
+						// The required channel-cache rebuild now precedes pricing;
+						// observe its actual final query before the cache TryLock.
+						if tx.Statement.Table == "abilities" && tx.Statement.ConnPool == db.Statement.ConnPool {
 							once.Do(func() { close(entered) })
 						}
 					}))

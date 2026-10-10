@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"gorm.io/gorm"
 )
 
 var group2model2channels map[string]map[string][]int // enabled channel
@@ -45,20 +46,51 @@ func InitChannelCache() {
 		rebuildTaskAliasView()
 		return
 	}
+	// Hold the read boundary from BEFORE SQL capture through installation. An
+	// ordinary refresh cannot publish an old snapshot after a catalog writer's
+	// committed view. Release it before reconciliation, which is a writer.
+	if err := WithCatalogReadBarrier(func() error { return refreshChannelCache(DB, false) }); err != nil {
+		common.SysError("refresh channel cache: " + err.Error())
+		return
+	}
+	reconcileCatalogAfterChannelRefresh()
+	InvalidatePricingCache()
+	rebuildTaskAliasView()
+	common.SysLog("channels synced from database")
+}
+
+// Shared routing projection. Lifecycle callers own common W and supply a
+// context-bound root after real commit/pin release. They never repair channels
+// or reconcile metadata, and cache contention must prevent acknowledgement.
+func refreshChannelCache(db *gorm.DB, lifecycle bool) error {
 	newChannelId2channel := make(map[int]*Channel)
 	newChannel2advancedCustomConfig := make(map[int]*kitdto.AdvancedCustomConfig)
 	var channels []*Channel
-	DB.Find(&channels)
+	if err := db.Find(&channels).Error; err != nil {
+		return fmt.Errorf("load cached channels: %w", err)
+	}
 	for _, channel := range channels {
 		newChannelId2channel[channel.Id] = channel
 		if channel.Type == constant.ChannelTypeAdvancedCustom {
-			if config := channel.GetOtherSettings().AdvancedCustom; config != nil {
+			var settings kitdto.ChannelOtherSettings
+			if lifecycle {
+				var err error
+				settings, err = channel.parseOtherSettings()
+				if err != nil {
+					return fmt.Errorf("decode advanced custom channel settings: channel_id=%d: %w", channel.Id, err)
+				}
+			} else {
+				settings = channel.getOtherSettings(db)
+			}
+			if config := settings.AdvancedCustom; config != nil {
 				newChannel2advancedCustomConfig[channel.Id] = config
 			}
 		}
 	}
 	var abilities []*Ability
-	DB.Find(&abilities)
+	if err := db.Find(&abilities).Error; err != nil {
+		return fmt.Errorf("load cached abilities: %w", err)
+	}
 	groups := make(map[string]bool)
 	for _, ability := range abilities {
 		groups[ability.Group] = true
@@ -93,7 +125,17 @@ func InitChannelCache() {
 		}
 	}
 
-	channelSyncLock.Lock()
+	if lifecycle {
+		if err := db.Statement.Context.Err(); err != nil {
+			return err
+		}
+		if !channelSyncLock.TryLock() {
+			return ErrCatalogWriterBusy
+		}
+	} else {
+		channelSyncLock.Lock()
+	}
+	defer channelSyncLock.Unlock()
 	group2model2channels = newGroup2model2channels
 	//channelsIDM = newChannelId2channel
 	for i, channel := range newChannelId2channel {
@@ -111,15 +153,11 @@ func InitChannelCache() {
 	}
 	channelsIDM = newChannelId2channel
 	channel2advancedCustomConfig = newChannel2advancedCustomConfig
-	channelSyncLock.Unlock()
 	// Lock ordering: InvalidatePricingCache acquires updatePricingLock, and
 	// GetPricing (holding updatePricingLock) nests channelSyncLock.RLock via
 	// loadPricingAdvancedCustomConfigs. channelSyncLock MUST be released before
 	// invalidating the pricing cache, otherwise the reversed order deadlocks.
-	reconcileCatalogAfterChannelRefresh()
-	InvalidatePricingCache()
-	rebuildTaskAliasView()
-	common.SysLog("channels synced from database")
+	return nil
 }
 
 func SyncChannelCache(frequency int) {

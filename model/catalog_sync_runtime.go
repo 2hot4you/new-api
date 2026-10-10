@@ -48,6 +48,7 @@ type catalogOrdinaryMutation struct {
 	previous catalogRuntimeInput
 	stage    *catalogRuntimeStage
 	wrote    bool
+	removal  *catalogModelRemoval
 }
 
 func prepareOrdinaryCatalogMutation(ctx context.Context, db *gorm.DB, updates map[string]string) (*catalogOrdinaryMutation, error) {
@@ -61,6 +62,12 @@ func prepareOrdinaryCatalogMutation(ctx context.Context, db *gorm.DB, updates ma
 // Capture ends the reference transaction, registry pin and writer before any
 // save-specific validation or prospective compilation starts.
 func captureOrdinaryCatalogMutation(ctx context.Context, db *gorm.DB) (catalogRuntimeInput, error) {
+	return captureOrdinaryCatalogMutationWithRemoval(ctx, db, nil)
+}
+
+// removal is reserved for DeleteModelMetadata's explicit channel-removal
+// operation, never a speculative business callback or generic drift allowance.
+func captureOrdinaryCatalogMutationWithRemoval(ctx context.Context, db *gorm.DB, removal *catalogModelRemoval) (catalogRuntimeInput, error) {
 	if err := ctx.Err(); err != nil {
 		return catalogRuntimeInput{}, err
 	}
@@ -75,6 +82,9 @@ func captureOrdinaryCatalogMutation(ctx context.Context, db *gorm.DB) (catalogRu
 			}
 			var err error
 			previous, err = captureCatalogRuntimeTx(tx, state, pin)
+			if err == nil && removal != nil {
+				err = removal.capture(tx)
+			}
 			return err
 		})
 	})
@@ -112,6 +122,11 @@ func commitOrdinaryCatalogMutationGuarded(ctx context.Context, db *gorm.DB, prep
 		if !prepared.previous.same(fresh) {
 			return ErrCatalogSyncPlanStale
 		}
+		if prepared.removal != nil {
+			if err := prepared.removal.verify(tx, false); err != nil {
+				return err
+			}
+		}
 		prepared.wrote = true
 		if err := write(tx); err != nil {
 			return err
@@ -120,7 +135,14 @@ func commitOrdinaryCatalogMutationGuarded(ctx context.Context, db *gorm.DB, prep
 		if err != nil {
 			return err
 		}
-		if !maps.Equal(post.options, prepared.stage.input.options) || post.dependencies != fresh.dependencies || post.generation != fresh.generation || post.state != fresh.state {
+		expectedDependencies := fresh.dependencies
+		if prepared.removal != nil {
+			if err := prepared.removal.verify(tx, true); err != nil {
+				return err
+			}
+			expectedDependencies = prepared.stage.input.dependencies
+		}
+		if !maps.Equal(post.options, prepared.stage.input.options) || post.dependencies != expectedDependencies || post.generation != fresh.generation || post.state != fresh.state {
 			return ErrCatalogSyncPlanStale
 		}
 		changed = post.digest != fresh.digest
@@ -479,6 +501,14 @@ func publishCatalogRuntimeAndOptionsGuarded(ctx context.Context, stage *catalogR
 		}
 	}
 	stage.candidate.publishGuarded()
+	if common.MemoryCacheEnabled {
+		if err := refreshChannelCache(DB.WithContext(ctx), true); err != nil {
+			return err
+		}
+	}
+	if err := publishCatalogTaskAliasView(stage); err != nil {
+		return err
+	}
 	if err := refreshCatalogPricingGuarded(ctx, stage); err != nil {
 		return err
 	}
