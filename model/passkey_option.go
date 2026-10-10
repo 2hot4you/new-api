@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"crypto/hmac"
 	"errors"
 	"maps"
@@ -9,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -93,19 +95,58 @@ func validatePasskeyRPIDWithTx(tx *gorm.DB, rpID string) error {
 // UpdatePasskeyDomainOptions keeps every supplied option in one transaction,
 // including unrelated keys from UpdateOptionsBulk. Preview rolls back even the
 // initial default rows and never publishes a local configuration change.
+// A catalog-bearing save can return an error after commit or an uncertain
+// native COMMIT. Do not replay it blindly; authoritative option reload recovers
+// both the passkey settings and catalog from the durable database state.
 func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirmation string) (*PasskeyDomainChange, error) {
-	if needsCatalogOptionBarrier(values) {
-		catalogBarrier.Lock()
-		defer catalogBarrier.Unlock()
-	}
-	passkeyOptionMutex.Lock()
-	defer passkeyOptionMutex.Unlock()
 	values = maps.Clone(values)
 	for key, value := range values {
 		if err := validateOptionValue(key, value); err != nil {
 			return nil, err
 		}
 	}
+	var change *PasskeyDomainChange
+	commit := func(prepared *catalogOrdinaryMutation) error {
+		var err error
+		change, err = updatePasskeyDomainOptionsGuarded(values, preview, confirmation, prepared)
+		return err
+	}
+	var err error
+	if hasCatalogOptions(values) {
+		// Compile only detached catalog facts, before the common writer and
+		// passkey locks. The final transaction still computes the confirmation
+		// from fresh domain rows and credential counts, never from this capture.
+		err = withOrdinaryCatalogMutation(DB, values, commit)
+	} else if needsCatalogOptionBarrier(values) {
+		err = WithCatalogWriteBarrier(func() error { return commit(nil) })
+	} else {
+		err = commit(nil)
+	}
+	return change, err
+}
+
+func updatePasskeyDomainOptionsGuarded(values map[string]string, preview bool, confirmation string, prepared *catalogOrdinaryMutation) (*PasskeyDomainChange, error) {
+	var policySnapshot *RequestPolicySnapshot
+	for key := range values {
+		if IsRequestPolicyOption(key) {
+			requestPolicyOptionMutex.Lock()
+			defer requestPolicyOptionMutex.Unlock()
+			options := maps.Clone(CurrentRequestPolicy().Options)
+			for key, value := range values {
+				if IsRequestPolicyOption(key) {
+					options[key] = value
+				}
+			}
+			var err error
+			policySnapshot, err = BuildRequestPolicy(options)
+			if err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
+	passkeyOptionMutex.Lock()
+	defer passkeyOptionMutex.Unlock()
 	var change *PasskeyDomainChange
 	write := func(tx *gorm.DB) error {
 		settings, serverAddress, err := lockPasskeyDomainSettings(tx)
@@ -248,9 +289,27 @@ func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirma
 		}
 		return nil
 	}
+	publishOther := func() error {
+		applyPasskeyDomainOptions(values)
+		whitelist := catalogmanifest.PriceOptions()
+		for key, value := range values {
+			if _, catalog := whitelist[key]; prepared != nil && catalog {
+				continue
+			}
+			if !IsPasskeyDomainOption(key) {
+				if err := updateOptionMap(key, value); err != nil {
+					return err
+				}
+			}
+		}
+		if policySnapshot != nil {
+			requestPolicySnapshot.Store(policySnapshot)
+		}
+		return nil
+	}
 	var err error
-	if hasCatalogOptions(values) {
-		err = catalogMutationTransaction(DB, write)
+	if prepared != nil {
+		err = commitOrdinaryCatalogMutationGuarded(context.Background(), DB, prepared, write, publishOther)
 	} else {
 		err = DB.Transaction(write)
 	}
@@ -260,18 +319,10 @@ func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirma
 	if err != nil {
 		return change, err
 	}
-	applyPasskeyDomainOptions(values)
-	for key, value := range values {
-		if !IsPasskeyDomainOption(key) {
-			if err := updateOptionMap(key, value); err != nil {
-				return change, err
-			}
-		}
+	if prepared == nil {
+		err = publishOther()
 	}
-	if hasCatalogOptions(values) {
-		invalidateCatalogCaches()
-	}
-	return change, nil
+	return change, err
 }
 
 func applyPasskeyDomainOptions(values map[string]string) {

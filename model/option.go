@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"strconv"
 	"strings"
@@ -33,9 +34,10 @@ func AllOption() ([]*Option, error) {
 	return options, err
 }
 
-func InitOptionMap() {
+// InitOptionMap initializes startup defaults. Its caller must handle errors
+// and arrange effective plugin initialization before authoritative recovery.
+func InitOptionMap() error {
 	catalogBarrier.Lock()
-	defer catalogBarrier.Unlock()
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
 
@@ -205,36 +207,59 @@ func InitOptionMap() {
 	maps.Copy(common.OptionMap, modelConfigs)
 
 	common.OptionMapRWMutex.Unlock()
-	loadOptionsFromDatabaseGuarded()
+	catalogBarrier.Unlock()
+	return loadOptionsFromDatabase()
 }
 
-func loadOptionsFromDatabase() {
-	catalogBarrier.Lock()
-	defer catalogBarrier.Unlock()
-	loadOptionsFromDatabaseGuarded()
+// Authoritative reload retains the same-revision durable publication gate
+// while detached compilation runs. Any failure is returned and leaves that
+// gate closed until a later successful recovery; no obsolete catalog preload
+// or partially decoded per-key price update is ever published.
+func loadOptionsFromDatabase() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return recoverCatalogSyncRuntime(ctx, loadOptionsFromDatabaseGuarded)
 }
 
-func loadOptionsFromDatabaseGuarded() {
+func loadOptionsFromDatabaseGuarded(stage *catalogRuntimeStage) error {
 	requestPolicyOptionMutex.Lock()
 	defer requestPolicyOptionMutex.Unlock()
-	defer func() {
-		if err := refreshRequestPolicySnapshot(); err != nil {
-			common.SysError("invalid request policy: " + err.Error())
-		}
-	}()
 	passkeyOptionMutex.Lock()
 	defer passkeyOptionMutex.Unlock()
-	options, _ := AllOption()
+	options, err := AllOption()
+	if err != nil {
+		return err
+	}
+	whitelist := catalogmanifest.PriceOptions()
+	catalogOptions := make(map[string]string)
+	for _, option := range options {
+		if _, known := whitelist[option.Key]; known || catalogmanifest.IsPricingNamespace(option.Key) || option.Key == "USDExchangeRate" {
+			catalogOptions[option.Key] = option.Value
+		}
+	}
+	if !maps.Equal(catalogOptions, stage.input.options) {
+		return ErrCatalogSyncPlanStale
+	}
 	passkeyOptions := make(map[string]string)
 	for _, option := range options {
+		if _, catalog := whitelist[option.Key]; catalog || catalogmanifest.IsPricingNamespace(option.Key) {
+			continue
+		}
+		if option.Key == "USDExchangeRate" {
+			// FX remains target-local, outside the price candidate whitelist.
+			// Publish only the value bound by capture and both fresh rechecks.
+			if err := updateOptionMap(option.Key, stage.input.options[option.Key]); err != nil {
+				return err
+			}
+			continue
+		}
 		value, err := normalizeOptionValue(option.Key, option.Value)
 		if err != nil {
-			common.SysLog("failed to normalize option value: " + err.Error())
-			value = option.Value
+			return fmt.Errorf("normalize option %s: %w", option.Key, err)
 		} else if value != option.Value {
 			option.Value = value
 			if err := DB.Save(option).Error; err != nil {
-				common.SysLog("failed to persist normalized option value: " + err.Error())
+				return fmt.Errorf("persist normalized option %s: %w", option.Key, err)
 			}
 		}
 		if IsPasskeyDomainOption(option.Key) {
@@ -243,18 +268,19 @@ func loadOptionsFromDatabaseGuarded() {
 		}
 		err = updateOptionMap(option.Key, value)
 		if err != nil {
-			common.SysLog("failed to update option map: " + err.Error())
+			return fmt.Errorf("publish option %s: %w", option.Key, err)
 		}
 	}
 	applyPasskeyDomainOptions(passkeyOptions)
-	invalidateCatalogCaches()
+	return refreshRequestPolicySnapshot()
 }
 
 func SyncOptions(frequency int) {
 	for {
 		time.Sleep(time.Duration(frequency) * time.Second)
-		common.SysLog("syncing options from database")
-		loadOptionsFromDatabase()
+		if err := loadOptionsFromDatabase(); err != nil {
+			common.SysError("failed to sync options from database: " + err.Error())
+		}
 	}
 }
 
