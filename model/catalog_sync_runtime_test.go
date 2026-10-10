@@ -13,6 +13,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -140,6 +141,340 @@ func TestCatalogRuntimeOrdinaryWriters(t *testing.T) {
 			var operations int64
 			require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&operations).Error)
 			assert.Zero(t, operations, "ordinary writes have no managed operation")
+		})
+	}
+}
+
+func TestCatalogRuntimeModelPricingSave(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			actor := catalogBusinessActor(t, db)
+			require.NoError(t, db.Create(&Model{ModelName: "priced", NameRule: NameRuleExact, BillingCurrency: "USD"}).Error)
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			snapshot, err := GetModelPricingSnapshot([]string{"priced"})
+			require.NoError(t, err)
+			change := ModelPricingChange{ModelName: "priced", ExpectedVersion: snapshot.Entries[0].Version,
+				BillingCurrency: " cny ", Pricing: PricingValues{"billing_setting.billing_mode": "tiered_expr", "billing_setting.billing_expr": `tier("base", p * 5)`}}
+			require.NoError(t, UpdateModelPricing([]ModelPricingChange{change}))
+			var state CatalogSyncState
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			assert.Equal(t, int64(1), state.Revision)
+			assert.Equal(t, state.Revision, state.RuntimeRevision, "actual model pricing save must acknowledge the committed runtime")
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "priced", func() error {
+				money, found, err := ResolveBillingMoneyContext(db, "priced")
+				require.NoError(t, err)
+				assert.True(t, found)
+				assert.Equal(t, "CNY", string(money.SourceCurrency))
+				expr, ok := billing_setting.GetBillingExpr("priced")
+				assert.True(t, ok)
+				assert.Equal(t, `tier("base", p * 5)`, expr)
+				return nil
+			}))
+			require.ErrorIs(t, UpdateModelPricing([]ModelPricingChange{change}), ErrModelPricingConflict)
+			var inheritedRows int64
+			require.NoError(t, db.Model(&Option{}).Where(commonKeyCol+" IN ?", []string{"ModelRatio", "ModelPrice", "AudioCompletionRatio", "CompletionRatio"}).Count(&inheritedRows).Error)
+			assert.Zero(t, inheritedRows, "untouched compiled defaults must remain absent, without export orphans")
+			snapshot, err = GetModelPricingSnapshot([]string{"priced"})
+			require.NoError(t, err)
+			change.ExpectedVersion = snapshot.Entries[0].Version
+			plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+			require.NoError(t, err)
+			require.NoError(t, UpdateModelPricing([]ModelPricingChange{change}))
+			var noOp CatalogSyncState
+			require.NoError(t, db.First(&noOp, CatalogSyncStateID).Error)
+			assert.Equal(t, state, noOp)
+			_, err = GetCatalogSyncPlan(context.Background(), plan.ID, actor)
+			require.NoError(t, err)
+			change.BillingCurrency = "EUR"
+			require.ErrorContains(t, UpdateModelPricing([]ModelPricingChange{change}), "USD or CNY")
+			change.BillingCurrency, change.Reset = "USD", true
+			require.NoError(t, UpdateModelPricing([]ModelPricingChange{change}))
+			snapshot, err = GetModelPricingSnapshot([]string{"priced"})
+			require.NoError(t, err)
+			assert.Empty(t, snapshot.Entries[0].Configured)
+			assert.Equal(t, "USD", snapshot.Entries[0].BillingCurrency)
+			change.Reset, change.ExpectedVersion = false, snapshot.Entries[0].Version
+			change.Pricing = PricingValues{"ModelPrice": float64(0)}
+			require.NoError(t, UpdateModelPricing([]ModelPricingChange{change}))
+			assert.Zero(t, ratio_setting.GetModelPriceMap()["priced"])
+			var operations int64
+			require.NoError(t, db.Model(&CatalogSyncOperation{}).Count(&operations).Error)
+			assert.Zero(t, operations)
+		})
+	}
+}
+
+func TestCatalogRuntimeModelPricingOptions(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			for key, value := range map[string]string{
+				"billing_setting.billing_mode":          `{"orphan":"tiered_expr"}`,
+				"billing_setting.billing_expr":          `{"orphan":"u(\"seconds\") * 0.3"}`,
+				billing_setting.PluginBillingExprOption: `{"retired::orphan":"u(\"seconds\") * 0.4"}`,
+			} {
+				require.NoError(t, db.Create(&Option{Key: key, Value: value}).Error)
+			}
+			require.NoError(t, UpdateOption("ModelPrice", `{"other":0}`))
+			expression, ok := billing_setting.GetBillingExpr("orphan")
+			assert.True(t, ok)
+			assert.Equal(t, `u("seconds") * 0.3`, expression)
+			assert.Equal(t, `u("seconds") * 0.4`, billing_setting.GetPluginBillingExprCopy()["retired::orphan"])
+			require.Error(t, UpdateModelPricingOptions(map[string]string{"billing_setting.billing_expr": `{"orphan":"u(\"seconds\") * 0.5"}`}))
+			require.ErrorContains(t, UpdateModelPricingOptions(map[string]string{billing_setting.PluginBillingExprOption: `{"new::orphan":"u(\"seconds\")"}`}), "does not declare")
+			require.Error(t, UpdateModelPricingOptions(map[string]string{"ModelPrice": `null`}))
+			require.ErrorContains(t, UpdateModelPricingOptions(map[string]string{"unknown": `{}`}), "unsupported")
+			require.NoError(t, UpdateModelPricingOptions(map[string]string{billing_setting.PluginBillingExprOption: `{}`}))
+			assert.Empty(t, billing_setting.GetPluginBillingExprCopy())
+			require.NoError(t, UpdateModelPricingOptions(map[string]string{"ModelPrice": `{}`}))
+			_, exists := ratio_setting.GetModelPrice("other", false)
+			assert.False(t, exists)
+			require.NoError(t, UpdateModelPricingOptions(map[string]string{"ImageRatio": `{}`}))
+			var explicitEmpty Option
+			require.NoError(t, db.First(&explicitEmpty, commonKeyCol+" = ?", "ImageRatio").Error)
+			assert.Equal(t, `{}`, explicitEmpty.Value, "explicit empty map must persist even when the row was missing")
+			var state CatalogSyncState
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			assert.Equal(t, state.Revision, state.RuntimeRevision)
+			assert.Equal(t, "ready", state.PublicationState)
+			require.NoError(t, db.Model(&Option{}).Where(commonKeyCol+" = ?", "ModelPrice").Update("value", `{"invalid":{"nested":1}}`).Error)
+			require.Error(t, UpdateModelPricingOptions(map[string]string{"ModelRatio": `{}`}), "malformed unrelated persisted prices must fail without a panic or partial save")
+		})
+	}
+}
+
+func TestCatalogRuntimeModelPricingFreshPreparation(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			entry := Model{ModelName: "overlap", BillingCurrency: "USD", NameRule: NameRuleExact}
+			require.NoError(t, entry.Insert())
+			preparations := 0
+			require.NoError(t, savePreparedModelPricing(nil, func(draft *modelPricingSaveDraft) error {
+				preparations++
+				require.NoError(t, TryWithCatalogWriteBarrier(context.Background(), func() error { return nil }), "preparation must release the common writer")
+				// Registry publication would block if capture retained its pin.
+				published := make(chan struct{})
+				go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(published) }()
+				select {
+				case <-published:
+				case <-time.After(3 * time.Second):
+					t.Fatal("preparation retained registry pin")
+				}
+				if preparations == 1 {
+					entry.BillingCurrency = "CNY"
+					require.NoError(t, entry.Update())
+					require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"concurrent":7}`}))
+				} else {
+					assert.Equal(t, "CNY", string(draft.previous.currencies["overlap"].BillingCurrency))
+					assert.Equal(t, float64(7), draft.values["ModelPrice"]["concurrent"])
+				}
+				draft.values["ModelPrice"]["overlap"] = float64(2)
+				return nil
+			}))
+			assert.Equal(t, 2, preparations, "only stale preparation is repeated")
+			price, exists := ratio_setting.GetModelPrice("concurrent", false)
+			assert.True(t, exists)
+			assert.Equal(t, float64(7), price)
+			called := false
+			require.ErrorContains(t, mutateModelPricingOptions(func(*gorm.DB, map[string]map[string]any) error { called = true; return nil }), "pricing removal is not supported")
+			assert.False(t, called)
+		})
+	}
+}
+
+func TestCatalogRuntimeModelPricingSeedance(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			_, err := jsplugin.DefaultRegistry.RegisterFactory(`
+export const meta = {
+  apiVersion:1,key:"seedance-save",name:"Seedance Save",version:"1.0.0",author:{name:"Test"},
+  models:["doubao-seedance-2-0-260128","doubao-seedance-2-0-fast-260128","doubao-seedance-2-0-mini-260615","doubao-seedance-2-5-260628"],fetchMode:"per_task",
+  usageSchema:{tokens:{type:"number",unit:"token"},resolution:{enum:["720p","1080p","4k"]},video_input:{enum:["none","video"]}},
+  usageExamples:[{label:"default",facts:{tokens:1000000,resolution:"720p",video_input:"none"}}]
+};
+export function buildSubmitRequest(){return {};}
+export function parseSubmitResponse(){return {};}
+export function buildQueryRequest(){return {};}
+export function parseTaskResult(){return {};}
+`, jsplugin.Options{})
+			require.NoError(t, err)
+			for _, name := range ratio_setting.StarAIVideoPricingModels() {
+				require.NoError(t, db.Create(&Model{ModelName: name, NameRule: NameRuleExact, BillingCurrency: "USD"}).Error)
+			}
+			const name = "doubao-seedance-2-0-260128"
+			require.NoError(t, db.Create(&Option{Key: "ModelRatio", Value: ` {"doubao-seedance-2-0-260128":2} `}).Error)
+			require.NoError(t, db.Create(&Option{Key: billing_setting.PluginBillingExprOption, Value: `{"seedance-save::doubao-seedance-2-0-260128":"u(\"tokens\") * 3 / 1000000"}`}).Error)
+			prices := ratio_setting.DefaultStarAIVideoPriceSetting()
+			prices.Standard720p = 46
+			require.NoError(t, UpdateStarAIVideoPricing(prices))
+			expression, ok := billing_setting.GetBillingExpr(name)
+			assert.True(t, ok)
+			cost, trace, err := billingexpr.RunExprWithRequest(expression, billingexpr.TokenParams{}, billingexpr.RequestInput{Usage: map[string]any{"tokens": float64(1000000), "resolution": "720p", "video_input": "none"}})
+			require.NoError(t, err)
+			assert.Equal(t, float64(46), cost)
+			assert.Equal(t, "720p", trace.MatchedTier)
+			assert.Empty(t, billing_setting.GetPluginBillingExprCopy())
+			var legacy Option
+			require.NoError(t, db.First(&legacy, commonKeyCol+" = ?", "ModelRatio").Error)
+			assert.Equal(t, ` {"doubao-seedance-2-0-260128":2} `, legacy.Value, "inactive legacy raw map remains untouched")
+			currencies, err := LoadModelBillingCurrencies(db, ratio_setting.StarAIVideoPricingModels(), false)
+			require.NoError(t, err)
+			for _, currency := range currencies {
+				assert.Equal(t, "CNY", string(currency.BillingCurrency))
+			}
+			require.NoError(t, UpdateModelPricingOptions(map[string]string{"billing_setting.billing_expr": `{}`, "billing_setting.billing_mode": `{}`, "ModelRatio": `{}`}))
+			retained, _ := billing_setting.GetBillingExpr(name)
+			assert.Equal(t, expression, retained, "ordinary full maps preserve menu-managed Seedance pricing")
+			require.ErrorContains(t, UpdateModelPricing([]ModelPricingChange{{ModelName: name, ExpectedVersion: "ignored"}}), "Seedance")
+			// Raw catalog saves change the matrix but never synthesize expressions.
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"starai_video_price.standard_720p": "12"}))
+			raw, _ := billing_setting.GetBillingExpr(name)
+			assert.Equal(t, expression, raw)
+			var state CatalogSyncState
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			assert.Equal(t, state.Revision, state.RuntimeRevision)
+		})
+	}
+}
+
+func TestCatalogRuntimeModelPricingFailureRecovery(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			preserveOrdinaryCatalogRuntime(t)
+			catalogBusinessActor(t, db)
+			require.NoError(t, db.Create(&Model{ModelName: "boundary", NameRule: NameRuleExact, BillingCurrency: "USD"}).Error)
+			require.NoError(t, UpdateModelPricingOptions(map[string]string{"billing_setting.billing_mode": `{"boundary":"tiered_expr"}`, "billing_setting.billing_expr": `{"boundary":"p * 3"}`}))
+			snapshot, err := GetModelPricingSnapshot([]string{"boundary"})
+			require.NoError(t, err)
+			change := ModelPricingChange{ModelName: "boundary", ExpectedVersion: snapshot.Entries[0].Version, BillingCurrency: "CNY", Pricing: PricingValues{"billing_setting.billing_mode": "tiered_expr", "billing_setting.billing_expr": "p * 5"}}
+			updatePricingLock.Lock()
+			err = UpdateModelPricing([]ModelPricingChange{change})
+			updatePricingLock.Unlock()
+			require.ErrorIs(t, err, ErrCatalogWriterBusy)
+			var pending CatalogSyncState
+			require.NoError(t, db.First(&pending, CatalogSyncStateID).Error)
+			assert.Equal(t, "committed_pending_publish", pending.PublicationState)
+			assert.Equal(t, pending.RuntimeRevision+1, pending.Revision)
+			require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "boundary", func() error { t.Error("unacknowledged selection"); return nil }), ErrCatalogPublicationPending)
+			require.ErrorIs(t, UpdateModelPricingOptions(map[string]string{"ModelPrice": `{}`}), ErrCatalogPublicationPending)
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			var ready CatalogSyncState
+			require.NoError(t, db.First(&ready, CatalogSyncStateID).Error)
+			assert.Equal(t, pending.Revision, ready.Revision)
+			assert.Equal(t, ready.Revision, ready.RuntimeRevision)
+			require.ErrorIs(t, UpdateModelPricing([]ModelPricingChange{change}), ErrModelPricingConflict)
+			rebuilt := false
+			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("pricing-save-boundary", func(tx *gorm.DB) {
+				if tx.Statement.Table != "vendors" || tx.Statement.ConnPool != db.Statement.ConnPool {
+					return
+				}
+				rebuilt = true
+				assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "boundary", func() error { t.Error("new currency with old expression escaped"); return nil }), ErrCatalogWriterBusy)
+				published := make(chan struct{})
+				go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(published) }()
+				select {
+				case <-published:
+				case <-time.After(3 * time.Second):
+					t.Error("save retained registry pin across rebuild")
+				}
+			}))
+			snapshot, err = GetModelPricingSnapshot([]string{"boundary"})
+			require.NoError(t, err)
+			change.ExpectedVersion, change.BillingCurrency = snapshot.Entries[0].Version, "USD"
+			change.Pricing["billing_setting.billing_expr"] = "p * 9"
+			err = UpdateModelPricing([]ModelPricingChange{change})
+			require.NoError(t, db.Callback().Query().Remove("pricing-save-boundary"))
+			require.NoError(t, err)
+			assert.True(t, rebuilt)
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "boundary", func() error {
+				money, _, err := ResolveBillingMoneyContext(db, "boundary")
+				require.NoError(t, err)
+				assert.Equal(t, "USD", string(money.SourceCurrency))
+				expression, _ := billing_setting.GetBillingExpr("boundary")
+				assert.Equal(t, "p * 9", expression)
+				return nil
+			}))
+		})
+	}
+}
+
+func TestCatalogRuntimeModelPricingNativeAcknowledgements(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			for _, lost := range []string{"committed_pending_publish", "ready"} {
+				t.Run(lost, func(t *testing.T) {
+					db := catalogFenceTestDB(t, engine)
+					preserveOrdinaryCatalogRuntime(t)
+					catalogBusinessActor(t, db)
+					require.NoError(t, db.Create(&Model{ModelName: "native-save", NameRule: NameRuleExact, BillingCurrency: "USD"}).Error)
+					pool, err := db.DB()
+					require.NoError(t, err)
+					loan, err := pool.Conn(context.Background())
+					require.NoError(t, err)
+					defer loan.Close()
+					require.NoError(t, loan.Raw(func(native any) error {
+						connection := &catalogBusinessLostAckConnection{Conn: native.(driver.Conn)}
+						observed := sql.OpenDB(catalogBusinessLostAckConnector{connection, pool.Driver()})
+						observed.SetMaxOpenConns(1)
+						defer observed.Close()
+						root := db.Session(&gorm.Session{NewDB: true, Context: context.Background()})
+						root.Statement.ConnPool = observed
+						DB = root
+						defer func() { DB = db }()
+						writes := 0
+						require.NoError(t, db.Callback().Update().Before("gorm:update").Register("pricing-native-loss", func(tx *gorm.DB) {
+							if tx.Statement.Table == "models" {
+								writes++
+							}
+							if tx.Statement.Table == "catalog_sync_states" {
+								if values, ok := tx.Statement.Dest.(map[string]any); ok && values["publication_state"] == lost {
+									connection.armed.Store(true)
+								}
+							}
+						}))
+						defer db.Callback().Update().Remove("pricing-native-loss")
+						snapshot, err := GetModelPricingSnapshot([]string{"native-save"})
+						require.NoError(t, err)
+						err = UpdateModelPricing([]ModelPricingChange{{ModelName: "native-save", ExpectedVersion: snapshot.Entries[0].Version, BillingCurrency: "CNY", Pricing: PricingValues{"billing_setting.billing_mode": "tiered_expr", "billing_setting.billing_expr": "p * 8"}}})
+						if lost == "committed_pending_publish" {
+							require.ErrorIs(t, err, ErrCatalogCommitUncertain)
+						} else {
+							require.NoError(t, err)
+						}
+						assert.Equal(t, 1, writes, "no SQL mutation replay after native COMMIT")
+						assert.Equal(t, int64(1), connection.dropped.Load())
+						var state CatalogSyncState
+						require.NoError(t, root.First(&state, CatalogSyncStateID).Error)
+						assert.Equal(t, int64(1), state.Revision)
+						if lost == "committed_pending_publish" {
+							assert.Equal(t, lost, state.PublicationState)
+							assert.Zero(t, state.RuntimeRevision)
+							require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+						}
+						require.NoError(t, root.First(&state, CatalogSyncStateID).Error)
+						assert.Equal(t, int64(1), state.Revision)
+						assert.Equal(t, state.Revision, state.RuntimeRevision)
+						assert.Equal(t, "ready", state.PublicationState)
+						require.NoError(t, WithCatalogPricingRead(context.Background(), "native-save", func() error {
+							expression, _ := billing_setting.GetBillingExpr("native-save")
+							assert.Equal(t, "p * 8", expression)
+							return nil
+						}))
+						return nil
+					}))
+				})
+			}
 		})
 	}
 }

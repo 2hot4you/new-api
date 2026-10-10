@@ -1,15 +1,16 @@
 package model
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"maps"
 	"math"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -64,15 +65,13 @@ type ModelPricingSnapshot struct {
 
 var ErrModelPricingConflict = errors.New("model pricing changed; reload before saving")
 
-// Lock order is stable across instances. Creating missing option rows inside
-// the transaction also serializes the first write to an unconfigured database.
+// Stable option order is shared by snapshots and complete model drafts. Saves
+// serialize through the catalog's actual root transaction and final writer.
 var modelPricingOptionKeys = []string{
 	"AudioCompletionRatio", "AudioRatio", "CacheRatio", "CompletionRatio",
 	"CreateCacheRatio", "ImageRatio", "ModelPrice", "ModelRatio",
 	"billing_setting.billing_expr", "billing_setting.billing_mode", billing_setting.PluginBillingExprOption,
 }
-
-var modelPricingMutationMu sync.Mutex
 
 func IsModelPricingOption(key string) bool {
 	return slices.Contains(modelPricingOptionKeys, key)
@@ -528,30 +527,22 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 			return ErrModelPricingConflict
 		}
 	}
-	return mutateModelPricingOptions(func(tx *gorm.DB, values map[string]map[string]any) error {
-		names := make([]string, 0, len(changes))
-		for _, change := range changes {
-			names = append(names, change.ModelName)
-		}
-		currencies, err := LoadModelBillingCurrencies(tx, names, true)
-		if err != nil {
-			return err
-		}
-		targetCurrencies := make(map[string]string, len(changes))
+	return savePreparedModelPricing(nil, func(draft *modelPricingSaveDraft) error {
 		defaults := defaultPricingMaps()
 		for _, change := range changes {
-			currentCurrency := currencies[change.ModelName]
+			currentCurrency := draft.previous.currencies[change.ModelName]
 			if !currentCurrency.HasMetadata {
 				return fmt.Errorf("model %s exact metadata is required before saving pricing", change.ModelName)
 			}
 			targetCurrency := currentCurrency.BillingCurrency
 			if strings.TrimSpace(change.BillingCurrency) != "" {
+				var err error
 				targetCurrency, err = normalizeModelBillingCurrency(change.BillingCurrency)
 				if err != nil {
 					return fmt.Errorf("model %s: %w", change.ModelName, err)
 				}
 			}
-			previous := modelPricingValues(values, change.ModelName)
+			previous := modelPricingValues(draft.values, change.ModelName)
 			if modelPricingVersion(previous, string(currentCurrency.BillingCurrency)) != change.ExpectedVersion {
 				return fmt.Errorf("%w: %s", ErrModelPricingConflict, change.ModelName)
 			}
@@ -559,22 +550,11 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 			if change.Reset {
 				pricing = modelPricingValues(defaults, change.ModelName)
 			}
-			if err := validateModelPricing(change.ModelName, pricing, previous); err != nil {
+			if err := validateModelPricingWithDependencies(change.ModelName, pricing, previous, draft.validation); err != nil {
 				return err
 			}
-			replaceModelPricing(values, change.ModelName, pricing)
-			targetCurrencies[change.ModelName] = string(targetCurrency)
-		}
-		for _, name := range slices.Sorted(maps.Keys(targetCurrencies)) {
-			result := tx.Model(&Model{}).
-				Where("model_name = ? AND name_rule = ?", name, NameRuleExact).
-				Update("billing_currency", targetCurrencies[name])
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected != 1 {
-				return fmt.Errorf("model %s exact metadata is required before saving pricing", name)
-			}
+			replaceModelPricing(draft.values, change.ModelName, pricing)
+			draft.currencies[change.ModelName] = string(targetCurrency)
 		}
 		return nil
 	})
@@ -583,13 +563,15 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 // UpdateModelPricingOptions keeps legacy single-option callers on the same
 // locking, validation and transaction path as the model-level API.
 func UpdateModelPricingOptions(updates map[string]string) error {
-	return mutateModelPricingOptions(func(_ *gorm.DB, values map[string]map[string]any) error {
+	return savePreparedModelPricing(nil, func(draft *modelPricingSaveDraft) error {
+		values := draft.values
 		previous := cloneModelPricingMaps(values)
 		names := make(map[string]bool)
 		for key, raw := range updates {
 			if !IsModelPricingOption(key) {
 				return fmt.Errorf("unsupported pricing field: %s", key)
 			}
+			draft.explicit[key] = true
 			var entries map[string]any
 			if err := common.UnmarshalJsonStr(raw, &entries); err != nil {
 				return err
@@ -616,7 +598,7 @@ func UpdateModelPricingOptions(updates map[string]string) error {
 			if ratio_setting.IsStarAIVideoPricingModel(name) {
 				continue
 			}
-			if err := validateModelPricing(name, modelPricingValues(values, name), modelPricingValues(previous, name)); err != nil {
+			if err := validateModelPricingWithDependencies(name, modelPricingValues(values, name), modelPricingValues(previous, name), draft.validation); err != nil {
 				return err
 			}
 		}
@@ -669,21 +651,11 @@ func UpdateStarAIVideoPricing(prices ratio_setting.StarAIVideoPriceSetting) erro
 	if err != nil {
 		return err
 	}
-	publishOrder := []string{
-		"billing_setting.billing_expr",
-		billing_setting.PluginBillingExprOption,
-		"billing_setting.billing_mode",
-		"AudioCompletionRatio", "AudioRatio", "CacheRatio", "CompletionRatio",
-		"CreateCacheRatio", "ImageRatio", "ModelPrice", "ModelRatio",
-	}
-	return mutateModelPricingOptionsWithExtra(prices.OptionValues(), publishOrder, func(tx *gorm.DB, values map[string]map[string]any) error {
+	return savePreparedModelPricing(prices.OptionValues(), func(draft *modelPricingSaveDraft) error {
+		values := draft.values
 		modelNames := ratio_setting.StarAIVideoPricingModels()
-		currencies, err := LoadModelBillingCurrencies(tx, modelNames, true)
-		if err != nil {
-			return err
-		}
 		for _, name := range modelNames {
-			if !currencies[name].HasMetadata {
+			if !draft.previous.currencies[name].HasMetadata {
 				return fmt.Errorf("model %s exact metadata is required before publishing Seedance pricing", name)
 			}
 		}
@@ -693,100 +665,109 @@ func UpdateStarAIVideoPricing(prices ratio_setting.StarAIVideoPriceSetting) erro
 			next["billing_setting.billing_mode"] = billing_setting.BillingModeTieredExpr
 			next["billing_setting.billing_expr"] = expression
 			next[billing_setting.PluginBillingExprOption] = map[string]any{}
-			if err := validateModelPricing(name, next, previous); err != nil {
+			if err := validateModelPricingWithDependencies(name, next, previous, draft.validation); err != nil {
 				return err
 			}
 			replaceModelPricing(values, name, next)
 		}
 		for _, name := range modelNames {
-			result := tx.Model(&Model{}).
-				Where("model_name = ? AND name_rule = ?", name, NameRuleExact).
-				Update("billing_currency", "CNY")
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected != 1 {
-				return fmt.Errorf("model %s exact metadata is required before publishing Seedance pricing", name)
-			}
+			draft.currencies[name] = "CNY"
 		}
 		return nil
 	})
 }
 
-func mutateModelPricingOptions(mutate func(*gorm.DB, map[string]map[string]any) error) error {
-	return mutateModelPricingOptionsWithExtra(nil, modelPricingOptionKeys, mutate)
+// Retained only for the statically referenced, unreachable removePricing branch
+// in DeleteModelMetadata, which rejects pricing removal at entry. Never run an
+// arbitrary SQL/validation callback through the old publication choreography.
+func mutateModelPricingOptions(_ func(*gorm.DB, map[string]map[string]any) error) error {
+	return errors.New("pricing removal is not supported for the Molii catalog; edit pricing separately")
 }
 
-func mutateModelPricingOptionsWithExtra(extraOptions map[string]string, publishOrder []string, mutate func(*gorm.DB, map[string]map[string]any) error) error {
-	return WithCatalogWriteBarrier(func() error { return mutateModelPricingOptionsGuarded(extraOptions, publishOrder, mutate) })
+type modelPricingSaveDraft struct {
+	previous   catalogRuntimeInput
+	values     map[string]map[string]any
+	currencies map[string]string
+	validation modelPricingValidationDependencies
+	explicit   map[string]bool
 }
 
-func mutateModelPricingOptionsGuarded(extraOptions map[string]string, publishOrder []string, mutate func(*gorm.DB, map[string]map[string]any) error) error {
-	modelPricingMutationMu.Lock()
-	defer modelPricingMutationMu.Unlock()
-	var committed map[string]map[string]any
-	err := catalogMutationTransaction(DB, func(tx *gorm.DB) error {
-		values, existing, duplicated, err := readModelPricingMaps(lockForUpdate(tx))
+// The three ordinary pricing savers provide pure transformations of detached
+// actual previous values. Only preparation is repeatable; the final callback
+// contains SQL alone and uses the authoritative whole-input recheck.
+func savePreparedModelPricing(extraOptions map[string]string, prepare func(*modelPricingSaveDraft) error) error {
+	var updates, currencies map[string]string
+	return withPreparedOrdinaryCatalogMutation(func(ctx context.Context) (*catalogOrdinaryMutation, error) {
+		previous, err := captureOrdinaryCatalogMutation(ctx, DB)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if len(duplicated) > 0 {
-			common.SysError("options table has duplicate pricing keys [" + strings.Join(duplicated, ", ") + "]; the table is missing a primary key")
+		dependencies, err := catalogRuntimeDependencies(previous)
+		if err != nil {
+			return nil, err
 		}
-		defaults := defaultPricingMaps()
+		values := defaultPricingMaps()
 		for _, key := range modelPricingOptionKeys {
-			if existing[key] {
+			if raw, exists := previous.options[key]; exists {
+				var entries map[string]any
+				if err := common.UnmarshalJsonStr(raw, &entries); err != nil {
+					return nil, err
+				}
+				if entries == nil {
+					return nil, fmt.Errorf("%s must be a JSON object", key)
+				}
+				values[key] = entries
+			}
+		}
+		initial := cloneModelPricingMaps(values)
+		draft := modelPricingSaveDraft{previous: previous, values: values, currencies: make(map[string]string), explicit: make(map[string]bool),
+			validation: modelPricingValidationDependencies{plugins: dependencies.Plugins, resolveAlias: func(name string) (TaskAliasTarget, bool) {
+				target, exists := dependencies.Aliases[jsplugin.ASCIIFold(name)]
+				return target, exists
+			}}}
+		if err := prepare(&draft); err != nil {
+			return nil, err
+		}
+		updates = make(map[string]string, len(modelPricingOptionKeys)+len(extraOptions))
+		for _, key := range modelPricingOptionKeys {
+			if !draft.explicit[key] && reflect.DeepEqual(initial[key], values[key]) {
+				// Preserve untouched raw rows and absence. Missing maps inherit
+				// compiled defaults; explicitly supplied empty maps remain overrides.
 				continue
 			}
-			encoded, err := common.Marshal(defaults[key])
-			if err != nil {
-				return err
-			}
-			row := Option{Key: key, Value: string(encoded)}
-			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
-				return err
-			}
-		}
-		if err := mutate(tx, values); err != nil {
-			return err
-		}
-		for _, key := range modelPricingOptionKeys {
 			encoded, err := common.Marshal(values[key])
 			if err != nil {
-				return err
+				return nil, err
 			}
-			if err := tx.Model(&Option{}).Where(commonKeyCol+" = ?", key).Update("value", string(encoded)).Error; err != nil {
-				return err
-			}
+			updates[key] = string(encoded)
 		}
-		for key, value := range extraOptions {
-			row := Option{Key: key}
-			if err := tx.FirstOrCreate(&row, Option{Key: key}).Error; err != nil {
-				return err
+		maps.Copy(updates, extraOptions)
+		currencies = draft.currencies
+		return stageOrdinaryCatalogMutation(previous, updates)
+	}, func(prepared *catalogOrdinaryMutation) error {
+		return commitOrdinaryCatalogMutationGuarded(context.Background(), DB, prepared, func(tx *gorm.DB) error {
+			for _, name := range slices.Sorted(maps.Keys(currencies)) {
+				result := tx.Model(&Model{}).Where("model_name = ? AND name_rule = ?", name, NameRuleExact).Update("billing_currency", currencies[name])
+				if result.Error != nil {
+					return result.Error
+				}
+				// MySQL reports changed rows, so an unchanged currency may
+				// legitimately return zero. Prove the exact postimage instead.
+				var matches int64
+				if err := tx.Model(&Model{}).Where("model_name = ? AND name_rule = ? AND billing_currency = ?", name, NameRuleExact, currencies[name]).Count(&matches).Error; err != nil {
+					return err
+				}
+				if matches != 1 {
+					return fmt.Errorf("model %s exact metadata is required before saving pricing", name)
+				}
 			}
-			row.Value = value
-			if err := tx.Save(&row).Error; err != nil {
-				return err
+			for _, key := range slices.Sorted(maps.Keys(updates)) {
+				row := Option{Key: key, Value: updates[key]}
+				if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value"})}).Create(&row).Error; err != nil {
+					return err
+				}
 			}
-		}
-		committed = values
-		return nil
+			return nil
+		}, nil)
 	})
-	if err != nil {
-		return err
-	}
-	for _, key := range publishOrder {
-		encoded, _ := common.Marshal(committed[key])
-		if err := updateOptionMap(key, string(encoded)); err != nil {
-			return err
-		}
-	}
-	for key, value := range extraOptions {
-		if err := updateOptionMap(key, value); err != nil {
-			return err
-		}
-	}
-	refreshPricingGuarded()
-	ratio_setting.InvalidateExposedDataCache()
-	return nil
 }

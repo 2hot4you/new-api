@@ -31,6 +31,7 @@ type catalogRuntimeInput struct {
 	digest       string
 	operation    CatalogSyncOperation
 	generation   *jsplugin.RoutingGeneration
+	currencies   map[string]ModelBillingCurrency
 }
 
 type catalogRuntimeStage struct {
@@ -50,11 +51,21 @@ type catalogOrdinaryMutation struct {
 }
 
 func prepareOrdinaryCatalogMutation(ctx context.Context, db *gorm.DB, updates map[string]string) (*catalogOrdinaryMutation, error) {
-	if err := ctx.Err(); err != nil {
+	previous, err := captureOrdinaryCatalogMutation(ctx, db)
+	if err != nil {
 		return nil, err
 	}
+	return stageOrdinaryCatalogMutation(previous, updates)
+}
+
+// Capture ends the reference transaction, registry pin and writer before any
+// save-specific validation or prospective compilation starts.
+func captureOrdinaryCatalogMutation(ctx context.Context, db *gorm.DB) (catalogRuntimeInput, error) {
+	if err := ctx.Err(); err != nil {
+		return catalogRuntimeInput{}, err
+	}
 	if db == nil || DB == nil || db.Statement.ConnPool != DB.Statement.ConnPool {
-		return nil, errors.New("ordinary catalog publication requires the active root database")
+		return catalogRuntimeInput{}, errors.New("ordinary catalog publication requires the active root database")
 	}
 	var previous catalogRuntimeInput
 	err := WithCatalogWriteBarrier(func() error {
@@ -67,9 +78,10 @@ func prepareOrdinaryCatalogMutation(ctx context.Context, db *gorm.DB, updates ma
 			return err
 		})
 	})
-	if err != nil {
-		return nil, err
-	}
+	return previous, err
+}
+
+func stageOrdinaryCatalogMutation(previous catalogRuntimeInput, updates map[string]string) (*catalogOrdinaryMutation, error) {
 	prospective := previous
 	prospective.options = maps.Clone(previous.options)
 	whitelist := catalogmanifest.PriceOptions()
@@ -177,13 +189,20 @@ func commitOrdinaryCatalogMutationGuarded(ctx context.Context, db *gorm.DB, prep
 // returns directly. This preserves concurrent ordinary appends without replaying
 // closures that mutate IDs, counters or caller-owned result objects.
 func withOrdinaryCatalogMutation(db *gorm.DB, updates map[string]string, commit func(*catalogOrdinaryMutation) error) error {
+	return withPreparedOrdinaryCatalogMutation(func(ctx context.Context) (*catalogOrdinaryMutation, error) {
+		return prepareOrdinaryCatalogMutation(ctx, db, updates)
+	}, commit)
+}
+
+// prepare is a detached, repeatable preparation, never a business SQL callback.
+func withPreparedOrdinaryCatalogMutation(prepare func(context.Context) (*catalogOrdinaryMutation, error), commit func(*catalogOrdinaryMutation) error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for range 64 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		prepared, err := prepareOrdinaryCatalogMutation(ctx, db, updates)
+		prepared, err := prepare(ctx)
 		if err != nil {
 			return err
 		}
@@ -236,12 +255,17 @@ func captureCatalogRuntimeTx(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin
 	// Includes full active model/vendor rows, hence raw currency, match rules,
 	// metadata and local incarnation IDs; no strict Web orphan-price check.
 	var currencies []Model
-	if err := tx.Select("model_name", "billing_currency").Find(&currencies).Error; err != nil {
+	if err := tx.Select("model_name", "billing_currency", "name_rule").Find(&currencies).Error; err != nil {
 		return input, err
 	}
+	input.currencies = make(map[string]ModelBillingCurrency)
 	for _, model := range currencies {
-		if _, err := normalizeModelBillingCurrency(model.BillingCurrency); err != nil {
+		currency, err := normalizeModelBillingCurrency(model.BillingCurrency)
+		if err != nil {
 			return input, fmt.Errorf("model %s billing currency: %w", model.ModelName, err)
+		}
+		if model.NameRule == NameRuleExact {
+			input.currencies[model.ModelName] = ModelBillingCurrency{BillingCurrency: currency, HasMetadata: true}
 		}
 	}
 	input.digest, err = catalogPersistedDigest(tx)

@@ -1,11 +1,12 @@
 package model
 
 import (
+	"context"
+	"os"
 	"testing"
 
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
-	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,17 +14,13 @@ import (
 
 func setupModelPricingCurrencyTest(t *testing.T) {
 	t.Helper()
-	savedConfig := map[string]string{}
-	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
-		savedConfig[key] = value
-		return nil
-	}))
-	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig)) })
-	resetPricingEndpointTestTables(t)
-	require.NoError(t, DB.AutoMigrate(&Option{}))
-	require.NoError(t, DB.Exec("DELETE FROM options").Error)
-	InitOptionMap()
-	t.Cleanup(func() { require.NoError(t, DB.Exec("DELETE FROM options").Error) })
+	engine := "sqlite"
+	if os.Getenv("TEST_POSTGRES_DSN") != "" {
+		engine = "postgres"
+	}
+	db := catalogFenceTestDB(t, engine)
+	initializeOrdinaryCatalogTest(t, db)
+	require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
 }
 
 func TestModelPricingSnapshotAndSaveIncludeBillingCurrency(t *testing.T) {
@@ -141,7 +138,7 @@ func TestUpdateModelPricingRollsBackCurrencyWithPricingFailure(t *testing.T) {
 func TestUpdateStarAIVideoPricingSetsExactMetadataToCNY(t *testing.T) {
 	setupModelPricingCurrencyTest(t)
 	const pluginKey = "seedance-currency-test"
-	_, err := jsplugin.DefaultRegistry.Register(`
+	_, err := jsplugin.DefaultRegistry.RegisterFactory(`
 export const meta = {
   apiVersion:1,key:"seedance-currency-test",name:"Seedance Currency Test",version:"1.0.0",author:{name:"Test"},
   models:["doubao-seedance-2-0-260128","doubao-seedance-2-0-fast-260128","doubao-seedance-2-0-mini-260615","doubao-seedance-2-5-260628"],fetchMode:"per_task",
