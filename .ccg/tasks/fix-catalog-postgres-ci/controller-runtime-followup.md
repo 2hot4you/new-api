@@ -67,3 +67,24 @@ The controller boundary test now persisted `created_at=last_seen_at=updated_at=1
 - This report only; root owns gate inventory and the independent review report.
 
 The root task was notified of exact mandatory test names before acceptance. Source remained stable throughout focused GREEN runs. This agent did not rerun any whole acceptance suite and makes no claim that historical cross-engine suites passed. Root performs final PostgreSQL acceptance and integration; no live/user database or external executor was used.
+
+## Independent-review follow-up: isolate creation-time rejection
+
+The reviewer identified that GORM `Update` automatically changes `UpdatedAt`, so the two new creation-time negative cases could accidentally reject on a different eligibility invariant if the loop crossed a second. The pinned GORM update callback confirms automatic update-time assignment unless hooks are skipped; `UpdateColumn` sets `SkipHooks`.
+
+Replaced only the two new `created_at` corruption calls with `UpdateColumn`. Before actual `CreateCatalogSyncPlan` rejection, both cases now read back the real PostgreSQL row and require exact equality with the original healthy row except the intended invalid `CreatedAt` value (`0` or `healthy.LastSeenAt+1`). This proves `LastSeenAt`, `UpdatedAt`, authorization-related identity and every other persisted fact remained unchanged. No production or controller source changed in this follow-up.
+
+With the same explicit PostgreSQL-only environment, owned task DSN and `GOWORK=off`:
+
+```sh
+go test ./model -run '^TestCatalogStartupEligibilityFacts$' -count=1 -timeout=90s -v
+# PASS: all19 children, package 2.934s
+
+go test -race ./model -run '^TestCatalogStartupEligibilityFacts$' -count=1 -timeout=90s -v
+# PASS: all19 children, package 3.402s, no DATA RACE
+
+git diff --check -- model/catalog_sync_startup_test.go
+# PASS
+```
+
+Both readback assertions and both actual creation-time rejection cases passed in normal and race runs. Zero failures/skips; no whole-gate rerun by this agent. Root was notified when the final source became ready, before its model startup acceptance group began.

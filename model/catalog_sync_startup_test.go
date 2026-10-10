@@ -139,9 +139,9 @@ func TestCatalogStartupEligibilityFacts(t *testing.T) {
 			case "malformed":
 				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).Update("info", `{`).Error)
 			case "created-missing":
-				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).Update("created_at", 0).Error)
+				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).UpdateColumn("created_at", 0).Error)
 			case "created-after-heartbeat":
-				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).Update("created_at", healthy.LastSeenAt+1).Error)
+				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).UpdateColumn("created_at", healthy.LastSeenAt+1).Error)
 			case "updated-mismatch":
 				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).Update("updated_at", 0).Error)
 			case "other-live", "other-future", "other-stale":
@@ -153,6 +153,16 @@ func TestCatalogStartupEligibilityFacts(t *testing.T) {
 					seen -= 91
 				}
 				require.NoError(t, db.Create(&SystemInstance{NodeName: "other", LastSeenAt: seen}).Error)
+			}
+			if scenario == "created-missing" || scenario == "created-after-heartbeat" {
+				var corrupted SystemInstance
+				require.NoError(t, db.First(&corrupted, "node_name = ?", healthy.NodeName).Error)
+				expected := healthy
+				expected.CreatedAt = 0
+				if scenario == "created-after-heartbeat" {
+					expected.CreatedAt = healthy.LastSeenAt + 1
+				}
+				require.Equal(t, expected, corrupted, "creation-time corruption must preserve every other eligibility fact, including heartbeat/update timestamps")
 			}
 			_, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
 			if scenario == "healthy" || scenario == "other-stale" {
