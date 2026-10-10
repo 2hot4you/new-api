@@ -2347,6 +2347,8 @@ func TestCatalogSyncStoreReleasedUpgrade(t *testing.T) {
 func TestCatalogSyncSourceConcurrentMutation(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(engine, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
 			db := catalogSyncTestDB(t, engine)
 			if engine == "sqlite" {
 				require.NoError(t, db.Exec("PRAGMA journal_mode=WAL").Error)
@@ -2358,24 +2360,41 @@ func TestCatalogSyncSourceConcurrentMutation(t *testing.T) {
 			require.NoError(t, db.Create(&Model{ModelName: "concurrent-model", VendorID: vendor.Id, BillingCurrency: "USD"}).Error)
 			// Simulate an independent committed DB writer between source queries.
 			// A process mutex alone cannot protect PostgreSQL READ COMMITTED.
-			require.NoError(t, WithCatalogReadSnapshot(context.Background(), func(tx *gorm.DB) error {
+			require.NoError(t, WithCatalogReadSnapshot(ctx, func(tx *gorm.DB) error {
 				var first Vendor
 				if err := tx.First(&first, vendor.Id).Error; err != nil {
 					return err
 				}
 				committed := make(chan error, 1)
+				writerExited := make(chan struct{})
+				t.Cleanup(func() {
+					cancel()
+					cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+					defer stop()
+					select {
+					case <-writerExited:
+					case <-cleanup.Done():
+						t.Error("independent source writer did not exit after cancellation")
+					}
+				})
 				go func() {
-					committed <- db.Transaction(func(write *gorm.DB) error {
+					defer close(writerExited)
+					committed <- db.WithContext(ctx).Transaction(func(write *gorm.DB) error {
 						if err := write.Model(&Vendor{}).Where("id = ?", vendor.Id).Update("description", "after").Error; err != nil {
 							return err
 						}
 						return write.Model(&Model{}).Where("model_name = ?", "concurrent-model").Update("billing_currency", "CNY").Error
 					})
 				}()
-				if err := <-committed; err != nil {
-					return err
+				select {
+				case err := <-committed:
+					if err != nil {
+						return err
+					}
+				case <-ctx.Done():
+					return ctx.Err()
 				}
-				snapshot, err := ExportManagedCatalogTx(context.Background(), tx, "dev")
+				snapshot, err := ExportManagedCatalogTx(ctx, tx, "dev")
 				if err != nil {
 					return err
 				}
@@ -2393,46 +2412,143 @@ func TestCatalogSyncSourceConcurrentMutation(t *testing.T) {
 				}
 				return nil
 			}))
-			// Observe the production writer at its DB boundary: it must exclude
-			// billing/snapshot readers before any metadata reads or writes begin.
-			var observed atomic.Bool
-			writerPaused, releaseWriter := make(chan struct{}), make(chan struct{})
-			require.NoError(t, db.Callback().Create().Before("gorm:create").Register("catalog-test-writer", func(tx *gorm.DB) {
-				if tx.Statement.Table != "vendors" {
-					return
-				}
-				observed.Store(true)
-				if catalogBarrier.TryRLock() {
-					catalogBarrier.RUnlock()
-					t.Error("ordinary vendor writer did not hold catalog barrier")
-				}
-				close(writerPaused)
-				<-releaseWriter
-			}))
-			t.Cleanup(func() { _ = db.Callback().Create().Remove("catalog-test-writer") })
-			written := make(chan error, 1)
-			go func() { written <- (&Vendor{Name: "normal-writer", Status: 1}).Insert() }()
-			<-writerPaused
-			readerStarted, readDone := make(chan struct{}), make(chan error, 1)
-			var concurrent catalogmanifest.Snapshot
-			go func() {
-				close(readerStarted)
-				readDone <- WithCatalogReadSnapshot(context.Background(), func(tx *gorm.DB) error {
-					var err error
-					concurrent, err = ExportManagedCatalogTx(context.Background(), tx, "dev")
-					return err
-				})
-			}()
-			<-readerStarted
-			close(releaseWriter)
-			require.NoError(t, <-written)
-			require.NoError(t, <-readDone)
+			concurrent, observed, err := catalogConcurrentVendorSnapshot(t, ctx, db, "normal-writer")
+			require.NoError(t, err)
 			assert.Equal(t, 2, concurrent.Coverage["vendor"], "export waits for the real ordinary writer to finish")
-			assert.True(t, observed.Load())
+			assert.True(t, observed)
 			var state CatalogSyncState
 			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
 			assert.Equal(t, int64(1), state.Revision)
+			if engine != "postgres" {
+				return
+			}
+
+			// A real writer may fail during its reads, before Create can signal.
+			// The coordinator must return that error, not wait for a callback
+			// which cannot run, and the failed transaction must commit nothing.
+			sentinel := errors.New("injected catalog writer failure before Create")
+			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("catalog-test-early-failure", func(tx *gorm.DB) {
+				if tx.Statement.Table == "vendors" {
+					tx.AddError(sentinel)
+				}
+			}))
+			func() {
+				defer func() { require.NoError(t, db.Callback().Query().Remove("catalog-test-early-failure")) }()
+				_, observed, err = catalogConcurrentVendorSnapshot(t, ctx, db, "must-not-commit")
+			}()
+			assert.ErrorIs(t, err, sentinel)
+			assert.False(t, observed, "injected rejection must precede the Create callback")
+			var count int64
+			require.NoError(t, db.Model(&Vendor{}).Count(&count).Error)
+			assert.EqualValues(t, 2, count, "early writer failure must not commit another vendor")
+			var after CatalogSyncState
+			require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
+			assert.Equal(t, state.Revision, after.Revision)
 		})
+	}
+}
+
+// Real writer/snapshot overlap with bounded failure paths. The cleanup release
+// must run even when the writer fails before Create or a reader assertion fails.
+func catalogConcurrentVendorSnapshot(t *testing.T, parent context.Context, db *gorm.DB, name string) (catalogmanifest.Snapshot, bool, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	var observed atomic.Bool
+	writerPaused, releaseWriter := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseWriter) }) }
+	writerExited, readerExited := make(chan struct{}), make(chan struct{})
+	writerRunning, readerRunning := false, false
+	defer func() {
+		cancel()
+		release()
+		// The ordinary production writer has its own 30-second budget. Join
+		// before removing callbacks/restoring globals, even after cancellation.
+		cleanup, stop := context.WithTimeout(context.Background(), 35*time.Second)
+		defer stop()
+		for _, done := range []<-chan struct{}{writerExited, readerExited} {
+			if (done == writerExited && !writerRunning) || (done == readerExited && !readerRunning) {
+				continue
+			}
+			select {
+			case <-done:
+			case <-cleanup.Done():
+				t.Error("catalog concurrency worker did not exit after cancellation")
+				return
+			}
+		}
+		require.NoError(t, db.Callback().Create().Remove("catalog-test-writer"))
+	}()
+	require.NoError(t, db.Callback().Create().Before("gorm:create").Register("catalog-test-writer", func(tx *gorm.DB) {
+		if tx.Statement.Table != "vendors" {
+			return
+		}
+		observed.Store(true)
+		if catalogBarrier.TryRLock() {
+			catalogBarrier.RUnlock()
+			t.Error("ordinary vendor writer did not hold catalog barrier")
+		}
+		close(writerPaused)
+		select {
+		case <-releaseWriter:
+		case <-ctx.Done():
+		}
+		if err := ctx.Err(); err != nil {
+			tx.AddError(err)
+		}
+	}))
+	written := make(chan error, 1)
+	writerRunning = true
+	go func() {
+		defer close(writerExited)
+		written <- (&Vendor{Name: name, Status: 1}).Insert()
+	}()
+	select {
+	case <-writerPaused:
+	case err := <-written:
+		if err == nil {
+			err = errors.New("catalog writer exited without reaching Create callback")
+		}
+		return catalogmanifest.Snapshot{}, observed.Load(), err
+	case <-ctx.Done():
+		return catalogmanifest.Snapshot{}, observed.Load(), ctx.Err()
+	}
+	type readResult struct {
+		snapshot catalogmanifest.Snapshot
+		err      error
+	}
+	readerStarted, readDone := make(chan struct{}), make(chan readResult, 1)
+	readerRunning = true
+	go func() {
+		defer close(readerExited)
+		close(readerStarted)
+		var result readResult
+		result.err = WithCatalogReadSnapshot(ctx, func(tx *gorm.DB) error {
+			var err error
+			result.snapshot, err = ExportManagedCatalogTx(ctx, tx, "dev")
+			return err
+		})
+		readDone <- result
+	}()
+	select {
+	case <-readerStarted:
+	case <-ctx.Done():
+		return catalogmanifest.Snapshot{}, observed.Load(), ctx.Err()
+	}
+	release()
+	select {
+	case err := <-written:
+		if err != nil {
+			return catalogmanifest.Snapshot{}, observed.Load(), err
+		}
+	case <-ctx.Done():
+		return catalogmanifest.Snapshot{}, observed.Load(), ctx.Err()
+	}
+	select {
+	case result := <-readDone:
+		return result.snapshot, observed.Load(), result.err
+	case <-ctx.Done():
+		return catalogmanifest.Snapshot{}, observed.Load(), ctx.Err()
 	}
 }
 
