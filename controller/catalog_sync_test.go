@@ -561,6 +561,32 @@ func catalogSyncPostgres(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestCatalogSyncHeartbeatCreationAcrossSecond(t *testing.T) {
+	db := catalogSyncPostgres(t)
+	require.NoError(t, db.AutoMigrate(&model.SystemInstance{}))
+	var delayed bool
+	const callback = "catalog-heartbeat-cross-second"
+	require.NoError(t, db.Callback().Create().Before("gorm:before_create").Register(callback, func(tx *gorm.DB) {
+		instance, ok := tx.Statement.Dest.(*model.SystemInstance)
+		if !ok {
+			return
+		}
+		require.Positive(t, instance.LastSeenAt)
+		// Delay the real first heartbeat after its time was captured but before
+		// BeforeCreate runs. Do not repair or fabricate the persisted timestamps.
+		time.Sleep(time.Until(time.Unix(instance.LastSeenAt+1, 0)) + 10*time.Millisecond)
+		delayed = true
+	}))
+	t.Cleanup(func() { require.NoError(t, db.Callback().Create().Remove(callback)) })
+	require.NoError(t, service.ReportCurrentSystemInstance())
+	require.True(t, delayed)
+	var instance model.SystemInstance
+	require.NoError(t, db.First(&instance).Error)
+	t.Logf("first heartbeat: created_at=%d last_seen_at=%d updated_at=%d", instance.CreatedAt, instance.LastSeenAt, instance.UpdatedAt)
+	assert.LessOrEqual(t, instance.CreatedAt, instance.LastSeenAt, "a real first heartbeat must satisfy the unchanged catalog eligibility guard across a second boundary")
+	assert.Equal(t, instance.LastSeenAt, instance.UpdatedAt)
+}
+
 func catalogSyncTarget(t *testing.T, lifetime ...time.Duration) (*gorm.DB, catalogmanifest.Actor, catalogmanifest.Plan) {
 	t.Helper()
 	db := catalogSyncPostgres(t)

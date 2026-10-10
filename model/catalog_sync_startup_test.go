@@ -54,11 +54,59 @@ func catalogStartupHeartbeat(t *testing.T) {
 	}, common.StartTime, time.Now().Unix()))
 }
 
+func TestCatalogStartupHeartbeatTimestamps(t *testing.T) {
+	db, actor := catalogStartupInstanceFixture(t)
+	info := map[string]any{
+		"schema_version": 1, "node": common.GetNodeIdentity(), "role": map[string]any{"is_master": true},
+		"runtime": map[string]any{"started_at": common.StartTime},
+	}
+	t.Run("explicit-create-and-update", func(t *testing.T) {
+		require.NoError(t, db.Where("node_name = ?", common.NodeName).Delete(&SystemInstance{}).Error)
+		firstSeen := time.Now().Unix() - 2
+		require.NoError(t, UpsertSystemInstance(common.NodeName, info, common.StartTime, firstSeen))
+		var first SystemInstance
+		require.NoError(t, db.First(&first, "node_name = ?", common.NodeName).Error)
+		assert.Equal(t, firstSeen, first.CreatedAt, "first creation uses the captured heartbeat time, not a later hook clock")
+		assert.Equal(t, firstSeen, first.LastSeenAt)
+		assert.Equal(t, firstSeen, first.UpdatedAt)
+		_, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+		require.NoError(t, err, "a delayed real first heartbeat remains eligible without weakening the strict guard")
+
+		info["extra"] = map[string]any{"heartbeat": "updated"}
+		laterSeen := firstSeen + 1
+		require.NoError(t, UpsertSystemInstance(common.NodeName, info, common.StartTime, laterSeen))
+		var updated SystemInstance
+		require.NoError(t, db.First(&updated, "node_name = ?", common.NodeName).Error)
+		assert.Equal(t, firstSeen, updated.CreatedAt, "conflict update preserves original creation identity")
+		assert.Equal(t, laterSeen, updated.LastSeenAt)
+		assert.Equal(t, laterSeen, updated.UpdatedAt)
+		assert.Equal(t, common.StartTime, updated.StartedAt)
+		assert.Contains(t, updated.Info, `"heartbeat":"updated"`)
+		_, err = CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+		require.NoError(t, err)
+	})
+	t.Run("zero-timestamp-default", func(t *testing.T) {
+		require.NoError(t, db.Where("node_name = ?", common.NodeName).Delete(&SystemInstance{}).Error)
+		before := time.Now().Unix()
+		require.NoError(t, UpsertSystemInstance(common.NodeName, info, common.StartTime, 0))
+		after := time.Now().Unix()
+		var instance SystemInstance
+		require.NoError(t, db.First(&instance, "node_name = ?", common.NodeName).Error)
+		assert.GreaterOrEqual(t, instance.LastSeenAt, before)
+		assert.LessOrEqual(t, instance.LastSeenAt, after)
+		assert.Positive(t, instance.LastSeenAt)
+		assert.Equal(t, instance.LastSeenAt, instance.CreatedAt)
+		assert.Equal(t, instance.LastSeenAt, instance.UpdatedAt)
+		_, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
+		require.NoError(t, err)
+	})
+}
+
 func TestCatalogStartupEligibilityFacts(t *testing.T) {
 	db, actor := catalogStartupInstanceFixture(t)
 	var healthy SystemInstance
 	require.NoError(t, db.First(&healthy).Error)
-	for _, scenario := range []string{"healthy", "absent-permission", "invalid-permission", "hostname", "unsafe-name", "slave", "missing-self", "stale", "future", "start-mismatch", "info-mismatch", "unknown-schema", "malformed", "updated-mismatch", "other-live", "other-future", "other-stale"} {
+	for _, scenario := range []string{"healthy", "absent-permission", "invalid-permission", "hostname", "unsafe-name", "slave", "missing-self", "stale", "future", "start-mismatch", "info-mismatch", "unknown-schema", "malformed", "created-missing", "created-after-heartbeat", "updated-mismatch", "other-live", "other-future", "other-stale"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Setenv("CATALOG_SYNC_SINGLE_INSTANCE", "true")
 			common.NodeName, common.NodeNameSource, common.NodeNameManuallyConfigured = "catalog-test", common.NodeNameSourceManual, true
@@ -90,6 +138,10 @@ func TestCatalogStartupEligibilityFacts(t *testing.T) {
 				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).Update("info", `{"schema_version":2}`).Error)
 			case "malformed":
 				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).Update("info", `{`).Error)
+			case "created-missing":
+				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).Update("created_at", 0).Error)
+			case "created-after-heartbeat":
+				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).Update("created_at", healthy.LastSeenAt+1).Error)
 			case "updated-mismatch":
 				require.NoError(t, db.Model(&SystemInstance{}).Where("node_name = ?", healthy.NodeName).Update("updated_at", 0).Error)
 			case "other-live", "other-future", "other-stale":

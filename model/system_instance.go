@@ -56,6 +56,7 @@ func UpsertSystemInstance(nodeName string, info any, startedAt int64, lastSeenAt
 		Info:       infoText,
 		StartedAt:  startedAt,
 		LastSeenAt: lastSeenAt,
+		CreatedAt:  lastSeenAt,
 		UpdatedAt:  lastSeenAt,
 	}
 	return DB.Clauses(clause.OnConflict{
