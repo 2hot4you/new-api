@@ -1,5 +1,7 @@
 {
   "translation": {
+    "After restore": "Sau khôi phục",
+    "Restore saved value for entire item": "Khôi phục giá trị đã lưu cho toàn bộ mục",
     "Catalog configuration is invalid.": "Cấu hình danh mục không hợp lệ.",
     "Browser origin is not configured.": "Chưa cấu hình nguồn gốc trình duyệt.",
     "No active source readers are configured.": "Chưa cấu hình quyền đọc nguồn đang hoạt động.",

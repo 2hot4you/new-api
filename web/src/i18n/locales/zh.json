@@ -1,5 +1,7 @@
 {
   "translation": {
+    "After restore": "恢复后",
+    "Restore saved value for entire item": "整个条目恢复为已保存的值",
     "Catalog configuration is invalid.": "目录配置无效。",
     "Browser origin is not configured.": "未配置浏览器来源。",
     "No active source readers are configured.": "未配置有效的来源只读凭证。",

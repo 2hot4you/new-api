@@ -174,6 +174,18 @@ func fetch(ctx context.Context, client *http.Client, token, sourceID string) (ca
 // exactWireFields derives the allowed/required keys from the authoritative
 // manifest types instead of creating another manifest serializer or schema.
 func exactWireFields(raw common.RawMessage, t reflect.Type) bool {
+	if t.Kind() == reflect.Map {
+		var values map[string]common.RawMessage
+		if common.Unmarshal(raw, &values) != nil || values == nil {
+			return false
+		}
+		for _, value := range values {
+			if !exactWireFields(value, t.Elem()) {
+				return false
+			}
+		}
+		return true
+	}
 	if t.Kind() == reflect.Slice {
 		var values []common.RawMessage
 		if common.Unmarshal(raw, &values) != nil || string(raw) == "null" {

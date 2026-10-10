@@ -156,6 +156,34 @@ func TestCatalogTransportRejectsUnsafeDestinationsAndRebinding(t *testing.T) {
 	assert.NotContains(t, err.Error(), "secret")
 }
 
+func TestCatalogTransportRejectsNullCoverageForEmptyKind(t *testing.T) {
+	snapshot := wireSnapshot(t)
+	require.Empty(t, snapshot.Entries)
+	require.Zero(t, snapshot.Coverage[catalogmanifest.KindVendor])
+	valid := wireBody(t, snapshot)
+	require.Contains(t, string(valid), `"vendor":0`)
+	for _, nullCoverage := range []bool{false, true} {
+		t.Run(fmt.Sprintf("null=%t", nullCoverage), func(t *testing.T) {
+			body := valid
+			if nullCoverage {
+				body = bytes.Replace(valid, []byte(`"vendor":0`), []byte(`"vendor":null`), 1)
+			}
+			client, _ := controlledTransport(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(body)
+			})
+			got, err := fetch(context.Background(), client, "secret", "dev")
+			if nullCoverage {
+				require.ErrorIs(t, err, ErrUnavailable)
+				assert.False(t, got.Complete)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, snapshot, got)
+			}
+		})
+	}
+}
+
 func TestCatalogTransportRejectsWireFailures(t *testing.T) {
 	valid := wireBody(t, wireSnapshot(t))
 	for _, tc := range []struct {

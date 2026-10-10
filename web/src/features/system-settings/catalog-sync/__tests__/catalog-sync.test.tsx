@@ -148,6 +148,7 @@ describe('managed catalog sync', () => {
       const [units, setUnits] = useState<string[]>([])
       return (
         <CatalogChangelog
+          kind='sync'
           changes={changes}
           selectedUnits={units}
           onSelectedUnitsChange={setUnits}
@@ -698,84 +699,265 @@ describe('managed catalog sync', () => {
     )
   })
 
-  test('disconnected apply keeps original binding and only queries the same receipt after 404', async () => {
-    const initial = plan([change({ action: 'adopt' })])
-    const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
-      if (url.includes('/operations/')) {
-        throw new Error('receipt not found yet')
-      }
-      return {
-        data: {
-          success: true,
-          data: targetResponseData(url, 'catalog.sync.apply'),
-        },
-      }
-    })
-    const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
-      if (url.endsWith('/preview') || url.endsWith('/resolve')) {
-        return { data: { success: true, data: initial } }
-      }
-      if (url === '/api/verify') {
+  test.each(['SECURITY_PROOF_EXPIRED', 'SECURITY_PROOF_METHOD_MISMATCH'])(
+    '%s clears an unused binding across remount and permits a newly verified operation',
+    async (code) => {
+      const savedPlan = plan()
+      vi.spyOn(api, 'get').mockImplementation(async (url) => {
+        if (url.includes('/operations/')) throw new Error('receipt not found')
         return {
           data: {
             success: true,
-            data: {
-              proof_token: 'one-use-proof',
-              scope: 'catalog.sync.apply',
-              method: 'session',
-              expires_at: Math.floor(Date.now() / 1000) + 300,
-            },
+            data: targetResponseData(url, 'catalog.sync.apply'),
           },
         }
-      }
-      throw new Error('network disconnected')
-    })
-    renderSection()
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Check dev updates' })
-    )
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Review and confirm' })
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save choices' }))
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Confirm sync' })
-    )
-    expect(await screen.findByText('Result unknown')).toBeInTheDocument()
-    await waitFor(() =>
+      })
+      let applyCount = 0
+      const post = vi
+        .spyOn(api, 'post')
+        .mockImplementation(async (url, body) => {
+          if (url.endsWith('/preview') || url.endsWith('/resolve')) {
+            return { data: { success: true, data: savedPlan } }
+          }
+          if (url === '/api/verify') {
+            return {
+              data: {
+                success: true,
+                data: {
+                  proof_token: `proof-${applyCount}`,
+                  scope: 'catalog.sync.apply',
+                  method: 'session',
+                  expires_at: Math.floor(Date.now() / 1000) + 300,
+                },
+              },
+            }
+          }
+          applyCount++
+          if (applyCount === 1) {
+            throw new axios.AxiosError(
+              'refused',
+              undefined,
+              undefined,
+              undefined,
+              {
+                status: 403,
+                statusText: 'Forbidden',
+                headers: {},
+                config: { headers: new axios.AxiosHeaders() },
+                data: {
+                  success: false,
+                  code,
+                  message: 'Fresh verification required',
+                },
+              }
+            )
+          }
+          return {
+            data: {
+              success: true,
+              data: {
+                operation_id: (body as { operation_id: string }).operation_id,
+                state: 'succeeded',
+                revision: 5,
+              },
+            },
+          }
+        })
+      renderSection()
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Check dev updates' })
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Review and confirm' })
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Save choices' })
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Confirm sync' })
+      )
       expect(
-        get.mock.calls.some(([url]) => String(url).includes('/operations/'))
-      ).toBe(true)
-    )
-    const boundCall = get.mock.calls.find(([url]) =>
-      String(url).includes('/operations/')
-    )
-    expect(boundCall?.[1]).toMatchObject({
-      params: { plan_id: initial.id, digest: initial.digest },
-    })
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Check original result' })
-    )
-    expect(
-      post.mock.calls.filter(([url]) => String(url).endsWith('/apply'))
-    ).toHaveLength(1)
-    expect(
-      screen.getByRole('button', { name: 'Check dev updates' })
-    ).toBeDisabled()
-    const operationLabel = screen.getByText(/Operation ID:/).textContent
-    cleanup()
-    renderSection()
-    expect(await screen.findByText(/Result unknown/)).toBeInTheDocument()
-    expect(screen.getByText(/Operation ID:/)).toHaveTextContent(
-      operationLabel ?? ''
-    )
-    expect(
-      screen.getByRole('button', { name: 'Check dev updates' })
-    ).toBeDisabled()
-    expect(
-      post.mock.calls.filter(([url]) => String(url).endsWith('/apply'))
-    ).toHaveLength(1)
-  })
+        await screen.findByText('Catalog operation notice')
+      ).toBeInTheDocument()
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Review and confirm' })
+        ).toBeEnabled()
+      )
+      expect(
+        window.sessionStorage.getItem('catalog-sync-original-operation')
+      ).toBeNull()
+      expect(screen.queryByText('Result unknown')).not.toBeInTheDocument()
+      expect(applyCount).toBe(1)
+      cleanup()
+      renderSection()
+      const preview = await screen.findByRole('button', {
+        name: 'Check dev updates',
+      })
+      expect(preview).toBeEnabled()
+      expect(screen.queryByText('Result unknown')).not.toBeInTheDocument()
+      await userEvent.click(preview)
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Review and confirm' })
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Save choices' })
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Confirm sync' })
+      )
+      expect(await screen.findByText(/Immutable receipt/)).toHaveTextContent(
+        'succeeded'
+      )
+      const writes = post.mock.calls.filter(([url]) =>
+        String(url).endsWith('/apply')
+      )
+      expect(writes).toHaveLength(2)
+      expect(writes[1][1]).toMatchObject({
+        plan_id: savedPlan.id,
+        digest: savedPlan.digest,
+      })
+      expect((writes[1][1] as { operation_id: string }).operation_id).not.toBe(
+        (writes[0][1] as { operation_id: string }).operation_id
+      )
+      const proofs = post.mock.calls.filter(([url]) => url === '/api/verify')
+      expect(proofs).toHaveLength(2)
+      for (const [index, proof] of proofs.entries()) {
+        expect(proof[1]).toMatchObject({
+          scope: 'catalog.sync.apply',
+          context: {
+            operation_id: (writes[index][1] as { operation_id: string })
+              .operation_id,
+            plan_digest: savedPlan.digest,
+            target_id: savedPlan.target_id,
+            kind: 'sync',
+          },
+        })
+      }
+      expect(writes[1][2]).toMatchObject({
+        headers: { 'X-Security-Proof': 'proof-1' },
+        singleUseAuthorization: true,
+      })
+    }
+  )
+
+  test.each([
+    ['disconnected', undefined, undefined],
+    ['unknown commit', 'CATALOG_COMMIT_UNKNOWN', 503],
+    ['unrecognized proof code', 'SECURITY_PROOF_UNRECOGNIZED', 403],
+    ['unexpected proof status', 'SECURITY_PROOF_EXPIRED', 500],
+  ])(
+    '%s apply keeps original binding and only queries the same receipt after 404',
+    async (_label, code, status) => {
+      const initial = plan([change({ action: 'adopt' })])
+      const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
+        if (url.includes('/operations/')) {
+          throw new axios.AxiosError(
+            'not found',
+            undefined,
+            undefined,
+            undefined,
+            {
+              status: 404,
+              statusText: 'Not Found',
+              headers: {},
+              config: { headers: new axios.AxiosHeaders() },
+              data: {
+                success: false,
+                code: 'CATALOG_NOT_FOUND',
+                message: 'catalog plan or operation unavailable',
+              },
+            }
+          )
+        }
+        return {
+          data: {
+            success: true,
+            data: targetResponseData(url, 'catalog.sync.apply'),
+          },
+        }
+      })
+      const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
+        if (url.endsWith('/preview') || url.endsWith('/resolve')) {
+          return { data: { success: true, data: initial } }
+        }
+        if (url === '/api/verify') {
+          return {
+            data: {
+              success: true,
+              data: {
+                proof_token: 'one-use-proof',
+                scope: 'catalog.sync.apply',
+                method: 'session',
+                expires_at: Math.floor(Date.now() / 1000) + 300,
+              },
+            },
+          }
+        }
+        if (!code) throw new Error('network disconnected')
+        throw new axios.AxiosError(
+          'unknown outcome',
+          undefined,
+          undefined,
+          undefined,
+          {
+            status: status ?? 503,
+            statusText: 'Error',
+            headers: {},
+            config: { headers: new axios.AxiosHeaders() },
+            data: { success: false, code, message: 'Unknown outcome' },
+          }
+        )
+      })
+      renderSection()
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Check dev updates' })
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Review and confirm' })
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Save choices' })
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Confirm sync' })
+      )
+      expect(await screen.findByText('Result unknown')).toBeInTheDocument()
+      await waitFor(() =>
+        expect(
+          get.mock.calls.some(([url]) => String(url).includes('/operations/'))
+        ).toBe(true)
+      )
+      const boundCall = get.mock.calls.find(([url]) =>
+        String(url).includes('/operations/')
+      )
+      expect(boundCall?.[1]).toMatchObject({
+        params: { plan_id: initial.id, digest: initial.digest },
+      })
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Check original result' })
+      )
+      expect(
+        post.mock.calls.filter(([url]) => String(url).endsWith('/apply'))
+      ).toHaveLength(1)
+      expect(
+        screen.getByRole('button', { name: 'Check dev updates' })
+      ).toBeDisabled()
+      const operationLabel = screen.getByText(/Operation ID:/).textContent
+      cleanup()
+      renderSection()
+      expect(await screen.findByText(/Result unknown/)).toBeInTheDocument()
+      expect(screen.getByText(/Operation ID:/)).toHaveTextContent(
+        operationLabel ?? ''
+      )
+      expect(
+        screen.getByRole('button', { name: 'Check dev updates' })
+      ).toBeDisabled()
+      expect(
+        post.mock.calls.filter(([url]) => String(url).endsWith('/apply'))
+      ).toHaveLength(1)
+    }
+  )
 
   test('restore preview is a local inverse and requests a fresh restore-scoped proof', async () => {
     const restorePlan = plan([change({ action: 'adopt' })], {
@@ -838,6 +1020,8 @@ describe('managed catalog sync', () => {
     expect(
       await screen.findByText(/Inverse snapshot digest/)
     ).toHaveTextContent(restorePlan.source_digest)
+    expect(screen.getAllByText('After restore').length).toBeGreaterThan(0)
+    expect(screen.queryByText('After sync')).not.toBeInTheDocument()
     await userEvent.click(
       screen.getByRole('button', { name: 'Review and confirm' })
     )
@@ -945,6 +1129,182 @@ describe('managed catalog sync', () => {
     expect(
       post.mock.calls.filter(([url]) => String(url).endsWith('/apply'))
     ).toHaveLength(1)
+  })
+
+  test('keyboard-only deletion confirmation hands focus to verification and cancellation returns to review', async () => {
+    const user = userEvent.setup()
+    const initial = plan([change({ action: 'delete', after: null })])
+    const final = plan(initial.changes, {
+      digest: 'd'.repeat(64),
+      resolution: { overwrite_keys: null, confirm_deletes: true },
+    })
+    vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+      data: {
+        success: true,
+        data: url.endsWith('/verify/methods')
+          ? {
+              scope: 'catalog.sync.apply',
+              methods: [{ method: '2fa', available: true }],
+              oauth_providers: [],
+              password_encryption_enabled: false,
+            }
+          : targetResponseData(url, 'catalog.sync.apply'),
+      },
+    }))
+    const post = vi.spyOn(api, 'post').mockImplementation(async (url, body) => {
+      if (url.endsWith('/preview')) {
+        return { data: { success: true, data: initial } }
+      }
+      if (url.endsWith('/resolve')) {
+        return { data: { success: true, data: final } }
+      }
+      if (url === '/api/verify') {
+        return {
+          data: {
+            success: true,
+            data: {
+              proof_token: 'keyboard-proof',
+              scope: 'catalog.sync.apply',
+              method: '2fa',
+              expires_at: Math.floor(Date.now() / 1000) + 300,
+            },
+          },
+        }
+      }
+      return {
+        data: {
+          success: true,
+          data: {
+            operation_id: (body as { operation_id: string }).operation_id,
+            state: 'succeeded',
+            revision: 6,
+          },
+        },
+      }
+    })
+    // Real Tab traversal only: never focus/click a target or replace a dialog.
+    async function tabTo(element: HTMLElement) {
+      for (
+        let step = 0;
+        step < 20 && document.activeElement !== element;
+        step++
+      ) {
+        await user.tab()
+      }
+      expect(element).toHaveFocus()
+    }
+    renderSection()
+    await tabTo(
+      await screen.findByRole('button', { name: 'Check dev updates' })
+    )
+    await user.keyboard('{Enter}')
+    const review = await screen.findByRole('button', {
+      name: 'Review and confirm',
+    })
+    await tabTo(review)
+    await user.keyboard('{Enter}')
+    expect(
+      await screen.findByRole('checkbox', { name: /I consent to delete/ })
+    ).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Save choices' })).toBeDisabled()
+    await tabTo(screen.getByRole('button', { name: 'Cancel' }))
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(review).toHaveFocus())
+    expect(
+      post.mock.calls.filter(([url]) => String(url).endsWith('/resolve'))
+    ).toHaveLength(0)
+    await user.keyboard('{Enter}')
+    await tabTo(
+      await screen.findByRole('checkbox', { name: /I consent to delete/ })
+    )
+    await user.keyboard(' ')
+    expect(
+      screen.getByRole('checkbox', { name: /I consent to delete/ })
+    ).toBeChecked()
+    await tabTo(screen.getByRole('button', { name: 'Save choices' }))
+    await user.keyboard('{Enter}')
+    const confirm = await screen.findByRole('button', { name: 'Confirm sync' })
+    expect(screen.getByText(final.digest)).toBeInTheDocument()
+    expect(screen.getByText('Deletion consent recorded')).toBeInTheDocument()
+    expect(post).toHaveBeenCalledWith(
+      `/api/catalog_sync/plans/${initial.id}/resolve`,
+      {
+        digest: initial.digest,
+        overwrite_keys: [],
+        confirm_deletes: true,
+      }
+    )
+    await tabTo(confirm)
+    await user.keyboard('{Enter}')
+    const codeInput = await screen.findByLabelText(
+      'Authenticator code or backup code'
+    )
+    await waitFor(() => expect(codeInput).toHaveFocus())
+    expect(
+      post.mock.calls.filter(
+        ([url]) => url === '/api/verify' || String(url).endsWith('/apply')
+      )
+    ).toHaveLength(0)
+    await tabTo(screen.getByRole('button', { name: 'Cancel' }))
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(review).toHaveFocus())
+    expect(
+      window.sessionStorage.getItem('catalog-sync-original-operation')
+    ).toBeNull()
+    await user.keyboard('{Enter}')
+    await tabTo(await screen.findByRole('button', { name: 'Confirm sync' }))
+    await user.keyboard('{Enter}')
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('Authenticator code or backup code')
+      ).toHaveFocus()
+    )
+    await user.keyboard('123456')
+    await tabTo(screen.getByRole('button', { name: 'Verify' }))
+    await user.keyboard('{Enter}')
+    expect(await screen.findByText(/Immutable receipt/)).toHaveTextContent(
+      'succeeded'
+    )
+    const writes = post.mock.calls.filter(([url]) =>
+      String(url).endsWith('/apply')
+    )
+    expect(writes).toHaveLength(1)
+    expect(post).toHaveBeenCalledWith(
+      '/api/verify',
+      {
+        scope: 'catalog.sync.apply',
+        method: '2fa',
+        code: '123456',
+        context: {
+          kind: 'sync',
+          target_id: final.target_id,
+          plan_digest: final.digest,
+          operation_id: (writes[0][1] as { operation_id: string }).operation_id,
+        },
+      },
+      expect.anything()
+    )
+  })
+
+  test('restore changelog uses saved-value wording defensively without implying dev overwrite', () => {
+    // Restore currently refuses drift before returning a plan; this is solely
+    // a defensive component contract, not a claim that restore emits conflicts.
+    render(
+      <CatalogChangelog
+        kind='restore'
+        changes={[change({ action: 'conflict' })]}
+        selectedUnits={[]}
+        onSelectedUnitsChange={vi.fn()}
+      />
+    )
+    expect(
+      screen.getByRole('checkbox', {
+        name: /Restore saved value for entire item/,
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: /Use dev for entire item/ })
+    ).not.toBeInTheDocument()
   })
 
   test('keyboard preview and language switching update labels and snapshot dates for all seven locales', async () => {

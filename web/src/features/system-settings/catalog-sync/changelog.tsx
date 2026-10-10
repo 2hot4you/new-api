@@ -14,7 +14,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-import type { CatalogChange, CatalogChangeAction, CatalogEntry } from './types'
+import type {
+  CatalogChange,
+  CatalogChangeAction,
+  CatalogEntry,
+  CatalogSyncPlan,
+} from './types'
 
 const actions: CatalogChangeAction[] = [
   'create',
@@ -126,7 +131,10 @@ function categoryOf(change: CatalogChange): Category {
   return 'price'
 }
 
-function FieldDiff(props: { change: CatalogChange }) {
+function FieldDiff(props: {
+  change: CatalogChange
+  kind: CatalogSyncPlan['kind']
+}) {
   const { t } = useTranslation()
   const before = flatten(parsedValue(props.change.before))
   const base = flatten(parsedValue(props.change.base))
@@ -165,7 +173,9 @@ function FieldDiff(props: { change: CatalogChange }) {
               </pre>
             </div>
             <div>
-              <span className='text-muted-foreground'>{t('After sync')}</span>
+              <span className='text-muted-foreground'>
+                {t(props.kind === 'restore' ? 'After restore' : 'After sync')}
+              </span>
               <pre className='overflow-x-auto break-words whitespace-pre-wrap'>
                 {after[name] ?? '—'}
               </pre>
@@ -178,6 +188,7 @@ function FieldDiff(props: { change: CatalogChange }) {
 }
 
 type ChangelogProps = {
+  kind: CatalogSyncPlan['kind']
   changes: CatalogChange[]
   selectedUnits: string[]
   onSelectedUnitsChange: (units: string[]) => void
@@ -186,6 +197,10 @@ type ChangelogProps = {
 
 export function CatalogChangelog(props: ChangelogProps) {
   const { t } = useTranslation()
+  const choiceLabel =
+    props.kind === 'restore'
+      ? t('Restore saved value for entire item')
+      : t('Use dev for entire item')
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<Category>('all')
   const visible = useMemo(
@@ -282,7 +297,9 @@ export function CatalogChangelog(props: ChangelogProps) {
                   {
                     id: 'fields',
                     header: t('Field changes'),
-                    cell: (change) => <FieldDiff change={change} />,
+                    cell: (change) => (
+                      <FieldDiff change={change} kind={props.kind} />
+                    ),
                   },
                   {
                     id: 'choice',
@@ -310,9 +327,9 @@ export function CatalogChangelog(props: ChangelogProps) {
                                     )
                               )
                             }
-                            aria-label={`${t('Use dev for entire item')} ${displayKey(change)}`}
+                            aria-label={`${choiceLabel} ${displayKey(change)}`}
                           />
-                          {t('Use dev for entire item')}
+                          {choiceLabel}
                         </label>
                       )
                     },

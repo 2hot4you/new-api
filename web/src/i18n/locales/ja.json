@@ -1,5 +1,7 @@
 {
   "translation": {
+    "After restore": "復元後",
+    "Restore saved value for entire item": "項目全体を保存済みの値に復元",
     "Catalog configuration is invalid.": "カタログの設定が無効です。",
     "Browser origin is not configured.": "ブラウザーのオリジンが設定されていません。",
     "No active source readers are configured.": "有効なソース読み取り資格情報が設定されていません。",

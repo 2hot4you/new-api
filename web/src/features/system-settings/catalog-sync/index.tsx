@@ -29,6 +29,7 @@ import { CatalogChangelog } from './changelog'
 import { ConfirmSyncDialog } from './confirm-sync-dialog'
 import { CatalogHistory } from './history'
 import type {
+  CatalogBoundOperation,
   CatalogOperationBinding,
   CatalogSyncPlan,
   CatalogSyncResult,
@@ -41,6 +42,20 @@ const statusErrorLabels: Record<string, string> = {
 }
 
 const bindingStorageKey = 'catalog-sync-original-operation'
+
+// RequireSecurityProof returns these refusals before ApplyCatalogSyncPlan runs.
+// Do not infer rollback from an arbitrary status, prefix, message or lookup 404.
+const preWriteProofRefusals = new Set([
+  'SECURITY_PROOF_REQUIRED',
+  'SECURITY_PROOF_EXPIRED',
+  'SECURITY_PROOF_SCOPE_MISMATCH',
+  'SECURITY_METHOD_UNAVAILABLE',
+  'SECURITY_PROOF_METHOD_MISMATCH',
+  'SECURITY_PROOF_CONSUMED',
+  'SECURITY_PROOF_CONTEXT_MISMATCH',
+  'SECURITY_ACTION_FORBIDDEN',
+  'SECURITY_PROOF_INVALID',
+])
 
 function readStoredBinding(userId: number): CatalogOperationBinding | null {
   try {
@@ -225,15 +240,40 @@ function CatalogSyncRootSection(): React.JSX.Element {
       const known = committedReceipt(error, input.binding.operationId)
       if (known) setReceipt(known)
       setFeedback(getServerErrorMessage(error))
-      const code = axios.isAxiosError<{ code?: string }>(error)
-        ? error.response?.data?.code
+      const response = axios.isAxiosError<{ success?: boolean; code?: string }>(
+        error
+      )
+        ? error.response
         : undefined
-      if (code === 'CATALOG_CONFLICT' || code === 'CATALOG_PLAN_BLOCKED') {
+      const code = response?.data?.code
+      const proofRefused =
+        response?.status === 403 &&
+        response.data?.success === false &&
+        preWriteProofRefusals.has(code ?? '')
+      const invalidPlan =
+        code === 'CATALOG_CONFLICT' || code === 'CATALOG_PLAN_BLOCKED'
+      const savedReceipt = client.getQueryData<CatalogBoundOperation>([
+        'catalog-sync',
+        'receipt',
+        input.binding.operationId,
+        input.binding.planId,
+        input.binding.digest,
+      ])?.receipt
+      if (
+        !known &&
+        !receipt &&
+        !savedReceipt &&
+        (proofRefused || invalidPlan)
+      ) {
         setBinding(null)
         writeStoredBinding(userId, null)
-        setPlan(null)
-        setCurrentPlan(null)
-        setFinalPlan(null)
+        // Proof refusal does not invalidate the saved plan. A user may confirm
+        // it again with a fresh operation/proof; normal expiry checks still apply.
+        if (invalidPlan) {
+          setPlan(null)
+          setCurrentPlan(null)
+          setFinalPlan(null)
+        }
       }
       void client.invalidateQueries({ queryKey: ['catalog-sync', 'history'] })
     },
@@ -455,6 +495,7 @@ function CatalogSyncRootSection(): React.JSX.Element {
               </Alert>
             )}
             <CatalogChangelog
+              kind={plan.kind}
               changes={plan.changes}
               selectedUnits={selectedUnits}
               onSelectedUnitsChange={(units) => {

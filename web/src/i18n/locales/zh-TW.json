@@ -1,5 +1,7 @@
 {
   "translation": {
+    "After restore": "還原後",
+    "Restore saved value for entire item": "整個項目還原為已儲存的值",
     "Catalog configuration is invalid.": "目錄設定無效。",
     "Browser origin is not configured.": "尚未設定瀏覽器來源。",
     "No active source readers are configured.": "尚未設定有效的來源唯讀憑證。",

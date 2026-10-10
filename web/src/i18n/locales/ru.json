@@ -1,5 +1,7 @@
 {
   "translation": {
+    "After restore": "После восстановления",
+    "Restore saved value for entire item": "Восстановить сохранённое значение для всего элемента",
     "Catalog configuration is invalid.": "Конфигурация каталога недействительна.",
     "Browser origin is not configured.": "Источник браузера не настроен.",
     "No active source readers are configured.": "Нет настроенных активных читателей источника.",

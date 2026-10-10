@@ -1,5 +1,7 @@
 {
   "translation": {
+    "After restore": "Après restauration",
+    "Restore saved value for entire item": "Restaurer la valeur enregistrée pour l’élément entier",
     "Catalog configuration is invalid.": "La configuration du catalogue est invalide.",
     "Browser origin is not configured.": "L’origine du navigateur n’est pas configurée.",
     "No active source readers are configured.": "Aucun lecteur source actif n’est configuré.",
