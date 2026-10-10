@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"strconv"
@@ -221,13 +222,13 @@ func loadOptionsFromDatabase() error {
 	return recoverCatalogSyncRuntime(ctx, loadOptionsFromDatabaseGuarded)
 }
 
-func loadOptionsFromDatabaseGuarded(stage *catalogRuntimeStage) error {
+func loadOptionsFromDatabaseGuarded(ctx context.Context, stage *catalogRuntimeStage) error {
 	requestPolicyOptionMutex.Lock()
 	defer requestPolicyOptionMutex.Unlock()
 	passkeyOptionMutex.Lock()
 	defer passkeyOptionMutex.Unlock()
-	options, err := AllOption()
-	if err != nil {
+	var options []*Option
+	if err := DB.WithContext(ctx).Find(&options).Error; err != nil {
 		return err
 	}
 	whitelist := catalogmanifest.PriceOptions()
@@ -258,8 +259,10 @@ func loadOptionsFromDatabaseGuarded(stage *catalogRuntimeStage) error {
 			return fmt.Errorf("normalize option %s: %w", option.Key, err)
 		} else if value != option.Value {
 			option.Value = value
-			if err := DB.Save(option).Error; err != nil {
-				return fmt.Errorf("persist normalized option %s: %w", option.Key, err)
+			if err := DB.WithContext(ctx).Save(option).Error; err != nil {
+				// GORM rollback errors can hide the original cancellation in
+				// the unwrap chain. Preserve both the lifecycle and SQL errors.
+				return fmt.Errorf("persist normalized option %s: %w", option.Key, errors.Join(ctx.Err(), err))
 			}
 		}
 		if IsPasskeyDomainOption(option.Key) {

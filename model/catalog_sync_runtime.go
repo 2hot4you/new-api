@@ -386,7 +386,7 @@ func PublishCatalogSyncRevision(ctx context.Context, revision int64) error {
 
 // publishOptions is reserved for authoritative option reload. It runs after
 // the final fresh recheck and real pin release, under the continuous writer.
-func publishCatalogSyncRevision(ctx context.Context, revision int64, publishOptions func(*catalogRuntimeStage) error) error {
+func publishCatalogSyncRevision(ctx context.Context, revision int64, publishOptions func(context.Context, *catalogRuntimeStage) error) error {
 	var input catalogRuntimeInput
 	var captureErr error
 	err := TryWithCatalogWriteBarrier(ctx, func() error {
@@ -438,7 +438,7 @@ func RecoverCatalogSyncRuntime(ctx context.Context) error {
 	return recoverCatalogSyncRuntime(ctx, nil)
 }
 
-func recoverCatalogSyncRuntime(ctx context.Context, publishOptions func(*catalogRuntimeStage) error) error {
+func recoverCatalogSyncRuntime(ctx context.Context, publishOptions func(context.Context, *catalogRuntimeStage) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -455,7 +455,7 @@ func publishCatalogRuntimeGuarded(ctx context.Context, stage *catalogRuntimeStag
 	return publishCatalogRuntimeAndOptionsGuarded(ctx, stage, nil)
 }
 
-func publishCatalogRuntimeAndOptionsGuarded(ctx context.Context, stage *catalogRuntimeStage, publishOptions func(*catalogRuntimeStage) error) error {
+func publishCatalogRuntimeAndOptionsGuarded(ctx context.Context, stage *catalogRuntimeStage, publishOptions func(context.Context, *catalogRuntimeStage) error) error {
 	if stage == nil || stage.input.state.PublicationState != "committed_pending_publish" {
 		return ErrCatalogPublicationPending
 	}
@@ -474,7 +474,7 @@ func publishCatalogRuntimeAndOptionsGuarded(ctx context.Context, stage *catalogR
 	}
 	catalogRuntime.ready = false
 	if publishOptions != nil {
-		if err := publishOptions(stage); err != nil {
+		if err := publishOptions(ctx, stage); err != nil {
 			return err
 		}
 	}

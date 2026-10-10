@@ -165,6 +165,113 @@ func TestCatalogReloadDeletedPrice(t *testing.T) {
 	assert.NotContains(t, ratio_setting.GetModelPriceMap(), "removed", "authoritative reload must not resurrect deleted leaves from typed caches")
 }
 
+func TestCatalogReloadSQLCancellation(t *testing.T) {
+	for _, site := range []string{"query", "normalization-write"} {
+		t.Run(site, func(t *testing.T) {
+			db := catalogReloadTestDB(t)
+			const key = "group_ratio_setting.group_metadata"
+			const legacy = `[{"name":"vip","icon":"DeepSeek.Color","recommendation":4}]`
+			require.NoError(t, db.Create(&Option{Key: key, Value: legacy}).Error)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			type blockedSQL struct {
+				blocker *gorm.DB
+				ctx     context.Context
+			}
+			started := make(chan blockedSQL, 1)
+			sqlResult := make(chan error, 1)
+			var armed atomic.Bool
+			armed.Store(true)
+			before := func(tx *gorm.DB) {
+				matches := tx.Statement.Table == "options" && tx.Statement.ConnPool == db.Statement.ConnPool
+				if site == "normalization-write" {
+					row, ok := tx.Statement.Dest.(*Option)
+					matches = ok && row.Key == key
+				}
+				if !matches || !armed.CompareAndSwap(true, false) {
+					return
+				}
+				// The final reference transaction has ended. This independent
+				// connection blocks the actual new SQL site, not a mock query.
+				blocker := db.Begin()
+				tx.AddError(blocker.Exec("LOCK TABLE options IN ACCESS EXCLUSIVE MODE").Error)
+				tx.Statement.Settings.Store("reload-cancel-observed", true)
+				started <- blockedSQL{blocker, tx.Statement.Context}
+			}
+			after := func(tx *gorm.DB) {
+				if _, observed := tx.Statement.Settings.Load("reload-cancel-observed"); observed {
+					sqlResult <- tx.Error
+				}
+			}
+			if site == "query" {
+				require.NoError(t, db.Callback().Query().Before("gorm:query").Register("reload-cancel-before", before))
+				require.NoError(t, db.Callback().Query().After("gorm:query").Register("reload-cancel-after", after))
+			} else {
+				require.NoError(t, db.Callback().Update().Before("gorm:update").Register("reload-cancel-before", before))
+				require.NoError(t, db.Callback().Update().After("gorm:update").Before("gorm:commit_or_rollback_transaction").Register("reload-cancel-after", after))
+			}
+			finished := make(chan error, 1)
+			go func() { finished <- recoverCatalogSyncRuntime(ctx, loadOptionsFromDatabaseGuarded) }()
+			var blocked blockedSQL
+			select {
+			case blocked = <-started:
+			case err := <-finished:
+				t.Fatalf("reload exited before SQL site: %v", err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("reload did not reach SQL site")
+			}
+			defer blocked.blocker.Rollback()
+			catalogWaitForDBLock(t, db, "postgres", finished)
+			cancel()
+			select {
+			case err := <-sqlResult:
+				assert.ErrorIs(t, err, context.Canceled, "actual blocked query/write must return cancellation")
+			case <-time.After(2 * time.Second):
+				t.Error("publisher cancellation did not release the blocked option SQL")
+				// Bound the RED failure and allow its lifecycle to release locks.
+				require.NoError(t, blocked.blocker.Rollback().Error)
+				assert.ErrorIs(t, <-sqlResult, context.Canceled)
+			}
+			assert.ErrorIs(t, blocked.ctx.Err(), context.Canceled, "the new SQL must inherit the publisher context")
+			require.ErrorIs(t, <-finished, context.Canceled)
+			_ = blocked.blocker.Rollback().Error
+			if site == "query" {
+				require.NoError(t, db.Callback().Query().Remove("reload-cancel-before"))
+				require.NoError(t, db.Callback().Query().Remove("reload-cancel-after"))
+			} else {
+				require.NoError(t, db.Callback().Update().Remove("reload-cancel-before"))
+				require.NoError(t, db.Callback().Update().Remove("reload-cancel-after"))
+			}
+			for _, lock := range []struct {
+				name    string
+				acquire func() bool
+				release func()
+			}{
+				{"common", catalogBarrier.TryLock, catalogBarrier.Unlock},
+				{"policy", requestPolicyOptionMutex.TryLock, requestPolicyOptionMutex.Unlock},
+				{"passkey", passkeyOptionMutex.TryLock, passkeyOptionMutex.Unlock},
+			} {
+				if assert.True(t, lock.acquire(), "%s lock must be released", lock.name) {
+					lock.release()
+				}
+			}
+			var pending CatalogSyncState
+			require.NoError(t, db.First(&pending, CatalogSyncStateID).Error)
+			assert.Equal(t, "committed_pending_publish", pending.PublicationState)
+			var row Option
+			require.NoError(t, db.First(&row, commonKeyCol+" = ?", key).Error)
+			assert.Equal(t, legacy, row.Value, "canceled normalization must not persist")
+			require.NoError(t, loadOptionsFromDatabase())
+			var ready CatalogSyncState
+			require.NoError(t, db.First(&ready, CatalogSyncStateID).Error)
+			assert.Equal(t, pending.Revision, ready.Revision)
+			assert.Equal(t, "ready", ready.PublicationState)
+			require.NoError(t, db.First(&row, commonKeyCol+" = ?", key).Error)
+			assert.JSONEq(t, `[{"name":"vip","icon":"DeepSeek.Color"}]`, row.Value)
+		})
+	}
+}
+
 func TestCatalogReloadErrorsAndFreshOptions(t *testing.T) {
 	db := catalogReloadTestDB(t)
 	require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"kept":4}`}))
