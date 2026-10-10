@@ -79,3 +79,11 @@ All probes use `GOWORK=off go test ./relay/helper -run '^$' -count=1`; each exit
 ## Self-review and limits
 
 Reviewed the owned diff: original business expectations remain intact; schemas and readiness are initialized through public production paths; plugins are not runtime-only; owned disposable databases close before dropping; snapshots restore fixture globals; nonempty invalid mode cannot enter SQLite TestMain. No material finding remained. Independent root review and complete mandatory acceptance are still required. This is PostgreSQL-only selected acceptance, not a claim that every historical legacy cross-engine suite was migrated or passed.
+
+## Independent-review follow-up: standalone DSN isolation
+
+Independent review found that `dbname=postgres` or `database=postgres` could agree with the original URL path during validation but override the subsequently rewritten disposable database path. The root runner already rejected unknown query keys; the standalone helper now independently requires exactly one query key, `sslmode`, with exactly one value, `disable`, via `url.ParseQuery`. Query database/host/port/service aliases and duplicate SSL mode are rejected before pgx parsing or opening a database. A username, single database path, and no fragment are also required.
+
+Parser-only `TestHelperPostgresDSNGuard` was added before the repair. RED: `dbname=postgres`, `database=postgres`, same port, same host and duplicate SSL mode unexpectedly returned nil errors. No database was opened. After repair, this test and all six override children pass: normal 1.339s, race 2.791s. Its accepted URL path is rewritten to `catalog_helper_guard` and pgx must resolve that exact database, proving isolation survives rewriting.
+
+Five actual TestMain probes with mode `1` and the task loopback URL plus `dbname=postgres`, `database=postgres`, `port=32768`, `service=fixture`, or `host=192.0.2.1` each exited 1 before tests/database setup, with the unchanged diagnostic `helper PostgreSQL tests reject ambiguous TEST_POSTGRES_DSN overrides`. These used `GOWORK=off go test ./relay/helper -run '^$' -count=1`. Root was given the new exact test name for mandatory inventory inclusion. This follow-up changes only the helper test fixture and this report; whole acceptance evidence is owned by root.

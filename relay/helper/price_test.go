@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,8 +64,12 @@ func TestMain(m *testing.M) {
 func helperPricingPostgresDSN() (*url.URL, error) {
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	u, err := url.Parse(dsn)
-	if err != nil || u == nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || !net.ParseIP(u.Hostname()).IsLoopback() || u.Path == "" || u.Path == "/" || u.Query().Get("sslmode") != "disable" {
+	if err != nil || u == nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || !net.ParseIP(u.Hostname()).IsLoopback() || u.User == nil || u.User.Username() == "" || u.Path == "" || u.Path == "/" || strings.Contains(u.Path[1:], "/") || u.Fragment != "" || u.Query().Get("sslmode") != "disable" {
 		return nil, fmt.Errorf("helper PostgreSQL gate requires a loopback TEST_POSTGRES_DSN URL with sslmode=disable")
+	}
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(query) != 1 || len(query["sslmode"]) != 1 || query["sslmode"][0] != "disable" {
+		return nil, fmt.Errorf("helper PostgreSQL tests reject ambiguous TEST_POSTGRES_DSN overrides")
 	}
 	parsed, err := pgx.ParseConfig(dsn)
 	if err != nil || parsed.Host != u.Hostname() || parsed.Database != u.Path[1:] || parsed.TLSConfig != nil {
@@ -76,6 +81,27 @@ func helperPricingPostgresDSN() (*url.URL, error) {
 		}
 	}
 	return u, nil
+}
+
+func TestHelperPostgresDSNGuard(t *testing.T) {
+	const base = "postgresql://fixture@127.0.0.1:5432/postgres?sslmode=disable"
+	t.Setenv("TEST_POSTGRES_DSN", base)
+	u, err := helperPricingPostgresDSN()
+	require.NoError(t, err)
+	u.Path = "/catalog_helper_guard"
+	parsed, err := pgx.ParseConfig(u.String())
+	require.NoError(t, err)
+	require.Equal(t, "catalog_helper_guard", parsed.Database, "only the owned database path may select the fixture database")
+	for _, query := range []string{
+		"&dbname=postgres", "&database=postgres", "&port=5432",
+		"&service=fixture", "&host=127.0.0.1", "&sslmode=disable",
+	} {
+		t.Run(query, func(t *testing.T) {
+			t.Setenv("TEST_POSTGRES_DSN", base+query)
+			_, err := helperPricingPostgresDSN()
+			require.Error(t, err, "query overrides must not survive the owned database path rewrite")
+		})
+	}
 }
 
 func setupHelperPricingPostgres(t *testing.T) *gorm.DB {
