@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -539,13 +540,24 @@ type catalogReadLostAckConnection struct {
 	commits                 atomic.Int64
 	postCommitMetadataReads atomic.Int64
 	afterCommit             func() error
+	beforeSQL               func(context.Context, string) error
 }
 
 func (c *catalogReadLostAckConnection) Close() error { return nil } // original loan owns the native connection
 func (c *catalogReadLostAckConnection) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	if c.beforeSQL != nil {
+		if err := c.beforeSQL(ctx, query); err != nil {
+			return nil, err
+		}
+	}
 	return c.Conn.(driver.ExecerContext).ExecContext(ctx, query, args)
 }
 func (c *catalogReadLostAckConnection) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	if c.beforeSQL != nil {
+		if err := c.beforeSQL(ctx, query); err != nil {
+			return nil, err
+		}
+	}
 	if c.commits.Load() > 0 && strings.Contains(query, "FROM pg_catalog.pg_class") {
 		c.postCommitMetadataReads.Add(1)
 	}
@@ -949,4 +961,412 @@ func TestCatalogSyncTargetHistoricalHintPolicyUnchanged(t *testing.T) {
 	var operation model.CatalogSyncOperation
 	require.NoError(t, db.First(&operation, "id = ?", result.OperationID).Error)
 	assert.Equal(t, "succeeded", operation.State)
+}
+
+// Preserve complete durable rows, including anchor, baseline, backup/history,
+// incarnation and runtime ACK fields. Sequence allocation is not transactional.
+func catalogSyncDurableRows(t *testing.T, db *gorm.DB, namespace string, tables []string) map[string]string {
+	t.Helper()
+	rows := make(map[string]string, len(tables))
+	for _, table := range tables {
+		var value string
+		require.NoError(t, db.Raw(`SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text), '[]'::jsonb)::text FROM "`+namespace+`"."`+table+`" r`).Scan(&value).Error)
+		rows[table] = fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
+	}
+	return rows
+}
+
+func catalogSyncTargetShadow(t *testing.T, db *gorm.DB, empty bool) []string {
+	t.Helper()
+	var tables []string
+	require.NoError(t, db.Raw("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' ORDER BY tablename").Scan(&tables).Error)
+	require.NotEmpty(t, tables)
+	require.NoError(t, db.Exec("CREATE SCHEMA shadow").Error)
+	for _, table := range tables {
+		require.NoError(t, db.Exec(`CREATE TABLE shadow."`+table+`" (LIKE public."`+table+`" INCLUDING ALL)`).Error)
+		if !empty || table != "models" && table != "vendors" {
+			require.NoError(t, db.Exec(`INSERT INTO shadow."`+table+`" SELECT * FROM public."`+table+`"`).Error)
+		}
+	}
+	return tables
+}
+
+func catalogSyncSwapTarget(t *testing.T, db *gorm.DB, restore bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	first, second := "ALTER SCHEMA public RENAME TO original", "ALTER SCHEMA shadow RENAME TO public"
+	if restore {
+		first, second = "ALTER SCHEMA public RENAME TO shadow", "ALTER SCHEMA original RENAME TO public"
+	}
+	require.NoError(t, db.WithContext(ctx).Transaction(func(ddl *gorm.DB) error {
+		if err := ddl.Exec(first).Error; err != nil {
+			return err
+		}
+		return ddl.Exec(second).Error
+	}), "actual schema DDL must commit despite target relation locks")
+}
+
+func TestCatalogSyncTargetNamespaceOrdinaryRollback(t *testing.T) {
+	for _, window := range []string{"preflight", "verified", "callback", "empty-callback"} {
+		for _, aba := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/aba=%t", window, aba), func(t *testing.T) {
+				db, _, _ := catalogSyncTarget(t)
+				tables := catalogSyncTargetShadow(t, db, window == "empty-callback")
+				var original, shadow map[string]string
+				var swapped bool
+				calls := 0
+				generation := jsplugin.DefaultRegistry.Generation()
+				swap := func() {
+					original = catalogSyncDurableRows(t, db, "public", tables)
+					shadow = catalogSyncDurableRows(t, db, "shadow", tables)
+					catalogSyncSwapTarget(t, db, false)
+					swapped = true
+				}
+				if window == "preflight" {
+					require.NoError(t, db.Callback().Raw().Before("gorm:raw").Register("target-preflight-swap", func(tx *gorm.DB) {
+						if !swapped && strings.HasPrefix(tx.Statement.SQL.String(), "SET LOCAL search_path") {
+							swap()
+							if aba {
+								catalogSyncSwapTarget(t, db, true)
+							}
+						}
+					}))
+					defer db.Callback().Raw().Remove("target-preflight-swap")
+				}
+				if window == "verified" {
+					require.NoError(t, db.Callback().Query().Before("gorm:query").Register("target-verified-swap", func(tx *gorm.DB) {
+						if !swapped && tx.Statement.Table == "catalog_sync_states" {
+							swap()
+							if aba {
+								catalogSyncSwapTarget(t, db, true)
+							}
+						}
+					}))
+					defer db.Callback().Query().Remove("target-verified-swap")
+				}
+				err := model.WithModelMetadataTransaction(func(tx *gorm.DB) error {
+					calls++
+					if strings.HasSuffix(window, "callback") {
+						swap()
+					}
+					err := tx.Exec("INSERT INTO vendors (id, name, status, display_order) VALUES (990, 'namespace-write', 1, 0)").Error
+					if strings.HasSuffix(window, "callback") && aba {
+						catalogSyncSwapTarget(t, db, true)
+					}
+					return err
+				})
+				require.True(t, swapped)
+				assert.Error(t, err, "namespace redirection must roll back before durable target commit")
+				assert.NotErrorIs(t, err, model.ErrCatalogCommitUncertain)
+				originalName, shadowName := "original", "public"
+				if aba {
+					originalName, shadowName = "public", "shadow"
+				}
+				assert.Equal(t, original, catalogSyncDurableRows(t, db, originalName, tables))
+				assert.Equal(t, shadow, catalogSyncDurableRows(t, db, shadowName, tables))
+				assert.Same(t, generation, jsplugin.DefaultRegistry.Generation())
+				if strings.HasSuffix(window, "callback") {
+					assert.Equal(t, 1, calls)
+				} else {
+					assert.Zero(t, calls)
+				}
+				if !aba {
+					catalogSyncSwapTarget(t, db, true)
+				}
+				// Successful next ordinary save proves SQL locks, writer and pin drain.
+				require.NoError(t, model.WithModelMetadataTransaction(func(tx *gorm.DB) error {
+					return tx.Exec("UPDATE models SET display_name = 'after-rollback'").Error
+				}))
+				assert.NoError(t, jsplugin.DefaultRegistry.SetGenerationPreparer(nil))
+			})
+		}
+	}
+}
+
+func TestCatalogSyncTargetNamespaceRelationReplacement(t *testing.T) {
+	db, _, _ := catalogSyncTarget(t)
+	before := catalogSyncDurableRows(t, db, "public", []string{"marketplace_order_locks", "catalog_sync_states", "vendors"})
+	var replaced bool
+	require.NoError(t, db.Callback().Raw().Before("gorm:raw").Register("target-replace-relation", func(tx *gorm.DB) {
+		if replaced || !strings.HasPrefix(tx.Statement.SQL.String(), "SET LOCAL search_path") {
+			return
+		}
+		replaced = true
+		require.NoError(t, db.Transaction(func(ddl *gorm.DB) error {
+			if err := ddl.Exec("ALTER TABLE vendors RENAME TO original_vendors").Error; err != nil {
+				return err
+			}
+			return ddl.Exec("CREATE TABLE vendors (LIKE original_vendors INCLUDING ALL)").Error
+		}))
+	}))
+	calls := 0
+	err := model.WithModelMetadataTransaction(func(tx *gorm.DB) error {
+		calls++
+		return tx.Exec("INSERT INTO vendors (id, name) VALUES (991, 'replaced-relation')").Error
+	})
+	require.NoError(t, db.Callback().Raw().Remove("target-replace-relation"))
+	require.True(t, replaced)
+	assert.ErrorContains(t, err, "identity changed during acquisition")
+	assert.Zero(t, calls)
+	assert.Equal(t, before, catalogSyncDurableRows(t, db, "public", []string{"marketplace_order_locks", "catalog_sync_states", "vendors"}))
+}
+
+func TestCatalogSyncTargetNamespaceManagedRollback(t *testing.T) {
+	for _, restore := range []bool{false, true} {
+		for _, aba := range []bool{false, true} {
+			t.Run(fmt.Sprintf("restore=%t/aba=%t", restore, aba), func(t *testing.T) {
+				db, actor, plan := catalogSyncTarget(t)
+				if restore {
+					_, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "original-apply", actor)
+					require.NoError(t, err)
+					plan, err = model.CreateCatalogSyncRestorePlan(context.Background(), "original-apply", actor, time.Now())
+					require.NoError(t, err)
+					plan, err = model.ResolveCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, actor, catalogmanifest.Resolution{ConfirmDeletes: true})
+					require.NoError(t, err)
+				}
+				require.True(t, catalogmanifest.PlanExecutable(plan, time.Now()))
+				tables := catalogSyncTargetShadow(t, db, false)
+				var original, shadow map[string]string
+				var wroteState, swapped bool
+				operationReads, writes := 0, 0
+				generation := jsplugin.DefaultRegistry.Generation()
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("target-mutation-start", func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_operations" {
+						writes++
+						original = catalogSyncDurableRows(t, db, "public", tables)
+						shadow = catalogSyncDurableRows(t, db, "shadow", tables)
+					}
+				}))
+				require.NoError(t, db.Callback().Update().After("gorm:update").Register("target-state-written", func(tx *gorm.DB) {
+					if tx.Statement.Table == "catalog_sync_states" && writes > 0 {
+						wroteState = true
+					}
+				}))
+				require.NoError(t, db.Callback().Query().After("gorm:query").Register("target-last-consumer", func(tx *gorm.DB) {
+					if !wroteState || swapped || tx.Statement.Table != "catalog_sync_operations" {
+						return
+					}
+					operationReads++
+					if operationReads != 2 {
+						return
+					}
+					catalogSyncSwapTarget(t, db, false)
+					if aba {
+						catalogSyncSwapTarget(t, db, true)
+					}
+					swapped = true
+				}))
+				result, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "namespace-operation", actor)
+				require.NoError(t, db.Callback().Create().Remove("target-mutation-start"))
+				require.NoError(t, db.Callback().Update().Remove("target-state-written"))
+				require.NoError(t, db.Callback().Query().Remove("target-last-consumer"))
+				require.True(t, swapped, "real mutation reached its final receipt consumer")
+				assert.Equal(t, 1, writes)
+				assert.Error(t, err)
+				assert.NotErrorIs(t, err, model.ErrCatalogCommitUncertain)
+				assert.Equal(t, catalogmanifest.Result{}, result)
+				originalName, shadowName := "original", "public"
+				if aba {
+					originalName, shadowName = "public", "shadow"
+				}
+				assert.Equal(t, original, catalogSyncDurableRows(t, db, originalName, tables))
+				assert.Equal(t, shadow, catalogSyncDurableRows(t, db, shadowName, tables))
+				assert.Same(t, generation, jsplugin.DefaultRegistry.Generation())
+				if !aba {
+					catalogSyncSwapTarget(t, db, true)
+				}
+				result, err = model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "after-namespace-rollback", actor)
+				require.NoError(t, err)
+				assert.Equal(t, "after-namespace-rollback", result.OperationID)
+				operation, err := model.GetCatalogSyncOperation(context.Background(), result.OperationID)
+				require.NoError(t, err)
+				assert.Equal(t, "succeeded", operation.State)
+			})
+		}
+	}
+}
+
+func TestCatalogSyncTargetNamespaceShadowAuthorization(t *testing.T) {
+	for _, aba := range []bool{false, true} {
+		t.Run(fmt.Sprintf("aba=%t", aba), func(t *testing.T) {
+			db, actor, plan := catalogSyncTarget(t)
+			tables := catalogSyncTargetShadow(t, db, false)
+			require.NoError(t, db.Exec("UPDATE public.users SET role = ?", common.RoleAdminUser).Error)
+			original := catalogSyncDurableRows(t, db, "public", tables)
+			shadow := catalogSyncDurableRows(t, db, "shadow", tables)
+			ran := catalogSyncBeforeQueryDDL(t, db, "users", "ALTER SCHEMA public RENAME TO original", "ALTER SCHEMA shadow RENAME TO public")
+			var shadowSessionRead, restored bool
+			require.NoError(t, db.Callback().Query().After("gorm:query").Register("target-shadow-session", func(tx *gorm.DB) {
+				if !shadowSessionRead && tx.Statement.Table == "user_sessions" {
+					shadowSessionRead = tx.Error == nil
+				}
+				if aba && shadowSessionRead && !restored && tx.Statement.Table == "users" {
+					catalogSyncSwapTarget(t, db, true)
+					restored = true
+				}
+			}))
+			result, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "shadow-authorization", actor)
+			require.NoError(t, db.Callback().Query().Remove("target-shadow-session"))
+			require.True(t, ran.Load())
+			require.True(t, shadowSessionRead, "actual transient shadow root/session authorization was read")
+			assert.ErrorContains(t, err, "namespace changed before commit")
+			assert.Equal(t, catalogmanifest.Result{}, result)
+			originalName, shadowName := "original", "public"
+			if aba {
+				originalName, shadowName = "public", "shadow"
+			}
+			assert.Equal(t, original, catalogSyncDurableRows(t, db, originalName, tables))
+			assert.Equal(t, shadow, catalogSyncDurableRows(t, db, shadowName, tables))
+		})
+	}
+}
+
+// Lend one actual native PG connection to the fault driver; production still
+// receives a real *sql.DB and owns its root transaction and reserved connection.
+func catalogSyncObserveTarget(t *testing.T, db *gorm.DB, run func(*catalogReadLostAckConnection)) {
+	t.Helper()
+	pool, err := db.DB()
+	require.NoError(t, err)
+	loan, err := pool.Conn(context.Background())
+	require.NoError(t, err)
+	defer loan.Close()
+	require.NoError(t, loan.Raw(func(native any) error {
+		connection := &catalogReadLostAckConnection{Conn: native.(driver.Conn), afterCommit: func() error { return nil }}
+		observed := sql.OpenDB(catalogReadLostAckConnector{connection: connection, driver: pool.Driver()})
+		observed.SetMaxOpenConns(1)
+		defer observed.Close()
+		root := db.Session(&gorm.Session{NewDB: true, Context: context.Background()})
+		root.Statement.ConnPool = observed
+		model.DB = root
+		defer func() { model.DB = db }()
+		run(connection)
+		return nil
+	}))
+}
+
+func TestCatalogSyncTargetNamespaceProofFailures(t *testing.T) {
+	for _, failure := range []string{"sql-error", "cancel"} {
+		t.Run(failure, func(t *testing.T) {
+			db, actor, plan := catalogSyncTarget(t)
+			var tables []string
+			require.NoError(t, db.Raw("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' ORDER BY tablename").Scan(&tables).Error)
+			var before map[string]string
+			var callbackPID, callbackXID int64
+			var mutation bool
+			require.NoError(t, db.Callback().Create().Before("gorm:create").Register("target-proof-mutation", func(tx *gorm.DB) {
+				if tx.Statement.Table == "catalog_sync_operations" {
+					before = catalogSyncDurableRows(t, db, "public", tables)
+					require.NoError(t, tx.Session(&gorm.Session{NewDB: true}).Raw("SELECT pg_backend_pid(), txid_current()").Row().Scan(&callbackPID, &callbackXID))
+					mutation = true
+				}
+			}))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var proofObserved bool
+			catalogSyncObserveTarget(t, db, func(connection *catalogReadLostAckConnection) {
+				connection.beforeSQL = func(queryCtx context.Context, query string) error {
+					if !mutation || !strings.Contains(query, "FROM pg_catalog.pg_namespace n WHERE n.oid") {
+						return nil
+					}
+					proofObserved = true
+					rows, err := connection.Conn.(driver.QueryerContext).QueryContext(queryCtx, "SELECT pg_backend_pid(), txid_current(), current_setting('transaction_isolation')", nil)
+					require.NoError(t, err)
+					values := make([]driver.Value, 3)
+					require.NoError(t, rows.Next(values))
+					require.NoError(t, rows.Close())
+					assert.EqualValues(t, callbackPID, values[0])
+					assert.EqualValues(t, callbackXID, values[1], "final proof runs in the same mutation transaction")
+					assert.Equal(t, "read committed", values[2])
+					if failure == "cancel" {
+						cancel()
+						return queryCtx.Err()
+					}
+					_, err = connection.Conn.(driver.ExecerContext).ExecContext(queryCtx, "SELECT 1/0", nil)
+					return err // actual PostgreSQL SQL failure aborts the transaction
+				}
+				result, err := model.ApplyCatalogSyncPlan(ctx, plan.ID, plan.Digest, "proof-failure", actor)
+				require.True(t, proofObserved)
+				assert.Error(t, err)
+				if failure == "cancel" {
+					assert.ErrorIs(t, err, context.Canceled)
+				} else {
+					assert.ErrorContains(t, err, "division by zero")
+				}
+				assert.NotErrorIs(t, err, model.ErrCatalogCommitUncertain)
+				assert.Equal(t, catalogmanifest.Result{}, result)
+				assert.Equal(t, int64(1), connection.commits.Load(), "only the earlier capture transaction committed")
+			})
+			require.NoError(t, db.Callback().Create().Remove("target-proof-mutation"))
+			assert.Equal(t, before, catalogSyncDurableRows(t, db, "public", tables))
+			_, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "after-proof-failure", actor)
+			require.NoError(t, err, "rollback drains locks and permits the next normal Apply")
+			require.NoError(t, jsplugin.DefaultRegistry.SetGenerationPreparer(nil), "registry write proves no leaked pin")
+		})
+	}
+}
+
+func TestCatalogSyncTargetNamespaceLostCommitAck(t *testing.T) {
+	for _, managed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("managed=%t", managed), func(t *testing.T) {
+			db, actor, plan := catalogSyncTarget(t)
+			writes, proofs := 0, 0
+			lastQuery := ""
+			var result catalogmanifest.Result
+			var applyErr error
+			require.NoError(t, db.Callback().Create().Before("gorm:create").Register("target-once-write", func(tx *gorm.DB) {
+				if tx.Statement.Table == "catalog_sync_operations" {
+					writes++
+				}
+			}))
+			catalogSyncObserveTarget(t, db, func(connection *catalogReadLostAckConnection) {
+				connection.beforeSQL = func(_ context.Context, query string) error {
+					lastQuery = query
+					if strings.Contains(query, "FROM pg_catalog.pg_namespace n WHERE n.oid") {
+						proofs++
+					}
+					return nil
+				}
+				connection.afterCommit = func() error {
+					assert.Contains(t, lastQuery, "FROM pg_catalog.pg_namespace n WHERE n.oid", "proof must be the final SQL statement before each native target commit")
+					if connection.commits.Load() == 2 {
+						return errors.New("injected lost target COMMIT acknowledgement")
+					}
+					return nil
+				}
+				if managed {
+					result, applyErr = model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "lost-target-ack", actor)
+					require.NoError(t, applyErr, "managed operation resolves the actual durable exact receipt")
+				} else {
+					applyErr = model.WithModelMetadataTransaction(func(tx *gorm.DB) error {
+						writes++
+						return tx.Exec("UPDATE models SET display_name = 'durable-ordinary'").Error
+					})
+					assert.ErrorIs(t, applyErr, model.ErrCatalogCommitUncertain, "ordinary mutation retains uncertainty and never replays")
+					assert.ErrorContains(t, applyErr, "lost target COMMIT")
+				}
+				assert.GreaterOrEqual(t, proofs, 2)
+			})
+			require.NoError(t, db.Callback().Create().Remove("target-once-write"))
+			assert.Equal(t, 1, writes)
+			if managed {
+				got, found, err := model.LookupCatalogSyncOperationResult(context.Background(), plan.ID, plan.Digest, result.OperationID, actor)
+				require.NoError(t, err)
+				require.True(t, found)
+				assert.Equal(t, result, got)
+				var count int64
+				require.NoError(t, db.Model(&model.CatalogSyncOperation{}).Count(&count).Error)
+				assert.Equal(t, int64(1), count)
+			} else {
+				var name string
+				require.NoError(t, db.Model(&model.Model{}).Select("display_name").Scan(&name).Error)
+				assert.Equal(t, "durable-ordinary", name)
+				var state model.CatalogSyncState
+				require.NoError(t, db.First(&state).Error)
+				assert.Equal(t, "committed_pending_publish", state.PublicationState)
+				assert.Equal(t, int64(0), state.RuntimeRevision)
+				require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+			}
+		})
+	}
 }

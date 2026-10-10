@@ -32,7 +32,8 @@ type catalogReferenceFence struct {
 }
 
 // Short-lived optimistic metadata proof, never a durable identity or wire
-// field. The target mutation fence does not use or enforce these read tokens.
+// field. Target mutations reuse only namespace identity/version; their stronger
+// relation locks retain the original physical-layout acceptance policy.
 type catalogPostgresReadVersion struct {
 	relationXmin  string
 	relationCTID  string
@@ -216,6 +217,13 @@ func catalogReferenceTransaction(ctx context.Context, db *gorm.DB, registry *jsp
 		if fences[i].table != verified[i].table || fences[i].index != verified[i].index || !slices.Equal(fences[i].columns, verified[i].columns) {
 			return errors.New("catalog reference schema changed during acquisition")
 		}
+		if engine == "postgres" {
+			before, after := fences[i], verified[i]
+			if before.oid != after.oid || before.readVersion.namespaceOID != after.readVersion.namespaceOID ||
+				before.readVersion.namespaceXmin != after.readVersion.namespaceXmin || before.readVersion.namespaceCTID != after.readVersion.namespaceCTID {
+				return errors.New("catalog reference identity changed during acquisition")
+			}
+		}
 	}
 	pin, err = registry.TryPinGeneration()
 	if err != nil {
@@ -230,6 +238,34 @@ func catalogReferenceTransaction(ctx context.Context, db *gorm.DB, registry *jsp
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if engine == "postgres" {
+		// SHARE ROW EXCLUSIVE holds relation identity, but cannot prevent schema
+		// renames redirecting name-based consumers. All application SQL is now
+		// finished. READ COMMITTED gives this same transaction a fresh metadata
+		// snapshot; compare the namespace versions verified under ALL locks.
+		// xmin/ctid also detect rename-away/back ABA. Any failure rolls back the
+		// writes, before publication; later DDL cannot redirect completed SQL.
+		checked := make(map[uint32]bool)
+		for _, fence := range verified {
+			version := fence.readVersion
+			if checked[version.namespaceOID] {
+				continue
+			}
+			var name, xmin, ctid string
+			if err := tx.Statement.ConnPool.QueryRowContext(ctx,
+				"SELECT n.nspname, n.xmin::text, n.ctid::text FROM pg_catalog.pg_namespace n WHERE n.oid = $1",
+				version.namespaceOID).Scan(&name, &xmin, &ctid); err != nil {
+				return err
+			}
+			if name != fence.namespace || xmin != version.namespaceXmin || ctid != version.namespaceCTID {
+				return errors.New("catalog namespace changed before commit")
+			}
+			checked[version.namespaceOID] = true
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit().Error; err != nil {
 		// database/sql marks a Tx done even when SQLite COMMIT returns BUSY
