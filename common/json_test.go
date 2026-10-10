@@ -12,6 +12,18 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestValidateJsonNoDuplicateKeys(t *testing.T) {
+	for _, raw := range []string{`{"a":1,"a":2}`, `{"a":1,"\u0061":2}`, `[{"a":1,"a":2}]`, `{} {}`, `{`, ``, `{"a":[1,]}`, "\"\xff\"", strings.Repeat("[", 65) + "0" + strings.Repeat("]", 65)} {
+		assert.Error(t, ValidateJsonNoDuplicateKeys([]byte(raw)), "ambiguous or unbounded JSON must be rejected")
+	}
+	for _, raw := range []string{`{"a":{"x":1},"b":{"x":2}}`, `[null,true,1e1000,"text"]`, strings.Repeat("[", 64) + "0" + strings.Repeat("]", 64)} {
+		require.NoError(t, ValidateJsonNoDuplicateKeys([]byte(raw)))
+	}
+	var unchanged map[string]int
+	require.NoError(t, UnmarshalJsonStr(`{"a":1,"a":2}`, &unchanged))
+	assert.Equal(t, 2, unchanged["a"], "existing permissive callers do not opt in")
+}
+
 func TestJsonRawMessageToString(t *testing.T) {
 	tests := []struct {
 		name string

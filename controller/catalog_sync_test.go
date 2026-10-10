@@ -5,15 +5,18 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -21,12 +24,249 @@ import (
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func catalogSourceEnvironment(t *testing.T) (map[string]string, string) {
+	t.Helper()
+	token := "reader-a." + base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("a", 32)))
+	verifier := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(token)))
+	return map[string]string{"CATALOG_SYNC_ROLE": "source", "CATALOG_SYNC_SOURCE_ID": "dev", "CATALOG_SYNC_SINGLE_INSTANCE": "true", "CATALOG_SYNC_READERS_JSON": `{"reader-a":{"verifier":"` + verifier + `","status":"active"}}`}, token
+}
+
+func TestCatalogSyncConfiguration(t *testing.T) {
+	runtime, err := service.NewCatalogSyncRuntime(func(string) string { return "" })
+	require.NoError(t, err)
+	assert.Equal(t, "disabled", runtime.Status().Role)
+	assert.False(t, runtime.Status().SourceReady)
+	assert.False(t, runtime.Status().TargetReady)
+	assert.False(t, runtime.Status().ManagementReady)
+	for _, tc := range []struct{ key, value string }{
+		{"CATALOG_SYNC_ROLE", "Source"}, {"CATALOG_SYNC_ROLE", "unknown"},
+		{"CATALOG_SYNC_SINGLE_INSTANCE", "TRUE"}, {"CATALOG_SYNC_SINGLE_INSTANCE", ""},
+		{"CATALOG_SYNC_SOURCE_ID", " dev"}, {"CATALOG_SYNC_SOURCE_ID", ""},
+		{"CATALOG_SYNC_SOURCE_ID", "bad/id"}, {"CATALOG_SYNC_SOURCE_ID", strings.Repeat("x", 65)},
+		{"CATALOG_SYNC_TOKEN", "private-test-secret"}, {"CATALOG_SYNC_TARGET_ID", "target"},
+		{"CATALOG_SYNC_EXTERNAL_ORIGIN", "http://example.com"}, {"CATALOG_SYNC_EXTERNAL_ORIGIN", "https://example.com/path"},
+		{"CATALOG_SYNC_EXTERNAL_ORIGIN", "https://user@example.com"}, {"CATALOG_SYNC_EXTERNAL_ORIGIN", "https://example.com?x=1"},
+		{"CATALOG_SYNC_EXTERNAL_ORIGIN", "https://example.com#"}, {"CATALOG_SYNC_EXTERNAL_ORIGIN", "https://example.com:0"},
+		{"CATALOG_SYNC_EXTERNAL_ORIGIN", "https://example.com."}, {"CATALOG_SYNC_EXTERNAL_ORIGIN", "https://127.0.0.1"},
+		{"CATALOG_SYNC_EXTERNAL_ORIGIN", "https://0x7f.0x0.0x0.0x1"}, {"CATALOG_SYNC_EXTERNAL_ORIGIN", "https://example.9999999999999999999999999"},
+	} {
+		t.Run(tc.key+"/"+tc.value, func(t *testing.T) {
+			env, token := catalogSourceEnvironment(t)
+			env[tc.key] = tc.value
+			runtime, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+			require.ErrorIs(t, err, service.ErrCatalogSyncConfiguration)
+			require.NotNil(t, runtime)
+			assert.False(t, runtime.Status().SourceReady)
+			assert.ErrorIs(t, runtime.AuthenticateReader(token), service.ErrCatalogSyncReaderDenied)
+			assert.NotContains(t, err.Error(), token)
+		})
+	}
+	env, token := catalogSourceEnvironment(t)
+	runtime, err = service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	assert.True(t, runtime.Status().SourceReady)
+	assert.False(t, runtime.Status().ManagementReady)
+	_, err = runtime.ExternalOrigin()
+	assert.Error(t, err)
+	env["CATALOG_SYNC_EXTERNAL_ORIGIN"] = "https://EXAMPLE.com:443"
+	runtime, err = service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	origin, err := runtime.ExternalOrigin()
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com", origin)
+	assert.False(t, runtime.Status().ManagementReady, "source credentials never grant management readiness")
+	encoded, err := common.Marshal(runtime)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), token)
+	assert.NotContains(t, string(encoded), "verifier")
+	assert.NotContains(t, fmt.Sprintf("%+v %#v", runtime, runtime), token)
+	delete(env, "CATALOG_SYNC_READERS_JSON")
+	env["CATALOG_SYNC_ROLE"], env["CATALOG_SYNC_TARGET_ID"], env["CATALOG_SYNC_TOKEN"] = "target", "prod", token
+	runtime, err = service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	assert.True(t, runtime.Status().TargetReady)
+	assert.True(t, runtime.Status().ManagementReady)
+	assert.False(t, runtime.Status().SourceReady)
+	assert.ErrorIs(t, runtime.AuthenticateReader(token), service.ErrCatalogSyncReaderDenied)
+	delete(env, "CATALOG_SYNC_EXTERNAL_ORIGIN")
+	runtime, err = service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	assert.True(t, runtime.Status().TargetReady)
+	assert.False(t, runtime.Status().ManagementReady)
+}
+
+func TestCatalogSyncReaderConfigAndAuthentication(t *testing.T) {
+	env, token := catalogSourceEnvironment(t)
+	valid := env["CATALOG_SYNC_READERS_JSON"]
+	for _, raw := range []string{"", "null", "[]", "{}", valid + valid,
+		strings.Replace(valid, `"status":"active"`, `"status":"active","status":"revoked"`, 1),
+		strings.Replace(valid, `"status":"active"`, `"status":"active","extra":true`, 1),
+		strings.Replace(valid, `"status":"active"`, `"status":"ACTIVE"`, 1),
+		strings.Replace(valid, `"status":"active"`, `"status":null`, 1),
+		strings.Replace(valid, "sha256:", "bcrypt:", 1),
+		strings.Replace(valid, "reader-a", "bad/id", 1),
+		strings.TrimSuffix(valid, "}") + "," + strings.TrimPrefix(valid, "{"),
+	} {
+		env["CATALOG_SYNC_READERS_JSON"] = raw
+		_, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+		assert.ErrorIs(t, err, service.ErrCatalogSyncConfiguration, "reader config must fail closed")
+	}
+	env["CATALOG_SYNC_READERS_JSON"] = valid
+	runtime, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	require.NoError(t, runtime.AuthenticateReader(token))
+	for _, candidate := range []string{"", "Bearer " + token, token + "=", "reader-a." + strings.Repeat("b", 43), strings.Replace(token, "reader-a", "unknown", 1)} {
+		assert.ErrorIs(t, runtime.AuthenticateReader(candidate), service.ErrCatalogSyncReaderDenied)
+	}
+	env["CATALOG_SYNC_READERS_JSON"] = strings.Replace(valid, "active", "revoked", 1)
+	revoked, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	assert.ErrorIs(t, revoked.AuthenticateReader(token), service.ErrCatalogSyncReaderDenied)
+	assert.False(t, revoked.Status().SourceReady)
+	newToken := "reader-b." + base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("b", 32)))
+	newReader := fmt.Sprintf(`"reader-b":{"verifier":"sha256:%x","status":"active"}`, sha256.Sum256([]byte(newToken)))
+	env["CATALOG_SYNC_READERS_JSON"] = strings.TrimSuffix(valid, "}") + "," + newReader + "}"
+	rotating, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	require.NoError(t, rotating.AuthenticateReader(token))
+	require.NoError(t, rotating.AuthenticateReader(newToken))
+	env["CATALOG_SYNC_READERS_JSON"] = strings.Replace(env["CATALOG_SYNC_READERS_JSON"], `"status":"active"`, `"status":"revoked"`, 1)
+	rotated, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	assert.ErrorIs(t, rotated.AuthenticateReader(token), service.ErrCatalogSyncReaderDenied)
+	require.NoError(t, rotated.AuthenticateReader(newToken))
+}
+
+func TestCatalogSyncReaderBoundedConcurrentRateLimit(t *testing.T) {
+	env, token := catalogSourceEnvironment(t)
+	runtime, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	var accepted atomic.Int64
+	var wg sync.WaitGroup
+	for range 80 {
+		wg.Go(func() {
+			if runtime.AuthenticateReader(token) == nil {
+				accepted.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	assert.Equal(t, int64(60), accepted.Load())
+	assert.ErrorIs(t, runtime.AuthenticateReader(token), service.ErrCatalogSyncReaderDenied)
+	// Attacker-controlled identities cannot consume the configured ID's bucket.
+	runtime, err = service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	for i := range 100 {
+		assert.ErrorIs(t, runtime.AuthenticateReader(fmt.Sprintf("unknown-%d.%s", i, strings.Split(token, ".")[1])), service.ErrCatalogSyncReaderDenied)
+	}
+	require.NoError(t, runtime.AuthenticateReader(token))
+}
+
+func TestCatalogSyncReaderLimitsAndWindow(t *testing.T) {
+	env, token := catalogSourceEnvironment(t)
+	var readers = map[string]any{}
+	for i := range 65 {
+		readers[fmt.Sprintf("reader-%d", i)] = map[string]string{"verifier": fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(token))), "status": "active"}
+	}
+	raw, err := common.Marshal(readers)
+	require.NoError(t, err)
+	env["CATALOG_SYNC_READERS_JSON"] = string(raw)
+	_, err = service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	assert.ErrorIs(t, err, service.ErrCatalogSyncConfiguration)
+	delete(readers, "reader-64")
+	raw, err = common.Marshal(readers)
+	require.NoError(t, err)
+	env["CATALOG_SYNC_READERS_JSON"] = string(raw)
+	_, err = service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	env["CATALOG_SYNC_READERS_JSON"] = strings.Repeat(" ", 32769)
+	_, err = service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	assert.ErrorIs(t, err, service.ErrCatalogSyncConfiguration)
+	synctest.Test(t, func(t *testing.T) {
+		env, token := catalogSourceEnvironment(t)
+		runtime, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+		require.NoError(t, err)
+		for range 60 {
+			assert.ErrorIs(t, runtime.AuthenticateReader("reader-a.invalid"), service.ErrCatalogSyncReaderDenied)
+		}
+		assert.ErrorIs(t, runtime.AuthenticateReader(token), service.ErrCatalogSyncReaderDenied, "failed attempts exhaust the same credential bucket")
+		time.Sleep(59 * time.Second)
+		assert.ErrorIs(t, runtime.AuthenticateReader(token), service.ErrCatalogSyncReaderDenied)
+		time.Sleep(time.Second)
+		require.NoError(t, runtime.AuthenticateReader(token), "new fixed window permits a valid credential")
+	})
+}
+
+func TestCatalogSyncDisabledAndTargetConfigurations(t *testing.T) {
+	for _, role := range []string{"disabled", "target"} {
+		for _, mutation := range []string{"token", "readers", "source", "target", "single"} {
+			t.Run(role+"/"+mutation, func(t *testing.T) {
+				env, token := catalogSourceEnvironment(t)
+				readers := env["CATALOG_SYNC_READERS_JSON"]
+				delete(env, "CATALOG_SYNC_READERS_JSON")
+				env["CATALOG_SYNC_ROLE"] = role
+				if role == "target" {
+					env["CATALOG_SYNC_TARGET_ID"] = "prod"
+					env["CATALOG_SYNC_TOKEN"] = token
+				}
+				switch mutation {
+				case "token":
+					if role == "target" {
+						env["CATALOG_SYNC_TOKEN"] = "bad-token"
+					} else {
+						env["CATALOG_SYNC_TOKEN"] = token
+					}
+				case "readers":
+					env["CATALOG_SYNC_READERS_JSON"] = readers
+				case "source":
+					env["CATALOG_SYNC_SOURCE_ID"] = "bad/source"
+				case "target":
+					env["CATALOG_SYNC_TARGET_ID"] = "bad/target"
+				case "single":
+					env["CATALOG_SYNC_SINGLE_INSTANCE"] = "false"
+				}
+				_, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+				assert.ErrorIs(t, err, service.ErrCatalogSyncConfiguration)
+			})
+		}
+	}
+}
+
+func TestCatalogSyncConfiguredSourcePGWire(t *testing.T) {
+	db := catalogSyncPostgres(t)
+	require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", "source-model").Update("billing_currency", "CNY").Error)
+	env, token := catalogSourceEnvironment(t)
+	runtime, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	require.NoError(t, runtime.AuthenticateReader(token))
+	snapshot, err := model.ExportManagedCatalog(context.Background(), runtime.Status().SourceID)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	common.ApiSuccess(ctx, snapshot)
+	require.Equal(t, 200, recorder.Code)
+	var wire struct {
+		Success bool                     `json:"success"`
+		Message string                   `json:"message"`
+		Data    catalogmanifest.Snapshot `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &wire))
+	assert.True(t, wire.Success)
+	assert.Empty(t, wire.Message)
+	require.NoError(t, catalogmanifest.ValidateSnapshot(wire.Data))
+	assert.Equal(t, snapshot, wire.Data)
+	assert.Contains(t, recorder.Body.String(), `\"billing_currency\":\"CNY\"`)
+	assert.NotContains(t, recorder.Body.String(), token)
+	assert.NotContains(t, recorder.Body.String(), "verifier")
+}
 
 // This package's TestMain opens no database. Never silently fall back to a
 // different engine; every fixture owns and removes its exact disposable DB.

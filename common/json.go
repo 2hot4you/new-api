@@ -3,11 +3,70 @@ package common
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"unicode/utf8"
 
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/gin-gonic/gin/binding"
 )
+
+// ValidateJsonNoDuplicateKeys rejects duplicate decoded object keys, trailing
+// values and nesting beyond 64 containers. It is opt-in; existing codec callers
+// retain their original behavior. Callers must bound input bytes separately.
+func ValidateJsonNoDuplicateKeys(data []byte) error {
+	if !utf8.Valid(data) {
+		return errors.New("invalid or ambiguous JSON")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := validateJSONValue(decoder, 0); err != nil {
+		return errors.New("invalid or ambiguous JSON")
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return errors.New("invalid or ambiguous JSON")
+	}
+	return nil
+}
+
+func validateJSONValue(decoder *json.Decoder, depth int) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delim, container := token.(json.Delim)
+	if !container {
+		return nil
+	}
+	if depth >= 64 || delim != '{' && delim != '[' {
+		return errors.New("invalid container")
+	}
+	keys := make(map[string]bool)
+	for decoder.More() {
+		if delim == '{' {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok || keys[key] {
+				return errors.New("duplicate key")
+			}
+			keys[key] = true
+		}
+		if err := validateJSONValue(decoder, depth+1); err != nil {
+			return err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if delim == '{' && closing != json.Delim('}') || delim == '[' && closing != json.Delim(']') {
+		return errors.New("invalid container")
+	}
+	return nil
+}
 
 type RawMessage = json.RawMessage
 
