@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-catalog-deploy-failure",
+  "title": "定位受管目录同步推送后的 CI 失败",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "release-diagnosis",
+  "currentPhase": "completed",
+  "nextAction": "已定位 CI/测试夹具集成遗漏；待用户授权修复，不修改业务或远端",
+  "createdAt": "2026-10-10",
+  "branch": "upgrade/rc40"
+}
