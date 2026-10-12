@@ -618,7 +618,16 @@ def verify_events(events, required, matrix=False):
     passed = {e.get("Test") for e in events if e.get("Action") == "pass" and e.get("Test")}
     for event in events:
         if event.get("Action") in ("skip", "fail"):
-            raise ValueError("catalog test failed or skipped: " + event.get("Test", event.get("Package", "")))
+            # Only structural diagnostics are public: never echo SQL, DSNs or assertion values.
+            test = event.get("Test")
+            context = set()
+            if test:
+                for output in events:
+                    if output.get("Action") == "output" and output.get("Test") == test:
+                        context.update(re.findall(r"\b[A-Za-z0-9_]+_test\.go:[0-9]+\b|\bSQLSTATE [0-9A-Z]{5}\b",
+                                                  output.get("Output", "")))
+            detail = "; " + ", ".join(sorted(context)[:8]) if context else ""
+            raise ValueError("catalog test failed or skipped: " + event.get("Test", event.get("Package", "")) + detail)
         if event.get("Action") == "run" and any(part in ("sqlite", "mysql") for part in event.get("Test", "").split("/")):
             raise ValueError("non-PostgreSQL subtest selected")
     for name in required:
@@ -707,6 +716,23 @@ class CatalogGateTest(unittest.TestCase):
                   {"Action": "pass", "Test": "TestRequired/postgres"},
                   {"Action": "pass", "Test": "TestRequired"}]
         self.assertEqual(verify_events(events, ["TestRequired"], True), 2)
+
+    def test_failure_reports_location_and_sqlstate_without_raw_output(self):
+        events = [
+            {"Action": "output", "Test": "TestDDL", "Output":
+             "Error Trace: /private/path/controller/catalog_sync_test.go:846\n"
+             "load models: password=private-token (SQLSTATE 0A000)\n"},
+            {"Action": "output", "Test": "TestOther", "Output":
+             "other_test.go:99 (SQLSTATE 08000)"},
+            {"Action": "fail", "Test": "TestDDL"},
+        ]
+        with self.assertRaises(ValueError) as failure:
+            verify_events(events, ["TestDDL"])
+        diagnostic = str(failure.exception)
+        self.assertIn("catalog_sync_test.go:846", diagnostic)
+        self.assertIn("SQLSTATE 0A000", diagnostic)
+        for private in ("private-token", "/private/path", "load models", "other_test.go", "08000"):
+            self.assertNotIn(private, diagnostic)
 
     def test_gate_missing_dsn_exits_before_go(self):
         result = subprocess.run(["bash", str(ROOT / "deploy/tests/catalog_postgres_gate.sh"), "normal"],

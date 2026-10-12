@@ -535,7 +535,8 @@ func catalogSyncPostgres(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.True(t, net.ParseIP(u.Hostname()).IsLoopback())
 	config := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
-	admin, err := gorm.Open(postgres.Open(dsn), config)
+	// Match the production connection protocol; DDL must not leave stale pgx statement plans.
+	admin, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), config)
 	require.NoError(t, err)
 	adminPool, err := admin.DB()
 	require.NoError(t, err)
@@ -544,7 +545,7 @@ func catalogSyncPostgres(t *testing.T) *gorm.DB {
 	require.NoError(t, admin.Exec(`CREATE DATABASE "`+name+`"`).Error)
 	t.Cleanup(func() { require.NoError(t, admin.Exec(`DROP DATABASE "`+name+`"`).Error) })
 	u.Path = "/" + name
-	db, err := gorm.Open(postgres.Open(u.String()), config)
+	db, err := gorm.Open(postgres.New(postgres.Config{DSN: u.String(), PreferSimpleProtocol: true}), config)
 	require.NoError(t, err)
 	pool, err := db.DB()
 	require.NoError(t, err)

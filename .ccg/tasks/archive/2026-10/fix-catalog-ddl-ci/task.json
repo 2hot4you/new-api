@@ -1,0 +1,14 @@
+{
+  "id": "fix-catalog-ddl-ci",
+  "title": "Diagnose main PostgreSQL DDL cancellation gate failure",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci",
+  "currentPhase": "completed",
+  "nextAction": "Create develop pull request; remote CI and human merge pending",
+  "createdAt": "2026-10-12T09:12:10.692248+00:00",
+  "branch": "fix/catalog-ddl-ci",
+  "authorization": "User allows independent reviewer in place of unavailable external models",
+  "completedAt": "2026-10-12T10:12:30.665836+00:00"
+}
