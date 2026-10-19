@@ -1,0 +1,15 @@
+{
+  "id": "image-result-proxy",
+  "title": "图片结果使用本站代理链接隐藏上游地址",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "implementation",
+  "nextAction": "等待服务器 SSH 连接信息；核对 main 对应部署，启用代理后做生产回归，再完成归档",
+  "createdAt": "2026-10-19T07:00:54.496102+00:00",
+  "branch": "codex/image-result-proxy",
+  "implementationCommit": "707a3b658",
+  "localVerification": "passed",
+  "productionStatus": "not_deployed"
+}

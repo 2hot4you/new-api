@@ -1,0 +1,1 @@
+Unavailable: Claude CLI analysis produced no output after several minutes and the task-owned process was terminated. No external analysis result obtained.
