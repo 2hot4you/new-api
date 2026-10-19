@@ -304,7 +304,8 @@ func validateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string, re
 		}
 	}
 
-	allowSmartDuration := info.GetChannelType() == constant.ChannelTypeStarAI && (req.Duration == -1 || req.Seconds == "-1")
+	channelType := info.GetChannelType()
+	allowSmartDuration := (channelType == constant.ChannelTypeStarAI || channelType == constant.ChannelTypeByteDanceSeedance) && (req.Duration == -1 || req.Seconds == "-1")
 	if !allowSmartDuration {
 		if taskErr := validateTaskDurationBounds(req); taskErr != nil {
 			return taskErr

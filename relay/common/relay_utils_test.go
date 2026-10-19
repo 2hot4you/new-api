@@ -140,3 +140,23 @@ func TestTaskDurationBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestBasicTaskAdaptiveDurationIsLimitedToSeedanceChannels(t *testing.T) {
+	for _, channelType := range []int{constant.ChannelTypeStarAI, constant.ChannelTypeByteDanceSeedance, constant.ChannelTypeOpenAI} {
+		for _, fields := range []string{`"duration":-1`, `"seconds":"-1"`, `"duration":-2`, `"seconds":"-2"`, `"duration":3601`, `"seconds":"3601"`} {
+			body := `{"model":"doubao-seedance-2-5-260628","prompt":"a sunrise",` + fields + `}`
+			request := httptest.NewRequest(http.MethodPost, "/v1/video/generations", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = request
+			info := &RelayInfo{TaskRelayInfo: &TaskRelayInfo{}, ChannelMeta: &ChannelMeta{ChannelType: channelType}}
+			taskErr := ValidateBasicTaskRequestAllowEmptyPrompt(ctx, info, constant.TaskActionGenerate)
+			if channelType != constant.ChannelTypeOpenAI && (fields == `"duration":-1` || fields == `"seconds":"-1"`) {
+				assert.Nil(t, taskErr, "channel=%d fields=%s", channelType, fields)
+			} else {
+				require.NotNil(t, taskErr, "channel=%d fields=%s", channelType, fields)
+				assert.Equal(t, "invalid_seconds", taskErr.Code)
+			}
+		}
+	}
+}

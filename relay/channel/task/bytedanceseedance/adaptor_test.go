@@ -394,6 +394,31 @@ func TestSeedanceModelValidationLimits(t *testing.T) {
 	assert.NotNil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 }
 
+func TestSeedanceAdaptiveDurationSurvivesValidationAndUpstreamPayload(t *testing.T) {
+	for _, modelName := range seedanceprotocol.SupportedModels() {
+		for _, field := range []string{`"duration":-1`, `"seconds":"-1"`} {
+			t.Run(modelName+"/"+field, func(t *testing.T) {
+				ctx, info := testContext(t, relaycommon.TaskSubmitReq{})
+				ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", strings.NewReader(
+					`{"model":"`+modelName+`","content":[{"type":"text","text":"a sunrise"}],`+field+`}`))
+				ctx.Request.Header.Set("Content-Type", "application/json")
+				adaptor := &TaskAdaptor{}
+				adaptor.Init(info)
+				require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+				body, err := adaptor.BuildRequestBody(ctx, info)
+				require.NoError(t, err)
+				encoded, err := io.ReadAll(body)
+				require.NoError(t, err)
+				var payload seedanceprotocol.Payload
+				require.NoError(t, common.Unmarshal(encoded, &payload))
+				require.NotNil(t, payload.Duration)
+				assert.Equal(t, -1, *payload.Duration)
+				assert.Equal(t, modelName, payload.Model)
+			})
+		}
+	}
+}
+
 func TestSeedance25AllowsThirtyImagesTenVideosAndTenAudio(t *testing.T) {
 	content := make([]any, 0, 51)
 	for i := 0; i < 30; i++ {
