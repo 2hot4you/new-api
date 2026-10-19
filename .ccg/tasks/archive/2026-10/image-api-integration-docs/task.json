@@ -1,0 +1,20 @@
+{
+  "id": "image-api-integration-docs",
+  "title": "图片接口测试 curl 与脱敏对外 Markdown 文档",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "Archived; verified public documentation delivered",
+  "createdAt": "2026-10-19T06:52:18.196792+00:00",
+  "branch": "codex/image-result-proxy",
+  "notes": [
+    "已读取源OpenAPI并核对生产模型权限",
+    "已执行一次真实生成并确认本站代理图片链接HTTP200、无跳转、无Base64",
+    "Markdown隐藏实际域名、品牌及渠道，密钥不写入文档"
+  ],
+  "implementationTask": "image-result-proxy",
+  "completedAt": "2026-10-19T07:42:22.146358+00:00",
+  "document": "/Users/naf/Documents/Codex/Projects/molii.co/.worktrees/image-result-proxy/docs/image-api.md"
+}

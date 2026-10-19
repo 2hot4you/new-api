@@ -1,0 +1,20 @@
+{
+  "id": "image-result-proxy",
+  "title": "图片结果使用本站代理链接隐藏上游地址",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "Archived after isolated production rollout and one real generation",
+  "createdAt": "2026-10-19T07:00:54.496102+00:00",
+  "branch": "codex/image-result-proxy",
+  "implementationCommit": "863dd0788a64528b96f3421bdeded6e1917972c0",
+  "localVerification": "passed: full root suite 54 packages, targeted vet/race, frontend build, independent review",
+  "productionStatus": "deployed_and_verified",
+  "productionBaseCommit": "ffe1296f533f6e2974ba36438b32a9ea9f7d22fc",
+  "remoteMainSkipped": "e05a25706cac598a17f91dec830ebb54535357f6: unrelated catalog PostgreSQL CI failure",
+  "productionImage": "sha256:01dc56e4e5a1c2dadb83a4fcc2dbea6874f1181f2f7331e7dcbcd27886082530",
+  "completedAt": "2026-10-19T07:42:22.146358+00:00",
+  "sourceIntegration": "Feature branch only; not merged to main because unrelated main upgrade failed CI and push would deploy all four sites"
+}

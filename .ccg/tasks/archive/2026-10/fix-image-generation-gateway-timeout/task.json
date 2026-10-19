@@ -1,0 +1,13 @@
+{
+  "id": "fix-image-generation-gateway-timeout",
+  "title": "排查并修复4K图片生成网关504超时",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "operations",
+  "currentPhase": "completed",
+  "nextAction": "已上线；用户可按需进行下一次真实4K请求",
+  "createdAt": "2026-10-19T08:12:59.688261+00:00",
+  "branch": "codex/image-result-proxy",
+  "completedAt": "2026-10-19T08:17:58.726162+00:00"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "audit-image-api-compatibility",
+  "title": "核对在线图像接口文档限制与兼容性并修正对外文档",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "已完成限制与兼容性核对并更新脱敏文档",
+  "createdAt": "2026-10-19T07:56:15.138775+00:00",
+  "branch": "codex/image-result-proxy",
+  "completedAt": "2026-10-19T08:03:25.346058+00:00"
+}

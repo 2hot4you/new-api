@@ -1,0 +1,30 @@
+{
+  "checkedAt": "2026-10-19T08:02:50.477460+00:00",
+  "sources": [
+    {
+      "url": "https://agtoken.vip/docs",
+      "sha256": "9e43296f1e7aacfda828d4fdb067100e9926dcece7bf480f5950d8d32d2ff2b9",
+      "localFile": "/tmp/image-proxy-upstream-docs.html"
+    },
+    {
+      "url": "https://agtoken.vip/static/js/async/6370.d5fa18dd94.js",
+      "sha256": "51924bb4eefc272c58c8e2901113af6ef9af227af7f05f3d6eb0f91b6cbbf2d2",
+      "localFile": "/tmp/image-proxy-upstream-docs-route.js"
+    },
+    {
+      "url": "https://agtoken.vip/static/js/index.09fcac116d.js",
+      "sha256": "f69b8f7102e2fb5b6ba5295a3c351a6babbefb0386721f4eb21034a8bead8cf3",
+      "localFile": "/tmp/image-proxy-upstream-app.js"
+    },
+    {
+      "url": "https://agtoken.vip/static/docs/agtoken-api-guide-20261007.md",
+      "sha256": "9748500a2e910bf89602678590d6b19fb21318611ab51fb53642e4e7317eb78b",
+      "localFile": "/tmp/image-proxy-upstream-guide.md"
+    },
+    {
+      "url": "https://agtoken.vip/static/docs/agtoken-openapi-20261007.json",
+      "sha256": "61bd97d950bd7b1f29bf114840efe1c8febbcd703fcd3a2f51efd2132dd881fe",
+      "localFile": "/tmp/agtoken-openapi-20261007.json"
+    }
+  ]
+}

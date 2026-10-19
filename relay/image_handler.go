@@ -140,9 +140,15 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	}
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
+	proxyResultEnabled := info.ApiType == constant.APITypeOpenAI &&
+		(service.ImageResultProxyEnabledForModel(info.GetOriginModelName()) ||
+			service.ImageResultProxyEnabledForModel(info.GetUpstreamModelName()))
 
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
+		if proxyResultEnabled {
+			return types.NewOpenAIError(errors.New("image generation is unavailable"), types.ErrorCodeDoRequestFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
 		if sanitizer, ok := adaptor.(channel.ImageTransportErrorSanitizer); ok {
 			return sanitizer.SanitizeImageTransportError(err)
 		}
@@ -153,6 +159,12 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		httpResp = resp.(*http.Response)
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 		if httpResp.StatusCode != http.StatusOK {
+			if proxyResultEnabled {
+				service.CloseResponseBodyGracefully(httpResp)
+				newAPIError = types.NewOpenAIError(errors.New("image generation is unavailable"), types.ErrorCodeBadResponse, httpResp.StatusCode, types.ErrOptionWithSkipRetry())
+				service.ResetStatusCode(newAPIError, statusCodeMappingStr)
+				return newAPIError
+			}
 			if httpResp.StatusCode == http.StatusCreated && info.ApiType == constant.APITypeReplicate {
 				// replicate channel returns 201 Created when using Prefer: wait, treat it as success.
 				httpResp.StatusCode = http.StatusOK

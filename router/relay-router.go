@@ -17,6 +17,11 @@ func SetRelayRouter(router *gin.Engine) {
 	router.Use(middleware.DecompressRequestMiddleware())
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	router.Use(middleware.StatsMiddleware())
+	// Encrypted image links are browser capabilities; they must not require
+	// API-key authentication or select a model/channel for each download.
+	imageProxyRouter := router.Group("/v1/images/proxy")
+	imageProxyRouter.Use(middleware.RouteTag("relay"), middleware.SystemPerformanceCheck(), middleware.DownloadRateLimit())
+	imageProxyRouter.GET("/:token", controller.GetImageResultProxy)
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))

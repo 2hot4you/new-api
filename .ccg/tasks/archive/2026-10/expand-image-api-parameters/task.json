@@ -1,0 +1,13 @@
+{
+  "id": "expand-image-api-parameters",
+  "title": "为生成图片参数补齐示例值和可选值",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "已校验并归档，交付更新后的Markdown",
+  "createdAt": "2026-10-19T07:53:24.106472+00:00",
+  "branch": "codex/image-result-proxy",
+  "completedAt": "2026-10-19T07:54:49.965719+00:00"
+}

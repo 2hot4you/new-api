@@ -156,3 +156,21 @@ func urlQueryEscape(value string) string {
 	replacer := strings.NewReplacer("+", "%2B", "=", "%3D")
 	return replacer.Replace(value)
 }
+
+func TestImageResultProxyLoggerRedactsCapability(t *testing.T) {
+	previousWriter := gin.DefaultWriter
+	var output bytes.Buffer
+	gin.DefaultWriter = &output
+	t.Cleanup(func() { gin.DefaultWriter = previousWriter })
+	router := gin.New()
+	SetUpLogger(router)
+	router.GET("/v1/images/proxy/:token", func(c *gin.Context) {
+		assert.Equal(t, "private-image-capability", c.Param("token"))
+		c.Status(http.StatusNoContent)
+	})
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet,
+		"/v1/images/proxy/private-image-capability?extra=private-query", nil))
+	assert.Contains(t, output.String(), "/v1/images/proxy/[redacted]")
+	assert.NotContains(t, output.String(), "private-image-capability")
+	assert.NotContains(t, output.String(), "private-query")
+}
