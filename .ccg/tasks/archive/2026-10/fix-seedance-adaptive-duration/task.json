@@ -1,0 +1,12 @@
+{
+  "id": "fix-seedance-adaptive-duration",
+  "title": "修复 ByteDance Seedance 代理渠道拒绝自动时长",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "本地修复和相关包测试及独立审查完成；尚未推送或部署",
+  "createdAt": "2026-10-19T09:00:00+08:00",
+  "branch": "fix/seedance-adaptive-duration"
+}
