@@ -1,0 +1,12 @@
+{
+  "id": "promote-seedance-and-image-proxy",
+  "title": "同步 Seedance 自动时长与 Claudeye 图片修复至 develop 和 main",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "integration",
+  "currentPhase": "completed",
+  "nextAction": "develop 与 main 已推送，两组 CI/CD 已触发；等待部署结果",
+  "createdAt": "2026-10-19T17:00:00+08:00",
+  "branch": "integration/seedance-image-proxy-release"
+}
