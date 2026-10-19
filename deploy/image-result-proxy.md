@@ -4,7 +4,7 @@ This feature must be deployed and explicitly enabled before publishing `docs/ima
 
 ## Runtime configuration
 
-Add these entries to the application's environment, including the Compose service `environment` block when using Compose:
+Add these entries to the application's environment, using its runtime env file or the Compose service `environment` block:
 
 ```yaml
 environment:
@@ -18,7 +18,7 @@ The feature is opt-in and applies to `gpt-image-2` / `gpt-image-2.5` and their h
 
 ## Routing and behavior
 
-Allow `GET /v1/images/proxy/*` through the public reverse proxy to this application. Do not redirect it to an upstream URL or static frontend. Links contain encrypted, authenticated capabilities valid for one hour and require no API key. Treat complete URLs as bearer secrets in access logs. Downloads are rate-limited using the existing download rate limit.
+Allow `GET /v1/images/proxy/*` through the public reverse proxy to this application. Do not redirect it to an upstream URL or static frontend. Links contain encrypted, authenticated capabilities valid for one hour and require no API key. Application access logs redact the token; apply equivalent redaction or disable access logging for this location in an external reverse proxy. Downloads use the existing download rate limit and a process-wide limit of two concurrent downloads, held until the response write completes. Image response writes have a fixed 60-second deadline so slow readers cannot occupy slots indefinitely. Excess concurrent downloads return generic HTTP 503 with `Retry-After: 3`.
 
 The server fetches HTTPS images directly with mandatory private-address rejection and DNS pinning. It validates redirects and serves only sniffed PNG, JPEG, WebP or GIF data, capped at 30 MiB with a 60-second fetch deadline. Bytes are buffered transiently for validation; there is no object storage or database migration. Upstream failure bodies and headers are not relayed to clients.
 

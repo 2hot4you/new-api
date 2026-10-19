@@ -2,7 +2,7 @@
 
 ## 本地交付
 
-实现提交：707a3b658。分支：codex/image-result-proxy。工作区：/Users/naf/Documents/Codex/Projects/molii.co/.worktrees/image-result-proxy。
+实现提交：3d691c409（已对齐生产 main 提交 ffe1296f5）。分支：codex/image-result-proxy。工作区：/Users/naf/Documents/Codex/Projects/molii.co/.worktrees/image-result-proxy。
 
 - 生成响应将图像 URL 改写为本站一小时有效的加密能力链接；生成及编辑共享 JSON、SSE 和 JSON 转 SSE 路径均覆盖。
 - 公开取图接口不要求 API Key，直接返回受限制的栅格图片字节，不存储、不跳转。
@@ -18,21 +18,30 @@
 
 ## 验证
 
-- `go test ./...`：通过，42 个有测试的根模块包通过。
+- `go test ./...`：通过，54 个有测试的根模块包通过（生产基线移植后）。
 - `go vet ./relay ./relay/channel/openai ./service ./controller ./router`：通过。
 - `go build ./...`：通过。
 - `go test -race ./service ./relay/channel/openai ./controller ./router ./relay -run ImageResultProxy -count=1`：通过。
 - 新增 HTTP/传输失败脱敏测试：通过。
 - `git diff --check`：通过。
 - 对外 Markdown：品牌/真实域名扫描、JSON 示例解析、Bash 语法检查通过。
-- 初次全量测试因隔离工作区缺少忽略的 web/dist 构建文件而失败；复制主工作区现有前端产物后通过。未修改前端源码。
+- 旧基线初次测试使用主工作区前端产物。移植到生产基线后使用生产实际品牌参数重新执行 bun install --frozen-lockfile 和 bun run build，成功；未修改前端源码。
 
 ## 部署状态
 
-**未部署到生产，未执行真实计费出图验证。** 用户确认目标为仓库 main 分支，部署配置位于服务器。本地没有目标 SSH 别名，尚需服务器连接信息。尚未合并 main 或推送。生产部署和回归完成前任务继续保持 in_progress，不归档、不将对外文档标为已生效。
+**正在准备生产发布，尚未执行真实计费出图验证。** 已获得连接方式并核实目标容器。远端最新 main e05a25706 有无关的 catalog PostgreSQL 测试失败；以当前生产 main 提交 ffe1296f5 为基础，只移植代理变更。普通 main 推送会发布四个站点，因此使用独立的、保留原健康检查与回滚的离线发布入口，仅更新目标站点。原镜像、运行配置与部署配置已备份。
 
 公开文档：docs/image-api.md。部署说明：deploy/image-result-proxy.md。生产启用前按部署说明验证配置、同域图片下载和原有能力，再提供正式对外文档。
 
 ## 规范回馈
 
 已新增 .ccg/spec/backend/index.md，记录公开媒体代理、DNS/TLS 和流式结算约束。
+
+## 生产基线复审与安全约束
+
+- 保留对象式 data、UpdateImageCount、预览日志、输入缓存明细 Clone 与输出 token 明细；新增对应回归。
+- 应用访问日志隐藏图片令牌；服务器新增专用图片路径关闭访问日志和落盘缓冲。Nginx错误日志/WAF日志仍属运维保密范围，未声称所有层均无日志。
+- 768 MiB容器采用进程级最多两条下载，从取图到响应写完均占用槽位，超限503+Retry-After。
+- 参考 OWASP ASVS 5.0.0 https://owasp.org/projects/asvs 、Authentication Cheat Sheet https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html 、Session Management Cheat Sheet https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html 。本次适用的是随机、认证加密、用途隔离、有效期、服务端验证、TLS、通用错误和令牌日志保护；图片能力链接在有效期内允许重复下载，不是一次性登录令牌。未进行或声称完整ASVS认证。
+
+最终独立复审：并发两槽位和固定60秒写超时均已实现；测试验证成功/失败写入后清除写超时及释放槽位，无剩余Critical/Warning代码问题。一次全套测试与测试驱动的red阶段重叠，捕获了尚未实现写超时的失败；实现后重新执行最终全套测试。

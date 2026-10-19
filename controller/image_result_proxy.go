@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
+
+// Bound buffered downloads process-wide, including time spent writing the response.
+var imageResultProxySlots = make(chan struct{}, 2)
 
 // GetImageResultProxy serves a temporary capability URL without API-key auth.
 // Only the server can mint a valid capability; callers cannot choose a target.
@@ -45,6 +49,17 @@ func serveImageResultProxy(
 		return
 	}
 
+	select {
+	case imageResultProxySlots <- struct{}{}:
+		defer func() { <-imageResultProxySlots }()
+	default:
+		c.Header("Retry-After", "3")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{
+			"code": "image_proxy_busy", "message": "Image is temporarily unavailable",
+		}})
+		return
+	}
+
 	image, contentType, err := fetch(c.Request.Context(), sourceURL)
 	if err != nil {
 		// Transport errors can contain the entire upstream URL. Do not expose
@@ -54,5 +69,9 @@ func serveImageResultProxy(
 		}})
 		return
 	}
+	// Slow readers must not hold a download slot indefinitely.
+	responseController := http.NewResponseController(c.Writer)
+	_ = responseController.SetWriteDeadline(time.Now().Add(60 * time.Second))
+	defer func() { _ = responseController.SetWriteDeadline(time.Time{}) }()
 	c.Data(http.StatusOK, contentType, image)
 }

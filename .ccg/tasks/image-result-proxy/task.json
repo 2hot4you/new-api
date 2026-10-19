@@ -5,11 +5,13 @@
   "complexity": "L",
   "risk": "high",
   "domain": "backend",
-  "currentPhase": "implementation",
-  "nextAction": "等待服务器 SSH 连接信息；核对 main 对应部署，启用代理后做生产回归，再完成归档",
+  "currentPhase": "review",
+  "nextAction": "Verify port against live main commit, build and deploy only model.claudeye.com with rollback, then live proxy checks",
   "createdAt": "2026-10-19T07:00:54.496102+00:00",
   "branch": "codex/image-result-proxy",
-  "implementationCommit": "707a3b658",
-  "localVerification": "passed",
-  "productionStatus": "not_deployed"
+  "implementationCommit": "3d691c409",
+  "localVerification": "port tests in progress",
+  "productionStatus": "not_deployed",
+  "productionBaseCommit": "ffe1296f533f6e2974ba36438b32a9ea9f7d22fc",
+  "remoteMainSkipped": "e05a25706cac598a17f91dec830ebb54535357f6: unrelated catalog PostgreSQL CI failure"
 }
