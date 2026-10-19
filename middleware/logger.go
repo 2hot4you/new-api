@@ -29,6 +29,10 @@ func SetUpLogger(server *gin.Engine) {
 			tag = "web"
 		}
 		path := param.Path
+		// Image capabilities are bearer credentials; retain only the route in logs.
+		if strings.HasPrefix(path, "/v1/images/proxy/") {
+			path = "/v1/images/proxy/[redacted]"
+		}
 		// OAuth callbacks carry one-time codes and state in the query string.
 		// Redact the log value only; the handler still needs the original query.
 		if strings.HasPrefix(path, "/api/oauth/") || strings.HasPrefix(path, "/oauth/") {

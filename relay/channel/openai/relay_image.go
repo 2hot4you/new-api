@@ -38,7 +38,10 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && (oaiError.Type != "" || imageResultProxyEnabled(info)) {
+		if imageResultProxyEnabled(info) {
+			return nil, imageResultProxyError()
+		}
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
@@ -51,15 +54,19 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		}
 	}
 
-	// 写入新的 response body
+	normalizeOpenAIUsage(&usageResp.Usage)
+	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
+
+	responseBody, proxyErr := rewriteImageResultURLs(responseBody, info)
+	if proxyErr != nil {
+		return &usageResp.Usage, proxyErr
+	}
+	resp = imageResultProxyResponse(c, info, resp, "application/json")
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 	markGPTImage2ResponseCompleted(info)
 	if len(completedImages) > 0 {
 		persistGPTImage2ResponsePreview(c.Request.Context(), info, completedImages, service.PersistGPTImage2Results, service.RegisterGPTImage2Preview)
 	}
-
-	normalizeOpenAIUsage(&usageResp.Usage)
-	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 	return &usageResp.Usage, nil
 }
 
@@ -220,15 +227,14 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	var lastStreamData []byte
 	var completedImages int64
 	completedBase64 := make([]string, 0, 4)
+	var deliveredCompletedImages int64
+	var proxyErr *types.NewAPIError
 
+	resp = imageResultProxyResponse(c, info, resp, "text/event-stream")
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		raw := common.StringToByteSlice(data)
 		lastStreamData = raw
-		if isOpenAIImageStreamErrorEvent(raw) {
-			// Record the error as a soft error; the scanner drives the final
-			// EndReason. HasErrors() flags the failure for logging/handling.
-			sr.Error(fmt.Errorf("%s", extractOpenAIImageStreamErrorMessage(raw)))
-		}
+		isErrorEvent := isOpenAIImageStreamErrorEvent(raw)
 		var chunk struct {
 			Type  string    `json:"type"`
 			Usage dto.Usage `json:"usage"`
@@ -245,14 +251,37 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 				}
 			}
 		}
+		if isErrorEvent {
+			// Keep upstream usage internally, but suppress the entire error
+			// payload: provider details can appear outside the message field.
+			if imageResultProxyEnabled(info) {
+				raw = []byte(imageResultProxyStreamError)
+			}
+			sr.Error(fmt.Errorf("%s", extractOpenAIImageStreamErrorMessage(raw)))
+		}
+		raw, proxyErr = rewriteImageResultURLs(raw, info)
+		if proxyErr != nil {
+			if deliveredCompletedImages > 0 {
+				if err := writeOpenaiImageStreamChunk(c, []byte(imageResultProxyStreamError)); err != nil {
+					sr.Stop(err)
+					return
+				}
+			}
+			sr.Stop(proxyErr)
+			return
+		}
 		if err := writeOpenaiImageStreamChunk(c, raw); err != nil {
 			sr.Stop(err)
+			return
+		}
+		if !isErrorEvent && (chunk.Type == "image_generation.completed" || chunk.Type == "image_edit.completed") {
+			deliveredCompletedImages++
 		}
 	})
 
 	// StreamScannerHandler consumes the upstream [DONE]; re-emit it so the
 	// client still receives a terminal data: [DONE].
-	if info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone {
+	if proxyErr == nil && info.StreamStatus != nil && info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone {
 		helper.Done(c)
 	}
 
@@ -266,8 +295,10 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	// exceed the recorded n, bill the higher actual count regardless.
 	upstreamFinished := false
 	if info.StreamStatus != nil {
-		upstreamFinished = info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone ||
-			info.StreamStatus.EndReason == relaycommon.StreamEndReasonEOF
+		// The scanner can observe [DONE] before the queued failing chunk is
+		// handled. A proxy failure still means interrupted delivery.
+		upstreamFinished = proxyErr == nil && (info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone ||
+			info.StreamStatus.EndReason == relaycommon.StreamEndReasonEOF)
 		if upstreamFinished || completedImages > int64(info.RequestedImageCount()) {
 			info.UpdateImageCount(completedImages)
 		}
@@ -277,7 +308,12 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 		info.GPTImage2Log.OutputCount = int(completedImages)
 		persistGPTImage2ResponsePreview(c.Request.Context(), info, completedBase64, service.PersistGPTImage2Results, service.RegisterGPTImage2Preview)
 	}
-	return usage, nil
+	if proxyErr != nil && deliveredCompletedImages > 0 {
+		// Returning a top-level error would refund images already delivered.
+		// Settle the parsed usage using the interrupted-stream count above.
+		return usage, nil
+	}
+	return usage, proxyErr
 }
 
 // writeOpenaiImageStreamChunk rebuilds the SSE frame for an image stream chunk:
@@ -359,7 +395,10 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	if err := common.Unmarshal(responseBody, &usageResp); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
-	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && (oaiError.Type != "" || imageResultProxyEnabled(info)) {
+		if imageResultProxyEnabled(info) {
+			return nil, imageResultProxyError()
+		}
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 	normalizeOpenAIUsage(&usageResp.Usage)
@@ -367,6 +406,13 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 
 	imageCount := openaiImageResponseCount(responseBody)
 	info.UpdateImageCount(imageCount)
+
+	// Rewrite every image before emitting any SSE frames, so a later invalid
+	// URL cannot cause a partially delivered JSON fallback response.
+	responseBody, proxyErr := rewriteImageResultURLs(responseBody, info)
+	if proxyErr != nil {
+		return &usageResp.Usage, proxyErr
+	}
 
 	helper.SetEventStreamHeaders(c)
 	c.Status(http.StatusOK)

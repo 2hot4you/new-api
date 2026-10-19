@@ -694,3 +694,54 @@ func TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), `event: upstream_error`)
 	require.Contains(t, recorder.Body.String(), `stream ID 77`)
 }
+
+func TestOpenaiImageProxyPreservesObjectDataAndProductionUsage(t *testing.T) {
+	setupImageResultProxy(t)
+	for _, stream := range []bool{false, true} {
+		for _, expression := range []bool{false, true} {
+			t.Run(fmt.Sprintf("stream=%t/expression=%t", stream, expression), func(t *testing.T) {
+				body := `{"data":{"url":"` + imageProxySource + `","revised_prompt":"cat"},"usage":{"input_tokens":5,"output_tokens":7,"total_tokens":12,"input_tokens_details":{"cached_tokens":3,"cached_tokens_details":{"text_tokens":1,"image_tokens":2}},"output_tokens_details":{"text_tokens":1,"image_tokens":6}}}`
+				c, recorder, resp, info := newImageTestContext(t, body, "application/json", stream)
+				info.OriginModelName = "gpt-image-2"
+				info.GPTImage2Log = &relaycommon.GPTImage2LogSnapshot{OutputCount: 3}
+				requested := 3
+				if expression {
+					info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{EstimatedImageCount: &requested}
+				} else {
+					info.PriceData.UsePrice = true
+					info.PriceData.AddOtherRatio("n", 3)
+				}
+				var usage *dto.Usage
+				if stream {
+					result, err := OpenaiImageStreamHandler(c, info, resp)
+					require.Nil(t, err)
+					usage = result
+				} else {
+					result, err := OpenaiImageHandler(c, info, resp)
+					require.Nil(t, err)
+					usage = result
+				}
+				require.NotContains(t, recorder.Body.String(), imageProxySource)
+				require.Contains(t, recorder.Body.String(), `"url":"https://images.example.com/v1/images/proxy/`)
+				require.Contains(t, recorder.Body.String(), `"revised_prompt":"cat"`)
+				require.Equal(t, 12, usage.TotalTokens)
+				require.Equal(t, 3, usage.PromptTokensDetails.CachedTokens)
+				require.NotNil(t, usage.PromptTokensDetails.CachedTokensDetails)
+				require.Equal(t, 2, *usage.PromptTokensDetails.CachedTokensDetails.ImageTokens)
+				require.Equal(t, 6, usage.CompletionTokenDetails.ImageTokens)
+				require.Equal(t, 1, info.GPTImage2Log.OutputCount)
+				require.False(t, info.GPTImage2ResponseCompletedAt.IsZero())
+				if expression {
+					require.NotNil(t, info.BillingImageCount)
+					require.Equal(t, 1, *info.BillingImageCount)
+					require.Empty(t, info.PriceData.OtherRatios())
+				} else {
+					require.Equal(t, 1.0, info.PriceData.OtherRatios()["n"])
+				}
+				if stream {
+					require.Equal(t, 1, strings.Count(recorder.Body.String(), "event: image_generation.completed"))
+				}
+			})
+		}
+	}
+}
