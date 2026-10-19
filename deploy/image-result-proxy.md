@@ -24,6 +24,10 @@ The server fetches HTTPS images directly with mandatory private-address rejectio
 
 The existing **Worker Proxy** administration setting remains unchanged. It is a server-side download transport, not an output-URL rewriting feature. This public image proxy uses its own strict direct fetcher so that relaxed global fetch settings or a remote Worker's DNS behavior cannot bypass its security boundary.
 
+## Generation gateway timeout
+
+Install `deploy/image-generation-timeout.conf` inside the API site's Nginx/OpenResty server block, adjusting the local upstream address if needed. It sets a 600-second upstream read inactivity timeout for `/v1/images/`; the longer `/v1/images/proxy/` location retains its independent download timeout and logging rules. Preserve any site-specific proxy headers or authentication directives when adapting this template. Validate with `nginx -t` before a graceful reload. This setting does not extend a CDN or client's timeout and does not retry generation. To roll back, remove this included file, validate, and reload.
+
 ## Verify after rollout
 
 1. Confirm the deployed version contains this feature and both environment entries are available to the running application.
