@@ -78,7 +78,7 @@ jq -er '
   "created": 1792392806,
   "data": [
     {
-      "url": "https://YOUR_IMAGE_HOST/v1/images/proxy/OPAQUE_TOKEN",
+      "url": "https://YOUR_API_HOST/v1/images/proxy/OPAQUE_TOKEN",
       "revised_prompt": "一只橘猫坐在窗边，温暖的自然光，写实摄影风格，无文字，无水印"
     }
   ],
