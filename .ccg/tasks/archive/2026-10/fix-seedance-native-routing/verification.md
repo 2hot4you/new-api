@@ -1,0 +1,13 @@
+# Verification
+- RED: real-plugin HTTP regression before patch reproduced shared-precheck 400 at both public and studio paths.
+- GREEN: GOWORK=off go test ./middleware -run '^TestSeedance(SmartDurationSharedEndpoint|SharedDurationPrecheckBounds)$' -count=1 passed.
+- Same focused selection with -race passed.
+- Exact CI selection verified with verify_events: 36 tests/subtests passed, zero skips.
+- Full packages ./plugins ./relay/common ./relay/channel/task/starai ./relay/channel/task/bytedanceseedance ./relay/channel/task/seedanceprotocol passed.
+- Focused related middleware/plugin/native/JS adaptor/relay tests, including TestGetTaskAdaptorForRequest, passed.
+- Python catalog gate 5 tests and PostgreSQL CI verifier 4 tests passed.
+- git diff --check passed.
+- Historical make test DID NOT PASS: controller/model/relay/helper reported catalog pending-recovery/fixture failures. Controller remained blocked and was terminated with SIGQUIT after approximately 173s. Full log: /tmp/seedance-smart-full.log. No claim of full cross-engine acceptance.
+- Current PostgreSQL CI acceptance is pending remote execution; no local user development DB reused. No frontend change, frontend validation left to CI.
+- Tests do not send real provider requests or modify production databases.
+- Spec feedback: existing CI explicit-inventory rule applies; added tests to inventory. No new project-wide convention needed.

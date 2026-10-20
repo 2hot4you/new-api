@@ -246,7 +246,7 @@ export const meta = {
     en: "Volcengine Doubao Seedance video generation and Seedream image generation",
     zh: "火山引擎豆包 Seedance 视频生成与 Seedream 图片生成",
   },
-  version: "1.1.0",
+  version: "1.1.1",
   author: { name: "QuantumNous" },
   channelTypes: [54, 45], // VolcEngine-type channels serve Ark video models with the same wire format
   models: Object.keys(VIDEO_MODELS).concat(Object.keys(IMAGE_MODELS)),
@@ -1022,6 +1022,23 @@ const legacyRenderers = {
   },
 };
 
+function validateSharedVideoDuration(model, seconds) {
+  // This decoder also fronts the host's native StarAI/ByteDance adaptors.
+  // Match the four models bridged by appendUnifiedNativeTaskChannelTypes;
+  // only the selected native adaptor may consume the -1 auto-duration marker.
+  // JS drivers still reject negative usage quantities in their final validator.
+  const nativeSmartDuration =
+    Number(seconds) === -1 &&
+    [
+      "doubao-seedance-2-0-260128",
+      "doubao-seedance-2-0-fast-260128",
+      "doubao-seedance-2-0-mini-260615",
+      "doubao-seedance-2-5-260628",
+    ].includes(model);
+  if (seconds !== undefined && !nativeSmartDuration && (!Number.isFinite(Number(seconds)) || Number(seconds) <= 0 || Number(seconds) > 3600))
+    throw new Error("seconds must be between 1 and 3600");
+}
+
 protocols.openai_video = {
   decodeRequest: function (ctx) {
     if (!ctx.body || (ctx.body.kind !== "json" && ctx.body.kind !== "multipart")) throw new Error("JSON or multipart body required");
@@ -1029,8 +1046,7 @@ protocols.openai_video = {
       if (!ctx.body.value || Array.isArray(ctx.body.value)) throw new Error("JSON object required");
       const req = ctx.body.value;
       const seconds = req.seconds === undefined ? req.duration : req.seconds;
-      if (seconds !== undefined && (!Number.isFinite(Number(seconds)) || Number(seconds) <= 0 || Number(seconds) > 3600))
-        throw new Error("seconds must be between 1 and 3600");
+      validateSharedVideoDuration(ctx.model, seconds);
       return {
         kind: "submit",
         model: ctx.model,
@@ -1062,8 +1078,7 @@ protocols.openai_video = {
     if (req.seconds !== undefined) req.seconds = Number(req.seconds);
     else if (req.duration !== undefined) req.seconds = Number(req.duration);
     const seconds = req.seconds === undefined ? req.duration : req.seconds;
-    if (seconds !== undefined && (!Number.isFinite(Number(seconds)) || Number(seconds) <= 0 || Number(seconds) > 3600))
-      throw new Error("seconds must be between 1 and 3600");
+    validateSharedVideoDuration(ctx.model, seconds);
     return {
       kind: "submit",
       model: ctx.model,
