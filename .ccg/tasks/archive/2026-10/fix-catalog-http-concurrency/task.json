@@ -1,0 +1,13 @@
+{
+  "id": "fix-catalog-http-concurrency",
+  "title": "Repair concurrent catalog HTTP proof CI failure",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "Develop PR and remote CI; human merge pending",
+  "createdAt": "2026-10-20T02:59:12.996835+00:00",
+  "branch": "fix/catalog-http-concurrency",
+  "completedAt": "2026-10-20T03:20:38.112623+00:00"
+}
