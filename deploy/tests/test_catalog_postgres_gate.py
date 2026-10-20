@@ -16,6 +16,15 @@ from urllib.parse import urlsplit, parse_qs
 ROOT = Path(__file__).resolve().parents[2]
 GROUPS = [
   {
+    "name": "middleware-seedance-smart-duration",
+    "pkg": "./middleware",
+    "tests": [
+      "TestSeedanceSmartDurationSharedEndpoint",
+      "TestSeedanceSharedDurationPrecheckBounds"
+    ],
+    "matrix": False
+  },
+  {
     "name": "controller-ci-legacy-matrix",
     "pkg": "./controller",
     "tests": [
