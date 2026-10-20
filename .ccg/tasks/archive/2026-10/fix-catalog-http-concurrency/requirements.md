@@ -1,0 +1,1 @@
+Repair latest main Actions test failure without skipping assertions or changing production services. User permits independent review. Scope confirmed as existing HTTP test scheduling only; preserve single-use proof and binding guarantees.
