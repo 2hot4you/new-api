@@ -523,7 +523,36 @@ func TestCatalogSyncHTTPConcurrentProofAndExactBinding(t *testing.T) {
 	plan := catalogHTTPPlan(t, catalogHTTPRequest(router, "POST", "/preview", access, "", `{}`))
 	proof, _ := catalogHTTPProof(t, identity, plan, "concurrent-operation")
 	request := catalogHTTPApplyBody(t, plan, "concurrent-operation")
+	// Both prechecks must finish before racing the single-use proof. Otherwise
+	// one precheck can hold the catalog writer while the proof winner applies,
+	// legitimately yielding busy + consumed responses without an operation.
+	arrived, release := make(chan struct{}, 2), make(chan struct{})
+	resume := sync.OnceFunc(func() { close(release) })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	var wg sync.WaitGroup
+	const callback = "catalog-http-proof-rendezvous"
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table != "auth_flows" {
+			return
+		}
+		select {
+		case arrived <- struct{}{}:
+		case <-ctx.Done():
+			tx.AddError(ctx.Err())
+			return
+		}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			tx.AddError(ctx.Err())
+		}
+	}))
+	t.Cleanup(func() {
+		resume()
+		wg.Wait()
+		require.NoError(t, db.Callback().Update().Remove(callback))
+	})
 	responses := make(chan *httptest.ResponseRecorder, 2)
 	for range 2 {
 		wg.Add(1)
@@ -531,7 +560,14 @@ func TestCatalogSyncHTTPConcurrentProofAndExactBinding(t *testing.T) {
 			defer wg.Done()
 			responses <- catalogHTTPRequest(router, "POST", "/plans/"+plan.ID+"/apply", access, proof, request)
 		}()
+		// Start the next request only once this one has left its plan precheck.
+		select {
+		case <-arrived:
+		case <-ctx.Done():
+			t.Fatal("request did not reach proof consumption")
+		}
 	}
+	resume()
 	wg.Wait()
 	close(responses)
 	success := 0
@@ -539,10 +575,11 @@ func TestCatalogSyncHTTPConcurrentProofAndExactBinding(t *testing.T) {
 		if response.Code == http.StatusOK {
 			success++
 		} else {
-			assert.Contains(t, []int{http.StatusForbidden, http.StatusServiceUnavailable, http.StatusConflict}, response.Code, response.Body.String())
+			assert.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
+			assert.Contains(t, response.Body.String(), `"code":"SECURITY_PROOF_CONSUMED"`)
 		}
 	}
-	assert.Positive(t, success)
+	assert.Equal(t, 1, success, "exactly one concurrent proof consumption must authorize an apply")
 	var count int64
 	require.NoError(t, db.Model(&model.CatalogSyncOperation{}).Count(&count).Error)
 	assert.Equal(t, int64(1), count)
