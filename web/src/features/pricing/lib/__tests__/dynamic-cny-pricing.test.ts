@@ -82,6 +82,7 @@ describe('CNY dynamic pricing', () => {
     assert.equal(summary?.primaryEntries[0]?.formattedRange, '¥0.4 – ¥0.8')
     assert.deepEqual(getCardExamplePrice(taskModel, options), {
       label: 'Pro · 5s',
+      total: 0.6,
       formatted: '¥4.2',
     })
   })

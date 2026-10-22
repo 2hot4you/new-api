@@ -6,14 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -22,13 +26,19 @@ import (
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func TestMain(m *testing.M) {
+	gin.SetMode(gin.TestMode)
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") != "" {
+		os.Exit(runServicePostgresTests(m))
+	}
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		panic("failed to open test db: " + err.Error())
@@ -46,6 +56,9 @@ func TestMain(m *testing.M) {
 	common.RedisEnabled = false
 	common.BatchUpdateEnabled = false
 	common.LogConsumeEnabled = true
+	if err := i18n.Init(); err != nil {
+		panic("failed to load locales: " + err.Error())
+	}
 
 	if err := db.AutoMigrate(
 		&model.Task{},
@@ -67,6 +80,131 @@ func TestMain(m *testing.M) {
 	}
 
 	os.Exit(m.Run())
+}
+
+// Validate before the first connection: pgx accepts query options that can
+// override the database path, so the disposable database rewrite needs an
+// exact query allowlist as well as a numeric loopback host.
+func serviceBillingPostgresDSN(dsn string) (*url.URL, error) {
+	u, err := url.Parse(dsn)
+	if err != nil || u == nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") ||
+		!net.ParseIP(u.Hostname()).IsLoopback() || u.User == nil || u.User.Username() == "" ||
+		u.Path == "" || u.Path == "/" || strings.Contains(u.Path[1:], "/") || u.Fragment != "" {
+		return nil, fmt.Errorf("service PostgreSQL tests require a numeric loopback URL with user and database")
+	}
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(query) != 1 || len(query["sslmode"]) != 1 || query["sslmode"][0] != "disable" {
+		return nil, fmt.Errorf("service PostgreSQL tests require only sslmode=disable")
+	}
+	parsed, err := pgx.ParseConfig(dsn)
+	if err != nil || parsed.Host != u.Hostname() || parsed.Database != u.Path[1:] || parsed.TLSConfig != nil {
+		return nil, fmt.Errorf("service PostgreSQL tests reject ambiguous connection targets")
+	}
+	for _, fallback := range parsed.Fallbacks {
+		if fallback.Host != parsed.Host || fallback.Port != parsed.Port {
+			return nil, fmt.Errorf("service PostgreSQL tests reject connection host fallbacks")
+		}
+	}
+	return u, nil
+}
+
+func runServicePostgresTests(m *testing.M) (exitCode int) {
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") != "1" {
+		fmt.Fprintln(os.Stderr, "CATALOG_SYNC_POSTGRES_ONLY must be exactly 1")
+		return 1
+	}
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	u, err := serviceBillingPostgresDSN(dsn)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	admin, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "service PostgreSQL fixture connection failed")
+		return 1
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer closeCancel()
+		if err := admin.Close(closeCtx); err != nil {
+			fmt.Fprintln(os.Stderr, "service PostgreSQL administrator connection cleanup failed")
+			exitCode = 1
+		}
+	}()
+	name := fmt.Sprintf("service_billing_%d", time.Now().UnixNano())
+	quotedName := pgx.Identifier{name}.Sanitize()
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+quotedName); err != nil {
+		fmt.Fprintln(os.Stderr, "service PostgreSQL fixture database creation failed")
+		return 1
+	}
+	var db *gorm.DB
+	defer func() {
+		if db != nil {
+			pool, err := db.DB()
+			if err != nil || pool.Close() != nil {
+				fmt.Fprintln(os.Stderr, "service PostgreSQL fixture pool cleanup failed")
+				exitCode = 1
+			}
+		}
+		model.DB, model.LOG_DB = nil, nil
+		dropCtx, dropCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer dropCancel()
+		if _, err := admin.Exec(dropCtx, "DROP DATABASE "+quotedName); err != nil {
+			fmt.Fprintln(os.Stderr, "service PostgreSQL fixture exact database cleanup failed")
+			exitCode = 1
+		}
+	}()
+	u.Path = "/" + name
+	db, err = gorm.Open(postgres.New(postgres.Config{DSN: u.String(), PreferSimpleProtocol: true}), &gorm.Config{})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "service PostgreSQL fixture database open failed")
+		return 1
+	}
+	pool, err := db.DB()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "service PostgreSQL fixture pool access failed")
+		return 1
+	}
+	pool.SetMaxOpenConns(1)
+	model.DB, model.LOG_DB = db, db
+	common.SetDatabaseTypes(common.DatabaseTypePostgreSQL, common.DatabaseTypePostgreSQL)
+	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
+	if err := i18n.Init(); err != nil {
+		fmt.Fprintln(os.Stderr, "service PostgreSQL locale initialization failed")
+		return 1
+	}
+	if err := db.AutoMigrate(
+		&model.Task{}, &model.User{}, &model.Token{}, &model.Log{}, &model.Channel{}, &model.Model{},
+		&model.Midjourney{}, &model.TopUp{}, &model.UserSubscription{}, &model.SystemTask{},
+		&model.SystemTaskLock{}, &model.TaskBillingJob{}, &model.QuotaData{}, &model.PerfMetric{},
+	); err != nil {
+		fmt.Fprintln(os.Stderr, "service PostgreSQL fixture migration failed:", err)
+		return 1
+	}
+	return m.Run()
+}
+
+func TestServiceBillingPostgresDSNGuard(t *testing.T) {
+	const base = "postgresql://fixture@127.0.0.1:5432/postgres?sslmode=disable"
+	for _, valid := range []string{base, "postgres://fixture@[::1]:5432/postgres?sslmode=disable"} {
+		u, err := serviceBillingPostgresDSN(valid)
+		require.NoError(t, err)
+		u.Path = "/service_billing_guard"
+		parsed, err := pgx.ParseConfig(u.String())
+		require.NoError(t, err)
+		require.Equal(t, "service_billing_guard", parsed.Database)
+	}
+	for _, suffix := range []string{"&dbname=postgres", "&database=postgres", "&host=127.0.0.1", "&port=5432", "&service=fixture", "&sslmode=disable", "&unknown=1", "&bad=%zz", "#fragment"} {
+		_, err := serviceBillingPostgresDSN(base + suffix)
+		require.Error(t, err, suffix)
+	}
+	for _, invalid := range []string{"", "postgresql://fixture@localhost:5432/postgres?sslmode=disable", "postgresql://fixture@192.0.2.1:5432/postgres?sslmode=disable", "http://fixture@127.0.0.1:5432/postgres?sslmode=disable", "postgresql://127.0.0.1:5432/postgres?sslmode=disable", "postgresql://fixture@127.0.0.1:5432/?sslmode=disable", "postgresql://fixture@127.0.0.1:5432/db/nested?sslmode=disable", "postgresql://fixture@127.0.0.1:5432/postgres", "postgresql://fixture@127.0.0.1:5432/postgres?sslmode=require"} {
+		_, err := serviceBillingPostgresDSN(invalid)
+		require.Error(t, err, invalid)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +502,7 @@ func TestLogTaskConsumptionIncludesTieredSnapshotUsageFacts(t *testing.T) {
 	assert.Equal(t, float64(14), other["display_cost"])
 	assert.NotContains(t, other, "resolution")
 	assert.NotContains(t, other, "seconds")
-	assert.Contains(t, log.Content, "计算参数：")
+	assert.Contains(t, log.Content, "Billing parameters: ")
 	assert.Contains(t, log.Content, "resolution: 720P")
 	assert.Contains(t, log.Content, "seconds: 5")
 }
@@ -402,8 +540,13 @@ func TestLogTaskConsumptionWithoutSnapshotKeepsRatioMode(t *testing.T) {
 	assert.NotContains(t, other, "expr_b64")
 	assert.NotContains(t, other, "matched_tier")
 	assert.NotContains(t, other, "usage_facts")
-	assert.Contains(t, log.Content, "计算参数：")
-	assert.Contains(t, log.Content, "size: 2.00")
+	assert.Equal(t, "Action GENERATE, Billing parameters: size: 2.00", log.Content)
+	// The web console renders content_parts in the viewer's language; content
+	// keeps the English text.
+	assert.Equal(t, []any{
+		map[string]any{"key": "Action {{action}}", "params": map[string]any{"action": "GENERATE"}},
+		map[string]any{"key": "Billing parameters: {{params}}", "params": map[string]any{"params": "size: 2.00"}},
+	}, other["content_parts"])
 }
 
 // Task logs distinguish protocols whose callers poll from protocols that own
@@ -734,7 +877,7 @@ func TestMidjourneyRefundRestoresEveryAccountingElementOnBillingChannel(t *testi
 
 	seedChargedAccounting(t, userID, billingChannelID, tokenID, chargedQuota, 1)
 
-	assert.True(t, RefundMidjourneyQuota(ctx, task, "构图失败"))
+	assert.True(t, RefundMidjourneyQuota(ctx, task, "Composition failed"))
 	assert.Equal(t, initialUserQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota, getTokenRemainQuota(t, tokenID))
 	assert.Zero(t, getTokenUsedQuota(t, tokenID))

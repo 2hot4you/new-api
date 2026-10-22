@@ -2,7 +2,7 @@
 
 Legacy database packages are not run as complete suites: coverage is limited to
 the mandatory PostgreSQL inventory instead of implicit cross-engine fixtures.
-Database-independent packages and relaykit keep their complete suites. Never
+Database-independent packages, relaykit and tokenkit keep their complete suites. Never
 describe this as the old make test.
 """
 import json
@@ -19,9 +19,11 @@ ROOT = Path(__file__).resolve().parents[2]
 # Audited test bodies have no SQL initialization or implicit database TestMain.
 FULL_PACKAGES = [
     "./common",
+    "./common/limiter",
     "./constant",
     "./dto",
     "./internal/catalogtransport",
+    "./i18n",
     "./logger",
     "./oauth",
     "./pkg/billingexpr",
@@ -182,7 +184,9 @@ def full_suite_commands(mode, packages):
         raise ValueError("only audited complete database-independent suites are allowed")
     command = ["go", "test"] + (["-race"] if mode == "race" else [])
     command += ["-count=1", "-timeout=900s", "-json"]
-    return [(ROOT, command + packages), (ROOT / "relaykit", command + ["./..."])]
+    return [(ROOT, command + packages),
+            (ROOT / "relaykit", command + ["./..."]),
+            (ROOT / "tokenkit", command + ["./..."])]
 
 
 def verify_full_suite(events, expected, no_test_packages=()):
@@ -222,7 +226,7 @@ def run_ci(mode):
         expected = [package for package, kind in rows if kind == "tests"]
         empty = [package for package, kind in rows if kind == "empty"]
         path = directory / ("full-suite-" + str(index) + ".jsonl")
-        print("RUN " + mode + " complete " + ("root database-independent packages" if cwd == ROOT else "relaykit"), flush=True)
+        print("RUN " + mode + " complete " + ("root database-independent packages" if cwd == ROOT else cwd.name), flush=True)
         with path.open("w") as output:
             result = subprocess.run(command, cwd=cwd, env=env, stdout=output, stderr=subprocess.STDOUT)
         (directory / ("full-suite-" + str(index) + ".command.json")).write_text(json.dumps(command))
@@ -249,11 +253,14 @@ class PostgresCITest(unittest.TestCase):
             with self.subTest(package=package), self.assertRaises(ValueError):
                 full_suite_commands("normal", [package])
         commands = full_suite_commands("race", FULL_PACKAGES)
-        self.assertEqual(len(commands), 2)
+        self.assertEqual(len(commands), 3)
         self.assertIn("-race", commands[0][1])
         self.assertNotIn("-run", commands[0][1])
         self.assertEqual(commands[1][0], ROOT / "relaykit")
         self.assertIn("./...", commands[1][1])
+        self.assertEqual(commands[2][0], ROOT / "tokenkit")
+        self.assertIn("./...", commands[2][1])
+        self.assertIn("-race", commands[2][1])
 
     def test_suite_verification_requires_every_package_and_nonempty_tests(self):
         good = [

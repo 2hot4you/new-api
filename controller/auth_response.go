@@ -10,13 +10,9 @@ import (
 )
 
 // writeAuthErrorI18n preserves the legacy HTTP 200 application-error contract
-// while adding a stable machine-readable error code.
+// while adding a stable machine-readable error code and a web translation key.
 func writeAuthErrorI18n(c *gin.Context, code string, messageKey string, args ...map[string]any) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": false,
-		"code":    code,
-		"message": common.TranslateMessage(c, messageKey, args...),
-	})
+	common.ApiErrorStatus(c, http.StatusOK, common.NewMessage(messageKey, args...), gin.H{"code": code})
 }
 
 func writeAuthInternalErrorI18n(c *gin.Context, operation string, err error, messageKey string) {

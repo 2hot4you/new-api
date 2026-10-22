@@ -176,7 +176,7 @@ func replaceModelPricing(values map[string]map[string]any, name string, draft Pr
 	}
 }
 
-func effectiveModelPricing(values map[string]map[string]any, name string) PricingValues {
+func effectiveModelPricing(values map[string]map[string]any, name, currency string) PricingValues {
 	result := modelPricingValues(values, name)
 	// Legacy wildcard aliases are resolved by the same normalization as relay.
 	alias := ratio_setting.FormatMatchingModelName(name)
@@ -186,8 +186,8 @@ func effectiveModelPricing(values map[string]map[string]any, name string) Pricin
 			result[key] = value
 		}
 	}
-	mode, _ := result["billing_setting.billing_mode"].(string)
-	if mode == "" {
+	mode, hasMode := result["billing_setting.billing_mode"].(string)
+	if !hasMode {
 		_, hasPrice := result["ModelPrice"]
 		_, hasRatio := result["ModelRatio"]
 		if _, builtin := billing_setting.GetBuiltinBillingExpr(name); builtin && !hasPrice && !hasRatio {
@@ -195,6 +195,13 @@ func effectiveModelPricing(values map[string]map[string]any, name string) Pricin
 		}
 	}
 	if mode == "tiered_expr" {
+		if _, configured := result["billing_setting.billing_expr"]; !configured && currency == "CNY" {
+			if _, builtin := billing_setting.GetBuiltinBillingExpr(name); builtin {
+				// A compiled USD fallback is not an effective CNY quote. Keep
+				// explicit configuration (including mode-only saves) editable.
+				return result
+			}
+		}
 		result["billing_setting.billing_mode"] = mode
 		if _, exists := result["billing_setting.billing_expr"]; !exists {
 			if expression, ok := billing_setting.GetBuiltinBillingExpr(name); ok {
@@ -242,7 +249,11 @@ func PreviewModelPricing(name string, draft PricingValues) (PricingValues, error
 		return nil, err
 	}
 	replaceModelPricing(values, name, draft)
-	return effectiveModelPricing(values, name), nil
+	currencies, err := LoadModelBillingCurrencies(DB, []string{name}, false)
+	if err != nil {
+		return nil, err
+	}
+	return effectiveModelPricing(values, name, string(currencies[name].BillingCurrency)), nil
 }
 
 func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
@@ -284,7 +295,13 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 		}
 	}
 	sort.Strings(names)
-	currencies, err := LoadModelBillingCurrencies(DB, names, false)
+	// Options is a full-map compatibility view even for a filtered snapshot.
+	// Resolve currencies for every builtin that could be injected into it.
+	currencyNames := slices.Clone(names)
+	for name := range billing_setting.GetBuiltinBillingExprCopy() {
+		currencyNames = append(currencyNames, name)
+	}
+	currencies, err := LoadModelBillingCurrencies(DB, currencyNames, false)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +312,7 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 		currency := currencies[name]
 		entry := ModelPricingEntry{ModelName: name, Version: modelPricingVersion(configured, string(currency.BillingCurrency)), Configured: configured,
 			BillingCurrency: string(currency.BillingCurrency), HasMetadata: currency.HasMetadata,
-			ModelPricingDescription: ModelPricingDescription{Effective: effectiveModelPricing(values, name)}}
+			ModelPricingDescription: ModelPricingDescription{Effective: effectiveModelPricing(values, name, string(currency.BillingCurrency))}}
 		entry.CacheWriteMode = ResolveCacheWriteMode(name, configured)
 		entry.BillingDetails = ResolveLegacyBillingDetails(name, entry.Effective, configured)
 		if plugin, ok := generation.GetByModel(name); ok {
@@ -350,8 +367,11 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 	// Preserve the existing settings editor's full-map interface. Built-in
 	// expressions are display defaults only; per-model writes do not persist them.
 	for name, expression := range billing_setting.GetBuiltinBillingExprCopy() {
-		effective := effectiveModelPricing(values, name)
+		effective := effectiveModelPricing(values, name, string(currencies[name].BillingCurrency))
 		if effective["billing_setting.billing_mode"] != "tiered_expr" {
+			continue
+		}
+		if _, quoted := effective["billing_setting.billing_expr"]; !quoted {
 			continue
 		}
 		if _, ok := values["billing_setting.billing_mode"][name]; !ok {
@@ -424,10 +444,17 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 				return fmt.Errorf("model %s: plugin %s: billing expression is required", name, key)
 			}
 			plugin, exists := dependencies.plugins[key]
-			if !exists || !slices.Contains(plugin.Models, name) {
-				if previousVariants[key] == expression {
-					continue
+			declared := exists && slices.Contains(plugin.Models, name)
+			providers := 0
+			for _, candidate := range dependencies.plugins {
+				if slices.Contains(candidate.Models, name) {
+					providers++
 				}
+			}
+			if previousVariants[key] == expression && (!declared || providers <= 1) {
+				continue
+			}
+			if !declared {
 				return fmt.Errorf("model %s: plugin %s does not declare this model", name, key)
 			}
 			schema, _ := plugin.UsageForModel(name)
@@ -459,6 +486,10 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 			if _, err := billingexpr.CompileFromCache(expression); err != nil {
 				return fmt.Errorf("model %s: %w", name, err)
 			}
+			// An unchanged expression a sole provider has been charging with keeps
+			// its price after the plugin narrows its usage profile; relay checks
+			// shared models against each profile, so their prices must follow it.
+			unchanged := previous[key] == expression
 			var err error
 			var plugins []jsplugin.Meta
 			for _, key := range slices.Sorted(maps.Keys(dependencies.plugins)) {
@@ -469,7 +500,9 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 			}
 			if len(plugins) > 0 {
 				for _, plugin := range plugins {
-					if _, overridden := variants[plugin.Key]; overridden {
+					_, overridden := variants[plugin.Key]
+					_, wasOverridden := previousVariants[plugin.Key]
+					if overridden || (unchanged && !wasOverridden && len(plugins) == 1) {
 						continue
 					}
 					schema, _ := plugin.UsageForModel(name)
@@ -479,12 +512,21 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 				}
 			} else if target, resolved := dependencies.resolveAlias(name); resolved {
 				if plugin, ok := dependencies.plugins[target.PluginKey]; ok {
-					schema, _ := plugin.UsageForModel(target.Declared)
-					err = billing_setting.SmokeTestTaskExpr(expression, schema)
+					shared := false
+					for key, candidate := range dependencies.plugins {
+						if key != plugin.Key && slices.Contains(candidate.Models, target.Declared) {
+							shared = true
+							break
+						}
+					}
+					if !unchanged || shared {
+						schema, _ := plugin.UsageForModel(target.Declared)
+						err = billing_setting.SmokeTestTaskExpr(expression, schema)
+					}
 				} else {
 					err = billing_setting.SmokeTestExpr(expression)
 				}
-			} else if previous[key] != expression || len(billingexpr.UsedUsageKeys(expression)) == 0 {
+			} else if !unchanged || len(billingexpr.UsedUsageKeys(expression)) == 0 {
 				err = billing_setting.SmokeTestExpr(expression)
 			}
 			// With no remaining plugin, an unchanged stored usage expression has

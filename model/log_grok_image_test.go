@@ -1,7 +1,9 @@
 package model
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -14,6 +16,19 @@ import (
 
 func useGrokImageLogTestDB(t *testing.T) {
 	t.Helper()
+	if mode := os.Getenv("CATALOG_SYNC_POSTGRES_ONLY"); mode != "" {
+		require.Equal(t, "1", mode, "invalid PostgreSQL-only test mode")
+		db := catalogSyncTestDB(t, "postgres")
+		previousLogDB, previousLogType := LOG_DB, common.LogDatabaseType()
+		LOG_DB = db
+		common.SetLogDatabaseType(common.DatabaseTypePostgreSQL)
+		t.Cleanup(func() {
+			LOG_DB = previousLogDB
+			common.SetLogDatabaseType(previousLogType)
+		})
+		require.NoError(t, db.AutoMigrate(&Log{}))
+		return
+	}
 	previousDB, previousLogDB := DB, LOG_DB
 	previousMainDatabaseType, previousLogDatabaseType := common.MainDatabaseType(), common.LogDatabaseType()
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
@@ -48,13 +63,13 @@ func TestGetAllLogsGrokImageCategoryIsExactAndPaginated(t *testing.T) {
 	useGrokImageLogTestDB(t)
 	seedGrokImageLogs(t)
 
-	firstPage, total, err := GetAllLogs(LogTypeUnknown, 0, 0, "", "", "", 0, 1, 0, "", "", "", "grok_image")
+	firstPage, total, err := GetAllLogs(LogFilter{Type: LogTypeUnknown, LogCategory: "grok_image"}, 0, 1)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, total)
 	require.Len(t, firstPage, 1)
 	assert.Equal(t, "grok-imagine-image-2.0", firstPage[0].ModelName)
 
-	secondPage, total, err := GetAllLogs(LogTypeUnknown, 0, 0, "", "", "", 1, 1, 0, "", "", "", "grok_image")
+	secondPage, total, err := GetAllLogs(LogFilter{Type: LogTypeUnknown, LogCategory: "grok_image"}, 1, 1)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, total)
 	require.Len(t, secondPage, 1)
@@ -65,12 +80,12 @@ func TestGetUserLogsGrokImageCategoryAndNoCategoryCompatibility(t *testing.T) {
 	useGrokImageLogTestDB(t)
 	seedGrokImageLogs(t)
 
-	grokLogs, total, err := GetUserLogs(7, LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "", "grok_image")
+	grokLogs, total, err := GetUserLogs(7, LogFilter{Type: LogTypeUnknown, LogCategory: "grok_image"}, 0, 10)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, total)
 	assert.ElementsMatch(t, []string{"grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-image-2.0"}, []string{grokLogs[0].ModelName, grokLogs[1].ModelName, grokLogs[2].ModelName})
 
-	allLogs, total, err := GetUserLogs(7, LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "", "")
+	allLogs, total, err := GetUserLogs(7, LogFilter{Type: LogTypeUnknown}, 0, 10)
 	require.NoError(t, err)
 	assert.EqualValues(t, 4, total)
 	assert.Len(t, allLogs, 4)
@@ -107,9 +122,28 @@ func TestGetUserLogsGPTImage2CategoryIsExact(t *testing.T) {
 	}
 	require.NoError(t, LOG_DB.Create(&logs).Error)
 
-	imageLogs, total, err := GetUserLogs(7, LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "", "gpt_image_2")
+	imageLogs, total, err := GetUserLogs(7, LogFilter{Type: LogTypeUnknown, LogCategory: "gpt_image_2"}, 0, 10)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, total)
 	require.Len(t, imageLogs, 1)
 	assert.Equal(t, "gpt-image-2", imageLogs[0].ModelName)
+}
+
+func TestStreamImageLogsPreservesCategoryAndUserIsolation(t *testing.T) {
+	useGrokImageLogTestDB(t)
+	seedGrokImageLogs(t)
+	require.NoError(t, LOG_DB.Create(&Log{UserId: 8, CreatedAt: 60, Type: LogTypeConsume, ModelName: "grok-imagine-image", RequestId: "other-user"}).Error)
+	filter := LogFilter{Type: LogTypeConsume, LogCategory: "grok_image"}
+	var userRequests, adminRequests []string
+	require.NoError(t, StreamUserLogs(context.Background(), 7, filter, func(log *Log) error {
+		assert.Equal(t, 7, log.UserId)
+		userRequests = append(userRequests, log.RequestId)
+		return nil
+	}))
+	assert.ElementsMatch(t, []string{"grok-basic", "grok-quality", "grok-2"}, userRequests)
+	require.NoError(t, StreamAllLogs(context.Background(), filter, common.RoleRootUser, func(log *Log) error {
+		adminRequests = append(adminRequests, log.RequestId)
+		return nil
+	}))
+	assert.Equal(t, []string{"other-user", "grok-2", "grok-quality", "grok-basic"}, adminRequests)
 }

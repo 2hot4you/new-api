@@ -595,7 +595,7 @@ func TestCatalogSyncHTTPAuthOriginAndAudit(t *testing.T) {
 	user, identity, access := setupCatalogSecurityTest(t)
 	router := gin.New()
 	registerCatalogSyncRoutes(router.Group("/api"), catalogManagementRuntime(t), nil, service.FetchDevCatalog)
-	require.NoError(t, model.UpdateUserAccessToken(user.Id, "http-root-pat"))
+	require.NoError(t, model.DB.Model(user).Update("access_token", "http-root-pat").Error)
 	require.NoError(t, model.DB.Create(&model.Token{UserId: user.Id, Key: "http-relay-token", Status: common.TokenStatusEnabled, Name: "http-test"}).Error)
 	routes := []struct{ method, path, body string }{{"GET", "/status", ""}, {"POST", "/preview", `{}`}, {"POST", "/plans/id/resolve", `{}`}, {"POST", "/plans/id/apply", `{}`}, {"GET", "/history", ""}, {"GET", "/operations/id", ""}, {"POST", "/operations/id/restore-preview", `{}`}}
 	t.Run("refresh-cookie-only", func(t *testing.T) {

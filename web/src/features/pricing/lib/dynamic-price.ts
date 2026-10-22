@@ -82,6 +82,7 @@ export type DynamicPriceEntry = {
 
 export type CardExamplePrice = {
   label: string
+  total: number
   formatted: string
 }
 
@@ -953,6 +954,10 @@ export function getCardExamplePrice(
   if (!result) return null
   return {
     label: firstExample.label,
+    total: normalizeDynamicSourcePrice(result.total, {
+      ...options,
+      billingCurrency: model.billing_currency,
+    }),
     formatted: formatTaskUsageUnitPrice(result.total, {
       ...options,
       billingCurrency: model.billing_currency,

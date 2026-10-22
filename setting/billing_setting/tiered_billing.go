@@ -108,6 +108,19 @@ func GetBillingExpr(model string) (string, bool) {
 	return getBillingExpr(model)
 }
 
+// IsBuiltinBillingExprFallback reports provenance, not expression equality.
+// Even an explicitly saved empty expression overrides the compiled fallback.
+// Mode and legacy-price precedence must match the actual expression selection.
+func IsBuiltinBillingExprFallback(model string) bool {
+	billingSettingMu.RLock()
+	defer billingSettingMu.RUnlock()
+	if _, configured := billingSetting.BillingExpr[model]; configured {
+		return false
+	}
+	_, builtin := builtinBillingExpr[model]
+	return builtin && getBillingMode(model) == BillingModeTieredExpr
+}
+
 func getBillingExpr(model string) (string, bool) {
 	if expr, ok := billingSetting.BillingExpr[model]; ok {
 		return expr, true

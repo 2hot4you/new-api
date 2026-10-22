@@ -321,6 +321,22 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 		names = append(names, ability.Model)
 	}
 	metaMap := resolveModelMetadata(allMeta, names)
+	// Currency authority is exact metadata, unlike wildcard display metadata.
+	// Reuse this build's loaded source set: no live/global reads during staging.
+	billingCurrencies := make(map[string]string, len(names))
+	for _, name := range names {
+		billingCurrencies[name] = "USD"
+	}
+	for _, meta := range allMeta {
+		if meta.NameRule != NameRuleExact {
+			continue
+		}
+		currency, err := normalizeModelBillingCurrency(meta.BillingCurrency)
+		if err != nil {
+			return fmt.Errorf("model %s pricing currency: %w", meta.ModelName, err)
+		}
+		billingCurrencies[meta.ModelName] = string(currency)
+	}
 
 	// 预加载供应商
 	var vendors []Vendor
@@ -470,6 +486,13 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 		modelRatio, hasModelRatio, _ := ratio_setting.GetModelRatio(model)
 		billingExpr, hasBillingExpr := billing_setting.GetBillingExpr(model)
 		hasBillingExpr = hasBillingExpr && strings.TrimSpace(billingExpr) != ""
+		builtinUnavailable := billingCurrencies[model] == "CNY" && billing_setting.IsBuiltinBillingExprFallback(model)
+		if builtinUnavailable {
+			hasBillingExpr = false
+			if !hasTaskPlugin {
+				continue
+			}
+		}
 		if (!IsModelPricingConfigured(model) && !hasTaskPlugin) || len(groups.Items()) == 0 || len(modelSupportEndpointTypes[model]) == 0 {
 			continue
 		}
@@ -488,10 +511,7 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 		pricing.Icon = meta.Icon
 		pricing.Tags = meta.Tags
 		pricing.VendorID = meta.VendorID
-		pricing.BillingCurrency = meta.BillingCurrency
-		if pricing.BillingCurrency == "" {
-			pricing.BillingCurrency = "USD"
-		}
+		pricing.BillingCurrency = billingCurrencies[model]
 		pricing.DisplayOrder = meta.DisplayOrder
 		pricing.ContextLength = meta.ContextLength
 		pricing.MaxOutputTokens = meta.MaxOutputTokens
@@ -534,16 +554,45 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
+		aliasTarget, aliasResolved := resolveAlias(model)
+		aliasExpression, aliasOverride := "", false
+		if aliasResolved && aliasTarget.Declared != "" {
+			aliasExpression, aliasOverride = billing_setting.GetPluginBillingExpr(aliasTarget.PluginKey, model)
+			if !aliasOverride {
+				aliasExpression, aliasOverride = billing_setting.GetPluginBillingExpr(aliasTarget.PluginKey, aliasTarget.Declared)
+			}
+		}
+		if aliasOverride {
+			// Provider overrides retain the client billing identity, including
+			// when the override was looked up under the mapped target.
+			if plugin, ok := pluginGeneration.Get(aliasTarget.PluginKey); ok {
+				schema, _ := plugin.Meta.UsageForModel(aliasTarget.Declared)
+				valid, err := compatible(aliasExpression, schema)
+				if err != nil {
+					return err
+				}
+				if !valid {
+					aliasExpression = ""
+				}
+			}
+			pricing.BillingMode = billing_setting.BillingModeTieredExpr
+			pricing.BillingExpr = aliasExpression
+		} else if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
 			if hasBillingExpr {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = billingExpr
 			}
-		} else if target, resolved := resolveAlias(model); resolved && target.Declared != "" {
-			if tailMode := billing_setting.GetBillingMode(target.Declared); tailMode == "tiered_expr" {
-				if expr, ok := billing_setting.GetBillingExpr(target.Declared); ok && strings.TrimSpace(expr) != "" {
+		} else if aliasResolved && aliasTarget.Declared != "" && !hasModelPrice && !ratio_setting.HasConfiguredModelRatio(model) {
+			targetCurrency := billingCurrencies[aliasTarget.Declared]
+			if targetCurrency == "" {
+				targetCurrency = "USD"
+			}
+			tailUnavailable := targetCurrency == "CNY" && billing_setting.IsBuiltinBillingExprFallback(aliasTarget.Declared)
+			if tailMode := billing_setting.GetBillingMode(aliasTarget.Declared); tailMode == "tiered_expr" && !tailUnavailable {
+				if expr, ok := billing_setting.GetBillingExpr(aliasTarget.Declared); ok && strings.TrimSpace(expr) != "" {
 					pricing.BillingMode = tailMode
 					pricing.BillingExpr = expr
+					pricing.BillingCurrency = targetCurrency
 				}
 			}
 		}
@@ -575,6 +624,9 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 					schema = map[string]jsplugin.UsageFieldSchema{}
 				}
 				expression, hasExpression := billing_setting.ResolveTaskBillingExpr(provider.Meta.Key, model, "")
+				if _, overridden := billing_setting.GetPluginBillingExpr(provider.Meta.Key, model); builtinUnavailable && !overridden {
+					expression, hasExpression = "", false
+				}
 				mode := billing_setting.BillingModeRatio
 				if hasExpression || billing_setting.GetBillingMode(model) == billing_setting.BillingModeTieredExpr {
 					mode = billing_setting.BillingModeTieredExpr

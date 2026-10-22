@@ -33,6 +33,8 @@ func (s *zeroCostBillingSettler) GetPreConsumedQuota() int { return s.preConsume
 
 func (*zeroCostBillingSettler) Reserve(int) error { return nil }
 
+func (*zeroCostBillingSettler) ReserveBeforeSubmit(int) error { return nil }
+
 func TestGrokImageZeroSubtotalSettlesAtZeroQuota(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

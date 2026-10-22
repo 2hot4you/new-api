@@ -2,6 +2,7 @@ package bytedanceseedance
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -185,7 +186,7 @@ func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) 
 	return base + "/v1/video/generations", nil
 }
 
-func (a *TaskAdaptor) BuildContentRequest(task *model.Task, _ string, client channel.TaskArtifactClientRequest) (*channel.TaskContentRequest, error) {
+func (a *TaskAdaptor) BuildContentRequest(_ context.Context, task *model.Task, _ string, client channel.TaskArtifactClientRequest) (*channel.TaskContentRequest, error) {
 	if task == nil || !isPublicTaskID(task.GetUpstreamTaskID()) {
 		return nil, errors.New("invalid Molii public task ID")
 	}

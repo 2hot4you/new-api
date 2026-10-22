@@ -8,16 +8,16 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type authApplicationErrorResponse struct {
-	Success bool   `json:"success"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Success    bool   `json:"success"`
+	Code       string `json:"code"`
+	Message    string `json:"message"`
+	MessageKey string `json:"message_key"`
 }
 
 func decodeAuthApplicationError(t *testing.T, recorder *httptest.ResponseRecorder) authApplicationErrorResponse {
@@ -33,12 +33,13 @@ func TestWriteAuthErrorI18nPreservesLegacyStatusAndAddsCode(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/user/login", nil)
 
-	writeAuthErrorI18n(c, "AUTH_INVALID_REQUEST", i18n.MsgInvalidParams)
+	writeAuthErrorI18n(c, "AUTH_INVALID_REQUEST", "Invalid parameters")
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	response := decodeAuthApplicationError(t, recorder)
 	assert.False(t, response.Success)
 	assert.Equal(t, "AUTH_INVALID_REQUEST", response.Code)
+	assert.Equal(t, "Invalid parameters", response.MessageKey)
 	assert.NotEmpty(t, response.Message)
 }
 
@@ -158,7 +159,7 @@ func TestWriteAuthInternalErrorDoesNotExposeCause(t *testing.T) {
 		context,
 		"password login failed",
 		errors.New("database password must not reach the client"),
-		i18n.MsgDatabaseError,
+		"Database error, please contact the administrator",
 	)
 
 	response := decodeAuthApplicationError(t, recorder)

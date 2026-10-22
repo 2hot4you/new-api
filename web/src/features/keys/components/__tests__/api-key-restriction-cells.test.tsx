@@ -17,10 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { afterAll as after, afterEach, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
 import type { ComponentType } from 'react'
+import { afterAll as after, afterEach, describe, test } from 'vitest'
 
 import type { ApiKey } from '../../types'
 
@@ -142,6 +142,7 @@ function apiKey(overrides: Partial<ApiKey>): ApiKey {
     model_limits: '',
     allow_ips: '',
     is_default: false,
+    allow_user_quota_query: false,
     ...overrides,
   }
 }

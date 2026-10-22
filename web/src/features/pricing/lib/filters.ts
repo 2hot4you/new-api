@@ -16,20 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { sourceAmountToUSD } from '@/lib/currency'
+import { useSystemConfigStore } from '@/stores/system-config-store'
+
 import {
   SORT_OPTIONS,
   FILTER_ALL,
   QUOTA_TYPES,
   QUOTA_TYPE_VALUES,
   ENDPOINT_TYPES,
+  type SortOption,
 } from '../constants'
 import type { Modality, ModelCapability, PricingModel } from '../types'
+import {
+  getCardExamplePrice,
+  getDynamicPricingSummary,
+  hasTaskUsageSchema,
+  isUnconfiguredTaskUsageModel,
+} from './dynamic-price'
 import {
   filterModelsByDirectory,
   type ContextBucketId,
   type ModelCategoryId,
 } from './model-directory'
-import { hasTaskUsageSchema } from './dynamic-price'
+import { isTokenBasedModel } from './model-helpers'
+import { calculateTokenPrice } from './price'
 
 // ----------------------------------------------------------------------------
 // Filter Utilities
@@ -118,11 +129,65 @@ export function filterByEndpointType(
   )
 }
 
+type SortPriceKind = 'input' | 'output' | 'request'
+
+const PRICE_SORTS: Partial<
+  Record<SortOption, { kind: SortPriceKind; dir: 1 | -1 }>
+> = {
+  [SORT_OPTIONS.INPUT_PRICE_LOW]: { kind: 'input', dir: 1 },
+  [SORT_OPTIONS.INPUT_PRICE_HIGH]: { kind: 'input', dir: -1 },
+  [SORT_OPTIONS.OUTPUT_PRICE_LOW]: { kind: 'output', dir: 1 },
+  [SORT_OPTIONS.OUTPUT_PRICE_HIGH]: { kind: 'output', dir: -1 },
+  [SORT_OPTIONS.REQUEST_PRICE_LOW]: { kind: 'request', dir: 1 },
+  [SORT_OPTIONS.REQUEST_PRICE_HIGH]: { kind: 'request', dir: -1 },
+}
+
 /**
- * Get model price for sorting
+ * Base USD price shown on the model card: input/output per 1M tokens, request
+ * per call (task models use their first usage example). Undefined when the
+ * model has no price of that kind.
  */
-function getModelPrice(model: PricingModel): number {
-  return model.quota_type === 0 ? model.model_ratio : model.model_price || 0
+function getSortPrice(
+  model: PricingModel,
+  kind: SortPriceKind
+): number | undefined {
+  const normalize = (value: number | undefined): number | undefined => {
+    if (value === undefined) return undefined
+    const normalized = sourceAmountToUSD(
+      value,
+      model.billing_currency ?? 'USD',
+      useSystemConfigStore.getState().config.currency.usdExchangeRate
+    )
+    return Number.isFinite(normalized) ? normalized : undefined
+  }
+  if (kind === 'request') {
+    const example = getCardExamplePrice(model, { tokenUnit: 'M' })
+    if (example) return example.total
+  }
+  const summary = getDynamicPricingSummary(model, { tokenUnit: 'M' })
+  if (kind === 'request') {
+    if (summary) {
+      return normalize(
+        summary.entries.find(
+          (entry) =>
+            entry.field === 'fixedPrice' || entry.field === 'modelPrice'
+        )?.value
+      )
+    }
+    return isTokenBasedModel(model) ? undefined : model.model_price
+  }
+  if (summary) {
+    const field = kind === 'input' ? 'inputPrice' : 'outputPrice'
+    return normalize(
+      summary.entries.find(
+        (entry) => entry.field === field && entry.unit === 'token'
+      )?.value
+    )
+  }
+  if (!isTokenBasedModel(model) || isUnconfiguredTaskUsageModel(model)) {
+    return undefined
+  }
+  return calculateTokenPrice(model, kind, 1)
 }
 
 /**
@@ -134,6 +199,24 @@ export function sortModels(
 ): PricingModel[] {
   const sorted = [...models]
 
+  const priceSort = PRICE_SORTS[sortBy as SortOption]
+  if (priceSort) {
+    // Extracting the price parses the billing expression, so compute once
+    const price = new Map(
+      sorted.map((m) => [m, getSortPrice(m, priceSort.kind)])
+    )
+    // Models without this kind of price stay last in both directions
+    sorted.sort((a, b) => {
+      const priceA = price.get(a)
+      const priceB = price.get(b)
+      if (priceA === undefined || priceB === undefined) {
+        return Number(priceA === undefined) - Number(priceB === undefined)
+      }
+      return priceSort.dir * (priceA - priceB)
+    })
+    return sorted
+  }
+
   switch (sortBy) {
     case SORT_OPTIONS.RECOMMENDED:
       return sorted
@@ -141,12 +224,6 @@ export function sortModels(
       sorted.sort((a, b) =>
         (a.model_name || '').localeCompare(b.model_name || '')
       )
-      break
-    case SORT_OPTIONS.PRICE_LOW:
-      sorted.sort((a, b) => getModelPrice(a) - getModelPrice(b))
-      break
-    case SORT_OPTIONS.PRICE_HIGH:
-      sorted.sort((a, b) => getModelPrice(b) - getModelPrice(a))
       break
   }
 

@@ -44,7 +44,7 @@ func GetUserGroups(c *gin.Context) {
 		}
 	}
 	if _, ok := userUsableGroups["auto"]; ok {
-		entries = append(entries, userGroupEntry{name: "auto", ratio: "自动", desc: setting.GetUsableGroupDescription("auto")})
+		entries = append(entries, userGroupEntry{name: "auto", ratio: "auto", desc: setting.GetUsableGroupDescription("auto")})
 	}
 
 	metadataByName := make(map[string]struct {

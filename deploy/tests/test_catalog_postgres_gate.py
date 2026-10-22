@@ -16,6 +16,206 @@ from urllib.parse import urlsplit, parse_qs
 ROOT = Path(__file__).resolve().parents[2]
 GROUPS = [
   {
+    "name": "router-rc46-access-token-route-inventory",
+    "pkg": "./router",
+    "tests": [
+      "TestAccessTokenRouteRulesCoverEveryDashboardRoute",
+      "TestAccessTokenCatalogCoversEveryPermission",
+      "TestAccessTokenVerificationScopesAreAllListed"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "model-rc46-filtered-logs-and-export",
+    "pkg": "./model",
+    "tests": [
+      "TestGetAllLogsGrokImageCategoryIsExactAndPaginated",
+      "TestGetUserLogsGrokImageCategoryAndNoCategoryCompatibility",
+      "TestGetUserLogsGPTImage2CategoryIsExact",
+      "TestStreamImageLogsPreservesCategoryAndUserIsolation"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "task-jsplugin-rc46-pure-adaptor",
+    "pkg": "./relay/channel/task/jsplugin",
+    "tests": [
+      "TestAlibabaSubmitDeltaDoesNotMutateControlState",
+      "TestOAuth2JWTAuthCachesAndRefreshes",
+      "TestOAuth2JWTContextDoesNotExposeServiceAccountKey",
+      "TestPluginJSONValuesPreserveCodecNormalizationAndIsolation",
+      "TestRequestDescriptorDecodingMatchesCodec",
+      "TestSubmitContextExposesOriginTasks",
+      "TestSubmitContextNormalizesRequestBodyOnEveryCall",
+      "TestSubmitContextOmitsOriginTasksWhenEmpty",
+      "TestSubmitContextOriginTasksNilDataOnInvalidJSON",
+      "TestTaskAdaptorAcceptsNormalizedLegacyTokenCounters",
+      "TestTaskAdaptorAllowsExplicitCredentiallessCDNRequest",
+      "TestTaskAdaptorBatchBridge",
+      "TestTaskAdaptorBatchQueryReceivesTaskObjects",
+      "TestTaskAdaptorBoundsNativeUsageBeforeQuotaCalculation",
+      "TestTaskAdaptorBuildContentRequestHookAndMissingFallback",
+      "TestTaskAdaptorBuildSubmitReceivesMappedUpstreamModel",
+      "TestTaskAdaptorBuildsMultipartFromOpaqueFileReference",
+      "TestTaskAdaptorChainsDoubaoThroughNewAPIUpstream",
+      "TestTaskAdaptorChainsSunoBatchFetchThroughNewAPIUpstream",
+      "TestTaskAdaptorDoesNotEmitInjectedMultipartDispositionHeaders",
+      "TestTaskAdaptorFetchTaskExposesModelIdentities",
+      "TestTaskAdaptorFinalDecoderOmissionClearsCandidateSnapshots",
+      "TestTaskAdaptorHeaderOverrides",
+      "TestTaskAdaptorHookFetchReachesRequestHostsOnly",
+      "TestTaskAdaptorInlinesJSONFilePlaceholders",
+      "TestTaskAdaptorJSONFilePlaceholderErrors",
+      "TestTaskAdaptorJSONOrderCapability",
+      "TestTaskAdaptorMapsJSContract",
+      "TestTaskAdaptorMasksChannelAddressInBuildFailure",
+      "TestTaskAdaptorParseSubmitResponsePersistsState",
+      "TestTaskAdaptorPreservesOpenAIVideoFailureSlotsAndOwnsLifecycle",
+      "TestTaskAdaptorPreservesSoraVideoResponseFields",
+      "TestTaskAdaptorQueryContextOmitsRequestBody",
+      "TestTaskAdaptorReDecodesFinalCandidateAndRejectsModelDrift",
+      "TestTaskAdaptorRejectsDeprecatedClientResponse",
+      "TestTaskAdaptorRejectsFinalCandidateNonSubmitKind",
+      "TestTaskAdaptorRejectsFinalCandidateOriginIntentDrift",
+      "TestTaskAdaptorRejectsInvalidArtifactProjection",
+      "TestTaskAdaptorRejectsNonObjectOpenAIVideoRendererOutput",
+      "TestTaskAdaptorRejectsPostDistributionEndpointModelDrift",
+      "TestTaskAdaptorRejectsRendererFromFinalProtocolDecoder",
+      "TestTaskAdaptorRejectsRequestHostOverride",
+      "TestTaskAdaptorSeparatesExpressionFactsFromLegacyBillingRatios",
+      "TestTaskAdaptorSingleOversizedStateIsInvalidPoll",
+      "TestTaskAdaptorUsageProfilesFollowExecutionModel",
+      "TestTaskQueryRedirects",
+      "TestTaskSubmitDeltaStreamContract",
+      "TestTaskSubmitHooksReceiveIndependentRequestSnapshots",
+      "TestTaskSubmitStreamCancellationClosesReader",
+      "TestTaskSubmitStreamContract",
+      "TestTaskSubmitStreamIdleTimeout",
+      "TestTaskUsageValidationLeavesReturnedHostRequestUnchanged",
+      "TestUpstreamContextsUseGatewayBearerOnNewAPIChannels"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "service-rc46-task-billing-and-refund",
+    "pkg": "./service",
+    "tests": [
+      "TestApplyTaskBillingJobDoesNotReapplySucceededJob",
+      "TestBuildTerminalTaskBillingJobUsesSnapshotEvaluationTime",
+      "TestEvaluateTaskCompletionUsageUsesSnapshotEvaluationTime",
+      "TestLogFailedStarAITaskRecordsSanitizedReasonAndElapsedTime",
+      "TestLogSuccessfulStarAITaskCreatesSingleFinalConsumption",
+      "TestLogTaskConsumptionIncludesTieredSnapshotUsageFacts",
+      "TestLogTaskConsumptionMarksSynchronousProtocolsAndDiscardedArtifacts",
+      "TestLogTaskConsumptionWithoutSnapshotKeepsRatioMode",
+      "TestPollingChannelCacheBillingEnqueuesRefund",
+      "TestPollingNullUpstreamBillingEnqueuesRefund",
+      "TestRecalculate_ActualQuotaZero",
+      "TestRecalculate_NegativeDelta",
+      "TestRecalculate_PositiveDelta",
+      "TestRecalculate_RejectsNegativeActualQuota",
+      "TestRecalculate_Subscription_NegativeDelta",
+      "TestRecalculate_ZeroDelta",
+      "TestRefundTaskQuota_FundingFailureKeepsAccountingAndPendingMarker",
+      "TestRefundTaskQuota_NoToken",
+      "TestRefundTaskQuota_StarAIRefundsWithoutLog",
+      "TestRefundTaskQuota_Subscription",
+      "TestRefundTaskQuota_Wallet",
+      "TestRefundTaskQuota_ZeroQuota",
+      "TestServiceBillingPostgresDSNGuard",
+      "TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment",
+      "TestSettle_PerCallBilling_AllowsOptInAdaptorAdjust",
+      "TestSettle_PerCallBilling_SkipsAdaptorAdjust",
+      "TestSettle_PerCallBilling_SkipsTotalTokens",
+      "TestSettle_TieredEvaluationFailureKeepsPreConsumedCharge",
+      "TestSettle_TieredFailureReturnsFalseForCallerRefund",
+      "TestSettle_TieredSnapshotWriteBackUsesSettledFactsAndMatchedTier",
+      "TestSettle_TieredSuccessStillRecomputes",
+      "TestSettle_TieredUsageFactsMergeCompletionOverSubmission",
+      "TestSettle_TokenRecalcFallsBackToCompletionTokens",
+      "TestSweepTimedOutTasksHonorsRefundRolloutBoundary",
+      "TestTaskBillingOtherCarriesPersistedSynchronousProtocolContract",
+      "TestTaskBillingOtherFiltersHistoricalOtherRatios",
+      "TestTaskBillingOtherIncludesTieredSnapshotAndKeepsUsageFactsNested",
+      "TestTaskBillingOtherOmitsEmptyUsageFacts",
+      "TestTaskBillingOtherSeparatesPluginAndRootDiagnostics",
+      "TestTaskBillingReconciliationLogFailureDoesNotReplayFunds",
+      "TestTaskBillingReconciliationRefund",
+      "TestTaskBillingReconciliationSettleAndTargetZero",
+      "TestUpdateBatchTasksEnqueuesDurableTieredSettlement",
+      "TestUpdateSunoTasksStalePollsRefundExactlyOnce"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "model-rc46-schema-migration-idempotency",
+    "pkg": "./model",
+    "tests": ["TestPostgresFullSchemaMigrationIsIdempotent", "TestCatalogPricingNarrowedSchemaRetention"],
+    "matrix": False
+  },
+  {
+    "name": "controller-rc46-access-token-and-admin-proof",
+    "pkg": "./controller",
+    "tests": [
+      "TestWriteAuthErrorI18nPreservesLegacyStatusAndAddsCode",
+      "TestPasswordLoginInvalidRequestHasStableCode",
+      "TestPasswordRegistrationInvalidRequestHasStableCode",
+      "TestPasswordAuthFeatureFlagsHaveStableCodes",
+      "TestWriteAuthInternalErrorDoesNotExposeCause",
+      "TestAccessTokenLifecycleAndLateRequests",
+      "TestAccessTokenCreationChecksGrantBeforeConsumingProof",
+      "TestAccessTokenUpdateRenamesFreelyAndChangesGrantOnlyWithProof",
+      "TestAccessTokenScopeDictionaryIgnoresTheViewersGrants",
+      "TestScopedAccessTokenSecondaryChannelPermissions",
+      "TestScopedAccessTokenArtifactOwnership",
+      "TestAdminUserRiskOperationsRequireProofBeforeMutation",
+      "TestAdminUserRoutineEditsDoNotRequireProof",
+      "TestCreateUserRejectsNonStandardRole",
+      "TestAdminUserProofIsBoundToTargetAndActionAndConsumedOnce",
+      "TestAdminUserBindingProofDistinguishesBuiltInAndCustomBindings",
+      "TestAdminUserVerificationPolicy",
+      "TestSecurityEnrollmentProofConcurrentConsumption",
+      "TestSecurityEnrollmentProofRequiresLiveRecordAndExactDeadline"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "middleware-rc46-scoped-token-authorization",
+    "pkg": "./middleware",
+    "tests": [
+      "TestUserAuthAllowsOpaqueDottedPAT",
+      "TestUserAuthNeverFallsBackForRecognizedInvalidInternalJWT",
+      "TestTryUserAuthCredentialClassification",
+      "TestUserAuthAppliesAccessTokenRouteRules",
+      "TestAccessTokenIdentityAndSingleLookup",
+      "TestRequirePermissionIntersectsScopedAccessTokenGrants",
+      "TestSessionCookieOriginGuard",
+      "TestSessionCookieOriginGuardDevelopmentCompatibility",
+      "TestSessionCookieOriginGuardDoesNotTrustForwardedProtoFromClient"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "perf-metrics-rc46-query-boundaries",
+    "pkg": "./pkg/perf_metrics",
+    "tests": [
+      "TestBuildQueryResultIncludesRequestCounts",
+      "TestClassifyRelayOutcome",
+      "TestStreamOutcomeClassification",
+      "TestClientCancellationDuringUpstreamRead",
+      "TestPerformanceWindowIncludesCurrentHour",
+      "TestHourlySuccessSeriesWeightsSmallerBuckets",
+      "TestRecordTaskResultSamplesTerminalTasks",
+      "TestQuerySummaryAllBuildsWeightedGroupSummaries",
+      "TestQuerySummaryAllExposesExactModelSampleCounts",
+      "TestQuerySummaryAllRangeUsesExactCalendarBounds",
+      "TestQuerySummaryAllAllowsAtMostOneYear",
+      "TestQueryAllowsAtMostOneYear",
+      "TestRecentHistoryRejectsOversizedModelLists"
+    ],
+    "matrix": False
+  },
+  {
     "name": "middleware-seedance-smart-duration",
     "pkg": "./middleware",
     "tests": [
@@ -89,6 +289,9 @@ GROUPS = [
     "pkg": "./relay",
     "tests": [
       "TestTaskRetryRecomputesInferredBillingAndPreservesOverride",
+      "TestRelayTaskSubmitRetryRepricesAndReservesBeforeUpstream",
+      "TestRealtimeFetchAppliesChannelHeaderOverrides",
+      "TestRealtimeFetchRefundsTaskItFindsFailed",
       "TestTaskSelfUseDefaultDoesNotMaskMappedExpression",
       "TestRelayTaskSubmitTieredUsesFrozenBillingModelCurrency",
       "TestRelayTaskSubmitAliasBillingIdentityAndExprFallback",
@@ -396,7 +599,8 @@ GROUPS = [
       "TestCatalogRequestToolPrecedenceAndTieredSurcharge",
       "TestCatalogRequestAudioSettlementRemainsSelected",
       "TestCatalogRequestRealtimeRatesAndSaturation",
-      "TestCatalogRequestCanonicalAndProviderInputs"
+      "TestCatalogRequestCanonicalAndProviderInputs",
+      "TestCatalogBuiltinFallbackCurrencyBoundary"
     ],
     "matrix": False
   },
@@ -650,7 +854,7 @@ def verify_events(events, required, matrix=False):
 
 def run_gate(mode):
     validate_dsn(os.environ.get("TEST_POSTGRES_DSN", ""))
-    env = dict(os.environ, CATALOG_SYNC_POSTGRES_ONLY="1", GOFLAGS="", GOWORK="off",
+    env = dict(os.environ, CATALOG_SYNC_POSTGRES_ONLY="1", TEST_SECURITY_DIALECT="postgres", GOFLAGS="", GOWORK="off",
                TEST_CATALOG_SYNC_POSTGRES_DSN=os.environ["TEST_POSTGRES_DSN"])
     directory = Path(tempfile.mkdtemp(prefix="catalog-postgres-" + mode + "-"))
     print("Catalog gate logs: " + str(directory), flush=True)

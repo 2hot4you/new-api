@@ -76,6 +76,7 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
             </span>
           )}
           <GroupBadge
+            type='text'
             group={group}
             ratio={ratio}
             ratioLabel={group ? undefined : t('Inherited')}

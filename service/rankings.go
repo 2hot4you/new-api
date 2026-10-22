@@ -283,7 +283,9 @@ func addRankingGroupSuccess(response *RankingsResponse, config rankingPeriodConf
 		startTime,
 		endTime,
 		groups,
-		perfmetrics.QuerySummaryAllRange,
+		func(start, end int64, groups []string) (perfmetrics.SummaryAllResult, error) {
+			return perfmetrics.QuerySummaryAllRange(start, end, groups)
+		},
 	); err != nil {
 		common.SysError("failed to build rankings group success summary: " + err.Error())
 	}

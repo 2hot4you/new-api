@@ -354,7 +354,7 @@ func TestByteDanceSeedanceContentRequestUsesPublicIDAndChannelCredential(t *test
 	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://molii.example/", ApiKey: "instance-key"}})
 	task := &model.Task{TaskID: "task_reseller_public", PrivateData: model.TaskPrivateData{UpstreamTaskID: "task_molii_public", ResultURL: "https://expired.example/signed.mp4"}}
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
-		descriptor, err := adaptor.BuildContentRequest(task, "", channel.TaskArtifactClientRequest{Method: method, Headers: map[string]string{
+		descriptor, err := adaptor.BuildContentRequest(t.Context(), task, "", channel.TaskArtifactClientRequest{Method: method, Headers: map[string]string{
 			"Authorization": "Bearer end-user-key", "Range": "bytes=100-199", "If-Range": `"etag"`,
 			"If-None-Match": `"do-not-forward"`, "X-Leak": "secret",
 		}})
@@ -370,7 +370,7 @@ func TestByteDanceSeedanceContentRequestRejectsNonPublicID(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://molii.example", ApiKey: "instance-key"}})
 	for _, id := range []string{"", "cgt-private", "task_", "task_bad/path", "task_bad?query"} {
-		_, err := adaptor.BuildContentRequest(&model.Task{PrivateData: model.TaskPrivateData{UpstreamTaskID: id}}, "", channel.TaskArtifactClientRequest{Method: http.MethodGet})
+		_, err := adaptor.BuildContentRequest(t.Context(), &model.Task{PrivateData: model.TaskPrivateData{UpstreamTaskID: id}}, "", channel.TaskArtifactClientRequest{Method: http.MethodGet})
 		require.Error(t, err, id)
 	}
 }

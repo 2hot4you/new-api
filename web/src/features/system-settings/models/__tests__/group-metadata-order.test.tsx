@@ -15,9 +15,9 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import assert from 'node:assert/strict'
-import { afterAll as after, afterEach, describe, test } from 'vitest'
 
 import { Window } from 'happy-dom'
+import { afterAll as after, afterEach, describe, test } from 'vitest'
 
 const domWindow = new Window()
 domWindow.document.write('<!doctype html><html><body></body></html>')
@@ -389,7 +389,7 @@ describe('group pricing metadata editing', () => {
       ['GroupRatio', 'UserUsableGroups', 'TopupGroupRatio', 'GroupMetadata']
     )
     const addedMetadata = JSON.parse(calls[3]?.[1] ?? '[]')
-    assert.equal(addedMetadata.at(-1)?.name, 'group_1')
+    assert.equal(addedMetadata[0]?.name, 'group_1')
     assert.equal(
       addedMetadata.some((entry: object) =>
         Object.hasOwn(entry, 'recommendation')
@@ -404,7 +404,7 @@ describe('group pricing metadata editing', () => {
     assert.ok(newGroupName)
     await act(async () => changeInput(newGroupName, 'enterprise'))
     assert.equal(JSON.parse(calls[0]?.[1] ?? '{}').enterprise, 1)
-    assert.equal(JSON.parse(calls[3]?.[1] ?? '[]').at(-1)?.name, 'enterprise')
+    assert.equal(JSON.parse(calls[3]?.[1] ?? '[]')[0]?.name, 'enterprise')
 
     calls.length = 0
     const deleteButtons = [
@@ -412,7 +412,7 @@ describe('group pricing metadata editing', () => {
         'button[aria-label="Delete"]'
       ),
     ]
-    const deleteNewGroup = deleteButtons.at(-1)
+    const deleteNewGroup = deleteButtons[0]
     assert.ok(deleteNewGroup)
     await act(async () => deleteNewGroup.click())
     assert.equal(JSON.parse(calls[0]?.[1] ?? '{}').enterprise, undefined)

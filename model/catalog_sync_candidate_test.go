@@ -263,6 +263,64 @@ func TestCatalogCandidateExplicitDependencies(t *testing.T) {
 	assert.Equal(t, expression, candidate.billing.BillingExpr["mapped"], "dependency changes cannot mutate an already owned candidate")
 }
 
+func TestCatalogPricingNarrowedSchemaRetention(t *testing.T) {
+	const expression = `tier("stored", u("seconds") * 0.37)`
+	for _, tc := range []struct {
+		name                     string
+		alias, shared, variant   bool
+		changed, removedOverride bool
+		wantError                bool
+	}{
+		{name: "sole provider retains stored model expression"},
+		{name: "edited model expression validates current schema", changed: true, wantError: true},
+		{name: "shared model must validate every provider", shared: true, wantError: true},
+		{name: "sole alias retains stored expression", alias: true},
+		{name: "shared alias validates current schema", alias: true, shared: true, wantError: true},
+		{name: "sole provider retains stored override", variant: true},
+		{name: "edited override validates current schema", variant: true, changed: true, wantError: true},
+		{name: "shared override validates current schema", variant: true, shared: true, wantError: true},
+		{name: "removing override revalidates newly effective model expression", removedOverride: true, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plugin := jsplugin.Meta{Key: "provider", Models: []string{"declared"}, UsageSchema: map[string]jsplugin.UsageFieldSchema{"images": {Type: "number", Unit: "count"}}}
+			deps := modelPricingValidationDependencies{
+				plugins: map[string]jsplugin.Meta{"provider": plugin},
+				resolveAlias: func(name string) (TaskAliasTarget, bool) {
+					return TaskAliasTarget{Alias: name, Declared: "declared", PluginKey: "provider"}, tc.alias
+				},
+			}
+			if tc.shared {
+				other := plugin
+				other.Key = "other"
+				deps.plugins[other.Key] = other
+			}
+			name := "declared"
+			if tc.alias {
+				name = "alias"
+			}
+			value := expression
+			if tc.changed {
+				value += " * 2"
+			}
+			previous := PricingValues{"billing_setting.billing_expr": expression}
+			values := PricingValues{"billing_setting.billing_expr": value}
+			if tc.variant {
+				previous = PricingValues{billing_setting.PluginBillingExprOption: map[string]any{"provider": expression}}
+				values = PricingValues{billing_setting.PluginBillingExprOption: map[string]any{"provider": value}}
+			}
+			if tc.removedOverride {
+				previous[billing_setting.PluginBillingExprOption] = map[string]any{"provider": `fixed(1)`}
+			}
+			err := validateModelPricingWithDependencies(name, values, previous, deps)
+			if tc.wantError {
+				require.ErrorContains(t, err, "not declared")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestCatalogCandidateTypedOwnershipAndConcurrentReads(t *testing.T) {
 	preserveCatalogCandidate(t)
 	a, err := stageCommittedCatalogPricing(map[string]string{"ModelPrice": `{"concurrent":0}`, "billing_setting.billing_mode": `{"concurrent":"tiered_expr"}`, "billing_setting.billing_expr": `{"concurrent":"tier(\"a\", p)"}`}, catalogPricingDependencies{})

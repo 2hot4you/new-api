@@ -34,8 +34,15 @@ func TestSeedanceSmartDurationSharedEndpoint(t *testing.T) {
 	t.Cleanup(func() { jsplugin.DefaultRegistry = previousRegistry })
 	source, err := builtinplugins.Source("doubao")
 	require.NoError(t, err)
+	// Model the historical uploaded driver this compatibility test protects.
+	// The current built-in declares duration-auto@1 and can now reserve a
+	// positive maximum usage while forwarding -1; older drivers cannot opt in.
+	const autoDurationDeclaration = `requiredCapabilities: ["duration-auto@1"],`
+	require.Contains(t, source, autoDurationDeclaration)
+	source = strings.Replace(source, autoDurationDeclaration, "", 1)
 	plugin, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
 	require.NoError(t, err)
+	require.False(t, plugin.Meta.AcceptsAutoDuration())
 
 	for _, channelType := range []int{constant.ChannelTypeStarAI, constant.ChannelTypeByteDanceSeedance, constant.ChannelTypeDoubaoVideo, constant.ChannelTypeVolcEngine} {
 		for _, path := range []string{"/v1/videos", "/api/video-studio/estimate"} {
@@ -123,8 +130,9 @@ func TestSeedanceSharedDurationPrecheckBounds(t *testing.T) {
 	t.Cleanup(func() { jsplugin.DefaultRegistry = previousRegistry })
 	source, err := builtinplugins.Source("doubao")
 	require.NoError(t, err)
-	_, err = jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+	plugin, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
 	require.NoError(t, err)
+	require.True(t, plugin.Meta.AcceptsAutoDuration(), "the current driver retains its bounded auto-duration capability")
 	const standard = "doubao-seedance-2-0-260128"
 	tests := []struct {
 		name, model, fields string

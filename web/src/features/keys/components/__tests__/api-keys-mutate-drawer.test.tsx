@@ -1344,3 +1344,32 @@ describe('API keys mutate drawer IP restrictions', () => {
     )
   })
 })
+
+describe('API keys mutate drawer user quota query switch', () => {
+  test('sends false for a new key after the switch, which starts on, is turned off', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer()
+
+    await act(async () => findButton('Advanced Settings', true).click())
+    const quotaQuerySwitch = getControlByLabel<HTMLElement>(
+      'Allow querying user quota'
+    )
+      .closest('[data-slot="form-item"]')
+      ?.querySelector<HTMLButtonElement>('[role="switch"]')
+    assert.ok(quotaQuerySwitch)
+    assert.equal(quotaQuerySwitch.getAttribute('aria-checked'), 'true')
+    await act(async () => quotaQuerySwitch.click())
+    assert.equal(quotaQuerySwitch.getAttribute('aria-checked'), 'false')
+
+    await changeInput(getControlByLabel('Name'), 'no-user-quota')
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(
+        () => createdPayloads.length === 1,
+        'key was not created'
+      )
+    )
+    assert.equal(createdPayloads[0]?.allow_user_quota_query, false)
+  })
+})

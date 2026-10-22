@@ -42,6 +42,10 @@ func (b *recordingImageBilling) Reserve(target int) error {
 	return nil
 }
 
+func (b *recordingImageBilling) ReserveBeforeSubmit(target int) error {
+	return b.Reserve(target)
+}
+
 func imageBillingMappingContext(t *testing.T, modelName, mapping string, channelType int) *gin.Context {
 	t.Helper()
 	gin.SetMode(gin.TestMode)

@@ -89,7 +89,7 @@ func TestAllResellerOutboundPathsValidateBaseURL(t *testing.T) {
 			require.Error(t, err)
 			_, err = a.FetchTask(base, "one-key", task, "")
 			require.Error(t, err)
-			_, err = a.BuildContentRequest(task, "video", channel.TaskArtifactClientRequest{Method: http.MethodGet})
+			_, err = a.BuildContentRequest(t.Context(), task, "video", channel.TaskArtifactClientRequest{Method: http.MethodGet})
 			require.Error(t, err)
 			_, err = service.ResolveStarAIAssetURI(context.Background(), "asset://asset-bound", 42, service.StarAIAssetVerificationConfig{BaseURL: base, APIKey: "one-key", ChannelType: constant.ChannelTypeByteDanceSeedance})
 			require.Error(t, err)

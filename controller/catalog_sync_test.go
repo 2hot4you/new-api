@@ -87,7 +87,7 @@ func TestCatalogSecurityManagementCredentials(t *testing.T) {
 	}
 	_, err = service.ConsumeOperationProof(proof.ProofToken, identity, op)
 	require.NoError(t, err, "management guard must never consume a business operation proof")
-	require.NoError(t, model.UpdateUserAccessToken(user.Id, "catalog-root-pat"))
+	require.NoError(t, model.DB.Model(user).Update("access_token", "catalog-root-pat").Error)
 	require.NoError(t, model.DB.Create(&model.Token{UserId: user.Id, Key: "catalog-relay-key", Status: common.TokenStatusEnabled, Name: "catalog-test"}).Error)
 	for _, token := range []string{"", "catalog-root-pat", "catalog-relay-key", "invalid.jwt.value"} {
 		response := catalogGuardRequest(router, "GET", token, headers)
@@ -195,7 +195,7 @@ func TestCatalogSecurityStrictOrigin(t *testing.T) {
 
 func TestCatalogSecuritySourceGuard(t *testing.T) {
 	user, _, access := setupCatalogSecurityTest(t)
-	require.NoError(t, model.UpdateUserAccessToken(user.Id, "catalog-root-pat"))
+	require.NoError(t, model.DB.Model(user).Update("access_token", "catalog-root-pat").Error)
 	env, token := catalogSourceEnvironment(t)
 	runtime, err := service.NewCatalogSyncRuntime(func(k string) string { return env[k] })
 	require.NoError(t, err)

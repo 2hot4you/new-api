@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -39,6 +42,7 @@ import (
 
 func catalogPricingPostgres(t *testing.T, options map[string]string) *gorm.DB {
 	t.Helper()
+	require.NoError(t, i18n.Init())
 	u, err := catalogPricingPostgresDSN()
 	require.NoError(t, err)
 	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
@@ -399,7 +403,7 @@ func TestCatalogRequestAudioSettlementRemainsSelected(t *testing.T) {
 	usage := &dto.Usage{PromptTokens: 40, CompletionTokens: 60, TotalTokens: 100}
 	usage.PromptTokensDetails.TextTokens, usage.PromptTokensDetails.AudioTokens = 10, 30
 	usage.CompletionTokenDetails.TextTokens, usage.CompletionTokenDetails.AudioTokens = 20, 40
-	service.PostAudioConsumeQuota(c, info, usage, "")
+	service.PostAudioConsumeQuota(c, info, usage, nil)
 	var log model.Log
 	require.NoError(t, db.Where("user_id = ?", user.Id).Last(&log).Error)
 	assert.Equal(t, 3240, log.Quota, "(10 + 20*3 + 30*5 + 40*5*7)*2 remains frozen")
@@ -432,7 +436,7 @@ func TestCatalogRequestRealtimeRatesAndSaturation(t *testing.T) {
 	require.NoError(t, service.PreWssConsumeQuota(c, info, usage))
 	require.NoError(t, db.First(&user, user.Id).Error)
 	assert.Equal(t, 996760, user.Quota)
-	service.PostWssConsumeQuota(c, info, "different-upstream-label", usage, "")
+	service.PostWssConsumeQuota(c, info, "different-upstream-label", usage, nil)
 	var log model.Log
 	require.NoError(t, db.Where("user_id = ?", user.Id).Last(&log).Error)
 	assert.Equal(t, 3240, log.Quota)
@@ -458,7 +462,7 @@ func TestCatalogRequestRealtimeRatesAndSaturation(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, model.UpdateOptionsBulk(map[string]string{"ModelRatio": `{"capture-audio":20}`, "CompletionRatio": `{"capture-audio":30}`, "AudioRatio": `{"capture-audio":50}`, "AudioCompletionRatio": `{"capture-audio":70}`}))
 	require.NoError(t, service.PreWssConsumeQuota(c, &free, usage))
-	service.PostWssConsumeQuota(c, &free, "capture-audio", usage, "")
+	service.PostWssConsumeQuota(c, &free, "capture-audio", usage, nil)
 	require.NoError(t, db.First(&user, user.Id).Error)
 	assert.Equal(t, before, user.Quota, "captured zero prices remain free")
 }
@@ -511,4 +515,274 @@ func TestCatalogRequestCanonicalAndProviderInputs(t *testing.T) {
 	oldModel, ok := oldSelection.Model(info.BillingModelName)
 	require.True(t, ok)
 	assert.Equal(t, float64(4), oldModel.Ratio)
+}
+
+func TestCatalogBuiltinFallbackCurrencyBoundary(t *testing.T) {
+	const name = "deepseek-v4-flash"
+	builtin, ok := billing_setting.GetBuiltinBillingExpr(name)
+	require.True(t, ok)
+	for _, tc := range []struct {
+		name, currency, expression, pluginExpression string
+		configured, blocked                          bool
+	}{
+		{name: "CNY_unconfigured_fails_closed", currency: "CNY", blocked: true},
+		{name: "USD_unconfigured_uses_builtin", currency: "USD"},
+		{name: "CNY_explicit_custom_quote", currency: "CNY", expression: "p * 2", configured: true},
+		{name: "CNY_explicit_quote_identical_to_builtin", currency: "CNY", expression: builtin, configured: true},
+		{name: "CNY_provider_override_bypasses_unused_builtin", currency: "CNY", pluginExpression: `u("seconds") * 3`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			options := map[string]string{
+				"ModelPrice": "{}", "ModelRatio": "{}", "USDExchangeRate": "7",
+				"billing_setting.billing_mode": "{}", "billing_setting.billing_expr": "{}",
+				billing_setting.PluginBillingExprOption: "{}",
+			}
+			if tc.configured {
+				raw, err := common.Marshal(map[string]string{name: tc.expression})
+				require.NoError(t, err)
+				options["billing_setting.billing_expr"] = string(raw)
+			}
+			if tc.pluginExpression != "" {
+				raw, err := common.Marshal(map[string]string{"currency-probe::" + name: tc.pluginExpression})
+				require.NoError(t, err)
+				options[billing_setting.PluginBillingExprOption] = string(raw)
+			}
+			db := catalogPricingPostgres(t, options)
+			var provider *jsplugin.LoadedPlugin
+			if tc.pluginExpression != "" {
+				for _, key := range []string{"currency-probe", "currency-probe-inherited"} {
+					source := strings.NewReplacer("bill-fallback", key, "declared-model", name).Replace(billingFallbackPlugin)
+					source = strings.Replace(source, `fetchMode:"per_task"`, `fetchMode:"per_task",usageSchema:{seconds:{type:"number",unit:"second"}}`, 1) + `export function extractUsage(){return {seconds:2};}`
+					plugin, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+					require.NoError(t, err)
+					if key == "currency-probe" {
+						provider = plugin
+					}
+					require.NoError(t, db.Create(&model.TaskPlugin{Key: key, Version: plugin.Meta.Version, APIVersion: 1,
+						Source: model.LongText(source), SourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))), Active: true, Enabled: true}).Error)
+				}
+			}
+			vendor := model.Vendor{Name: "currency-probe", Status: 1}
+			require.NoError(t, db.Create(&vendor).Error)
+			entry := model.Model{ModelName: name, BillingCurrency: tc.currency, Status: 1, MarketplaceEnabled: true,
+				VendorID: vendor.Id, DisplayName: "Currency probe", Description: "Complete fixture", ReleaseDate: "2026-10-17",
+				InputModalities: []string{"text"}, OutputModalities: []string{"text"}, Capabilities: []string{"chat"},
+				SupportedParameters: []string{"temperature"}, ContextLength: 1000000, MaxOutputTokens: 1000}
+			require.True(t, entry.EvaluateMarketplaceReadiness().Complete)
+			require.NoError(t, db.Create(&entry).Error)
+			channel := model.Channel{Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Key: "fixture", Models: name}
+			if provider != nil {
+				channel.Type = constant.ChannelTypeTaskPlugin
+			}
+			require.NoError(t, db.Create(&channel).Error)
+			require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: channel.Id, Enabled: true}).Error)
+			require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{}`))
+			info := &relaycommon.RelayInfo{OriginModelName: name, UsingGroup: "default", UserGroup: "default"}
+			if tc.pluginExpression != "" {
+				c, info = catalogTaskContext(name)
+				c.Set(jsplugin.ContextKeyPinnedPlugin, jsplugin.PinnedPlugin{Plugin: provider, Generation: jsplugin.DefaultRegistry.Generation()})
+				_, taskErr := EstimateTaskSubmit(c, info)
+				require.Nil(t, taskErr)
+				selected, ok := info.PricingSelection.Task()
+				require.True(t, ok)
+				assert.Equal(t, tc.pluginExpression, selected.Expression)
+				assert.True(t, selected.UseExpression)
+				require.NotNil(t, info.TieredBillingSnapshot)
+				assert.Equal(t, "CNY", info.TieredBillingSnapshot.SourceCurrency)
+				assert.Equal(t, float64(6), info.TieredBillingSnapshot.EstimatedSourceCost)
+				assert.InDelta(t, 6.0/7, info.TieredBillingSnapshot.EstimatedCostUSD, 1e-12)
+			} else {
+				_, err := helper.ModelPriceHelper(c, info, 1000000, &kittypes.TokenCountMeta{})
+				if tc.blocked {
+					require.ErrorContains(t, err, "explicit")
+					assert.Nil(t, info.PricingSelection, "reject before freezing a false CNY quote")
+					assert.Nil(t, info.TieredBillingSnapshot)
+					assert.Zero(t, info.FinalPreConsumedQuota)
+				} else {
+					require.NoError(t, err)
+					require.NotNil(t, info.TieredBillingSnapshot)
+					assert.Equal(t, tc.currency, info.TieredBillingSnapshot.SourceCurrency)
+					expected := builtin
+					if tc.configured {
+						expected = tc.expression
+					}
+					assert.Equal(t, expected, info.TieredBillingSnapshot.ExprString)
+					money := info.TieredBillingSnapshot
+					if tc.currency == "CNY" {
+						assert.InDelta(t, money.EstimatedSourceCost/7, money.EstimatedCostUSD, 1e-12)
+					} else {
+						assert.Equal(t, money.EstimatedSourceCost, money.EstimatedCostUSD)
+					}
+				}
+			}
+			snapshot, err := model.GetModelPricingSnapshot([]string{name})
+			require.NoError(t, err)
+			require.Len(t, snapshot.Entries, 1)
+			assert.Equal(t, tc.currency, snapshot.Entries[0].BillingCurrency)
+			if tc.currency == "CNY" && !tc.configured {
+				assert.NotContains(t, snapshot.Entries[0].Effective, "billing_setting.billing_expr")
+				var expressions map[string]string
+				require.NoError(t, common.Unmarshal([]byte(snapshot.Options["billing_setting.billing_expr"]), &expressions))
+				assert.NotContains(t, expressions, name, "compatibility editor must not inject a USD quote as CNY")
+				filtered, err := model.GetModelPricingSnapshot([]string{"unrelated-model"})
+				require.NoError(t, err)
+				require.NoError(t, common.Unmarshal([]byte(filtered.Options["billing_setting.billing_expr"]), &expressions))
+				assert.NotContains(t, expressions, name, "full Options must honor currency even outside the requested entries")
+				if provider == nil {
+					assert.Empty(t, model.GetPricing(), "complete metadata alone must not publish an unconfigured CNY quote")
+					preview, err := model.PreviewModelPricing(name, model.PricingValues{})
+					require.NoError(t, err)
+					assert.NotContains(t, preview, "billing_setting.billing_expr")
+					all, err := model.GetModelPricingSnapshot(nil)
+					require.NoError(t, err)
+					editable := false
+					for _, entry := range all.Entries {
+						editable = editable || entry.ModelName == name && entry.HasMetadata
+					}
+					assert.True(t, editable, "unconfigured CNY metadata remains editable")
+				} else {
+					published := model.GetPricing()
+					require.Len(t, published, 1)
+					assert.Empty(t, published[0].BillingExpr)
+					require.Len(t, published[0].BillingPluginVariants, 2)
+					quotes := map[string]string{}
+					for _, variant := range published[0].BillingPluginVariants {
+						quotes[variant.PluginKey] = variant.BillingExpr
+					}
+					assert.Equal(t, tc.pluginExpression, quotes["currency-probe"])
+					assert.Empty(t, quotes["currency-probe-inherited"], "an unused provider must not publish the USD fallback as CNY")
+				}
+			} else {
+				assert.Contains(t, snapshot.Entries[0].Effective, "billing_setting.billing_expr")
+				published := model.GetPricing()
+				require.Len(t, published, 1)
+				assert.Equal(t, tc.currency, published[0].BillingCurrency)
+				assert.NotEmpty(t, published[0].BillingExpr)
+			}
+		})
+	}
+	t.Run("unused_CNY_builtin_candidate_does_not_block_selected_legacy_price", func(t *testing.T) {
+		db := catalogPricingPostgres(t, map[string]string{
+			"ModelRatio": `{"selected-legacy":2}`, "ModelPrice": "{}",
+			"billing_setting.billing_mode": "{}", "billing_setting.billing_expr": "{}",
+		})
+		require.NoError(t, db.Create(&model.Model{ModelName: name, BillingCurrency: "CNY"}).Error)
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+		info := &relaycommon.RelayInfo{OriginModelName: "selected-legacy", UsingGroup: "default", UserGroup: "default",
+			ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: name, IsModelMapped: true}}
+		_, err := helper.ModelPriceHelper(c, info, 100, &kittypes.TokenCountMeta{})
+		require.NoError(t, err)
+		assert.Equal(t, float64(2), info.PriceData.ModelRatio)
+		assert.Nil(t, info.TieredBillingSnapshot)
+	})
+	for _, tc := range []struct {
+		name, aliasCurrency, targetCurrency, overrideModel string
+		blocked                                            bool
+	}{
+		{name: "default_alias_to_CNY_builtin", targetCurrency: "CNY", blocked: true},
+		{name: "CNY_alias_to_USD_builtin", aliasCurrency: "CNY", targetCurrency: "USD"},
+		{name: "CNY_alias_to_implicit_USD_builtin", aliasCurrency: "CNY"},
+		{name: "alias_override_keeps_alias_currency", aliasCurrency: "CNY", targetCurrency: "USD", overrideModel: "currency-alias"},
+		{name: "mapped_override_keeps_alias_currency", aliasCurrency: "CNY", targetCurrency: "USD", overrideModel: name},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const alias = "currency-alias"
+			const quote = `u("seconds") * 3`
+			options := map[string]string{"ModelRatio": "{}", "ModelPrice": "{}", "billing_setting.billing_mode": "{}", "billing_setting.billing_expr": "{}"}
+			if tc.overrideModel != "" {
+				raw, err := common.Marshal(map[string]string{"currency-alias-probe::" + tc.overrideModel: quote})
+				require.NoError(t, err)
+				options[billing_setting.PluginBillingExprOption] = string(raw)
+			}
+			db := catalogPricingPostgres(t, options)
+			source := strings.NewReplacer("bill-fallback", "currency-alias-probe", "declared-model", name).Replace(billingFallbackPlugin)
+			source = strings.Replace(source, `fetchMode:"per_task"`, `fetchMode:"per_task",usageSchema:{seconds:{type:"number",unit:"second"}}`, 1)
+			plugin, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+			require.NoError(t, err)
+			require.NoError(t, db.Create(&model.TaskPlugin{Key: plugin.Meta.Key, Version: plugin.Meta.Version, APIVersion: 1,
+				Source: model.LongText(source), SourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))), Active: true, Enabled: true}).Error)
+			if tc.aliasCurrency != "" {
+				require.NoError(t, db.Create(&model.Model{ModelName: alias, BillingCurrency: tc.aliasCurrency}).Error)
+			}
+			if tc.targetCurrency != "" {
+				require.NoError(t, db.Create(&model.Model{ModelName: name, BillingCurrency: tc.targetCurrency}).Error)
+			}
+			mapping := `{"currency-alias":"deepseek-v4-flash"}`
+			channel := model.Channel{Type: constant.ChannelTypeTaskPlugin, Status: common.ChannelStatusEnabled, Key: "fixture", Models: alias, ModelMapping: &mapping}
+			require.NoError(t, db.Create(&channel).Error)
+			require.NoError(t, db.Create(&model.Ability{Group: "default", Model: alias, ChannelId: channel.Id, Enabled: true}).Error)
+			require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", "/v1/videos", nil)
+			info := &relaycommon.RelayInfo{OriginModelName: alias, ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: name, IsModelMapped: true}}
+			err = helper.CaptureTaskPricing(c, info, plugin.Meta.Key)
+			published := model.GetPricing()
+			require.Len(t, published, 1, "task aliases retain their baseline unconfigured visibility")
+			if tc.blocked {
+				require.ErrorContains(t, err, "explicit")
+				assert.Empty(t, published[0].BillingExpr, "a CNY target's USD fallback cannot be advertised under alias metadata")
+			} else {
+				require.NoError(t, err)
+				selected, ok := info.PricingSelection.Task()
+				require.True(t, ok)
+				money, ok := info.PricingSelection.Model(selected.BillingModelName)
+				require.True(t, ok)
+				assert.Equal(t, string(money.Money.SourceCurrency), published[0].BillingCurrency)
+				if tc.overrideModel != "" {
+					assert.Equal(t, alias, selected.BillingModelName)
+					assert.Equal(t, quote, published[0].BillingExpr)
+				} else {
+					assert.Equal(t, name, selected.BillingModelName)
+					assert.Equal(t, builtin, published[0].BillingExpr)
+				}
+			}
+		})
+	}
+	t.Run("fallback_provenance_respects_presence_mode_and_legacy_precedence", func(t *testing.T) {
+		catalogPricingPostgres(t, map[string]string{"ModelRatio": "{}", "ModelPrice": "{}"})
+		for _, tc := range []struct {
+			name, mode, expression, legacyKey string
+			hasMode, hasExpression, fallback  bool
+		}{
+			{name: "no_config", fallback: true},
+			{name: "explicit_tiered_mode", hasMode: true, mode: "tiered_expr", fallback: true},
+			{name: "explicit_ratio_mode", hasMode: true, mode: "ratio"},
+			{name: "explicit_blank_mode", hasMode: true},
+			{name: "explicit_blank_expression", hasExpression: true},
+			{name: "explicit_invalid_expression", hasExpression: true, expression: "invalid("},
+			{name: "explicit_identical_expression", hasExpression: true, expression: builtin},
+			{name: "configured_free_ratio", legacyKey: "ratio"},
+			{name: "configured_free_price", legacyKey: "price"},
+			{name: "explicit_tiered_overrides_legacy", hasMode: true, mode: "tiered_expr", legacyKey: "price", fallback: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				settings := billing_setting.BillingSetting{BillingMode: map[string]string{}, BillingExpr: map[string]string{}}
+				if tc.hasMode {
+					settings.BillingMode[name] = tc.mode
+				}
+				if tc.hasExpression {
+					settings.BillingExpr[name] = tc.expression
+				}
+				billing_setting.PublishBillingSetting(settings)
+				ratios, prices := "{}", "{}"
+				if tc.legacyKey == "ratio" {
+					ratios = `{"deepseek-v4-flash":0}`
+				}
+				if tc.legacyKey == "price" {
+					prices = `{"deepseek-v4-flash":0}`
+				}
+				require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(ratios))
+				require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(prices))
+				assert.Equal(t, tc.fallback, billing_setting.IsBuiltinBillingExprFallback(name))
+				if tc.hasExpression {
+					expression, ok := billing_setting.GetBillingExpr(name)
+					require.True(t, ok)
+					assert.Equal(t, tc.expression, expression, "blank/invalid configured values must never fall back")
+				}
+			})
+		}
+	})
 }

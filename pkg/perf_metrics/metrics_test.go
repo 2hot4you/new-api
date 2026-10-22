@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,8 +17,10 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/glebarez/sqlite"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -42,11 +47,12 @@ func TestQuerySummaryAllBuildsWeightedGroupSummaries(t *testing.T) {
 	olderBucket := previousBucket - 3600
 
 	tests := []struct {
-		name   string
-		rows   []model.PerfMetric
-		hot    map[bucketKey]counters
-		groups []string
-		want   []GroupSummary
+		name         string
+		rows         []model.PerfMetric
+		hot          map[bucketKey]counters
+		groups       []string
+		recentModels []string
+		want         []GroupSummary
 	}{
 		{
 			name: "weights raw counts across models and persisted and hot buckets",
@@ -67,6 +73,19 @@ func TestQuerySummaryAllBuildsWeightedGroupSummaries(t *testing.T) {
 				{Group: "enterprise", RequestCount: 12, SuccessRate: ratePointer(25)},
 				{Group: "unused", RequestCount: 0, SuccessRate: nil},
 			},
+		},
+		{
+			name: "recent history does not expand the group summary window",
+			rows: []model.PerfMetric{
+				{ModelName: "historical-model", Group: "default", BucketTs: previousBucket - 30*3600, RequestCount: 9, SuccessCount: 0},
+				{ModelName: "current-model", Group: "default", BucketTs: previousBucket, RequestCount: 1, SuccessCount: 1},
+			},
+			hot: map[bucketKey]counters{
+				{model: "historical-model", group: "default", bucketTs: previousBucket - 29*3600}: {requestCount: 2},
+			},
+			groups:       []string{"default"},
+			recentModels: []string{"historical-model"},
+			want:         []GroupSummary{{Group: "default", RequestCount: 1, SuccessRate: ratePointer(100)}},
 		},
 		{
 			name:   "returns configured groups without samples in deterministic order",
@@ -90,7 +109,7 @@ func TestQuerySummaryAllBuildsWeightedGroupSummaries(t *testing.T) {
 				hotBuckets.Store(key, bucket)
 			}
 
-			result, err := QuerySummaryAll(24, test.groups)
+			result, err := QuerySummaryAll(24, test.groups, test.recentModels...)
 
 			require.NoError(t, err)
 			assert.Equal(t, test.want, result.Groups)
@@ -274,12 +293,53 @@ func useFixedQueryClock(t *testing.T, now int64) {
 	t.Cleanup(func() { currentUnix = previous })
 }
 
+func isolatedPerfPostgres(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	parsed, err := url.Parse(dsn)
+	require.NoError(t, err)
+	require.Contains(t, []string{"postgres", "postgresql"}, parsed.Scheme)
+	require.Contains(t, []string{"127.0.0.1", "::1"}, parsed.Hostname())
+	require.NotNil(t, parsed.User)
+	require.NotEmpty(t, parsed.User.Username())
+	require.NotEmpty(t, strings.Trim(parsed.Path, "/"))
+	require.Empty(t, parsed.Fragment)
+	require.Empty(t, parsed.Opaque)
+	query, err := url.ParseQuery(parsed.RawQuery)
+	require.NoError(t, err)
+	require.Equal(t, url.Values{"sslmode": {"disable"}}, query, "connection overrides are forbidden before the first connection")
+	admin, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{})
+	require.NoError(t, err)
+	adminPool, err := admin.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, adminPool.Close()) })
+	name := fmt.Sprintf("rc46_perf_%d", time.Now().UnixNano())
+	require.NoError(t, admin.Exec("CREATE DATABASE "+name).Error)
+	t.Cleanup(func() { require.NoError(t, admin.Exec("DROP DATABASE "+name).Error) })
+	parsed.Path = "/" + name
+	db, err := gorm.Open(postgres.New(postgres.Config{DSN: parsed.String(), PreferSimpleProtocol: true}), &gorm.Config{})
+	require.NoError(t, err)
+	pool, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, pool.Close()) })
+	return db
+}
+
 func setupSummaryTestState(t *testing.T) {
 	t.Helper()
+	require.Contains(t, []string{"", "1"}, os.Getenv("CATALOG_SYNC_POSTGRES_ONLY"))
 	previousDB := model.DB
 	previousLogDB := model.LOG_DB
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "perf-metrics.db")), &gorm.Config{})
-	require.NoError(t, err)
+	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	var db *gorm.DB
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") == "1" {
+		db = isolatedPerfPostgres(t)
+		common.SetDatabaseTypes(common.DatabaseTypePostgreSQL, common.DatabaseTypePostgreSQL)
+	} else {
+		var err error
+		db, err = gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "perf-metrics.db")), &gorm.Config{})
+		require.NoError(t, err)
+	}
 	require.NoError(t, db.AutoMigrate(&model.PerfMetric{}))
 	model.DB = db
 	t.Setenv("LOG_SQL_DSN", "")
@@ -289,6 +349,7 @@ func setupSummaryTestState(t *testing.T) {
 		clearHotBuckets()
 		model.DB = previousDB
 		model.LOG_DB = previousLogDB
+		common.SetDatabaseTypes(previousMainType, previousLogType)
 	})
 }
 
@@ -330,6 +391,11 @@ func TestHourlySuccessSeriesWeightsSmallerBuckets(t *testing.T) {
 		7200: {requestCount: 1, successCount: 1},
 	})
 	assert.Equal(t, []SuccessRatePoint{{Ts: 3600, SuccessRate: 99.01}, {Ts: 7200, SuccessRate: 100}}, points)
+}
+
+func TestRecentHistoryRejectsOversizedModelLists(t *testing.T) {
+	_, err := QuerySummaryAll(24, nil, make([]string, 51)...)
+	require.EqualError(t, err, "Invalid parameters")
 }
 
 // Terminal task sampling: success/failure counts, end-to-end latency, and
@@ -404,6 +470,13 @@ func TestPerformanceAggregationAndFlush(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 			require.NoError(t, db.Migrator().DropTable(&model.PerfMetric{}))
 			require.NoError(t, db.AutoMigrate(&model.PerfMetric{}))
+			versionQuery := "SELECT version()"
+			if dialect.name == "sqlite" {
+				versionQuery = "SELECT sqlite_version()"
+			}
+			var version string
+			require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
+			t.Logf("database version: %s", version)
 
 			now := time.Now()
 			start, _ := queryWindow(now, 24)
@@ -473,6 +546,91 @@ func TestPerformanceAggregationAndFlush(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 98.04, combined.Summary.SuccessRate)
 			assert.Equal(t, 99.01, combined.Models[0].SuccessRate)
+
+			t.Run("recent models are summarized over their status sample hours", func(t *testing.T) {
+				for i := range 26 {
+					require.NoError(t, model.UpsertPerfMetric(&model.PerfMetric{
+						ModelName: "history-model", Group: "a", BucketTs: hour - int64(i+1)*6*3600,
+						RequestCount: 1, SuccessCount: 1,
+					}))
+				}
+				for _, row := range []model.PerfMetric{
+					{ModelName: "history-model", Group: "a", BucketTs: hour + 60, RequestCount: 100, SuccessCount: 100},
+					{ModelName: "history-model", Group: "inactive", BucketTs: hour + 120, RequestCount: 100},
+					{ModelName: "history-model", Group: "a", BucketTs: hour + 2*3600, RequestCount: 1},
+					{ModelName: "history-idle", Group: "a", BucketTs: hour - 3*24*3600, RequestCount: 1},
+					{ModelName: "history-hidden", Group: "inactive", BucketTs: hour - 3*24*3600, RequestCount: 1},
+				} {
+					require.NoError(t, model.UpsertPerfMetric(&row))
+				}
+				require.NoError(t, db.Create(&model.PerfMetric{ModelName: "history-model", Group: "a", BucketTs: hour - 3600}).Error)
+				hotFailure := &atomicBucket{}
+				hotFailure.add(Sample{})
+				hotBuckets.Store(bucketKey{model: "history-model", group: "b", bucketTs: hour + 120}, hotFailure)
+				hotSuccess := &atomicBucket{}
+				hotSuccess.add(Sample{Success: true})
+				hotBuckets.Store(bucketKey{model: "history-hot", group: "a", bucketTs: hour}, hotSuccess)
+				hiddenFailure := &atomicBucket{}
+				hiddenFailure.add(Sample{})
+				hotBuckets.Store(bucketKey{model: "history-hidden", group: "inactive", bucketTs: hour}, hiddenFailure)
+
+				window, err := QuerySummaryAll(24, groups)
+				require.NoError(t, err)
+				history, err := QuerySummaryAll(24, groups, "history-model", "history-idle", "history-hidden", "history-hot", "missing")
+				require.NoError(t, err)
+				assert.Equal(t, window.WindowStart, history.WindowStart)
+				summaries := lo.KeyBy(history.Models, func(m ModelSummary) string { return m.ModelName })
+				assert.Equal(t, int64(124), summaries["history-model"].RequestCount)
+				assert.Equal(t, 99.19, summaries["history-model"].SuccessRate)
+				assert.Equal(t, int64(1), summaries["history-idle"].RequestCount)
+				assert.Equal(t, 0.0, summaries["history-idle"].SuccessRate)
+				assert.NotContains(t, summaries, "history-hidden")
+				points := history.RecentSuccessSeries["history-model"]
+				require.Len(t, points, 24)
+				expected := make([]SuccessRatePoint, 0, 24)
+				for i := 23; i > 0; i-- {
+					expected = append(expected, SuccessRatePoint{Ts: hour - int64(i)*6*3600, SuccessRate: 100})
+				}
+				expected = append(expected, SuccessRatePoint{Ts: hour, SuccessRate: 99.01})
+				assert.Equal(t, expected, points)
+				assert.Equal(t, []SuccessRatePoint{{Ts: hour - 3*24*3600, SuccessRate: 0}}, history.RecentSuccessSeries["history-idle"])
+				assert.Equal(t, []SuccessRatePoint{{Ts: hour, SuccessRate: 100}}, history.RecentSuccessSeries["history-hot"])
+				assert.Empty(t, history.RecentSuccessSeries["history-hidden"])
+				assert.Empty(t, history.RecentSuccessSeries["missing"])
+
+				denied, err := QuerySummaryAll(24, []string{}, "history-model", "history-hidden")
+				require.NoError(t, err)
+				assert.Empty(t, denied.RecentSuccessSeries)
+				flushCompletedBuckets()
+				persisted, err := QuerySummaryAll(24, groups, "history-model", "history-hot")
+				require.NoError(t, err)
+				assert.Equal(t, points, persisted.RecentSuccessSeries["history-model"])
+				assert.Equal(t, history.RecentSuccessSeries["history-hot"], persisted.RecentSuccessSeries["history-hot"])
+			})
+
+			t.Run("recent history stops at the 7 day boundary even with fewer than 24 samples", func(t *testing.T) {
+				historyStart, _ := queryWindow(now, 7*24)
+				for _, row := range []model.PerfMetric{
+					{ModelName: "history-boundary", Group: "a", BucketTs: historyStart, RequestCount: 1, SuccessCount: 1},
+					{ModelName: "history-boundary", Group: "a", BucketTs: historyStart - 3600, RequestCount: 1},
+					{ModelName: "history-expired", Group: "a", BucketTs: historyStart - 3600, RequestCount: 1},
+				} {
+					require.NoError(t, model.UpsertPerfMetric(&row))
+				}
+				hotExpired := &atomicBucket{}
+				hotExpired.add(Sample{Success: true})
+				hotBuckets.Store(bucketKey{model: "history-hot-expired", group: "a", bucketTs: historyStart - 3600}, hotExpired)
+				hotBoundary := &atomicBucket{}
+				hotBoundary.add(Sample{Success: true})
+				hotBuckets.Store(bucketKey{model: "history-hot-boundary", group: "a", bucketTs: historyStart}, hotBoundary)
+
+				history, err := QuerySummaryAll(24, groups, "history-boundary", "history-expired", "history-hot-expired", "history-hot-boundary")
+				require.NoError(t, err)
+				assert.Equal(t, []SuccessRatePoint{{Ts: historyStart, SuccessRate: 100}}, history.RecentSuccessSeries["history-boundary"])
+				assert.Equal(t, []SuccessRatePoint{{Ts: historyStart, SuccessRate: 100}}, history.RecentSuccessSeries["history-hot-boundary"])
+				assert.Empty(t, history.RecentSuccessSeries["history-expired"])
+				assert.Empty(t, history.RecentSuccessSeries["history-hot-expired"])
+			})
 		})
 	}
 }

@@ -232,7 +232,7 @@ func buildTaskAliasViewChannels(channels []Channel, generation *jsplugin.Routing
 			for key := range draft.byPlugin {
 				pluginKeys = append(pluginKeys, key)
 			}
-			common.SysLog(fmt.Sprintf("task model alias %q dropped: maps to multiple plugins %v", alias, pluginKeys))
+			common.SysLog(common.LogText("task model alias %q dropped: maps to multiple plugins %v", alias, pluginKeys))
 			continue
 		}
 		var pluginKey, declared string

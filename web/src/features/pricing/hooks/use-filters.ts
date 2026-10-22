@@ -65,12 +65,10 @@ function normalizeViewMode(value: unknown): ViewMode {
 }
 
 export function normalizeSortOption(value: unknown): SortOption {
-  if (
-    value === SORT_OPTIONS.NAME ||
-    value === SORT_OPTIONS.PRICE_LOW ||
-    value === SORT_OPTIONS.PRICE_HIGH
-  ) {
-    return value
+  if (value === 'price-low') return SORT_OPTIONS.INPUT_PRICE_LOW
+  if (value === 'price-high') return SORT_OPTIONS.INPUT_PRICE_HIGH
+  if (Object.values(SORT_OPTIONS).some((option) => option === value)) {
+    return value as SortOption
   }
   return SORT_OPTIONS.RECOMMENDED
 }

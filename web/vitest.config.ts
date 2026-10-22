@@ -55,6 +55,7 @@ export default defineConfig({
       'src/**/*.{test,spec}.{ts,tsx}',
       'scripts/oxlint/__tests__/*.test.ts',
     ],
+    exclude: ['**/node_modules/**', '**/.git/**', '**/* 2.*'],
     server: {
       deps: {
         inline: [/@lobehub\//, /antd-style/, '@emoji-mart/data'],

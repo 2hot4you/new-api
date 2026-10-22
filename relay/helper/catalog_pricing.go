@@ -52,6 +52,7 @@ func captureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo, taskPlug
 		if info.BillingModelName == "" {
 			billingName = ResolveBillingModelName(info.GetOriginModelName())
 		}
+		builtinFallback := billing_setting.IsBuiltinBillingExprFallback(billingName)
 		var taskSelection []relaycommon.TaskPricing
 		if taskPluginKey != nil {
 			value := relaycommon.TaskPricing{PluginKey: *taskPluginKey}
@@ -63,6 +64,9 @@ func captureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo, taskPlug
 					value.Expression, value.HasExpression = billing_setting.GetPluginBillingExpr(value.PluginKey, tailModel)
 				}
 				value.UseExpression = value.HasExpression
+				if value.HasExpression {
+					builtinFallback = false
+				}
 			}
 			if !value.UseExpression {
 				if billing_setting.GetBillingMode(billingName) == billing_setting.BillingModeTieredExpr {
@@ -74,6 +78,7 @@ func captureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo, taskPlug
 						if expr, ok := billing_setting.GetBillingExpr(tailModel); ok && strings.TrimSpace(expr) != "" {
 							value.Expression, value.HasExpression, value.UseExpression = expr, true, true
 							billingName = tailModel
+							builtinFallback = billing_setting.IsBuiltinBillingExprFallback(tailModel)
 						}
 					}
 				}
@@ -108,6 +113,12 @@ func captureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo, taskPlug
 		}
 		if _, ok := values[billingName]; !ok {
 			return fmt.Errorf("billing identity %q was not guarded", billingName)
+		}
+		// Compiled defaults are USD quotes. A CNY model needs an explicit
+		// administrator quote; do not reinterpret or rewrite its metadata.
+		// Only the selected expression matters, never an unused candidate.
+		if builtinFallback && values[billingName].Money.SourceCurrency == "CNY" {
+			return fmt.Errorf("model %s requires an explicit CNY billing expression; the built-in fallback is quoted in USD", billingName)
 		}
 		selected = relaycommon.NewRequestPricingSelection(values, operation_setting.CaptureToolPrices(), ratio_setting.GetMoliiGrokPriceSettingCopy(), ratio_setting.GetStarAIVideoPriceSettingCopy(), taskSelection...)
 		return nil
