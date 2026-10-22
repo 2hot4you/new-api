@@ -1,5 +1,7 @@
 # rc.46 integration review and acceptance
 
+Final development status: all substantive findings closed, immutable-source verify/release/backup/repeated-startup run39762321755 succeeded, actual public price/vendor and CNY/rate checks passed, then develop fast-forwarded to the same source. Additional push-triggered newer-workflow run39767173903 is pending, not green by assertion; production promotion remains separately gated/unauthorized. See deployment-result.md and verification.md for exact scope/evidence.
+
 ## Independent native review
 
 No antigravity/Claude executors used. Reviews examined the final working tree against c2442919e, not only staged content of the in-progress merge.

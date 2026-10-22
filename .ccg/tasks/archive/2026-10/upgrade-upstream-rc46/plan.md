@@ -10,6 +10,8 @@
 
 **Spec:** ../archive/2026-10/audit-upstream-rc46/assessment.md (user-approved upgrade flow and preservation constraints).
 
+**Execution outcome:** Tasks1–4 and the requested development portion of Task5 completed; run39762321755 accepted the immutable source and dev deployment, then develop fast-forwarded to that same commit. Additional ordinary push run39767173903 is still in progress and must pass before later separately authorized production work. Checkboxes below preserve the original plan; final evidence is in verification.md/deployment-result.md. The reused checkout contains user files and is deliberately preserved.
+
 ## Global Constraints
 
 - PostgreSQL ONLY. Keep make test-postgres and make test-postgres-race; do not invoke make test or root go test ./... that initializes other engines. Root/relaykit/tokenkit compile/vet and audited pure suites are allowed.
