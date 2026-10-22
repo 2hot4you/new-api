@@ -65,6 +65,33 @@ type ModelPricingSnapshot struct {
 
 var ErrModelPricingConflict = errors.New("model pricing changed; reload before saving")
 
+// ModelPricingValidationConflict identifies one known rejected pricing contract.
+// Its cause retains the ordinary pricing validator's existing error text.
+type ModelPricingValidationConflict struct {
+	Model    string
+	Provider string
+	Reason   string
+	cause    error
+}
+
+func (e *ModelPricingValidationConflict) Error() string {
+	if e.cause == nil {
+		return "model pricing validation conflict"
+	}
+	return e.cause.Error()
+}
+
+func (e *ModelPricingValidationConflict) Unwrap() error { return e.cause }
+
+func taskPricingValidationError(name, provider, expression string, cause error) error {
+	// Only classify after the original task smoke test rejects. Compilation
+	// failures (including fixed-looking invalid syntax) are not this conflict.
+	if billingexpr.UsesFixedPricing(expression) {
+		return &ModelPricingValidationConflict{Model: name, Provider: provider, Reason: "task_fixed_pricing_unsupported", cause: cause}
+	}
+	return cause
+}
+
 // Stable option order is shared by snapshots and complete model drafts. Saves
 // serialize through the catalog's actual root transaction and final writer.
 var modelPricingOptionKeys = []string{
@@ -459,7 +486,7 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 			}
 			schema, _ := plugin.UsageForModel(name)
 			if err := billing_setting.SmokeTestTaskExpr(expression, schema); err != nil {
-				return fmt.Errorf("model %s: plugin %s: %w", name, key, err)
+				return taskPricingValidationError(name, key, expression, fmt.Errorf("model %s: plugin %s: %w", name, key, err))
 			}
 		}
 	}
@@ -507,7 +534,7 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 					}
 					schema, _ := plugin.UsageForModel(name)
 					if err = billing_setting.SmokeTestTaskExpr(expression, schema); err != nil {
-						return fmt.Errorf("model %s: plugin %s: %w", name, plugin.Key, err)
+						return taskPricingValidationError(name, plugin.Key, expression, fmt.Errorf("model %s: plugin %s: %w", name, plugin.Key, err))
 					}
 				}
 			} else if target, resolved := dependencies.resolveAlias(name); resolved {
@@ -522,6 +549,9 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 					if !unchanged || shared {
 						schema, _ := plugin.UsageForModel(target.Declared)
 						err = billing_setting.SmokeTestTaskExpr(expression, schema)
+						if err != nil {
+							return taskPricingValidationError(name, plugin.Key, expression, fmt.Errorf("model %s: %w", name, err))
+						}
 					}
 				} else {
 					err = billing_setting.SmokeTestExpr(expression)

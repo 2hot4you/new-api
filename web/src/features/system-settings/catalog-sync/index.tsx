@@ -190,17 +190,29 @@ function CatalogSyncRootSection(): React.JSX.Element {
     setFeedback(null)
   }
 
+  function rejectPreview(error: unknown) {
+    // A failed replacement preview must not leave an old unsent plan ready
+    // to apply. Keep durable operation/receipt state for original-result recovery.
+    setPlan(null)
+    setCurrentPlan(null)
+    setFinalPlan(null)
+    setSelectedUnits([])
+    setConfirmDeletes(false)
+    setConfirmOpen(false)
+    setFeedback(getServerErrorMessage(error))
+  }
+
   const preview = useMutation({
     mutationFn: previewCatalogSync,
     retry: false,
     onSuccess: acceptPreview,
-    onError: (error) => setFeedback(getServerErrorMessage(error)),
+    onError: rejectPreview,
   })
   const restore = useMutation({
     mutationFn: previewCatalogSyncRestore,
     retry: false,
     onSuccess: acceptPreview,
-    onError: (error) => setFeedback(getServerErrorMessage(error)),
+    onError: rejectPreview,
   })
   const resolve = useMutation({
     mutationFn: (choices: {

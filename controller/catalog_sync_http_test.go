@@ -27,6 +27,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/catalogtransport"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	builtinplugins "github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -220,6 +222,98 @@ func TestCatalogSyncHTTPBusinessAndReceiptQuery(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&model.CatalogSyncOperation{}).Count(&count).Error)
 	assert.Equal(t, int64(1), count)
+}
+
+func TestCatalogSyncHTTPGrokPricingConflict(t *testing.T) {
+	var source catalogmanifest.Snapshot
+	db, router, _, access := catalogHTTPTarget(t, func(context.Context) (catalogmanifest.Snapshot, error) { return source, nil })
+	pluginSource, err := builtinplugins.Source("xai")
+	require.NoError(t, err)
+	_, err = jsplugin.DefaultRegistry.RegisterFactory(pluginSource, jsplugin.Options{Key: "xai"})
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&model.Model{ModelName: "grok-imagine-video", BillingCurrency: "CNY", NameRule: model.NameRuleExact}).Error)
+	require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+	source, err = model.ExportManagedCatalog(context.Background(), "dev")
+	require.NoError(t, err)
+	for option, value := range map[string]string{"billing_setting.billing_mode": `"tiered_expr"`, "billing_setting.billing_expr": `"tier(\"request\", fixed(0.123456789))"`} {
+		key, err := catalogmanifest.EncodePriceKey(catalogmanifest.PriceKey{Model: "grok-imagine-video", Option: option, Path: "/grok-imagine-video"})
+		require.NoError(t, err)
+		unit := "mode"
+		if option == "billing_setting.billing_expr" {
+			unit = "expression"
+		}
+		encoded, err := common.Marshal(catalogmanifest.PriceValue{Value: value, BillingCurrency: "CNY", Unit: unit})
+		require.NoError(t, err)
+		source.Entries = append(source.Entries, catalogmanifest.Entry{Kind: catalogmanifest.KindModelPrice, Key: key, Value: string(encoded)})
+		source.Coverage[catalogmanifest.KindModelPrice]++
+	}
+	source.Digest, err = catalogmanifest.SnapshotDigest(source)
+	require.NoError(t, err)
+	require.NoError(t, catalogmanifest.ValidateSnapshot(source))
+	tables := []string{"models", "vendors", "options", "catalog_sync_plans", "catalog_sync_operations", "catalog_sync_baselines", "catalog_sync_states"}
+	before := catalogSyncDurableRows(t, db, "public", tables)
+	response := catalogHTTPRequest(router, "POST", "/preview", access, "", `{}`)
+	require.Equal(t, http.StatusUnprocessableEntity, response.Code, response.Body.String())
+	assert.Contains(t, response.Body.String(), `"code":"CATALOG_PRICING_CONFLICT"`)
+	assert.Contains(t, response.Body.String(), `"model":"grok-imagine-video"`)
+	assert.Contains(t, response.Body.String(), `"provider":"xai"`)
+	assert.Contains(t, response.Body.String(), `"reason":"task_fixed_pricing_unsupported"`)
+	assert.Contains(t, response.Body.String(), `"message_key":`)
+	assert.Contains(t, response.Body.String(), `"message_params":`)
+	for _, private := range []string{"fixed(", "0.123456789", "billing_setting", "SELECT", access} {
+		assert.NotContains(t, response.Body.String(), private)
+	}
+	assert.Equal(t, before, catalogSyncDurableRows(t, db, "public", tables), "failed prospective validation cannot persist a plan or mutate business/revision state")
+}
+
+func TestCatalogSyncHTTPPricingConflictProjection(t *testing.T) {
+	const secret = "private-SQL-expression-credential-marker"
+	valid := &model.ModelPricingValidationConflict{Model: "grok-imagine-video", Provider: "xai", Reason: "task_fixed_pricing_unsupported"}
+	for _, test := range []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{"typed", fmt.Errorf("%s: %w", secret, valid), 422, "CATALOG_PRICING_CONFLICT"},
+		{"unknown reason", &model.ModelPricingValidationConflict{Model: secret, Provider: "xai", Reason: "unknown"}, 503, "CATALOG_SYNC_UNAVAILABLE"},
+		{"unsafe model", &model.ModelPricingValidationConflict{Model: secret + "\n", Provider: "xai", Reason: valid.Reason}, 503, "CATALOG_SYNC_UNAVAILABLE"},
+		{"expression identity", &model.ModelPricingValidationConflict{Model: `tier("secret", fixed(1))`, Provider: "xai", Reason: valid.Reason}, 503, "CATALOG_SYNC_UNAVAILABLE"},
+		{"long model", &model.ModelPricingValidationConflict{Model: strings.Repeat("a", 256), Provider: "xai", Reason: valid.Reason}, 503, "CATALOG_SYNC_UNAVAILABLE"},
+		{"unsafe provider", &model.ModelPricingValidationConflict{Model: "grok-imagine-video", Provider: secret + "/", Reason: valid.Reason}, 503, "CATALOG_SYNC_UNAVAILABLE"},
+		{"raw error", errors.New(secret + ": model grok-imagine-video: plugin xai: fixed pricing is not supported for task usage expressions"), 503, "CATALOG_SYNC_UNAVAILABLE"},
+		{"unknown commit wins", errors.Join(valid, model.ErrCatalogCommitUncertain), 503, "CATALOG_COMMIT_UNKNOWN"},
+		{"publication wins", errors.Join(valid, model.ErrCatalogPublicationPending), 503, "CATALOG_PUBLICATION_PENDING"},
+		{"source wins", errors.Join(valid, catalogtransport.ErrUnavailable), 503, "CATALOG_SOURCE_UNAVAILABLE"},
+		{"stale wins", errors.Join(valid, model.ErrCatalogSyncPlanStale), 409, "CATALOG_CONFLICT"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(response)
+			catalogSyncError(c, test.err)
+			require.Equal(t, test.status, response.Code)
+			assert.Contains(t, response.Body.String(), `"code":"`+test.code+`"`)
+			assert.Equal(t, test.code, c.GetString("catalog_outcome"))
+			assert.NotContains(t, response.Body.String(), secret)
+			assert.NotContains(t, response.Body.String(), "fixed(")
+			if test.code != "CATALOG_PRICING_CONFLICT" {
+				assert.NotContains(t, response.Body.String(), `"data"`)
+				assert.NotContains(t, response.Body.String(), `"message_params"`)
+			} else {
+				var payload struct {
+					Success bool              `json:"success"`
+					Message string            `json:"message"`
+					Key     string            `json:"message_key"`
+					Params  map[string]string `json:"message_params"`
+				}
+				require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
+				assert.False(t, payload.Success)
+				assert.Equal(t, "Catalog pricing for model {{model}} conflicts with provider {{provider}}. Fixed request pricing cannot be used for task usage billing. Review the source pricing configuration.", payload.Key)
+				assert.Equal(t, map[string]string{"model": "grok-imagine-video", "provider": "xai"}, payload.Params)
+				assert.Contains(t, payload.Message, "grok-imagine-video")
+			}
+		})
+	}
 }
 
 func TestCatalogSyncHTTPStrictBodies(t *testing.T) {

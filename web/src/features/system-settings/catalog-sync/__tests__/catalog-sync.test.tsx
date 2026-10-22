@@ -135,6 +135,168 @@ afterEach(async () => {
 })
 
 describe('managed catalog sync', () => {
+  test.each(['http', 'business'])(
+    '%s pricing conflict invalidates an old resolved preview without applying or retrying',
+    async (transport) => {
+      const initial = plan()
+      const { post } = mockTargetRequests(initial)
+      const key =
+        'Catalog pricing for model {{model}} conflicts with provider {{provider}}. Fixed request pricing cannot be used for task usage billing. Review the source pricing configuration.'
+      const payload = {
+        success: false,
+        code: 'CATALOG_PRICING_CONFLICT',
+        message: 'fallback must not replace the localized conflict',
+        message_key: key,
+        message_params: { model: 'grok-imagine-video', provider: 'xai' },
+        data: {
+          model: 'grok-imagine-video',
+          provider: 'xai',
+          reason: 'task_fixed_pricing_unsupported',
+        },
+      }
+      renderSection()
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Check dev updates' })
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Review and confirm' })
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Save choices' })
+      )
+      expect(
+        await screen.findByRole('button', { name: 'Confirm sync' })
+      ).toBeEnabled()
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      post.mockImplementation(async () => {
+        if (transport === 'business') return { data: payload }
+        throw new axios.AxiosError(
+          'HTTP 422',
+          undefined,
+          undefined,
+          undefined,
+          {
+            status: 422,
+            statusText: 'Unprocessable Entity',
+            headers: {},
+            config: { headers: new axios.AxiosHeaders() },
+            data: payload,
+          }
+        )
+      })
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Check dev updates' })
+      )
+      expect(
+        await screen.findByText(
+          'Catalog pricing for model grok-imagine-video conflicts with provider xai. Fixed request pricing cannot be used for task usage billing. Review the source pricing configuration.'
+        )
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Review and confirm' })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Confirm sync' })
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText('Dev update preview')).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Check dev updates' })
+      ).toBeEnabled()
+      expect(post.mock.calls.map(([url]) => url)).toEqual([
+        '/api/catalog_sync/preview',
+        `/api/catalog_sync/plans/${initial.id}/resolve`,
+        '/api/catalog_sync/preview',
+      ])
+      expect(
+        window.sessionStorage.getItem('catalog-sync-original-operation')
+      ).toBeNull()
+    }
+  )
+
+  test('an unknown preview failure stays generic and cannot leave an old executable preview', async () => {
+    const { post } = mockTargetRequests(plan())
+    renderSection()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Check dev updates' })
+    )
+    expect(
+      await screen.findByRole('button', { name: 'Review and confirm' })
+    ).toBeEnabled()
+    post.mockResolvedValue({
+      data: {
+        success: false,
+        code: 'CATALOG_SYNC_UNAVAILABLE',
+        message: 'catalog sync unavailable',
+      },
+    })
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Check dev updates' })
+    )
+    expect(
+      await screen.findByText('catalog sync unavailable')
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Review and confirm' })
+    ).not.toBeInTheDocument()
+    expect(post).toHaveBeenCalledTimes(2)
+  })
+
+  test('failed preview preserves a durable succeeded operation binding and receipt', async () => {
+    const binding = {
+      operationId: 'original-operation',
+      planId: 'a'.repeat(64),
+      digest: 'c'.repeat(64),
+    }
+    const stored = JSON.stringify({ userId: 7, binding })
+    window.sessionStorage.setItem('catalog-sync-original-operation', stored)
+    const get = vi.spyOn(api, 'get').mockImplementation(async (url) => ({
+      data: {
+        success: true,
+        data: url.includes('/operations/')
+          ? {
+              receipt: {
+                operation_id: binding.operationId,
+                state: 'succeeded',
+                revision: 7,
+              },
+              operation: { id: binding.operationId, state: 'succeeded' },
+            }
+          : targetResponseData(url, 'catalog.sync.apply'),
+      },
+    }))
+    const post = vi.spyOn(api, 'post').mockResolvedValue({
+      data: {
+        success: false,
+        code: 'CATALOG_SYNC_UNAVAILABLE',
+        message: 'catalog sync unavailable',
+      },
+    })
+    renderSection()
+    expect(await screen.findByText(/Immutable receipt/)).toHaveTextContent(
+      'succeeded'
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Check dev updates' })
+    )
+    expect(
+      await screen.findByText('catalog sync unavailable')
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Immutable receipt/)).toHaveTextContent('succeeded')
+    expect(screen.getByText(/Operation ID/)).toHaveTextContent(
+      binding.operationId
+    )
+    expect(
+      window.sessionStorage.getItem('catalog-sync-original-operation')
+    ).toBe(stored)
+    expect(get).toHaveBeenCalledWith(
+      '/api/catalog_sync/operations/original-operation',
+      {
+        params: { plan_id: binding.planId, digest: binding.digest },
+      }
+    )
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+
   test('StrictMode keeps one conflict choice for a model and price sharing an opaque unit across filtering', async () => {
     const changes = [
       change({ action: 'conflict', key: 'model-a' }),

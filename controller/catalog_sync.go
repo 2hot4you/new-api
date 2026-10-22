@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -453,6 +454,7 @@ func (h catalogSyncHTTP) restorePreview(c *gin.Context) {
 
 func catalogSyncError(c *gin.Context, err error) {
 	status, code, message := http.StatusServiceUnavailable, "CATALOG_SYNC_UNAVAILABLE", "catalog sync unavailable"
+	var conflict *model.ModelPricingValidationConflict
 	switch {
 	case errors.Is(err, model.ErrCatalogCommitUncertain):
 		code, message = "CATALOG_COMMIT_UNKNOWN", "commit outcome unknown; query the same operation ID, do not automatically retry"
@@ -468,9 +470,31 @@ func catalogSyncError(c *gin.Context, err error) {
 		code, message = "CATALOG_SOURCE_UNAVAILABLE", "catalog source unavailable"
 	case errors.Is(err, model.ErrCatalogPublicationPending):
 		code, message = "CATALOG_PUBLICATION_PENDING", "catalog publication pending; query the operation"
+	case errors.As(err, &conflict) && catalogSafePricingConflict(conflict):
+		detail := common.NewMessage("Catalog pricing for model {{model}} conflicts with provider {{provider}}. Fixed request pricing cannot be used for task usage billing. Review the source pricing configuration.", map[string]any{"model": conflict.Model, "provider": conflict.Provider})
+		fields := detail.Fields()
+		fields["success"], fields["code"], fields["message"] = false, "CATALOG_PRICING_CONFLICT", detail.Error()
+		fields["data"] = gin.H{"model": conflict.Model, "provider": conflict.Provider, "reason": conflict.Reason}
+		c.Set("catalog_outcome", "CATALOG_PRICING_CONFLICT")
+		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, fields)
+		return
 	}
 	c.Set("catalog_outcome", code)
 	c.AbortWithStatusJSON(status, gin.H{"success": false, "code": code, "message": message})
+}
+
+func catalogSafePricingConflict(conflict *model.ModelPricingValidationConflict) bool {
+	if conflict == nil || conflict.Reason != "task_fixed_pricing_unsupported" || !jsplugin.ValidPluginKey(conflict.Provider) || len(conflict.Model) == 0 || len(conflict.Model) > 255 {
+		return false
+	}
+	// Project only a conservative model identity, never arbitrary configuration
+	// text. Unusual identities retain the existing generic redacted response.
+	for _, char := range conflict.Model {
+		if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune("._-/:@+", char)) {
+			return false
+		}
+	}
+	return true
 }
 
 func catalogSyncFailureAudit() gin.HandlerFunc {
