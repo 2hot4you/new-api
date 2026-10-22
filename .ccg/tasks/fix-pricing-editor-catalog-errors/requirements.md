@@ -1,0 +1,13 @@
+# Approved bounded repair
+
+Human approved the prior in-chat minimal design and explicitly authorized implementation, commit/push to develop (called dev), wait until that exact source CI/CD all green, then merge/push main. No requirement to wait for production deployment completion in this turn; existing production releases trigger normally from main. Do not promote unverified intervening changes.
+
+1. Separate real pricing-save pending state from missing exact metadata. Show an actionable prerequisite, not perpetual Saving. Existing metadata/currency/version/root-role safeguards remain authoritative.
+2. Make add/delete/JSON save behavior reliable and truthful. Never silently omit requested missing-metadata edits and call a mixed batch successful. Do not implicitly create metadata with guessed currency or quote. Removing a configured override is not deleting a built-in quote/model. Keep a save action for pending deletions; handle metadata-less new names explicitly.
+3. Catalog prospective validation must expose sanitized model/provider configuration conflict rather than generic catalog sync unavailable. Existing source fixed Grok expression versus xAI task-usage boundary remains rejected/fail-closed. No automatic quote conversion/deletion, plugin disable, model-name bypass, metadata invention, live price sync/apply or production database changes. A conflict can remain blocked until intended quote ownership is separately confirmed.
+4. Preserve dedicated Seedance/Grok pricing, valid ordinary pricing writes, user drafts on failure, atomicity, auth/session/proof/SSRF safeguards and existing unknown-error redaction.
+5. Regression-first tests, focused and proportionate full verification, independent review. No docs/ additions, new dependencies or unrelated refactors.
+
+Established evidence: production-molii-915723524c9a live; preview503, quick PATCH400 (original bodies unavailable). READ ONLY same-source probe target export54 entries successful, source188 entries; pure prospective stage fails `model grok-imagine-video: plugin xai: fixed pricing is not supported for task usage expressions`. DEV has this fixed model expression/mode; target lacks them; both have CNY exact Grok metadata. deepseek-fetch lacks exact metadata in both and is visibly false-Saving. No active target plugin overrides/disabled-factory config; detached factory registry is not live pin proof. Detailed prior reports remain on local branch release/molii-pricing-save-sync, commit dea9fa22a, .ccg/tasks/archive/2026-10/diagnose-molii-pricing-postrelease/.
+
+External codeagent-wrapper antigravity/Claude unavailable (executable absent). Use two independent native analyses/reviews and disclose the substitution; do not claim external dual-model results.
