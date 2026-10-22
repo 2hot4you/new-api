@@ -2,7 +2,9 @@
 
 ## Final development outcome
 
-Accepted development upgrade completed. Run39762321755 is fully successful, including verify, actual offline PostgreSQL main/log backup restore, immutable deployment, repeated startup and release summary. Target artifact /tmp/molii-rc46-release.Qnlsmn/deploy-result-development.json states development/dev.molii.co, success, source_sha=cf9b53e2a101e70ff743ec238fca662b0fc856ed, rollback=not_attempted.
+Accepted development upgrade completed. Run39762321755 is fully successful, including verify, actual configured PostgreSQL backup restore, immutable deployment, repeated startup and release summary. Target artifact /tmp/molii-rc46-release.Qnlsmn/deploy-result-development.json states development/dev.molii.co, success, source_sha=cf9b53e2a101e70ff743ec238fca662b0fc856ed, rollback=not_attempted.
+
+Completed release logs show the actual restored backup at /opt/molii/development/backups/new-api-before-cf9b53e2a101e70ff743ec238fca662b0fc856ed.dump, SHA256170f8936bccaad291f61b6287a8a6d30e7e51ea0fd3c4a79fcc017fb633a8d39, verified10:56:41UTC. No distinct .log.dump line was emitted; do not claim this environment has a separately configured log database or that a separate log dump was observed. The helper's conditional distinct-log branch was verified locally with actual isolated main/log databases. Repeated startup is explicitly logged healthy10:57:26UTC.
 
 Actual public status: development-cf9b53e2a101, success=true, quota_display_type=CNY, usd_exchange_rate=7. Compared normalized public pricing before/after: all46model prices and all10vendors exactly equal, no changed/removed entries. Includes raw expressions/currencies and legacy price components; this is a public-projection comparison, not a claim that private DB bytes or paid-provider settlement were independently compared. /pricing, /pricing/gpt-image-2 and /pricing/deepseek-flash each returned200; no assertion of authenticated UI or real paid requests.
 
