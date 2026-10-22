@@ -22,6 +22,12 @@
 - First heartbeat creation must use the same resolved observation timestamp for `created_at`, `last_seen_at` and `updated_at`. Independently sampling the creation hook across a Unix second can violate the intentionally strict catalog eligibility ordering. Later upserts must preserve `created_at`; test the real create callback boundary rather than adding retries or relaxing eligibility guards.
 - PostgreSQL DDL fixtures must match production `PreferSimpleProtocol: true`. Default pgx statement caching can retain a pre-DDL `SELECT *` result shape and intermittently fail with SQLSTATE `0A000` after a column is added; do not hide this mismatch with retries or weaker DDL assertions.
 - To test concurrent single-use proof consumption, rendezvous after catalog plan prechecks and before the real proof UPDATE. Uncontrolled HTTP overlap can legitimately yield writer-busy plus proof-consumed with zero operations; do not assume one success for that unrelated schedule, relax single-use checks, or retry consumed proofs.
+- Source export releases its read-transaction table locks before the final fresh metadata proof. A positive concurrent-DDL fixture must control the DDL commit until that proof completes; an autocommit ALTER can legitimately win this interval and cause fail-closed metadata-change rejection. Preserve real lock-wait, completion and cancellation assertions rather than retrying or accepting either outcome.
+
+## Pricing editor prerequisites and catalog feedback
+
+- A model appearing in a compiled/default pricing snapshot does not prove exact writable metadata or source currency exists. Missing prerequisites are not mutation pending. Preflight every dirty batch before any write, preserve rejected drafts, and retain an independent save action when removing the selected or final override closes its editor. Removing an override must not be represented as deleting a builtin model/default.
+- Successful source/target export does not prove prospective catalog pricing is compatible. Preserve task-usage versus fixed-request pricing rejection; carry a typed allowlisted conflict from its validation origin to sanitized management feedback, leaving unknown failures redacted. Failed unsent previews must invalidate stale apply choices without discarding durable operation/receipt recovery.
 
 ## Upstream upgrade acceptance
 
