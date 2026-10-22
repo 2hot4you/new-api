@@ -409,6 +409,7 @@ GROUPS = [
     "name": "model-store-direct",
     "pkg": "./model",
     "tests": [
+      "TestCatalogSyncGrokFixedPricingConflict",
       "TestCatalogSyncValidationPreservation",
       "TestCatalogSyncValidationRuntimeStates",
       "TestCatalogSyncSensitiveWriter",
@@ -528,6 +529,8 @@ GROUPS = [
     "pkg": "./controller",
     "tests": [
       "TestCatalogSyncHTTPBusinessAndReceiptQuery",
+      "TestCatalogSyncHTTPGrokPricingConflict",
+      "TestCatalogSyncHTTPPricingConflictProjection",
       "TestCatalogSyncHTTPStrictBodies",
       "TestCatalogSyncHTTPUnavailableSourceCannotDelete",
       "TestCatalogSyncHTTPNetworkOutageCannotDelete",
@@ -904,6 +907,19 @@ def run_gate(mode):
     return 0
 
 class CatalogGateTest(unittest.TestCase):
+    def test_pricing_conflict_regressions_are_required_in_nonmatrix_groups(self):
+        groups = {group["name"]: group for group in GROUPS}
+        for name, package, required in [
+            ("model-store-direct", "./model", ["TestCatalogSyncGrokFixedPricingConflict"]),
+            ("controller-catalog_sync_http_test", "./controller", [
+                "TestCatalogSyncHTTPGrokPricingConflict", "TestCatalogSyncHTTPPricingConflictProjection"]),
+        ]:
+            with self.subTest(group=name):
+                group = groups[name]
+                self.assertEqual(group["pkg"], package)
+                self.assertFalse(group["matrix"])
+                self.assertLessEqual(set(required), set(group["tests"]))
+
     def test_required_dsn_rejects_redirects_and_omission(self):
         for value in ("", "host=127.0.0.1 dbname=task", "postgresql://u@remote/task?sslmode=disable",
                       "postgresql://u@127.0.0.1/task?sslmode=disable&host=remote",
