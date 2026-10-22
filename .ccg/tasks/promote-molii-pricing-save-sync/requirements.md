@@ -1,0 +1,9 @@
+# Explicit authorization
+
+User authorizes merging/pushing the completed fix into the actual development branch (`develop`, not a new `dev` branch), checking CI/CD every 15 minutes, diagnosing and minimally repairing failures with verification, then merging the verified development release into main only once development CI is fully green and dev.molii.co is deployed successfully. Continue until main's four production deployments and live checks all succeed: molii.co, aigc.ixiaozu.cn, claudeye.com, model.claudeye.com.
+
+Do not mark queued/running/cancelled/skipped or old successful runs as acceptance. Track exact source SHAs, workflow run IDs and attempts, deployment targets, and live version/health. Never force push, overwrite others' edits, disable required checks/security, relax tests to obtain green, repeat catalog SQL maintenance, sync prices, mutate billing/user data, expose secrets, or create paid generation requests. For externally blocked access/approval/credentials or destructive recovery, stop mutations and request the exact missing human action.
+
+Other work already on develop includes the rc.46 upgrade. Preserve it; acceptance must cover the exact merged develop commit. Before promotion re-fetch and verify the tested SHA is still the intended develop release; if new commits appear, validate them before main promotion. Never accidentally roll back newer releases with manual dispatch. Normal main deployment may interrupt business briefly; use the existing deployment and rollback workflow, not daemon restarts or ad-hoc container replacement.
+
+Use one thread heartbeat every 15 minutes, not OS cron or busy loops. Keep unchanged runs quiet; notify only meaningful failure/action, gated promotion, or complete verified deployment. Stop the heartbeat once all acceptance is recorded. Archive the CCG task only then.

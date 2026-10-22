@@ -23,6 +23,7 @@ import { CopyButton } from '@/components/copy-button'
 import { StatusBadge } from '@/components/status-badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { isSeedanceManagedPricingModel } from '@/features/model-pricing/api'
 import { cn } from '@/lib/utils'
 
 import type { PricingSyncValues } from '../types'
@@ -193,6 +194,18 @@ export function SyncSourcePriceCell(props: {
   const model = props.row.model
   const values = props.row.prices.upstreams[props.source]
   if (!values) return <span className='text-muted-foreground'>—</span>
+  if (isSeedanceManagedPricingModel(model)) {
+    return (
+      <div className='min-w-0 space-y-2'>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'This model is priced in the Seedance 2.0 tab. Update its price matrix there; the billing expression is generated automatically.'
+          )}
+        </p>
+        <SyncPriceCell values={values} />
+      </div>
+    )
+  }
   const same = sameSyncPrice(values, props.row.prices.current)
   const selected = context.selectedSources[model] === props.source
   const confident = Object.values(props.row.differences ?? {}).every(

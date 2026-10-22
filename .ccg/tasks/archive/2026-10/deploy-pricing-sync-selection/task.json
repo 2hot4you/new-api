@@ -1,0 +1,12 @@
+{
+  "id": "deploy-pricing-sync-selection",
+  "title": "Push approved pricing selection commits to develop; promote main only after development CI/CD succeeds",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "deployment",
+  "currentPhase": "completed",
+  "nextAction": "Production workflow 39742533810 is running for all four production applications; deployment completion not yet verified",
+  "createdAt": "2026-10-22T07:00:00Z",
+  "branch": "release/pricing-sync-selection-main"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "promote-molii-pricing-save-sync",
+  "title": "Promote pricing repair through develop and main, monitor every 15 minutes until all four production deployments pass",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "release/deployment",
+  "currentPhase": "implementation",
+  "nextAction": "Merged-tree focused verification and dual native reviews passed; commit and push to develop, record exact SHA/run, confirm 15-minute heartbeat creation. Never promote before exact-SHA CI/deployment/live-version acceptance.",
+  "branch": "release/molii-pricing-save-sync",
+  "createdAt": "2026-10-22T12:16:00Z"
+}

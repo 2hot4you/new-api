@@ -31,11 +31,17 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   buildPricingChanges,
+  isSeedanceManagedPricingModel,
   useModelPricing,
   useSaveModelPricing,
   type ModelPricingConfig,
 } from '@/features/model-pricing/api'
-import { pricingOptions } from '@/features/model-pricing/pricing'
+import {
+  PRICING_KEYS,
+  pricingOptions,
+  pricingValuesByModel,
+} from '@/features/model-pricing/pricing'
+import { pluginExpressionsEqual } from '@/features/pricing/lib/plugin-pricing'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
@@ -265,21 +271,25 @@ export function RatioSettingsCard({
   )
   const resetMutation = useMutation({
     mutationFn: async () => {
-      if (!pricingBaseline) return
-      await savePricing.mutateAsync(
-        pricingBaseline.entries.map((entry) => ({
+      if (!pricingBaseline) return false
+      const changes = pricingBaseline.entries
+        .filter((entry) => !isSeedanceManagedPricingModel(entry.model_name))
+        .map((entry) => ({
           model_name: entry.model_name,
           expected_version: entry.version,
           pricing: {},
           billing_currency: entry.billing_currency,
           reset: true,
         }))
-      )
+      if (!changes.length) return false
+      await savePricing.mutateAsync(changes)
       const refreshed = await pricingQuery.refetch()
       setPricingBaseline(refreshed.data ?? null)
+      return true
     },
-    onSuccess: () => {
-      toast.success(t('Model prices reset successfully'))
+    onSuccess: (changed) => {
+      if (changed) toast.success(t('Model prices reset successfully'))
+      else toast.info(t('No model price changes to save'))
       setConfirmOpen(false)
     },
     onError: (error) => handleServerError(error),
@@ -452,20 +462,54 @@ export function RatioSettingsCard({
 
       if (!pricingBaseline) return
       try {
+        const before = pricingOptions(modelNormalizedDefaults.current)
+        const after = pricingOptions(normalized)
+        const previousValues = pricingValuesByModel(before)
+        const nextValues = pricingValuesByModel(after)
+        const protectedEdits = [
+          ...new Set([
+            ...previousValues.keys(),
+            ...nextValues.keys(),
+            ...Object.keys(currencyOverrides),
+          ]),
+        ].some((name) => {
+          if (!isSeedanceManagedPricingModel(name)) return false
+          const previous = previousValues.get(name) ?? {}
+          const next = nextValues.get(name) ?? {}
+          return (
+            (currencyOverrides[name] !== undefined &&
+              currencyOverrides[name] !==
+                pricingBaseline.entries.find(
+                  (entry) => entry.model_name === name
+                )?.billing_currency) ||
+            PRICING_KEYS.some((key) =>
+              key === 'billing_setting.plugin_billing_expr'
+                ? !pluginExpressionsEqual(previous[key], next[key])
+                : previous[key] !== next[key]
+            )
+          )
+        })
+        if (protectedEdits) {
+          toast.info(
+            t(
+              'This model is priced in the Seedance 2.0 tab. Update its price matrix there; the billing expression is generated automatically.'
+            )
+          )
+        }
         const changes = buildPricingChanges(
           pricingBaseline,
-          pricingOptions(modelNormalizedDefaults.current),
-          pricingOptions(normalized),
+          before,
+          after,
           currencyOverrides
         )
         const visibilityChanged =
           normalized.ExposeRatioEnabled !==
           modelNormalizedDefaults.current.ExposeRatioEnabled
         if (!changes.length && !visibilityChanged) {
-          toast.info(t('No model price changes to save'))
+          if (!protectedEdits) toast.info(t('No model price changes to save'))
           return
         }
-        await savePricing.mutateAsync(changes)
+        if (changes.length) await savePricing.mutateAsync(changes)
         if (visibilityChanged) {
           await updateOption.mutateAsync({
             key: 'ExposeRatioEnabled',
@@ -474,10 +518,12 @@ export function RatioSettingsCard({
         }
         const refreshed = await pricingQuery.refetch()
         setPricingBaseline(refreshed.data ?? null)
-        modelNormalizedDefaults.current = normalized
-        setSavedModelValues(normalized)
+        if (!protectedEdits) {
+          modelNormalizedDefaults.current = normalized
+          setSavedModelValues(normalized)
+        }
         setCurrencyOverrides({})
-        toast.success(t('Model pricing saved'))
+        if (!protectedEdits) toast.success(t('Model pricing saved'))
       } catch (error) {
         handleServerError(error)
       }

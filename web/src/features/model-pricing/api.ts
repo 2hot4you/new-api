@@ -206,6 +206,7 @@ export function buildPricingChanges(
     ...next.keys(),
     ...Object.keys(currencyOverrides),
   ])) {
+    if (isSeedanceManagedPricingModel(name)) continue
     const oldValues = previous.get(name) ?? {}
     const newValues = next.get(name) ?? {}
     const dirty = PRICING_KEYS.filter((key) =>

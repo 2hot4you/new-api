@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { isSeedanceManagedPricingModel } from '@/features/model-pricing/api'
 import { useDebounce } from '@/hooks/use-debounce'
 import { useMediaQuery } from '@/hooks/use-media-query'
 
@@ -115,6 +116,7 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
           const selections = filteredRows
             .filter(
               (row) =>
+                !isSeedanceManagedPricingModel(row.model) &&
                 row.prices.upstreams[source] &&
                 !sameSyncPrice(row.prices.current, row.prices.upstreams[source])
             )
@@ -182,7 +184,7 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
         containerClassName='min-h-0 flex-1 rounded-md'
         tableContainerClassName='h-full min-h-0'
         tableHeaderClassName='[background-color:var(--table-header)]'
-          tableBodyClassName='[&>tr]:h-14'
+        tableBodyClassName='[&>tr]:h-14'
         splitHeaderScrollClassName='h-full'
         bodyContainerClassName='[scrollbar-gutter:stable]'
         splitHeader
