@@ -1,5 +1,10 @@
 # PostgreSQL CI fixtures
 
+## Checkbox labels with localized actions
+
+- Base UI checkbox labels need both the visible localized action and unique model/source context in their accessible name. Reference both IDs explicitly with aria-labelledby, in selected and unselected states; do not assume one translation is a substring of another language's contextual label.
+- Use native Label behavior rather than adding parallel click/key handlers around a checkbox; test direct checkbox clicks, text clicks, Space, disabled state and focus to catch double toggles.
+
 ## Disposable database connection safety
 
 - Validate connection URLs before the first connection, not only in the outer CI runner. Require an explicit numeric loopback PostgreSQL host, user, database path and exactly one `sslmode=disable` query value for local disposable fixtures.
