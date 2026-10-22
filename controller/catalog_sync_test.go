@@ -805,7 +805,24 @@ func TestCatalogSyncSourceDDLStabilityAndCancellation(t *testing.T) {
 	db := catalogSyncPostgres(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	resume := sync.OnceFunc(func() { close(release) })
-	defer resume()
+	ddlApplied, allowDDLCommit := make(chan struct{}), make(chan struct{})
+	allowCommit := sync.OnceFunc(func() { close(allowDDLCommit) })
+	sourceCtx, cancelSource := context.WithCancel(context.Background())
+	ddlCtx, cancelDDL := context.WithCancel(context.Background())
+	var workers sync.WaitGroup
+	defer func() {
+		resume()
+		allowCommit()
+		cancelSource()
+		cancelDDL()
+		joined := make(chan struct{})
+		go func() { workers.Wait(); close(joined) }()
+		select {
+		case <-joined:
+		case <-time.After(5 * time.Second):
+			t.Error("source and DDL workers did not finish cleanup")
+		}
+	}()
 	var once sync.Once
 	require.NoError(t, db.Callback().Query().After("gorm:query").Register("catalog-source-pause", func(tx *gorm.DB) {
 		if tx.Statement.Table == "vendors" {
@@ -813,18 +830,58 @@ func TestCatalogSyncSourceDDLStabilityAndCancellation(t *testing.T) {
 		}
 	}))
 	finished := make(chan error, 1)
-	go func() { _, err := model.ExportManagedCatalog(context.Background(), "dev"); finished <- err }()
+	complete := make(chan bool, 1)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		snapshot, err := model.ExportManagedCatalog(sourceCtx, "dev")
+		complete <- snapshot.Complete
+		finished <- err
+	}()
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("source did not reach its actual projection")
 	}
 	ddl := make(chan error, 1)
-	go func() { ddl <- db.Exec("ALTER TABLE models ADD COLUMN ddl_probe integer").Error }()
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		ddl <- db.WithContext(ddlCtx).Transaction(func(ddlTx *gorm.DB) error {
+			if err := ddlTx.Exec("ALTER TABLE models ADD COLUMN ddl_probe integer").Error; err != nil {
+				return err
+			}
+			close(ddlApplied)
+			// Source COMMIT releases its table locks before the fresh metadata
+			// proof. Keep this real ALTER uncommitted until that proof succeeds.
+			<-allowDDLCommit
+			return nil
+		})
+	}()
 	catalogSyncWaitForLock(t, db, "ALTER TABLE models ADD COLUMN ddl_probe")
 	resume()
-	require.NoError(t, <-finished)
-	require.NoError(t, <-ddl)
+	select {
+	case <-ddlApplied:
+	case err := <-ddl:
+		require.NoError(t, err)
+		t.Fatal("DDL transaction finished before commit was allowed")
+	case <-time.After(5 * time.Second):
+		t.Fatal("DDL did not apply after source released its table locks")
+	}
+	select {
+	case err := <-finished:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("source did not finish its final metadata proof")
+	}
+	require.True(t, <-complete)
+	allowCommit()
+	select {
+	case err := <-ddl:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("DDL transaction did not commit")
+	}
 	require.NoError(t, db.Callback().Query().Remove("catalog-source-pause"))
 	blocker := db.Begin()
 	require.NoError(t, blocker.Error)
@@ -832,7 +889,12 @@ func TestCatalogSyncSourceDDLStabilityAndCancellation(t *testing.T) {
 	require.NoError(t, blocker.Exec("LOCK TABLE models IN ACCESS EXCLUSIVE MODE").Error)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _, err := model.ExportManagedCatalog(ctx, "dev"); finished <- err }()
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		_, err := model.ExportManagedCatalog(ctx, "dev")
+		finished <- err
+	}()
 	catalogSyncWaitForLock(t, db, `LOCK TABLE "public"."models"`)
 	cancel()
 	select {
