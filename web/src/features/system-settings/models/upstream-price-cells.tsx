@@ -16,11 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
 import { StatusBadge } from '@/components/status-badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 
 import type { PricingSyncValues } from '../types'
@@ -41,7 +43,10 @@ export function SyncPriceCell(props: { values: PricingSyncValues }) {
     return <span className='text-muted-foreground'>{t('Unset price')}</span>
   }
   if (kind === 'expression') {
-    const parsed = getSyncExpressionPricing(String(props.values.billing_expr), t)
+    const parsed = getSyncExpressionPricing(
+      String(props.values.billing_expr),
+      t
+    )
     return (
       <div className='min-w-0 flex-1 space-y-1'>
         <div className='flex items-center gap-2'>
@@ -58,6 +63,8 @@ export function SyncPriceCell(props: { values: PricingSyncValues }) {
         {parsed ? (
           <div className='space-y-2'>
             {parsed.tiers.map((tier, index) => (
+              // Tier labels and conditions may repeat; preserve occurrence identity.
+              // oxlint-disable-next-line react/no-array-index-key
               <div key={`${tier.label}-${index}`} className='space-y-1'>
                 {parsed.tiers.length > 1 && (
                   <div className='text-muted-foreground text-xs!'>
@@ -73,7 +80,11 @@ export function SyncPriceCell(props: { values: PricingSyncValues }) {
               </div>
             )}
           </div>
-        ) : <code className='block text-xs! leading-relaxed break-all whitespace-pre-wrap'>{props.values.billing_expr}</code>}
+        ) : (
+          <code className='block text-xs! leading-relaxed break-all whitespace-pre-wrap'>
+            {props.values.billing_expr}
+          </code>
+        )}
       </div>
     )
   }
@@ -89,7 +100,9 @@ export function SyncPriceCell(props: { values: PricingSyncValues }) {
   return <SyncPriceMetrics lines={lines} />
 }
 
-function SyncPriceMetrics(props: { lines: Array<{ label: string; value: string }> }) {
+function SyncPriceMetrics(props: {
+  lines: Array<{ label: string; value: string }>
+}) {
   return (
     <dl className='flex min-w-0 flex-1 flex-wrap gap-x-4 gap-y-2'>
       {props.lines.map((line) => (
@@ -106,24 +119,35 @@ function SyncPriceMetrics(props: { lines: Array<{ label: string; value: string }
 
 export function SyncSourceHeader(props: { source: string }) {
   const { t } = useTranslation()
+  const labelId = useId()
   const context = useSyncPriceSelection()
   const state = context.bulkStates[props.source]
   const count = state?.selections.length ?? 0
   const selected = state?.selectedModels.length ?? 0
   const name = getUpstreamDisplayName(props.source, t)
+  const allSelected = count > 0 && count === selected
   return (
     <div className='flex min-w-0 items-center gap-2'>
-      <Checkbox
-        checked={count > 0 && count === selected}
-        indeterminate={selected > 0 && selected < count}
-        disabled={context.isDisabled || count === 0}
-        aria-label={t('Select all prices from {{source}}', { source: name })}
-        onCheckedChange={(checked) =>
-          checked
-            ? context.onSelectPrices(state.selections)
-            : context.onUnselectPrices(state.selectedModels)
-        }
-      />
+      <Label className='min-h-9 shrink-0 cursor-pointer gap-2 whitespace-nowrap'>
+        <span id={labelId} className='sr-only'>
+          {t('Select all prices from {{source}}', { source: name })}
+        </span>
+        <Checkbox
+          className='border-foreground/60 bg-background size-5 border-2'
+          checked={allSelected}
+          indeterminate={selected > 0 && selected < count}
+          disabled={context.isDisabled || count === 0}
+          aria-labelledby={`${labelId}-action ${labelId}`}
+          onCheckedChange={(checked) =>
+            checked
+              ? context.onSelectPrices(state.selections)
+              : context.onUnselectPrices(state.selectedModels)
+          }
+        />
+        <span id={`${labelId}-action`}>
+          {allSelected ? t('Clear selection') : t('Select all')}
+        </span>
+      </Label>
       <span className='min-w-0 flex-1 truncate' title={name}>
         {name}
       </span>
@@ -139,11 +163,13 @@ export function SyncSourcePriceCell(props: {
   source: string
 }) {
   const { t } = useTranslation()
+  const labelId = useId()
   const context = useSyncPriceSelection()
   const model = props.row.model
   const values = props.row.prices.upstreams[props.source]
   if (!values) return <span className='text-muted-foreground'>—</span>
   const same = sameSyncPrice(values, props.row.prices.current)
+  const selected = context.selectedSources[model] === props.source
   const confident = Object.values(props.row.differences ?? {}).every(
     (diff) => diff?.confidence?.[props.source] !== false
   )
@@ -151,7 +177,7 @@ export function SyncSourcePriceCell(props: {
     <div
       className={cn(
         'flex min-h-10 min-w-0 items-center gap-3 rounded-md px-2 py-1 -mx-2',
-        context.selectedSources[model] === props.source && 'bg-primary/8'
+        selected && 'bg-primary/8'
       )}
     >
       {same ? (
@@ -163,19 +189,28 @@ export function SyncSourcePriceCell(props: {
         />
       ) : (
         <div className='flex shrink-0 items-center gap-2'>
-          <Checkbox
-            checked={context.selectedSources[model] === props.source}
-            disabled={context.isDisabled}
-            aria-label={t('Select price for {{model}} from {{source}}', {
-              model,
-              source: getUpstreamDisplayName(props.source, t),
-            })}
-            onCheckedChange={(checked) =>
-              checked
-                ? context.onSelectPrices([{ model, source: props.source }])
-                : context.onUnselectPrices([model])
-            }
-          />
+          <Label className='min-h-9 cursor-pointer gap-2 whitespace-nowrap'>
+            <span id={labelId} className='sr-only'>
+              {t('Select price for {{model}} from {{source}}', {
+                model,
+                source: getUpstreamDisplayName(props.source, t),
+              })}
+            </span>
+            <Checkbox
+              className='border-foreground/60 bg-background size-5 border-2'
+              checked={selected}
+              disabled={context.isDisabled}
+              aria-labelledby={`${labelId}-action ${labelId}`}
+              onCheckedChange={(checked) =>
+                checked
+                  ? context.onSelectPrices([{ model, source: props.source }])
+                  : context.onUnselectPrices([model])
+              }
+            />
+            <span id={`${labelId}-action`}>
+              {selected ? t('Clear selection') : t('Select')}
+            </span>
+          </Label>
           {!confident && (
             <StatusBadge
               label={t('Verify upstream pricing')}

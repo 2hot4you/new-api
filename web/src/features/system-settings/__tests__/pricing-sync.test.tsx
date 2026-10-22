@@ -25,6 +25,7 @@ import {
   waitFor,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18next from 'i18next'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -71,7 +72,10 @@ const prices: PricingSyncModels = {
     },
   },
 }
-function TableFixture(props: { prices: PricingSyncModels }) {
+function TableFixture(props: {
+  prices: PricingSyncModels
+  disabled?: boolean
+}) {
   const [selectedSources, setSelectedSources] =
     useState<PricingSourceSelections>({})
   return (
@@ -79,7 +83,7 @@ function TableFixture(props: { prices: PricingSyncModels }) {
       prices={props.prices}
       differences={differences}
       selectedSources={selectedSources}
-      isDisabled={false}
+      isDisabled={props.disabled ?? false}
       isSyncing={false}
       onSelectPrices={(selections) =>
         setSelectedSources((previous) => ({
@@ -104,6 +108,107 @@ function TableFixture(props: { prices: PricingSyncModels }) {
 afterEach(cleanup)
 
 describe('pricing synchronization', () => {
+  it('includes the visible localized bulk action in its accessible name', async () => {
+    i18next.addResourceBundle(
+      'fr',
+      'translation',
+      {
+        'Select all': 'Tout sélectionner',
+        'Select all prices from {{source}}':
+          'Sélectionner tous les prix de {{source}}',
+      },
+      true,
+      true
+    )
+    await i18next.changeLanguage('fr')
+    try {
+      render(<TableFixture prices={prices} />)
+      expect(
+        screen.getByText('Tout sélectionner', { exact: true })
+      ).toBeVisible()
+      expect(
+        screen.getByRole('checkbox', {
+          name: /Sélectionner tous les prix de upstream$/,
+        })
+      ).toHaveAccessibleName(
+        'Tout sélectionner Sélectionner tous les prix de upstream'
+      )
+    } finally {
+      cleanup()
+      await i18next.changeLanguage('en')
+    }
+  })
+
+  it('shows clickable selection text and preserves contextual names and keyboard focus', async () => {
+    render(<TableFixture prices={prices} />)
+    const user = userEvent.setup()
+    const model = screen.getByRole('checkbox', {
+      name: /Select price for m from upstream$/,
+    })
+    expect(screen.getByText('Select', { exact: true })).toBeVisible()
+    expect(screen.getByText('Select all', { exact: true })).toBeVisible()
+    await user.click(screen.getByText('Select', { exact: true }))
+    expect(model).toBeChecked()
+    expect(model).toHaveAccessibleName(
+      'Clear selection Select price for m from upstream'
+    )
+    expect(
+      screen.getByRole('checkbox', { name: /Select all prices from upstream$/ })
+    ).toHaveAccessibleName('Clear selection Select all prices from upstream')
+    const row = screen.getByRole('row', { name: /^m / })
+    await user.click(within(row).getByText('Clear selection', { exact: true }))
+    expect(model).not.toBeChecked()
+    await user.click(model)
+    expect(model).toBeChecked()
+    await user.keyboard(' ')
+    expect(model).not.toBeChecked()
+    expect(model).toHaveFocus()
+  })
+
+  it('selects all filtered pages through visible text and clears only that source selection', async () => {
+    const candidates = Object.fromEntries(
+      Array.from({ length: 12 }, (_, index) => [
+        `model-${String(index).padStart(2, '0')}`,
+        prices.m,
+      ])
+    )
+    render(<TableFixture prices={candidates} />)
+    const user = userEvent.setup()
+    await user.click(screen.getByText('Select all', { exact: true }))
+    expect(screen.getByText('12/12')).toBeVisible()
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search models' }),
+      'model-11'
+    )
+    const last = await screen.findByRole('checkbox', {
+      name: /Select price for model-11 from upstream$/,
+    })
+    expect(last).toBeChecked()
+    const header = screen.getByRole('columnheader', { name: /upstream/ })
+    await user.click(
+      within(header).getByText('Clear selection', { exact: true })
+    )
+    expect(last).not.toBeChecked()
+    await user.clear(screen.getByRole('textbox', { name: 'Search models' }))
+    expect(await screen.findByText('11/12')).toBeVisible()
+    expect(
+      screen.getByRole('checkbox', { name: /Select all prices from upstream$/ })
+    ).toBePartiallyChecked()
+  })
+
+  it('keeps visible selection labels inert while prices are loading or saving', async () => {
+    render(<TableFixture prices={prices} disabled />)
+    const user = userEvent.setup()
+    await user.click(screen.getByText('Select', { exact: true }))
+    await user.click(screen.getByText('Select all', { exact: true }))
+    const model = screen.getByRole('checkbox', {
+      name: /Select price for m from upstream$/,
+    })
+    expect(model).toHaveAttribute('aria-disabled', 'true')
+    expect(model).not.toBeChecked()
+    expect(screen.getByText('0/1')).toBeVisible()
+  })
+
   it('shows every dollar price inline, including explicit zero cache and audio prices', () => {
     render(<TableFixture prices={prices} />)
     expect(screen.queryAllByText('Model ratio')).toHaveLength(0)
@@ -205,11 +310,13 @@ describe('pricing synchronization', () => {
     const user = userEvent.setup()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getByText('m')).toBeVisible()
+    expect(screen.getByText('Select', { exact: true })).toBeVisible()
+    expect(screen.getByText('Select all', { exact: true })).toBeVisible()
     await user.click(
-      screen.getByRole('checkbox', { name: 'Select all prices from upstream' })
+      screen.getByRole('checkbox', { name: /Select all prices from upstream$/ })
     )
     const source = screen.getByRole('checkbox', {
-      name: 'Select price for m from upstream',
+      name: /Select price for m from upstream$/,
     })
     expect(source).toBeChecked()
     source.focus()
@@ -236,49 +343,49 @@ describe('pricing synchronization', () => {
     render(<TableFixture prices={candidates} />)
     const user = userEvent.setup()
     const first = screen.getByRole('checkbox', {
-      name: 'Select price for m from upstream',
+      name: /Select price for m from upstream$/,
     })
     await user.click(first)
     await user.click(
       screen.getByRole('checkbox', {
-        name: 'Select price for m from alternative',
+        name: /Select price for m from alternative$/,
       })
     )
     expect(first).not.toBeChecked()
     expect(
       screen.getByRole('checkbox', {
-        name: 'Select price for m from alternative',
+        name: /Select price for m from alternative$/,
       })
     ).toBeChecked()
     await user.click(
-      screen.getByRole('checkbox', { name: 'Select all prices from upstream' })
+      screen.getByRole('checkbox', { name: /Select all prices from upstream$/ })
     )
     expect(first).toBeChecked()
     expect(
       screen.getByRole('checkbox', {
-        name: 'Select price for z from upstream',
+        name: /Select price for z from upstream$/,
       })
     ).toBeChecked()
     await user.type(screen.getByRole('textbox', { name: 'Search models' }), 'm')
     await waitFor(() =>
       expect(
         screen.queryByRole('checkbox', {
-          name: 'Select price for z from upstream',
+          name: /Select price for z from upstream$/,
         })
       ).not.toBeInTheDocument()
     )
     await user.click(
-      screen.getByRole('checkbox', { name: 'Select all prices from upstream' })
+      screen.getByRole('checkbox', { name: /Select all prices from upstream$/ })
     )
     await user.clear(screen.getByRole('textbox', { name: 'Search models' }))
     expect(
       await screen.findByRole('checkbox', {
-        name: 'Select price for z from upstream',
+        name: /Select price for z from upstream$/,
       })
     ).toBeChecked()
     expect(
       screen.getByRole('checkbox', {
-        name: 'Select price for m from upstream',
+        name: /Select price for m from upstream$/,
       })
     ).not.toBeChecked()
   })
@@ -417,7 +524,7 @@ describe('pricing synchronization', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm Selection' }))
     await user.click(
       await screen.findByRole('checkbox', {
-        name: 'Select price for m from Upstream(7)',
+        name: /Select price for m from Upstream\(7\)$/,
       })
     )
     expect(screen.getByText('1 selected models')).toBeVisible()
@@ -425,7 +532,7 @@ describe('pricing synchronization', () => {
     expect(screen.getByRole('button', { name: 'Apply Sync' })).toBeDisabled()
     await user.click(
       screen.getByRole('checkbox', {
-        name: 'Select price for m from Upstream(7)',
+        name: /Select price for m from Upstream\(7\)$/,
       })
     )
     await user.click(screen.getByRole('button', { name: 'Apply Sync' }))
@@ -454,7 +561,7 @@ describe('pricing synchronization', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm Selection' }))
     await user.click(
       await screen.findByRole('checkbox', {
-        name: 'Select price for m from Upstream(7)',
+        name: /Select price for m from Upstream\(7\)$/,
       })
     )
     await user.click(screen.getByRole('button', { name: 'Apply Sync' }))
