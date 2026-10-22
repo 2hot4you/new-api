@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-molii-pricing-save-sync",
+  "title": "Diagnose Molii Seedance managed-pricing save rejection and unavailable catalog status",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "pricing",
+  "currentPhase": "completed",
+  "nextAction": "Confirm bounded frontend fix and separately authorize dev-to-molii sync provisioning and controlled container replacement",
+  "createdAt": "2026-10-22T09:30:00Z",
+  "branch": "diagnose/molii-pricing-save-sync"
+}
