@@ -76,9 +76,9 @@ function renderModelActions(currentModel: Model = model, role = 100) {
 }
 
 describe('model pricing entry', () => {
-  it('saves pricing and opens connections for a channel model without creating metadata', async () => {
+  it('blocks pricing without exact metadata while preserving the draft and channel connections', async () => {
     const channelModel = { ...model, id: 0, model_name: 'channel-only' }
-    let storedPrice = 1.5
+    const storedPrice = 1.5
     const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
       if (url === '/api/option/model_pricing') {
         return {
@@ -89,6 +89,7 @@ describe('model pricing entry', () => {
                 {
                   model_name: 'channel-only',
                   version: 'v1',
+                  has_metadata: false,
                   configured: { ModelPrice: storedPrice },
                   effective: { ModelPrice: storedPrice },
                 },
@@ -103,10 +104,7 @@ describe('model pricing entry', () => {
     })
     const post = vi.spyOn(api, 'post')
     const put = vi.spyOn(api, 'put')
-    const patch = vi.spyOn(api, 'patch').mockImplementation(async () => {
-      storedPrice = 0
-      return { data: { success: true } }
-    })
+    const patch = vi.spyOn(api, 'patch')
     const client = renderModelActions(channelModel)
     const user = userEvent.setup()
     expect(screen.getByRole('button', { name: 'Add metadata' })).toBeVisible()
@@ -124,20 +122,21 @@ describe('model pricing entry', () => {
     const price = await screen.findByPlaceholderText('0.01')
     await user.clear(price)
     await user.type(price, '0')
+    expect(
+      screen.getByRole('button', { name: 'Save model prices' })
+    ).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: 'Saving...' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/Pricing changes require exact model metadata/)
+    ).toHaveTextContent('channel-only')
+    expect(
+      screen.getByRole('link', { name: 'Manage model metadata' })
+    ).toHaveAttribute('target', '_blank')
     await user.click(screen.getByRole('button', { name: 'Save model prices' }))
-    await waitFor(() =>
-      expect(patch).toHaveBeenCalledWith('/api/option/model_pricing', {
-        changes: [
-          {
-            model_name: 'channel-only',
-            expected_version: 'v1',
-            billing_currency: 'USD',
-            pricing: { ModelPrice: 0, 'billing_setting.billing_mode': 'ratio' },
-            reset: false,
-          },
-        ],
-      })
-    )
+    expect(patch).not.toHaveBeenCalled()
+    expect(price).toHaveValue('0')
     expect(put).not.toHaveBeenCalled()
     await user.click(screen.getByRole('tab', { name: 'Channels and groups' }))
     expect(
@@ -147,6 +146,8 @@ describe('model pricing entry', () => {
     ).toBeVisible()
     expect(get).not.toHaveBeenCalledWith('/api/models/0')
     expect(post).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('tab', { name: 'Pricing' }))
+    expect(screen.getByPlaceholderText('0.01')).toHaveValue('0')
     client.clear()
   })
 
@@ -497,6 +498,8 @@ describe('metadata editing', () => {
                 {
                   model_name: model.model_name,
                   version,
+                  has_metadata: true,
+                  billing_currency: 'USD',
                   configured: { ModelPrice: storedPrice },
                   effective: { ModelPrice: storedPrice },
                 },

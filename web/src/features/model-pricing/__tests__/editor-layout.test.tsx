@@ -107,6 +107,8 @@ it.each(['none', 'standard', 'claude_ttl'] as const)(
                 entries: [
                   {
                     model_name: 'gpt-4o-custom',
+                    has_metadata: true,
+                    billing_currency: 'USD',
                     version: 'v1',
                     configured,
                     effective,
@@ -215,6 +217,8 @@ function renderEditor(embedded = false) {
         embedded={embedded}
         editData={{
           name: 'example-model',
+          hasMetadata: true,
+          billingCurrency: 'USD',
           billingMode: 'per-token',
           ratio: '3.25',
           completionRatio: '2',
@@ -329,6 +333,16 @@ function PricingFormFixture(props: {
           onReset={() => undefined}
           isSaving={false}
           isResetting={false}
+          metadataEntries={[
+            {
+              model_name: 'example-model',
+              has_metadata: true,
+              billing_currency: 'USD',
+              version: 'v1',
+              configured: {},
+              effective: {},
+            },
+          ]}
         />
       </SettingsPageProvider>
     </>

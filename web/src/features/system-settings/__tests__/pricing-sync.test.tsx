@@ -519,6 +519,8 @@ describe('pricing synchronization', () => {
               {
                 model_name: 'm',
                 version,
+                has_metadata: true,
+                billing_currency: 'USD',
                 configured: { ModelRatio: 1, CompletionRatio: 2 },
                 effective: { ModelRatio: 1, CompletionRatio: 2 },
               },

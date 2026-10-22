@@ -40,6 +40,8 @@ import { handleServerError } from '@/lib/handle-server-error'
 import {
   useCanEditModelPricing,
   isSeedanceManagedPricingModel,
+  isPricingMetadataEligible,
+  pricingMetadataRequired,
   useModelPricing,
   useSaveModelPricing,
   type ModelPricingEntry,
@@ -89,6 +91,10 @@ export function ModelPricingPanel(props: {
   const persist = async (reset = false) => {
     if (!entry) return
     try {
+      if (!isPricingMetadataEligible(entry)) {
+        throw new Error(pricingMetadataRequired([entry.model_name]))
+      }
+      if (reset && !Object.keys(entry.configured).length) return
       const draft = reset ? null : await editor.current?.commitDraft()
       if (!reset && !draft) return
       await save.mutateAsync([
@@ -96,8 +102,7 @@ export function ModelPricingPanel(props: {
           model_name: entry.model_name,
           expected_version: entry.version,
           pricing: draft ? pricingFromDraft(draft) : {},
-          billing_currency:
-            draft?.billingCurrency ?? entry.billing_currency ?? 'USD',
+          billing_currency: draft?.billingCurrency ?? entry.billing_currency,
           reset,
         },
       ])
@@ -175,7 +180,7 @@ export function ModelPricingPanel(props: {
         pluginVariants={entry.plugin_variants}
         onDirtyChange={props.onDirtyChange}
         onSave={() => persist()}
-        isSaving={save.isPending || entry.has_metadata === false}
+        isSaving={save.isPending}
         className='rounded-none border-0'
         scrollHeader={
           <>
@@ -191,18 +196,15 @@ export function ModelPricingPanel(props: {
                 variant='outline'
                 size='sm'
                 onClick={() => setResetOpen(true)}
-                disabled={save.isPending}
+                disabled={
+                  save.isPending ||
+                  !isPricingMetadataEligible(entry) ||
+                  !Object.keys(entry.configured).length
+                }
               >
                 {t('Restore default pricing')}
               </Button>
             </div>
-            {entry.has_metadata === false && (
-              <p role='alert' className='text-destructive text-sm'>
-                {t(
-                  'Create exact model metadata before saving pricing or source currency.'
-                )}
-              </p>
-            )}
             <section
               aria-label={t('Current Billing')}
               className='space-y-3 border-b pb-3'

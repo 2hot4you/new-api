@@ -73,6 +73,25 @@ export type ModelPricingEntry = ModelPricingDescription & {
 
 export type SourcePricingCurrency = 'USD' | 'CNY'
 
+export function isPricingMetadataEligible(
+  entry?: ModelPricingEntry
+): entry is ModelPricingEntry & {
+  has_metadata: true
+  billing_currency: SourcePricingCurrency
+} {
+  return (
+    entry?.has_metadata === true &&
+    (entry.billing_currency === 'USD' || entry.billing_currency === 'CNY')
+  )
+}
+
+export function pricingMetadataRequired(models: string[]) {
+  return t(
+    'Pricing changes require exact model metadata and a known source currency: {{models}}. Create or verify metadata, then reload pricing. Your draft is preserved.',
+    { models: models.join(', ') }
+  )
+}
+
 export type ModelPricingConfig = {
   entries: ModelPricingEntry[]
   options: PricingOptions
@@ -201,6 +220,7 @@ export function buildPricingChanges(
     snapshot.entries.map((entry) => [entry.model_name, entry])
   )
   const changes: ModelPricingChange[] = []
+  const blockers: string[] = []
   for (const name of new Set([
     ...previous.keys(),
     ...next.keys(),
@@ -220,7 +240,10 @@ export function buildPricingChanges(
       billingCurrency !== undefined &&
       billingCurrency !== entry?.billing_currency
     if (!dirty.length && !currencyDirty) continue
-    if (entry?.has_metadata === false) continue
+    if (!isPricingMetadataEligible(entry)) {
+      blockers.push(name)
+      continue
+    }
     const pricing = { ...entry?.configured }
     for (const key of dirty) {
       delete pricing[key]
@@ -235,10 +258,11 @@ export function buildPricingChanges(
     }
     changes.push({
       model_name: name,
-      expected_version: entry?.version ?? snapshot.empty_version,
+      expected_version: entry.version,
       pricing,
-      billing_currency: billingCurrency ?? 'USD',
+      billing_currency: billingCurrency ?? entry.billing_currency,
     })
   }
+  if (blockers.length) throw new Error(pricingMetadataRequired(blockers))
   return changes
 }

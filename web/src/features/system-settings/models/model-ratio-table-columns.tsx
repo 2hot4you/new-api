@@ -197,7 +197,7 @@ export function buildModelRatioColumns({
       cell: ({ row }) => (
         <StaticRowActions
           editLabel={t('Edit')}
-          deleteLabel={t('Delete')}
+          deleteLabel={t('Remove pricing override')}
           menuLabel={t('Open menu')}
           onEdit={() => onEdit(row.original)}
           onDelete={() => onDelete(row.original.name)}

@@ -36,7 +36,10 @@ import {
 } from '@/components/ui/form'
 import { Switch } from '@/components/ui/switch'
 import { getEnabledModels } from '@/features/channels/api'
-import type { SourcePricingCurrency } from '@/features/model-pricing/api'
+import type {
+  SourcePricingCurrency,
+  ModelPricingEntry,
+} from '@/features/model-pricing/api'
 import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
@@ -73,6 +76,7 @@ type ModelRatioFormProps = {
   onReset: () => void
   isSaving: boolean
   isResetting: boolean
+  metadataEntries?: ModelPricingEntry[]
   variant?: 'default' | 'unset'
   currencyOverrides?: Partial<Record<string, SourcePricingCurrency>>
   onBillingCurrencyChange?: (
@@ -184,6 +188,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
   variant = 'default',
   currencyOverrides,
   onBillingCurrencyChange,
+  metadataEntries,
 }: ModelRatioFormProps) {
   const { t } = useTranslation()
   const isUnsetVariant = variant === 'unset'
@@ -347,6 +352,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               onSave={handleSave}
               isSaving={isSaving}
               currencyOverrides={currencyOverrides}
+              metadataEntries={metadataEntries}
               onBillingCurrencyChange={onBillingCurrencyChange}
               onChange={(field, value) => {
                 const fieldMap: Record<string, keyof ModelFormValues> = {

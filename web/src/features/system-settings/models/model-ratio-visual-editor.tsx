@@ -24,7 +24,7 @@ import type {
   VisibilityState,
   SortingState,
 } from '@tanstack/react-table'
-import { Copy, Plus } from 'lucide-react'
+import { Copy, Plus, Save } from 'lucide-react'
 import {
   useState,
   useMemo,
@@ -50,6 +50,7 @@ import { Button } from '@/components/ui/button'
 import {
   isSeedanceManagedPricingModel,
   type SourcePricingCurrency,
+  type ModelPricingEntry,
   useModelPricing,
 } from '@/features/model-pricing/api'
 import {
@@ -108,6 +109,7 @@ type ModelRatioVisualEditorProps = {
   onChange: (field: string, value: string) => void
   onSave: () => void | Promise<void>
   isSaving: boolean
+  metadataEntries?: ModelPricingEntry[]
   currencyOverrides?: Partial<Record<string, SourcePricingCurrency>>
   onBillingCurrencyChange?: (
     modelName: string,
@@ -156,6 +158,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     onChange,
     onSave,
     isSaving,
+    metadataEntries,
     currencyOverrides = EMPTY_CURRENCY_OVERRIDES,
     onBillingCurrencyChange,
   },
@@ -403,6 +406,19 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
   const handleDelete = useCallback(
     (name: string) => {
+      const entry = metadataEntries?.find((item) => item.model_name === name)
+      if (
+        entry &&
+        !Object.keys(entry.configured).length &&
+        !models.find((row) => row.name === name)?.isDraftNew
+      ) {
+        toast.info(
+          t(
+            'This model uses built-in defaults and has no pricing override to remove.'
+          )
+        )
+        return
+      }
       const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
         fallback: {},
         silent: true,
@@ -507,6 +523,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingExpr,
       pluginBillingExpr,
       onChange,
+      metadataEntries,
+      models,
+      t,
     ]
   )
 
@@ -648,16 +667,15 @@ const ModelRatioVisualEditorComponent = forwardRef<
   )
 
   const hasRows = table.getRowModel().rows.length > 0
-  const pricingEntry = pricingConfig.data?.entries.find(
-    (entry) => entry.model_name === editData?.name
-  )
+  const pricingEntry =
+    pricingConfig.data?.entries.find(
+      (entry) => entry.model_name === editData?.name
+    ) ?? metadataEntries?.find((entry) => entry.model_name === editData?.name)
   const editorEditData = editData
     ? {
         ...editData,
         billingCurrency:
-          currencyOverrides[editData.name] ??
-          pricingEntry?.billing_currency ??
-          'USD',
+          currencyOverrides[editData.name] ?? pricingEntry?.billing_currency,
         hasMetadata: pricingEntry?.has_metadata,
       }
     : null
@@ -767,7 +785,13 @@ const ModelRatioVisualEditorComponent = forwardRef<
                   }
                   onClick={(event) => {
                     const target = event.target as HTMLElement
-                    if (target.closest('button, [role="checkbox"]')) return
+                    if (
+                      target.closest(
+                        'button, [role="checkbox"], [role="menuitem"]'
+                      )
+                    ) {
+                      return
+                    }
                     handleEdit(row.original)
                   }}
                 />
@@ -794,10 +818,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
                 )?.usage_schema
               }
               onSave={onSave}
-              isSaving={
-                isSaving ||
-                Boolean(editData && pricingEntry?.has_metadata === false)
-              }
+              metadataEntries={metadataEntries}
+              isSaving={isSaving}
               className='h-full min-h-0'
             />
           ) : (
@@ -830,6 +852,20 @@ const ModelRatioVisualEditorComponent = forwardRef<
         </Button>
       </DataTableBulkActions>
 
+      {(!editorOpen || (isMobile && !sheetOpen)) && (
+        <div className='flex shrink-0 flex-wrap items-center justify-end gap-2'>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Built-in defaults are not removed. Save to apply override removals.'
+            )}
+          </p>
+          <Button onClick={onSave} disabled={isSaving}>
+            <Save data-icon='inline-start' />
+            {isSaving ? t('Saving...') : t('Save model prices')}
+          </Button>
+        </div>
+      )}
+
       {isMobile && (
         <ModelPricingSheet
           ref={editorPanelRef}
@@ -847,10 +883,8 @@ const ModelRatioVisualEditorComponent = forwardRef<
             )?.usage_schema
           }
           onSave={onSave}
-          isSaving={
-            isSaving ||
-            Boolean(editData && pricingEntry?.has_metadata === false)
-          }
+          metadataEntries={metadataEntries}
+          isSaving={isSaving}
         />
       )}
     </div>
@@ -863,6 +897,7 @@ export const ModelRatioVisualEditor = memo(
   (prevProps, nextProps) => {
     return (
       prevProps.savedModelPrice === nextProps.savedModelPrice &&
+      prevProps.metadataEntries === nextProps.metadataEntries &&
       prevProps.savedModelRatio === nextProps.savedModelRatio &&
       prevProps.savedCacheRatio === nextProps.savedCacheRatio &&
       prevProps.savedCreateCacheRatio === nextProps.savedCreateCacheRatio &&

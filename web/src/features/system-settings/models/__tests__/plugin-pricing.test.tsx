@@ -61,6 +61,8 @@ it('keeps provider drafts across tabs and saves nested expressions with the mode
     entries: [
       {
         model_name: 'shared',
+        has_metadata: true,
+        billing_currency: 'USD',
         version: 'version-with-providers',
         configured: values,
         effective: values,
@@ -175,6 +177,7 @@ it('keeps provider drafts across tabs and saves nested expressions with the mode
   await user.click(saveButton)
   await waitFor(() => expect(save).toHaveBeenCalledOnce())
   expect(saveButton).toBeDisabled()
+  expect(saveButton).toHaveAccessibleName('Saving...')
   const changes = save.mock.calls[0][1] as {
     changes: { expected_version: string; pricing: Record<string, unknown> }[]
   }
@@ -314,7 +317,7 @@ function renderEditor(
       <ModelPricingEditorPanel
         ref={ref}
         embedded
-        editData={editData}
+        editData={{ hasMetadata: true, billingCurrency: 'USD', ...editData }}
         pluginVariants={variants}
         onDirtyChange={dirty}
       />

@@ -64,6 +64,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   previewModelPricing,
   previewModelPricingConversion,
+  isPricingMetadataEligible,
+  pricingMetadataRequired,
+  type ModelPricingEntry,
   type ModelPricingPluginVariant,
 } from '@/features/model-pricing/api'
 import {
@@ -123,6 +126,7 @@ type ModelPricingSheetProps = {
   usageSchema?: BillingUsageSchema
   pluginVariants?: ModelPricingPluginVariant[]
   onDirtyChange?: (dirty: boolean) => void
+  metadataEntries?: ModelPricingEntry[]
 }
 
 type ModelPricingEditorPanelProps = Omit<
@@ -153,6 +157,7 @@ export const ModelPricingSheet = forwardRef<
     usageSchema,
     pluginVariants,
     onDirtyChange,
+    metadataEntries,
   },
   ref
 ) {
@@ -176,6 +181,7 @@ export const ModelPricingSheet = forwardRef<
           usageSchema={usageSchema}
           pluginVariants={pluginVariants}
           onDirtyChange={onDirtyChange}
+          metadataEntries={metadataEntries}
           onSave={onSave}
           isSaving={isSaving}
           className='h-full rounded-none border-0'
@@ -199,6 +205,7 @@ export const ModelPricingEditorPanel = forwardRef<
     onDirtyChange,
     embedded = false,
     scrollHeader,
+    metadataEntries,
   },
   ref
 ) {
@@ -278,6 +285,23 @@ export const ModelPricingEditorPanel = forwardRef<
     },
   })
   const watchedValues = form.watch()
+  const newMetadataEntry = !isEditMode
+    ? metadataEntries?.find(
+        (entry) => entry.model_name === watchedValues.name.trim()
+      )
+    : undefined
+  const metadataEligible = isEditMode
+    ? editData?.hasMetadata === true &&
+      (editData.billingCurrency === 'USD' || editData.billingCurrency === 'CNY')
+    : isPricingMetadataEligible(newMetadataEntry)
+  const metadataReason = metadataEligible
+    ? ''
+    : pricingMetadataRequired([watchedValues.name.trim() || t('New model')])
+  useEffect(() => {
+    if (newMetadataEntry?.billing_currency) {
+      setSourceCurrency(newMetadataEntry.billing_currency)
+    }
+  }, [newMetadataEntry?.model_name, newMetadataEntry?.billing_currency])
   let previewRequest = ''
   if (pricingMode === 'per-token' && watchedValues.name.trim()) {
     try {
@@ -693,7 +717,7 @@ export const ModelPricingEditorPanel = forwardRef<
           : {}),
         billingMode: pricingMode,
         billingCurrency: sourceCurrency,
-        hasMetadata: editData?.hasMetadata,
+        hasMetadata: metadataEligible,
         price: values.price || '',
         ratio: values.ratio || '',
         cacheRatio: values.cacheRatio || '',
@@ -719,6 +743,7 @@ export const ModelPricingEditorPanel = forwardRef<
       editData,
       pluginVariants,
       sourceCurrency,
+      metadataEligible,
     ]
   )
 
@@ -796,6 +821,7 @@ export const ModelPricingEditorPanel = forwardRef<
     ref,
     () => ({
       commitDraft: async () => {
+        if (!metadataEligible) return null
         if (
           formElementRef.current?.querySelector('[data-billing-invalid="true"]')
         ) {
@@ -813,7 +839,7 @@ export const ModelPricingEditorPanel = forwardRef<
         return buildSubmitData(form.getValues())
       },
     }),
-    [form, validatePricingValues, buildSubmitData]
+    [form, validatePricingValues, buildSubmitData, metadataEligible]
   )
 
   const expressionEditor = taskUsageSchema ? (
@@ -879,6 +905,20 @@ export const ModelPricingEditorPanel = forwardRef<
             )}
             <div className='grid min-w-0 items-start gap-4 @min-[960px]/pricing-editor:grid-cols-[minmax(0,1fr)_260px]'>
               <FieldGroup className='min-w-0'>
+                {!metadataEligible && (
+                  <Alert variant='destructive'>
+                    <AlertDescription>
+                      <p>{metadataReason}</p>
+                      <a
+                        href='/models/metadata'
+                        target='_blank'
+                        rel='noopener noreferrer'
+                      >
+                        {t('Manage model metadata')}
+                      </a>
+                    </AlertDescription>
+                  </Alert>
+                )}
                 {warnings.length > 0 && (
                   <Alert variant='destructive'>
                     <AlertTriangle data-icon='inline-start' />
@@ -1205,7 +1245,7 @@ export const ModelPricingEditorPanel = forwardRef<
                   <Button
                     type='button'
                     onClick={onSave}
-                    disabled={isSaving}
+                    disabled={isSaving || !metadataEligible}
                     className='w-full sm:w-auto'
                   >
                     <Save data-icon='inline-start' />

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState, type ReactNode } from 'react'
 import { toast, Toaster } from 'sonner'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -27,6 +28,7 @@ import type {
   ModelPricingConfig,
 } from '@/features/model-pricing/api'
 import { pricingOptions } from '@/features/model-pricing/pricing'
+import { SettingsPageProvider } from '@/features/system-settings/components/settings-page-context'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -37,6 +39,21 @@ const guidance =
   'This model is priced in the Seedance 2.0 tab. Update its price matrix there; the billing expression is generated automatically.'
 const clients: QueryClient[] = []
 
+function PageActionsFixture({ children }: { children: ReactNode }) {
+  const [actionsContainer, setActionsContainer] =
+    useState<HTMLDivElement | null>(null)
+  return (
+    <>
+      <header>
+        <div ref={setActionsContainer} />
+      </header>
+      <SettingsPageProvider actionsContainer={actionsContainer}>
+        {children}
+      </SettingsPageProvider>
+    </>
+  )
+}
+
 afterEach(() => {
   toast.dismiss()
   clients.forEach((client) => client.clear())
@@ -44,7 +61,10 @@ afterEach(() => {
   useAuthStore.getState().auth.setUser(null)
 })
 
-async function renderSettings(ordinary = true) {
+async function renderSettings(
+  ordinary = true,
+  extraEntries: ModelPricingConfig['entries'] = []
+) {
   const user = userEvent.setup()
   const prices: Record<string, number> = {
     [protectedModel]: 10,
@@ -62,6 +82,13 @@ async function renderSettings(ordinary = true) {
       has_metadata: true,
     })),
   }
+  for (const entry of extraEntries) {
+    snapshot.entries.push(entry)
+    if (entry.effective.ModelPrice !== undefined) {
+      prices[entry.model_name] = Number(entry.effective.ModelPrice)
+    }
+  }
+  snapshot.options = pricingOptions({ ModelPrice: JSON.stringify(prices) })
   vi.spyOn(api, 'get').mockImplementation(async (url) => ({
     data: {
       success: true,
@@ -92,35 +119,37 @@ async function renderSettings(ordinary = true) {
   clients.push(client)
   render(
     <QueryClientProvider client={client}>
-      <RatioSettingsCard
-        modelDefaults={{
-          ModelPrice: '{}',
-          ModelRatio: '{}',
-          CacheRatio: '{}',
-          CreateCacheRatio: '{}',
-          CompletionRatio: '{}',
-          ImageRatio: '{}',
-          AudioRatio: '{}',
-          AudioCompletionRatio: '{}',
-          BillingMode: '{}',
-          BillingExpr: '{}',
-          PluginBillingExpr: '{}',
-          ExposeRatioEnabled: false,
-        }}
-        groupDefaults={{
-          GroupRatio: '{}',
-          TopupGroupRatio: '{}',
-          UserUsableGroups: '{}',
-          GroupGroupRatio: '{}',
-          AutoGroups: '[]',
-          MaxTokenAutoGroups: 5,
-          DefaultUseAutoGroup: false,
-          GroupSpecialUsableGroup: '{}',
-        }}
-        toolPricesDefault='{}'
-        visibleTabs={['models']}
-      />
-      <Toaster />
+      <PageActionsFixture>
+        <RatioSettingsCard
+          modelDefaults={{
+            ModelPrice: '{}',
+            ModelRatio: '{}',
+            CacheRatio: '{}',
+            CreateCacheRatio: '{}',
+            CompletionRatio: '{}',
+            ImageRatio: '{}',
+            AudioRatio: '{}',
+            AudioCompletionRatio: '{}',
+            BillingMode: '{}',
+            BillingExpr: '{}',
+            PluginBillingExpr: '{}',
+            ExposeRatioEnabled: false,
+          }}
+          groupDefaults={{
+            GroupRatio: '{}',
+            TopupGroupRatio: '{}',
+            UserUsableGroups: '{}',
+            GroupGroupRatio: '{}',
+            AutoGroups: '[]',
+            MaxTokenAutoGroups: 5,
+            DefaultUseAutoGroup: false,
+            GroupSpecialUsableGroup: '{}',
+          }}
+          toolPricesDefault='{}'
+          visibleTabs={['models']}
+        />
+        <Toaster />
+      </PageActionsFixture>
     </QueryClientProvider>
   )
   await user.click(
@@ -213,3 +242,191 @@ it.each([true, false])(
     }
   }
 )
+
+it.each([false, true])(
+  'rejects missing metadata JSON atomically (mixed=%s) and preserves the draft',
+  async (mixed) => {
+    const { user, patch } = await renderSettings(mixed, [
+      {
+        model_name: 'missing',
+        version: 'm1',
+        configured: { ModelPrice: 1 },
+        effective: { ModelPrice: 1 },
+        has_metadata: false,
+      },
+    ])
+    const value = JSON.stringify({
+      [protectedModel]: 10,
+      missing: 2,
+      ...(mixed ? { ordinary: 2 } : {}),
+    })
+    const input = screen.getByRole('textbox', { name: 'Model fixed pricing' })
+    fireEvent.input(input, { target: { value } })
+    const error = vi.spyOn(toast, 'error')
+    const success = vi.spyOn(toast, 'success')
+    const put = vi.spyOn(api, 'put')
+    await user.click(screen.getByRole('switch', { name: 'Expose ratio API' }))
+    await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('missing'))
+    )
+    expect(patch).not.toHaveBeenCalled()
+    expect(put).not.toHaveBeenCalled()
+    expect(success).not.toHaveBeenCalled()
+    expect(input).toHaveValue(value)
+  }
+)
+
+it('rejects the entire reset when a configured override lacks metadata', async () => {
+  const { user, patch } = await renderSettings(true, [
+    {
+      model_name: 'missing',
+      version: 'm1',
+      configured: { ModelPrice: 1 },
+      effective: { ModelPrice: 1 },
+      has_metadata: false,
+    },
+  ])
+  const error = vi.spyOn(toast, 'error')
+  await user.click(screen.getByRole('button', { name: 'Reset prices' }))
+  await user.click(await screen.findByRole('button', { name: /^Reset$/ }))
+  await waitFor(() =>
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('missing'))
+  )
+  expect(patch).not.toHaveBeenCalled()
+})
+
+it('does not reset built-in-only rows', async () => {
+  const { user, patch } = await renderSettings(false, [
+    {
+      model_name: 'builtin',
+      version: 'b1',
+      configured: {},
+      effective: { ModelPrice: 1 },
+      has_metadata: true,
+      billing_currency: 'USD',
+    },
+  ])
+  await user.click(screen.getByRole('button', { name: 'Reset prices' }))
+  await user.click(await screen.findByRole('button', { name: /^Reset$/ }))
+  expect(
+    await screen.findByText('No model price changes to save')
+  ).toBeVisible()
+  expect(patch).not.toHaveBeenCalled()
+})
+
+it('keeps a save action after deleting the selected last ordinary override', async () => {
+  const { user, patch } = await renderSettings()
+  await user.click(screen.getByRole('button', { name: 'Switch to Visual' }))
+  await user.click(await screen.findByRole('button', { name: 'Edit' }))
+  await user.click(screen.getByRole('button', { name: 'Open menu' }))
+  await user.click(
+    await screen.findByRole('menuitem', { name: /Remove pricing override/ })
+  )
+  expect(
+    screen.queryByRole('region', { name: 'Edit model pricing' })
+  ).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+  await waitFor(() =>
+    expect(patch).toHaveBeenCalledWith('/api/option/model_pricing', {
+      changes: [
+        {
+          model_name: 'ordinary',
+          expected_version: 'ordinary-v1',
+          pricing: {},
+          billing_currency: 'CNY',
+        },
+      ],
+    })
+  )
+})
+
+it('preserves the local deletion after a failed save', async () => {
+  const { user, patch } = await renderSettings()
+  patch.mockRejectedValue(new Error('Save failed'))
+  await user.click(screen.getByRole('button', { name: 'Switch to Visual' }))
+  await user.click(await screen.findByRole('button', { name: 'Edit' }))
+  await user.click(screen.getByRole('button', { name: 'Open menu' }))
+  await user.click(
+    await screen.findByRole('menuitem', { name: /Remove pricing override/ })
+  )
+  await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+  expect(await screen.findByText('Save failed')).toBeVisible()
+  expect(
+    screen.queryByRole('row', { name: /ordinary/ })
+  ).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+  await waitFor(() => expect(patch).toHaveBeenCalledTimes(2))
+  expect(patch.mock.calls[1][1]).toEqual(patch.mock.calls[0][1])
+})
+
+it('prices an existing unconfigured exact metadata row through Add', async () => {
+  const { user, patch } = await renderSettings(true, [
+    {
+      model_name: 'new',
+      version: 'new-metadata-v1',
+      configured: {},
+      effective: {},
+      has_metadata: true,
+      billing_currency: 'CNY',
+    },
+  ])
+  await user.click(screen.getByRole('button', { name: 'Switch to Visual' }))
+  await user.click(screen.getAllByRole('button', { name: 'Add model' })[0])
+  await user.type(screen.getByRole('textbox', { name: 'Model name' }), ' new ')
+  await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+  await waitFor(() =>
+    expect(patch).toHaveBeenCalledWith('/api/option/model_pricing', {
+      changes: [
+        expect.objectContaining({
+          model_name: 'new',
+          expected_version: 'new-metadata-v1',
+          billing_currency: 'CNY',
+        }),
+      ],
+    })
+  )
+})
+
+it('does not remove a built-in-only row or submit it as a removal', async () => {
+  const { user, patch } = await renderSettings(false, [
+    {
+      model_name: 'builtin',
+      version: 'b1',
+      configured: {},
+      effective: { ModelPrice: 1 },
+      has_metadata: true,
+      billing_currency: 'USD',
+    },
+  ])
+  await user.click(screen.getByRole('button', { name: 'Switch to Visual' }))
+  await user.click(screen.getByRole('button', { name: 'Open menu' }))
+  await user.click(
+    await screen.findByRole('menuitem', { name: /Remove pricing override/ })
+  )
+  expect(
+    await screen.findByText(
+      'This model uses built-in defaults and has no pricing override to remove.'
+    )
+  ).toBeVisible()
+  expect(screen.getByRole('row', { name: /builtin/ })).toBeVisible()
+  expect(patch).not.toHaveBeenCalled()
+})
+
+it('does not guess a source currency in an existing metadata row editor', async () => {
+  const { user, patch } = await renderSettings(false, [
+    {
+      model_name: 'unknown-currency',
+      version: 'u1',
+      configured: { ModelPrice: 1 },
+      effective: { ModelPrice: 1 },
+      has_metadata: true,
+    },
+  ])
+  await user.click(screen.getByRole('button', { name: 'Switch to Visual' }))
+  await user.click(await screen.findByRole('button', { name: 'Edit' }))
+  expect(
+    screen.getByRole('button', { name: 'Save model prices' })
+  ).toBeDisabled()
+  expect(patch).not.toHaveBeenCalled()
+})

@@ -32,6 +32,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   buildPricingChanges,
   isSeedanceManagedPricingModel,
+  isPricingMetadataEligible,
+  pricingMetadataRequired,
   useModelPricing,
   useSaveModelPricing,
   type ModelPricingConfig,
@@ -272,15 +274,26 @@ export function RatioSettingsCard({
   const resetMutation = useMutation({
     mutationFn: async () => {
       if (!pricingBaseline) return false
-      const changes = pricingBaseline.entries
-        .filter((entry) => !isSeedanceManagedPricingModel(entry.model_name))
-        .map((entry) => ({
-          model_name: entry.model_name,
-          expected_version: entry.version,
-          pricing: {},
-          billing_currency: entry.billing_currency,
-          reset: true,
-        }))
+      const overrides = pricingBaseline.entries.filter(
+        (entry) =>
+          !isSeedanceManagedPricingModel(entry.model_name) &&
+          Object.keys(entry.configured).length > 0
+      )
+      const blockers = overrides.filter(
+        (entry) => !isPricingMetadataEligible(entry)
+      )
+      if (blockers.length) {
+        throw new Error(
+          pricingMetadataRequired(blockers.map((entry) => entry.model_name))
+        )
+      }
+      const changes = overrides.map((entry) => ({
+        model_name: entry.model_name,
+        expected_version: entry.version,
+        pricing: {},
+        billing_currency: entry.billing_currency,
+        reset: true,
+      }))
       if (!changes.length) return false
       await savePricing.mutateAsync(changes)
       const refreshed = await pricingQuery.refetch()
@@ -638,6 +651,7 @@ export function RatioSettingsCard({
             isResetting={resetMutation.isPending}
             variant={tab === 'unset-models' ? 'unset' : 'default'}
             currencyOverrides={currencyOverrides}
+            metadataEntries={pricingBaseline.entries}
             onBillingCurrencyChange={(modelName, currency) =>
               setCurrencyOverrides((current) => ({
                 ...current,
@@ -717,9 +731,9 @@ export function RatioSettingsCard({
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title={t('Reset all model prices?')}
+        title={t('Reset eligible pricing overrides?')}
         desc={t(
-          'This will clear custom pricing ratios and revert to upstream defaults.'
+          'This clears persisted overrides with exact metadata only. Built-in defaults and dedicated Seedance pricing are unchanged. If any override is ineligible, nothing is reset.'
         )}
         destructive
         isLoading={resetMutation.isPending}

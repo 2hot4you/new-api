@@ -87,6 +87,8 @@ describe('shared model pricing', () => {
       entries: [
         {
           model_name: 'edited',
+          has_metadata: true,
+          billing_currency: 'USD',
           version: 'v1',
           configured: { ModelPrice: 1 },
           effective: { ModelPrice: 1 },
@@ -164,6 +166,8 @@ it('tracks nested provider prices by model, preserves :: in model names, and ign
     entries: [
       {
         model_name: 'shared::model',
+        has_metadata: true,
+        billing_currency: 'USD',
         version: 'v1',
         configured: { [key]: { alpha: 'u("seconds")', beta: 'u("credits")' } },
         effective: {},
@@ -299,6 +303,7 @@ it('excludes dedicated Seedance edits and currencies while retaining ordinary sa
     entries: [
       {
         model_name: 'ordinary',
+        has_metadata: true,
         version: 'ordinary-v1',
         configured: { ModelPrice: 1, CacheRatio: 0 },
         effective: {},
@@ -313,28 +318,133 @@ it('excludes dedicated Seedance edits and currencies while retaining ordinary sa
       },
     ],
   }
-  expect(
+  expect(() =>
     buildPricingChanges(snapshot, before, after, {
       [protectedNames[0]]: 'CNY',
       ordinary: 'USD',
     })
-  ).toEqual([
-    {
-      model_name: 'ordinary',
-      expected_version: 'ordinary-v1',
-      pricing: { ModelPrice: 2, CacheRatio: 0 },
-      billing_currency: 'USD',
-    },
-    {
-      model_name: 'added',
-      expected_version: 'empty-version',
-      pricing: { ModelPrice: 0 },
-      billing_currency: 'USD',
-    },
-  ])
+  ).toThrow(/missing.*added/)
   expect(
     buildPricingChanges(snapshot, before, before, {
       [protectedNames[0]]: 'CNY',
     })
   ).toEqual([])
+})
+
+it.each([false, undefined])(
+  'rejects a dirty model when metadata eligibility is %s',
+  (has_metadata) => {
+    const before = pricingOptions({ ModelPrice: '{"missing":1}' })
+    const snapshot: ModelPricingConfig = {
+      options: before,
+      empty_version: 'empty',
+      entries: [
+        {
+          model_name: 'missing',
+          version: 'v1',
+          configured: { ModelPrice: 1 },
+          effective: {},
+          has_metadata,
+        },
+      ],
+    }
+    expect(() =>
+      buildPricingChanges(snapshot, before, pricingOptions({}))
+    ).toThrow(/missing/)
+  }
+)
+
+it('adds pricing for unconfigured exact metadata using its original version and currency', () => {
+  const before = pricingOptions({})
+  const snapshot: ModelPricingConfig = {
+    options: before,
+    empty_version: 'empty',
+    entries: [
+      {
+        model_name: 'new',
+        version: 'metadata-v1',
+        configured: {},
+        effective: {},
+        has_metadata: true,
+        billing_currency: 'CNY',
+      },
+    ],
+  }
+  expect(
+    buildPricingChanges(
+      snapshot,
+      before,
+      pricingOptions({ ModelPrice: '{"new":2}' })
+    )
+  ).toEqual([
+    {
+      model_name: 'new',
+      expected_version: 'metadata-v1',
+      pricing: { ModelPrice: 2 },
+      billing_currency: 'CNY',
+    },
+  ])
+})
+
+it('does not block a valid change for an untouched metadata-less built-in row', () => {
+  const before = pricingOptions({ ModelPrice: '{"ordinary":1,"builtin":3}' })
+  const snapshot: ModelPricingConfig = {
+    options: before,
+    empty_version: 'empty',
+    entries: [
+      {
+        model_name: 'ordinary',
+        version: 'original-v1',
+        configured: { ModelPrice: 1 },
+        effective: {},
+        has_metadata: true,
+        billing_currency: 'CNY',
+      },
+      {
+        model_name: 'builtin',
+        version: 'empty',
+        configured: {},
+        effective: { ModelPrice: 3 },
+        has_metadata: false,
+      },
+    ],
+  }
+  expect(
+    buildPricingChanges(
+      snapshot,
+      before,
+      pricingOptions({ ModelPrice: '{"ordinary":2,"builtin":3}' })
+    )
+  ).toEqual([
+    {
+      model_name: 'ordinary',
+      expected_version: 'original-v1',
+      pricing: { ModelPrice: 2 },
+      billing_currency: 'CNY',
+    },
+  ])
+})
+
+it('rejects unknown source currency even when exact metadata exists', () => {
+  const before = pricingOptions({})
+  const snapshot: ModelPricingConfig = {
+    options: before,
+    empty_version: 'empty',
+    entries: [
+      {
+        model_name: 'unknown-currency',
+        version: 'v1',
+        configured: {},
+        effective: {},
+        has_metadata: true,
+      },
+    ],
+  }
+  expect(() =>
+    buildPricingChanges(
+      snapshot,
+      before,
+      pricingOptions({ ModelPrice: '{"unknown-currency":2}' })
+    )
+  ).toThrow(/unknown-currency/)
 })
