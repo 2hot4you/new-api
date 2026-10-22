@@ -12,6 +12,8 @@
 - Tests first, preserve unrelated work, no pushes or code deployments authorized this turn.
 - Existing root session, strict origin, verifier validation and dedicated Seedance backend guard remain intact.
 
+2026-10-22 scope amendment: user explicitly approved backing up/removing ONLY the two DEV claude-opus-4-6 expression/mode leaves, followed by commit/push of current feature branch. All other price changes, sync apply/restore and additional merges remain excluded. Offline maintenance scripts and real isolated PostgreSQL safety tests are added under ops/.
+
 ## Review focus
 - Mixed generic/Seedance selections must not reject the generic save or falsely report protected entries saved.
 - Bulk selection respects filtered pages and disabled state and omits dedicated models from counts.
@@ -40,3 +42,7 @@ Own: web/src/features/model-pricing/api.ts, its __tests__/pricing.test.ts; web/s
 - [ ] Two independent read-only reviews (external wrapper unavailable, disclose fallback) for source diff and operational plan; fix scoped findings.
 - [ ] Relevant and complete frontend tests, typecheck, changed-file lint, translation check, production build.
 - [ ] Archive task and local commits. Final clearly separates local code fix from live runtime setup; no automatic push/deployment.
+
+## Completion receipt
+
+Tasks 1–3 completed and independently reviewed. Task 4 targeted verification is green; broad suite/lint limits are explicitly reported in review.md rather than claimed passing. Exact user-approved DEV cleanup completed with durable 0600 raw backup and healthy same-container restart. Source-first provisioning passed immutable image/config checks, real fixed-transport export validation, both public health checks, and authenticated browser target/management-ready checks. No catalog apply/restore submitted. Archive and explicitly authorized feature-branch push close the task; no develop/main merge.
