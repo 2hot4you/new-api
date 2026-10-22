@@ -45,6 +45,14 @@ import { UpstreamRatioSyncTable } from '../models/upstream-ratio-sync-table'
 import type { PricingSyncModels } from '../types'
 
 const expression = 'tier("base", p * 2 + c * 8 + cr * 0)'
+const dedicatedModels = [
+  'doubao-seedance-2-0-260128',
+  'doubao-seedance-2-0-fast-260128',
+  'doubao-seedance-2-0-mini-260615',
+  'doubao-seedance-2-5-260628',
+]
+const dedicatedGuidance =
+  'This model is priced in the Seedance 2.0 tab. Update its price matrix there; the billing expression is generated automatically.'
 const differences = {
   m: {
     model_ratio: {
@@ -75,9 +83,10 @@ const prices: PricingSyncModels = {
 function TableFixture(props: {
   prices: PricingSyncModels
   disabled?: boolean
+  initialSelectedSources?: PricingSourceSelections
 }) {
   const [selectedSources, setSelectedSources] =
-    useState<PricingSourceSelections>({})
+    useState<PricingSourceSelections>(props.initialSelectedSources ?? {})
   return (
     <UpstreamRatioSyncTable
       prices={props.prices}
@@ -108,6 +117,61 @@ function TableFixture(props: {
 afterEach(cleanup)
 
 describe('pricing synchronization', () => {
+  it('guides all dedicated Seedance models to their tab without individual or stale generic selections', () => {
+    render(
+      <TableFixture
+        prices={Object.fromEntries(
+          dedicatedModels.map((model) => [model, prices.m])
+        )}
+        initialSelectedSources={Object.fromEntries(
+          dedicatedModels.map((model) => [model, 'upstream'])
+        )}
+      />
+    )
+    for (const model of dedicatedModels) {
+      const row = screen.getByRole('row', { name: new RegExp(`^${model} `) })
+      expect(within(row).queryByRole('checkbox')).not.toBeInTheDocument()
+      expect(within(row).getByText(dedicatedGuidance)).toBeVisible()
+    }
+    expect(
+      screen.getByRole('checkbox', { name: /Select all prices from upstream$/ })
+    ).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByText('0/0')).toBeVisible()
+  })
+
+  it('excludes dedicated Seedance models from mixed bulk selections and filtered eligible counts', async () => {
+    render(
+      <TableFixture
+        prices={{
+          ...prices,
+          ...Object.fromEntries(
+            dedicatedModels.map((model) => [model, prices.m])
+          ),
+        }}
+      />
+    )
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole('checkbox', { name: /Select all prices from upstream$/ })
+    )
+    expect(screen.getByText('1/1')).toBeVisible()
+    expect(
+      screen.getByRole('checkbox', {
+        name: /Select price for m from upstream$/,
+      })
+    ).toBeChecked()
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search models' }),
+      'doubao'
+    )
+    expect(await screen.findByText('0/0')).toBeVisible()
+    expect(
+      screen.getByRole('checkbox', { name: /Select all prices from upstream$/ })
+    ).toHaveAttribute('aria-disabled', 'true')
+    await user.clear(screen.getByRole('textbox', { name: 'Search models' }))
+    expect(await screen.findByText('1/1')).toBeVisible()
+  })
+
   it('includes the visible localized bulk action in its accessible name', async () => {
     i18next.addResourceBundle(
       'fr',
@@ -306,15 +370,21 @@ describe('pricing synchronization', () => {
       ...original(query),
       matches: query === '(max-width: 640px)',
     }))
-    render(<TableFixture prices={prices} />)
+    render(
+      <TableFixture
+        prices={{ ...prices, 'doubao-seedance-2-0-260128': prices.m }}
+      />
+    )
     const user = userEvent.setup()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByText(dedicatedGuidance)).toBeVisible()
     expect(screen.getByText('m')).toBeVisible()
     expect(screen.getByText('Select', { exact: true })).toBeVisible()
     expect(screen.getByText('Select all', { exact: true })).toBeVisible()
     await user.click(
       screen.getByRole('checkbox', { name: /Select all prices from upstream$/ })
     )
+    expect(screen.getByText('1/1')).toBeVisible()
     const source = screen.getByRole('checkbox', {
       name: /Select price for m from upstream$/,
     })
@@ -476,6 +546,20 @@ describe('pricing synchronization', () => {
             },
           },
           prices: {
+            ...Object.fromEntries(
+              dedicatedModels.map((model) => [
+                model,
+                {
+                  current: {},
+                  upstreams: {
+                    'Upstream(7)': {
+                      billing_mode: 'tiered_expr',
+                      billing_expr: expression,
+                    },
+                  },
+                },
+              ])
+            ),
             m: {
               current: {
                 model_ratio: 1,
@@ -524,7 +608,7 @@ describe('pricing synchronization', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm Selection' }))
     await user.click(
       await screen.findByRole('checkbox', {
-        name: /Select price for m from Upstream\(7\)$/,
+        name: /Select all prices from Upstream\(7\)$/,
       })
     )
     expect(screen.getByText('1 selected models')).toBeVisible()
@@ -539,6 +623,9 @@ describe('pricing synchronization', () => {
     const preview = screen.getByRole('alertdialog', {
       name: 'Preview price changes',
     })
+    for (const model of dedicatedModels) {
+      expect(within(preview).queryByText(model)).not.toBeInTheDocument()
+    }
     expect(within(preview).getByText(/Expression pricing/)).toHaveTextContent(
       'Input: $2'
     )
@@ -561,7 +648,7 @@ describe('pricing synchronization', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm Selection' }))
     await user.click(
       await screen.findByRole('checkbox', {
-        name: /Select price for m from Upstream\(7\)$/,
+        name: /Select all prices from Upstream\(7\)$/,
       })
     )
     await user.click(screen.getByRole('button', { name: 'Apply Sync' }))
@@ -570,8 +657,11 @@ describe('pricing synchronization', () => {
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     )
     expect(
-      await screen.findByText('No upstream price differences found')
-    ).toBeVisible()
+      screen.queryByText('No upstream price differences found')
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByText(dedicatedGuidance)).toHaveLength(4)
+    expect(screen.getByText('0/0')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Apply Sync' })).toBeDisabled()
     expect(patch).toHaveBeenLastCalledWith('/api/option/model_pricing', {
       changes: [
         {

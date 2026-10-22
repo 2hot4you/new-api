@@ -29,6 +29,7 @@ import {
   getModelPricing,
   saveModelPricing,
   invalidateModelPricing,
+  isSeedanceManagedPricingModel,
   type ModelPricingConfig,
 } from '@/features/model-pricing/api'
 import { applyPriceSyncSelections } from '@/features/model-pricing/pricing'
@@ -112,12 +113,14 @@ export function UpstreamRatioSync() {
     () =>
       Object.fromEntries(
         Object.entries(selectedSources).flatMap(([name, source]) => {
+          if (isSeedanceManagedPricingModel(name)) return []
           const values = prices[name]?.upstreams[source]
           return values ? [[name, { ...values }]] : []
         })
       ) as Record<string, Record<string, number | string>>,
     [selectedSources, prices]
   )
+  const selectedCount = Object.keys(resolutions).length
   const fetchMutation = useMutation({
     mutationFn: async (request: Parameters<typeof fetchUpstreamRatios>[0]) => {
       const response = await fetchUpstreamRatios(request)
@@ -173,6 +176,13 @@ export function UpstreamRatioSync() {
   const syncMutation = useMutation({
     mutationFn: async () => {
       if (!pricingBaseline) throw new Error(t('Reload pricing'))
+      if (!selectedCount) {
+        throw new Error(
+          t(
+            'This model is priced in the Seedance 2.0 tab. Update its price matrix there; the billing expression is generated automatically.'
+          )
+        )
+      }
       const after = applyPriceSyncSelections(
         pricingBaseline.options,
         resolutions
@@ -244,6 +254,7 @@ export function UpstreamRatioSync() {
           ...selections
             .filter(
               (selection) =>
+                !isSeedanceManagedPricingModel(selection.model) &&
                 prices[selection.model]?.upstreams[selection.source]
             )
             .map((selection) => [selection.model, selection.source]),
@@ -262,6 +273,7 @@ export function UpstreamRatioSync() {
   const handleApplySync = () => {
     const previews: ConflictItem[] = Object.entries(selectedSources).flatMap(
       ([model, source]) => {
+        if (!resolutions[model]) return []
         const row = prices[model]
         const selected: PricingSyncValues | undefined = row?.upstreams[source]
         if (!row || !selected) return []
@@ -275,6 +287,7 @@ export function UpstreamRatioSync() {
         ]
       }
     )
+    if (!previews.length) return
     setConflictItems(previews)
     setConflictDialogOpen(true)
   }
@@ -323,10 +336,10 @@ export function UpstreamRatioSync() {
         <div className='flex flex-wrap items-center gap-2'>
           <span className='text-muted-foreground text-sm' role='status'>
             {t('{{count}} selected models', {
-              count: Object.keys(selectedSources).length,
+              count: selectedCount,
             })}
           </span>
-          {Object.keys(selectedSources).length > 0 && (
+          {selectedCount > 0 && (
             <Button
               variant='ghost'
               size='sm'
@@ -339,11 +352,7 @@ export function UpstreamRatioSync() {
         </div>
         <Button
           onClick={handleApplySync}
-          disabled={
-            !pricingBaseline ||
-            !Object.keys(selectedSources).length ||
-            isLoading
-          }
+          disabled={!pricingBaseline || !selectedCount || isLoading}
         >
           <CheckSquare className='size-4' aria-hidden />
           {t('Apply Sync')}

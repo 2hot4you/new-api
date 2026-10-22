@@ -276,3 +276,65 @@ it('commits source provider edits while preserving target providers during batch
     'beta::target': '2',
   })
 })
+
+it('excludes dedicated Seedance edits and currencies while retaining ordinary save safeguards', () => {
+  const protectedNames = [
+    'doubao-seedance-2-0-260128',
+    'doubao-seedance-2-0-fast-260128',
+    'doubao-seedance-2-0-mini-260615',
+    'doubao-seedance-2-5-260628',
+  ]
+  const before = pricingOptions({ ModelPrice: '{"ordinary":1,"missing":1}' })
+  const after = pricingOptions({
+    ModelPrice: JSON.stringify({
+      ordinary: 2,
+      missing: 2,
+      added: 0,
+      ...Object.fromEntries(protectedNames.map((name) => [name, 99])),
+    }),
+  })
+  const snapshot: ModelPricingConfig = {
+    options: before,
+    empty_version: 'empty-version',
+    entries: [
+      {
+        model_name: 'ordinary',
+        version: 'ordinary-v1',
+        configured: { ModelPrice: 1, CacheRatio: 0 },
+        effective: {},
+        billing_currency: 'CNY',
+      },
+      {
+        model_name: 'missing',
+        version: 'missing-v1',
+        configured: { ModelPrice: 1 },
+        effective: {},
+        has_metadata: false,
+      },
+    ],
+  }
+  expect(
+    buildPricingChanges(snapshot, before, after, {
+      [protectedNames[0]]: 'CNY',
+      ordinary: 'USD',
+    })
+  ).toEqual([
+    {
+      model_name: 'ordinary',
+      expected_version: 'ordinary-v1',
+      pricing: { ModelPrice: 2, CacheRatio: 0 },
+      billing_currency: 'USD',
+    },
+    {
+      model_name: 'added',
+      expected_version: 'empty-version',
+      pricing: { ModelPrice: 0 },
+      billing_currency: 'USD',
+    },
+  ])
+  expect(
+    buildPricingChanges(snapshot, before, before, {
+      [protectedNames[0]]: 'CNY',
+    })
+  ).toEqual([])
+})
