@@ -1,0 +1,16 @@
+{
+  "id": "audit-upstream-rc46",
+  "title": "评估自定义 new-api 从 rc.40 基线升级到 rc.46",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "upgrade-assessment",
+  "currentPhase": "completed",
+  "nextAction": "升级评估已完成并归档；等待用户选择是否实施，本轮不升级、不push或部署",
+  "createdAt": "2026-10-22",
+  "branch": "upgrade/rc40",
+  "baseline": "origin/develop c2442919e29403123cf8e5bcd15eea4db4dcc3e6; origin/main 936aade39dcbb79071473a20cc16df96fcdd3e8a",
+  "upstreamBase": "v1.0.0-rc.40 0aec08fee811ec6136828fda790551b49e410301",
+  "upstreamTarget": "v1.0.0-rc.46 7d8b91268dab69d7150f345c448b5e250163146a",
+  "constraints": "不使用 antigravity/Claude 外部执行器；仅原生 Codex 分域分析；只考虑 PostgreSQL 验证；保留用户改动；不 push、不部署、不修改配置或价格。"
+}
