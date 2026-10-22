@@ -1,0 +1,12 @@
+{
+  "id": "pricing-sync-selection-controls",
+  "title": "Make upstream pricing model selection and bulk selection visible",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "Await user authorization to push or deploy; unrelated icon-test failures recorded in review.md",
+  "createdAt": "2026-10-22T06:25:00Z",
+  "branch": "fix/pricing-sync-selection-controls"
+}
