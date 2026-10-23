@@ -1,0 +1,9 @@
+# Local handoff — 2026-10-23T03:24Z
+
+Implementation commit: `6e085d8bbee1234253f97e70bc8c86a14bd04704` on local `fix/orphan-pricing-removal`, based on `a8e31cc443003d87b87a0e59627a34440f93044a` (application baseline9a27). This task is complete for the approved local implementation scope. No remote branch was pushed or merged, no workflow triggered, no live pricing removed and no original browser draft changed. Previous automation remains outside this task and is not resumed.
+
+Verification accepted: full web328files/3098tests; full required PostgreSQL normal and race gates each1668mandatory tests/subtests/40selections plus independent2685+568+7tests; real SQLite/MySQL/PostgreSQL focused matrix18scenario children normal and race, zero skips; types/lint/format, frontend production build, Go vet/build, i18n, site-brand7tests and deployment contracts29tests/192assertions. Both task and both final integrated reviews passed; see verification.md and review.md for limits and evidence.
+
+After both gates exited0, stopped only exact owned disposable `--rm` containers `8e8f258d34296c09c824162d2a6b18e420c414cbf87491d7112071835f718890`, `8a71e5ed0cf25e5c78f8df8c75473889734f486ca519a85ddfd8e2bfcfd79938` and `da07bbf8cd56c9f8705ddd62be71c5e22b1a360864de8e9822d8a812352c2b48`. Their nonpersistent test data was removed; evidence logs retained in `/tmp/molii-orphan-pricing-verify.rEjIk6/`. Existing user `molii-new-api-dev-postgres` and `molii-new-api-dev-redis` remained healthy and untouched.
+
+Preserved all pre-existing task-file deletions and untracked duplicate files, including the user's duplicate frontend test. Only seven explicit implementation/spec paths were staged for the fix commit. Archive contains only this task's own records. Worktree retained for any subsequent user-authorized integration. Do not infer permission to push/merge/deploy, apply/remove production pricing, create metadata, modify currency or restart services.

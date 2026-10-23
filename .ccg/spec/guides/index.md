@@ -28,6 +28,7 @@
 
 - A model appearing in a compiled/default pricing snapshot does not prove exact writable metadata or source currency exists. Missing prerequisites are not mutation pending. Preflight every dirty batch before any write, preserve rejected drafts, and retain an independent save action when removing the selected or final override closes its editor. Removing an override must not be represented as deleting a builtin model/default.
 - Successful source/target export does not prove prospective catalog pricing is compatible. Preserve task-usage versus fixed-request pricing rejection; carry a typed allowlisted conflict from its validation origin to sanitized management feedback, leaving unknown failures redacted. Failed unsent previews must invalidate stale apply choices without discarding durable operation/receipt recovery.
+- Orphan-price cleanup needs explicit removal-only intent, separate from ordinary save or Reset. Compare against the public read version, using absent-metadata fallback currency only for that comparison; never write guessed metadata/currency. Detached pricing maps already contain inherited defaults, so remove leaves only from actually persisted option maps and leave absent maps absent. Prove default-only removal is a storage/runtime no-op and mixed stale/invalid batches remain atomic across all three database engines.
 
 ## Upstream upgrade acceptance
 

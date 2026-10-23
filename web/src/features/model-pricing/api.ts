@@ -103,6 +103,7 @@ export type ModelPricingChange = {
   pricing: PricingValues
   billing_currency?: SourcePricingCurrency
   reset?: boolean
+  remove?: boolean
 }
 
 export type ModelPricingConversion = Partial<ModelPricingDescription> & {
@@ -240,10 +241,6 @@ export function buildPricingChanges(
       billingCurrency !== undefined &&
       billingCurrency !== entry?.billing_currency
     if (!dirty.length && !currencyDirty) continue
-    if (!isPricingMetadataEligible(entry)) {
-      blockers.push(name)
-      continue
-    }
     const pricing = { ...entry?.configured }
     for (const key of dirty) {
       delete pricing[key]
@@ -255,6 +252,24 @@ export function buildPricingChanges(
       pricing['billing_setting.billing_mode'] = 'tiered_expr'
       pricing['billing_setting.billing_expr'] =
         newValues['billing_setting.billing_expr']
+    }
+    if (!isPricingMetadataEligible(entry)) {
+      if (
+        entry?.has_metadata === false &&
+        Object.keys(entry.configured).length > 0 &&
+        Object.keys(pricing).length === 0 &&
+        !Object.hasOwn(currencyOverrides, name)
+      ) {
+        changes.push({
+          model_name: name,
+          expected_version: entry.version,
+          pricing: {},
+          remove: true,
+        })
+      } else {
+        blockers.push(name)
+      }
+      continue
     }
     changes.push({
       model_name: name,

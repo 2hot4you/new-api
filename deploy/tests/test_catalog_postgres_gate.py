@@ -425,6 +425,7 @@ GROUPS = [
     "name": "model-runtime-pg",
     "pkg": "./model",
     "tests": [
+      "TestModelPricingRemovalDatabaseMatrix",
       "TestCatalogRuntimeOrdinaryWriters",
       "TestCatalogRuntimeModelPricingSave",
       "TestCatalogRuntimeModelPricingOptions",

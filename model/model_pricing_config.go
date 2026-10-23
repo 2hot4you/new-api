@@ -32,6 +32,7 @@ type ModelPricingChange struct {
 	Pricing         PricingValues `json:"pricing"`
 	BillingCurrency string        `json:"billing_currency"`
 	Reset           bool          `json:"reset,omitempty"`
+	Remove          bool          `json:"remove,omitempty"`
 }
 
 type ModelPricingEntry struct {
@@ -591,6 +592,14 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 		if ratio_setting.IsStarAIVideoPricingModel(change.ModelName) {
 			return seedancePricingManagedError(change.ModelName)
 		}
+		if change.Remove {
+			if strings.TrimSpace(change.ModelName) == "" {
+				return errors.New("Model name cannot be empty")
+			}
+			if change.Reset || len(change.Pricing) != 0 || strings.TrimSpace(change.BillingCurrency) != "" {
+				return errors.New("Invalid parameters")
+			}
+		}
 		if seen[change.ModelName] {
 			return errors.New("duplicate model pricing change")
 		}
@@ -603,6 +612,28 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 		defaults := defaultPricingMaps()
 		for _, change := range changes {
 			currentCurrency := draft.previous.currencies[change.ModelName]
+			if change.Remove {
+				// Match the read projection's absent-metadata USD fallback only
+				// for CAS; removal never grants currency/metadata write authority.
+				currency := string(currentCurrency.BillingCurrency)
+				if !currentCurrency.HasMetadata {
+					currency = "USD"
+				}
+				previous := modelPricingValues(draft.values, change.ModelName)
+				if modelPricingVersion(previous, currency) != change.ExpectedVersion {
+					return fmt.Errorf("%w: %s", ErrModelPricingConflict, change.ModelName)
+				}
+				// Only actual stored maps may lose leaves. Absent maps inherit
+				// compiled defaults and must remain absent and unchanged.
+				stored := make(map[string]map[string]any)
+				for _, key := range modelPricingOptionKeys {
+					if _, exists := draft.previous.options[key]; exists {
+						stored[key] = draft.values[key]
+					}
+				}
+				replaceModelPricing(stored, change.ModelName, nil)
+				continue
+			}
 			if !currentCurrency.HasMetadata {
 				return fmt.Errorf("model %s exact metadata is required before saving pricing", change.ModelName)
 			}
