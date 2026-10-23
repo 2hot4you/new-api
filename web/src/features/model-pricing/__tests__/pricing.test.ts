@@ -331,7 +331,7 @@ it('excludes dedicated Seedance edits and currencies while retaining ordinary sa
   ).toEqual([])
 })
 
-it.each([false, undefined])(
+it.each([undefined])(
   'rejects a dirty model when metadata eligibility is %s',
   (has_metadata) => {
     const before = pricingOptions({ ModelPrice: '{"missing":1}' })
@@ -353,6 +353,233 @@ it.each([false, undefined])(
     ).toThrow(/missing/)
   }
 )
+
+describe('orphan pricing removal', () => {
+  it('removes the exact qwen pair without guessing currency or changing versions', () => {
+    const before = pricingOptions({
+      ModelRatio: '{"qwen3.7-max":0.6,"qwen3.8-max":0}',
+      CompletionRatio: '{"qwen3.7-max":3,"qwen3.8-max":4}',
+    })
+    const snapshot: ModelPricingConfig = {
+      options: before,
+      empty_version: 'empty',
+      entries: [
+        {
+          model_name: 'qwen3.7-max',
+          version: 'qwen37-original',
+          has_metadata: false,
+          configured: { ModelRatio: 0.6, CompletionRatio: 3 },
+          effective: { ModelRatio: 0.6, CompletionRatio: 3 },
+        },
+        {
+          model_name: 'qwen3.8-max',
+          version: 'qwen38-original',
+          has_metadata: false,
+          configured: { ModelRatio: 0, CompletionRatio: 4 },
+          effective: { ModelRatio: 0, CompletionRatio: 4 },
+        },
+      ],
+    }
+    expect(buildPricingChanges(snapshot, before, pricingOptions({}))).toEqual([
+      {
+        model_name: 'qwen3.7-max',
+        expected_version: 'qwen37-original',
+        pricing: {},
+        remove: true,
+      },
+      {
+        model_name: 'qwen3.8-max',
+        expected_version: 'qwen38-original',
+        pricing: {},
+        remove: true,
+      },
+    ])
+  })
+
+  it('removes plugin-only orphan pricing without manufacturing model pricing', () => {
+    const before = pricingOptions({
+      PluginBillingExpr:
+        '{"alpha::orphan::model":"u(\\"seconds\\")","beta::orphan::model":"2","alpha::untouched":"3"}',
+    })
+    const snapshot: ModelPricingConfig = {
+      options: before,
+      empty_version: 'empty',
+      entries: [
+        {
+          model_name: 'orphan::model',
+          version: 'plugin-original',
+          has_metadata: false,
+          billing_currency: 'CNY',
+          configured: {
+            'billing_setting.plugin_billing_expr': {
+              alpha: 'u("seconds")',
+              beta: '2',
+            },
+          },
+          effective: {},
+        },
+      ],
+    }
+    expect(
+      buildPricingChanges(
+        snapshot,
+        before,
+        pricingOptions({ PluginBillingExpr: '{"alpha::untouched":"3"}' })
+      )
+    ).toEqual([
+      {
+        model_name: 'orphan::model',
+        expected_version: 'plugin-original',
+        pricing: {},
+        remove: true,
+      },
+    ])
+  })
+
+  it.each([
+    ['unknown entry', undefined],
+    ['unknown metadata eligibility', undefined as boolean | undefined],
+    ['metadata with unknown currency', true],
+  ])('rejects removal with %s', (reason, has_metadata) => {
+    const before = pricingOptions({ ModelPrice: '{"orphan":1}' })
+    const snapshot: ModelPricingConfig = {
+      options: before,
+      empty_version: 'empty',
+      entries:
+        reason === 'unknown entry'
+          ? []
+          : [
+              {
+                model_name: 'orphan',
+                version: 'v1',
+                configured: { ModelPrice: 1 },
+                effective: {},
+                has_metadata,
+              },
+            ],
+    }
+    expect(() =>
+      buildPricingChanges(snapshot, before, pricingOptions({}))
+    ).toThrow(/orphan/)
+  })
+
+  it.each([
+    ['edited price', { ModelPrice: '{"orphan":2}' }],
+    ['partial model removal', { CacheRatio: '{"orphan":0.5}' }],
+    ['partial provider removal', { PluginBillingExpr: '{"beta::orphan":"2"}' }],
+    ['new price', { ModelPrice: '{"orphan":2}' }],
+  ])('rejects %s without metadata', (reason, after) => {
+    const configured =
+      reason === 'new price'
+        ? {}
+        : {
+            ModelPrice: 1,
+            CacheRatio: 0.5,
+            'billing_setting.plugin_billing_expr': { alpha: '1', beta: '2' },
+          }
+    const before = pricingOptions(
+      reason === 'new price'
+        ? {}
+        : {
+            ModelPrice: '{"orphan":1}',
+            CacheRatio: '{"orphan":0.5}',
+            PluginBillingExpr: '{"alpha::orphan":"1","beta::orphan":"2"}',
+          }
+    )
+    const snapshot: ModelPricingConfig = {
+      options: before,
+      empty_version: 'empty',
+      entries: [
+        {
+          model_name: 'orphan',
+          version: 'v1',
+          has_metadata: false,
+          configured,
+          effective: {},
+        },
+      ],
+    }
+    expect(() =>
+      buildPricingChanges(snapshot, before, pricingOptions(after))
+    ).toThrow(/orphan/)
+  })
+
+  it('checks the complete configured result, not only the removed visible field', () => {
+    const before = pricingOptions({ ModelPrice: '{"orphan":1}' })
+    const snapshot: ModelPricingConfig = {
+      options: before,
+      empty_version: 'empty',
+      entries: [
+        {
+          model_name: 'orphan',
+          version: 'v1',
+          has_metadata: false,
+          configured: { ModelPrice: 1, CacheRatio: 0.5 },
+          effective: {},
+        },
+      ],
+    }
+    expect(() =>
+      buildPricingChanges(snapshot, before, pricingOptions({}))
+    ).toThrow(/orphan/)
+    snapshot.entries[0].configured = {}
+    expect(() =>
+      buildPricingChanges(snapshot, before, pricingOptions({}))
+    ).toThrow(/orphan/)
+  })
+
+  it.each(['USD', 'CNY', undefined] as const)(
+    'rejects complete removal with explicit currency intent %s',
+    (currency) => {
+      const before = pricingOptions({ ModelPrice: '{"orphan":1}' })
+      const snapshot: ModelPricingConfig = {
+        options: before,
+        empty_version: 'empty',
+        entries: [
+          {
+            model_name: 'orphan',
+            version: 'v1',
+            has_metadata: false,
+            billing_currency: 'CNY',
+            configured: { ModelPrice: 1 },
+            effective: {},
+          },
+        ],
+      }
+      expect(() =>
+        buildPricingChanges(snapshot, before, pricingOptions({}), {
+          orphan: currency,
+        })
+      ).toThrow(/orphan/)
+    }
+  )
+
+  it('keeps the ordinary payload when exact metadata and currency exist', () => {
+    const before = pricingOptions({ ModelPrice: '{"ordinary":1}' })
+    const snapshot: ModelPricingConfig = {
+      options: before,
+      empty_version: 'empty',
+      entries: [
+        {
+          model_name: 'ordinary',
+          version: 'ordinary-original',
+          has_metadata: true,
+          billing_currency: 'CNY',
+          configured: { ModelPrice: 1 },
+          effective: {},
+        },
+      ],
+    }
+    expect(buildPricingChanges(snapshot, before, pricingOptions({}))).toEqual([
+      {
+        model_name: 'ordinary',
+        expected_version: 'ordinary-original',
+        pricing: {},
+        billing_currency: 'CNY',
+      },
+    ])
+  })
+})
 
 it('adds pricing for unconfigured exact metadata using its original version and currency', () => {
   const before = pricingOptions({})

@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState, type ReactNode } from 'react'
 import { toast, Toaster } from 'sonner'
@@ -101,8 +107,9 @@ async function renderSettings(
     .mockImplementation(async (_url, request) => {
       const changes = (request as { changes: ModelPricingChange[] }).changes
       for (const change of changes) {
-        if (change.reset) delete prices[change.model_name]
-        else prices[change.model_name] = Number(change.pricing.ModelPrice)
+        if (change.reset || change.remove) {
+          delete prices[change.model_name]
+        } else prices[change.model_name] = Number(change.pricing.ModelPrice)
       }
       snapshot = {
         ...snapshot,
@@ -358,6 +365,107 @@ it('preserves the local deletion after a failed save', async () => {
   await user.click(screen.getByRole('button', { name: 'Save model prices' }))
   await waitFor(() => expect(patch).toHaveBeenCalledTimes(2))
   expect(patch.mock.calls[1][1]).toEqual(patch.mock.calls[0][1])
+})
+
+it.each([false, true])(
+  'removes both orphan qwen overrides through the existing controls (save fails=%s)',
+  async (saveFails) => {
+    const { user, patch } = await renderSettings(false, [
+      {
+        model_name: 'qwen3.7-max',
+        version: 'qwen37-original',
+        configured: { ModelPrice: 1 },
+        effective: { ModelPrice: 1 },
+        has_metadata: false,
+      },
+      {
+        model_name: 'qwen3.8-max',
+        version: 'qwen38-original',
+        configured: { ModelPrice: 2 },
+        effective: { ModelPrice: 2 },
+        has_metadata: false,
+      },
+    ])
+    if (saveFails) patch.mockRejectedValue(new Error('Save failed'))
+    const put = vi.spyOn(api, 'put')
+    await user.click(screen.getByRole('button', { name: 'Switch to Visual' }))
+    for (const name of ['qwen3.7-max', 'qwen3.8-max']) {
+      const row = await screen.findByRole('row', { name: new RegExp(name) })
+      await user.click(within(row).getByRole('button', { name: 'Edit' }))
+      await user.click(within(row).getByRole('button', { name: 'Open menu' }))
+      await user.click(
+        await screen.findByRole('menuitem', { name: /Remove pricing override/ })
+      )
+    }
+    await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+    const request = {
+      changes: [
+        {
+          model_name: 'qwen3.7-max',
+          expected_version: 'qwen37-original',
+          pricing: {},
+          remove: true,
+        },
+        {
+          model_name: 'qwen3.8-max',
+          expected_version: 'qwen38-original',
+          pricing: {},
+          remove: true,
+        },
+      ],
+    }
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith('/api/option/model_pricing', request)
+    )
+    expect(put).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('row', { name: /qwen3\.[78]-max/ })
+    ).not.toBeInTheDocument()
+    if (saveFails) {
+      expect(await screen.findByText('Save failed')).toBeVisible()
+      expect(screen.queryByText('Model pricing saved')).not.toBeInTheDocument()
+      await user.click(
+        screen.getByRole('button', { name: 'Save model prices' })
+      )
+      await waitFor(() => expect(patch).toHaveBeenCalledTimes(2))
+      expect(patch.mock.calls[1][1]).toEqual(request)
+    } else {
+      expect(await screen.findByText('Model pricing saved')).toBeVisible()
+    }
+  }
+)
+
+it('rejects an orphan removal mixed with a metadata-less edit before any write', async () => {
+  const { user, patch } = await renderSettings(false, [
+    {
+      model_name: 'qwen3.7-max',
+      version: 'qwen37-original',
+      configured: { ModelPrice: 1 },
+      effective: { ModelPrice: 1 },
+      has_metadata: false,
+    },
+    {
+      model_name: 'invalid-edit',
+      version: 'invalid-original',
+      configured: { ModelPrice: 2 },
+      effective: { ModelPrice: 2 },
+      has_metadata: false,
+    },
+  ])
+  const value = JSON.stringify({ [protectedModel]: 10, 'invalid-edit': 3 })
+  const input = screen.getByRole('textbox', { name: 'Model fixed pricing' })
+  fireEvent.input(input, { target: { value } })
+  const put = vi.spyOn(api, 'put')
+  const error = vi.spyOn(toast, 'error')
+  await user.click(screen.getByRole('switch', { name: 'Expose ratio API' }))
+  await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+  await waitFor(() =>
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('invalid-edit'))
+  )
+  expect(patch).not.toHaveBeenCalled()
+  expect(put).not.toHaveBeenCalled()
+  expect(input).toHaveValue(value)
+  expect(screen.queryByText('Model pricing saved')).not.toBeInTheDocument()
 })
 
 it('prices an existing unconfigured exact metadata row through Add', async () => {
