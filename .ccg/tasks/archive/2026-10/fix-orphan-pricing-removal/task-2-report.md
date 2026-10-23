@@ -1,0 +1,12 @@
+# Task 2 frontend report — complete, source frozen
+
+- Changed: `web/src/features/model-pricing/api.ts`; `web/src/features/model-pricing/__tests__/pricing.test.ts`; `web/src/features/system-settings/models/__tests__/ratio-settings-card.test.tsx`; this report.
+- Contract: optional `remove?: boolean`; only explicit `has_metadata:false`, nonempty original configured pricing, complete empty resulting pricing and no own currency override produce `{model_name,expected_version,pricing:{},remove:true}`. Ordinary metadata-backed payloads/Seedance exclusion unchanged.
+- Tests cover exact qwen pair, provider-only removal, original versions/no currency, unknown entry/metadata/currency, empty original configured pricing, complete-result checks, add/edit/partial removal, explicit currency intent (including same currency/undefined), unchanged ordinary deletion and atomic mixed-batch preflight before PATCH/option writes.
+- Actual component remove/save integration covers both qwen identities, success feedback, failed-save draft preservation and identical retry; existing controls reused per shadcn guidance, no new UI/strings/dependencies.
+- RED command (web): `./node_modules/.bin/vitest run src/features/model-pricing/__tests__/pricing.test.ts src/features/system-settings/models/__tests__/ratio-settings-card.test.tsx` → exit 1, 4 failed/40 passed before production edit. Pair/provider cases threw metadata prerequisites; both component cases reached save but made zero PATCH calls. Initial ambiguous test menu selector was corrected before recording this valid RED.
+- GREEN: exact same command after implementation → exit 0, 44/44 passed; final frozen-source rerun → exit 0, 44/44 passed (8.55s).
+- PASS: `./node_modules/.bin/tsgo -b --pretty false`.
+- PASS: `./node_modules/.bin/oxlint -c .oxlintrc.json src/features/model-pricing/api.ts src/features/model-pricing/__tests__/pricing.test.ts src/features/system-settings/models/__tests__/ratio-settings-card.test.tsx` (no warnings).
+- PASS: `./node_modules/.bin/oxfmt -c .oxfmtrc.json --check src/features/model-pricing/api.ts src/features/model-pricing/__tests__/pricing.test.ts src/features/system-settings/models/__tests__/ratio-settings-card.test.tsx`; scoped `git diff --check`.
+- Blockers: none. Full suite/build owned by coordinator; no live/server pricing writes, commit/push, unrelated edits/deletions or duplicate `...test 2.tsx` changes.
