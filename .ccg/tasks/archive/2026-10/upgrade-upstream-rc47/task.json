@@ -1,0 +1,32 @@
+{
+  "id": "upgrade-upstream-rc47",
+  "title": "兼容集成官方rc.47并隔离三站生产与iXiaozu维护",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "fullstack-release",
+  "currentPhase": "completed",
+  "nextAction": "开发环境升级验收完成，任务已归档；生产发布等待用户另行明确批准，不合并或推送main",
+  "createdAt": "2026-10-26",
+  "acceptedAt": "2026-10-26T10:59:22Z",
+  "branch": "upgrade/rc47",
+  "developmentBranch": "develop",
+  "base": "e32fdcda17c5c48d26a461f6e4fd6c2ce862aa11",
+  "upstream": "e835b1bfc43b565d625537830dbfb19328925134",
+  "sourceCommit": "a85a9daa5ec112c0295cff48fd78bdf8af9d9269",
+  "sourceTree": "84f34b528e543f2abf815f87939d2b56582d7392",
+  "failedSourceCommit": "59bcf6b887ab50c21351462896e39ecfd354237b",
+  "failedApplicationRun": 40289955776,
+  "applicationRun": 40304552232,
+  "acceptedDocumentationRun": 40289955728,
+  "developmentRuntime": "development-a85a9daa5ec1",
+  "publicAcceptance": "passed; 46 models, 10 vendors, prices/currencies/metadata/groups unchanged; CNY, price7, FX7",
+  "protectedMain": "ce7c4eb362728f3d55c72e80255f36829483b0a9",
+  "constraints": [
+    "PostgreSQL only; no SQLite/MySQL tests",
+    "No antigravity/Claude external executors",
+    "No main merge or push without separate explicit human approval",
+    "Never operate on iXiaozu as part of this upgrade; future maintenance requires separate explicit approval and Asia/Shanghai time >=20:00",
+    "Consolidate task evidence; no heartbeat/status-only commit stream"
+  ]
+}
