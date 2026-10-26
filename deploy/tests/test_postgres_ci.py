@@ -172,6 +172,7 @@ FAILED_REGRESSIONS = [
 ]
 # Upgrade regressions are mandatory even if a future edit drops their group.
 RC47_REGRESSIONS = [
+    'TestCatalogStartupRetainsHistoricalTaskQuotes',
     'TestModelPricingRejectsUnchangedUnsafeTaskExpressions', 'TestRouteTaskPluginEndpointUsesSelectedChannel',
     'TestPrepareTaskPluginNativeRoutePassesMultipartToDecoder', 'TestPostTextConsumeQuotaBillsOpenAI12hCacheWrites',
     'TestBuildTieredTokenParams_ClaudeUnsplitCacheWrites', 'TestBuildTieredTokenParams_UnpricedLongTTLCacheWrites',

@@ -124,10 +124,17 @@ func stageProspectiveCatalogPricing(options, previous map[string]string, depende
 		}
 		delete(prior[leaf.Option], leaf.Name)
 	}
-	validation := modelPricingValidationDependencies{plugins: dependencies.Plugins, pluginExpressions: next[billing_setting.PluginBillingExprOption], resolveAlias: func(name string) (TaskAliasTarget, bool) {
-		target, ok := dependencies.Aliases[jsplugin.ASCIIFold(name)]
-		return target, ok
-	}}
+	var previousModelExpressions map[string]any
+	if _, stored := previous["billing_setting.billing_expr"]; stored {
+		previousModelExpressions = prior["billing_setting.billing_expr"]
+	}
+	validation := modelPricingValidationDependencies{plugins: dependencies.Plugins,
+		pluginExpressions: next[billing_setting.PluginBillingExprOption], previousPluginExpressions: prior[billing_setting.PluginBillingExprOption],
+		previousModelExpressions: previousModelExpressions, retainHistoricalTaskQuotes: true,
+		resolveAlias: func(name string) (TaskAliasTarget, bool) {
+			target, ok := dependencies.Aliases[jsplugin.ASCIIFold(name)]
+			return target, ok
+		}}
 	names := make(map[string]bool)
 	for key, entries := range next {
 		for name := range entries {

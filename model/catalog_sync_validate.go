@@ -249,10 +249,13 @@ func stageCatalogValidation(input catalogValidationInput) (catalogValidationAtte
 			return catalogValidationAttestation{}, errors.New("managed validation identity is absent from draft")
 		}
 	}
-	dependencies := modelPricingValidationDependencies{plugins: make(map[string]jsplugin.Meta), pluginExpressions: next[billing_setting.PluginBillingExprOption], resolveAlias: func(name string) (TaskAliasTarget, bool) {
-		target, ok := data.Aliases[jsplugin.ASCIIFold(name)]
-		return target, ok
-	}}
+	dependencies := modelPricingValidationDependencies{plugins: make(map[string]jsplugin.Meta),
+		pluginExpressions: next[billing_setting.PluginBillingExprOption], previousPluginExpressions: previous[billing_setting.PluginBillingExprOption],
+		previousModelExpressions: previous["billing_setting.billing_expr"], retainHistoricalTaskQuotes: true,
+		resolveAlias: func(name string) (TaskAliasTarget, bool) {
+			target, ok := data.Aliases[jsplugin.ASCIIFold(name)]
+			return target, ok
+		}}
 	for key, plugin := range data.Effective {
 		dependencies.plugins[key] = jsplugin.Meta{Key: key, APIVersion: plugin.APIVersion, Version: plugin.Version, Models: plugin.Models, UsageSchema: plugin.UsageSchema, UsageProfiles: plugin.UsageProfiles, RequiredCapabilities: plugin.Capabilities}
 	}

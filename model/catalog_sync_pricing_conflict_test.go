@@ -60,10 +60,7 @@ func TestCatalogSyncGrokFixedPricingConflict(t *testing.T) {
 		})
 	}
 	data.Before = draft
-	err = stage(data)
-	var unchangedConflict *ModelPricingValidationConflict
-	require.ErrorAs(t, err, &unchangedConflict, "unchanged prices cannot preserve unsupported fixed task pricing")
-	assert.Equal(t, "task_fixed_pricing_unsupported", unchangedConflict.Reason)
+	require.NoError(t, stage(data), "reconstructing unchanged stored data must not block unrelated managed changes")
 
 	dependencies := modelPricingValidationDependencies{plugins: map[string]jsplugin.Meta{"xai": plugin.Meta}, resolveAlias: func(string) (TaskAliasTarget, bool) { return TaskAliasTarget{PluginKey: "xai", Declared: name}, true }}
 	for _, name := range []string{name, "grok-alias"} {

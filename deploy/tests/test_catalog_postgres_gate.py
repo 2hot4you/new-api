@@ -699,6 +699,7 @@ GROUPS = [
     "name": "model-catalog_sync_startup_test",
     "pkg": "./model",
     "tests": [
+      "TestCatalogStartupRetainsHistoricalTaskQuotes",
       "TestCatalogStartupEnrollmentRequired",
       "TestCatalogStartupEligibilityFacts",
       "TestCatalogStartupApplyRechecksHeartbeat",

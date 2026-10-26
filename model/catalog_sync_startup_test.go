@@ -3,17 +3,190 @@ package model
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestCatalogStartupRetainsHistoricalTaskQuotes(t *testing.T) {
+	source, err := os.ReadFile("../plugins/tasks/xai/plugin.js")
+	require.NoError(t, err)
+	t.Run("compiled default has no historical proof", func(t *testing.T) {
+		_, err := stageCommittedCatalogPricing(nil, catalogPricingDependencies{
+			Plugins: map[string]jsplugin.Meta{"new-provider": {Key: "new-provider", Models: []string{"minimax-m3"}}},
+		})
+		require.ErrorContains(t, err, "token variable", "compiled defaults are not proof of a stored historical quote")
+	})
+	for _, tc := range []struct {
+		name, expression, override string
+		alias, mapped, shared      bool
+	}{
+		{name: "inherited fixed price", expression: `tier("request", fixed(0.123456789))`},
+		{name: "inherited token price", expression: `tier("tokens", p * 2 + c * 10)`},
+		{name: "provider token price", expression: `tier("ordinary", p * 3)`, override: `tier("tokens", p * 2 + c * 10)`},
+		{name: "alias fixed price", expression: `tier("request", fixed(0.123456789))`, alias: true},
+		{name: "alias local provider token price", expression: `tier("ordinary", p * 3)`, override: `tier("tokens", p * 2 + c * 10)`, alias: true},
+		{name: "alias mapped provider token price", expression: `tier("ordinary", p * 3)`, override: `tier("tokens", p * 2 + c * 10)`, alias: true, mapped: true},
+		{name: "shared inherited token price", expression: `tier("tokens", p * 2 + c * 10)`, shared: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, _ := catalogStartupInstanceFixture(t)
+			initializeOrdinaryCatalogTest(t, db)
+			name := "grok-imagine-video"
+			var aliasChannel Channel
+			if tc.alias {
+				name = "historical-grok-alias"
+				mapping := `{"historical-grok-alias":"grok-imagine-video"}`
+				aliasChannel = Channel{Name: "historical-alias", Type: constant.ChannelTypeXai, Key: "test", Models: name, Status: 1, ModelMapping: &mapping}
+				require.NoError(t, db.Create(&aliasChannel).Error)
+				require.NoError(t, db.Create(&Ability{Group: "default", Model: name, ChannelId: aliasChannel.Id, Enabled: true}).Error)
+			}
+			metadata := Model{ModelName: name, NameRule: NameRuleExact, BillingCurrency: "USD"}
+			require.NoError(t, db.Create(&metadata).Error)
+			variant := billing_setting.PluginBillingExprKey("xai", name)
+			if tc.mapped {
+				variant = billing_setting.PluginBillingExprKey("xai", "grok-imagine-video")
+				require.NoError(t, db.Create(&Model{ModelName: "grok-imagine-video", NameRule: NameRuleExact, BillingCurrency: "USD"}).Error)
+			}
+			overrides := map[string]string{}
+			if tc.override != "" {
+				overrides[variant] = tc.override
+			}
+			stored := make(map[string]string)
+			for key, value := range map[string]any{
+				"billing_setting.billing_mode":          map[string]string{name: "tiered_expr"},
+				"billing_setting.billing_expr":          map[string]string{name: tc.expression},
+				billing_setting.PluginBillingExprOption: overrides,
+			} {
+				encoded, err := common.Marshal(value)
+				require.NoError(t, err)
+				stored[key] = " \n" + string(encoded) + " "
+				require.NoError(t, db.Create(&Option{Key: key, Value: stored[key]}).Error)
+			}
+			selectedExpression := tc.expression
+			if tc.override != "" {
+				selectedExpression = tc.override
+			}
+			phases := []string{"first startup", "repeated startup", "pending recovery", "authoritative reload", "unrelated prospective update"}
+			if tc.alias && tc.override == "" {
+				phases = append(phases, "alias remap")
+			}
+			for _, phase := range phases {
+				switch phase {
+				case "first startup", "repeated startup":
+					// Historical rows precede the real option bootstrap and completion.
+					require.NoError(t, InitOptionMapBootstrap(context.Background()))
+					jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+					_, err := jsplugin.DefaultRegistry.RegisterFactory(string(source), jsplugin.Options{Key: "xai"})
+					require.NoError(t, err)
+					if tc.shared {
+						sharedSource := strings.NewReplacer("pricing-usage-probe", "xai-compat", "pricing-usage-model", "grok-imagine-video").Replace(
+							pricingUsagePluginSource("1.0.0", `{seconds:{type:"number",unit:"second"}}`))
+						_, err := jsplugin.DefaultRegistry.RegisterFactory(sharedSource, jsplugin.Options{Key: "xai-compat"})
+						require.NoError(t, err)
+					}
+					require.NoError(t, CompleteOptionMapInitialization(context.Background()), phase)
+				case "pending recovery":
+					require.NoError(t, db.Model(&CatalogSyncState{}).Where("id = ?", CatalogSyncStateID).Update("publication_state", "committed_pending_publish").Error)
+					require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+				case "authoritative reload":
+					require.NoError(t, loadOptionsFromDatabase())
+				case "unrelated prospective update":
+					before, err := ExportManagedCatalogTx(context.Background(), db, "startup-retention")
+					require.NoError(t, err)
+					metadata.DisplayName = "Preserved historical quote"
+					require.NoError(t, metadata.Update())
+					after, err := ExportManagedCatalogTx(context.Background(), db, "startup-retention")
+					require.NoError(t, err)
+					dependencies, err := catalogRuntimeDependencies(runtimeStageForTest(t, db).input)
+					require.NoError(t, err)
+					effective := make(map[string]catalogValidationPlugin)
+					for _, plugin := range jsplugin.DefaultRegistry.Generation().Plugins() {
+						effective[plugin.Meta.Key] = catalogValidationPlugin{Key: plugin.Meta.Key, Models: plugin.Meta.Models, UsageSchema: plugin.Meta.UsageSchema, UsageProfiles: plugin.Meta.UsageProfiles}
+					}
+					input, err := common.Marshal(catalogValidationData{Before: before, Draft: after, Aliases: dependencies.Aliases,
+						Effective: effective})
+					require.NoError(t, err)
+					_, err = stageCatalogValidation(catalogValidationInput{canonical: string(input)})
+					require.NoError(t, err, "whole-draft managed validation must retain unchanged historical quotes")
+					require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"unrelated-startup-model":0.12}`}))
+				case "alias remap":
+					// Reconstruct committed data after an alias mapping changed; this
+					// policy makes no claim about its previous provider selection.
+					require.NoError(t, db.Model(&Channel{}).Where("id = ?", aliasChannel.Id).Update("model_mapping", `{"historical-grok-alias":"grok-imagine-video-1.5"}`).Error)
+					require.NoError(t, CompleteOptionMapInitialization(context.Background()))
+					target, resolved := ResolveTaskModelAlias(jsplugin.DefaultRegistry.Generation(), name)
+					require.True(t, resolved)
+					require.Equal(t, "grok-imagine-video-1.5", target.Declared)
+				}
+				var state CatalogSyncState
+				require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+				require.Equal(t, "ready", state.PublicationState, phase)
+				require.Equal(t, state.Revision, state.RuntimeRevision, phase)
+				for key, expected := range stored {
+					var row Option
+					require.NoError(t, db.Where(map[string]any{"key": key}).First(&row).Error)
+					require.Equal(t, expected, row.Value, "%s must preserve raw quote bytes", phase)
+				}
+				plugin, found := jsplugin.DefaultRegistry.Generation().Get("xai")
+				require.True(t, found)
+				schema, _ := plugin.Meta.UsageForModel("grok-imagine-video")
+				stage := runtimeStageForTest(t, db)
+				compatible, err := stage.compatible(selectedExpression, schema)
+				require.NoError(t, err)
+				require.False(t, compatible, "retaining stored data cannot enable unsafe task billing")
+				require.Error(t, billing_setting.TaskExprSafetyError(selectedExpression))
+				if tc.shared {
+					require.True(t, jsplugin.DefaultRegistry.Generation().SharedModel(name))
+				}
+			}
+			dependencies, err := catalogRuntimeDependencies(runtimeStageForTest(t, db).input)
+			require.NoError(t, err)
+			for _, mutation := range []string{"changed expression", "mode activation", "override removal", "strict adoption", "invalid syntax"} {
+				if mutation == "override removal" && tc.override == "" {
+					continue
+				}
+				previous, next := maps.Clone(stored), maps.Clone(stored)
+				var strict []catalogPricingLeaf
+				switch mutation {
+				case "changed expression":
+					if tc.override != "" {
+						next[billing_setting.PluginBillingExprOption] = fmt.Sprintf(`{%q:%q}`, variant, tc.override+` + 1`)
+					} else {
+						next["billing_setting.billing_expr"] = fmt.Sprintf(`{%q:%q}`, name, `tier("changed", fixed(0.2))`)
+					}
+				case "mode activation":
+					previous["billing_setting.billing_mode"] = fmt.Sprintf(`{%q:"ratio"}`, name)
+				case "override removal":
+					next[billing_setting.PluginBillingExprOption] = `{}`
+				case "strict adoption":
+					option, leaf := "billing_setting.billing_expr", name
+					if tc.override != "" {
+						option, leaf = billing_setting.PluginBillingExprOption, variant
+					}
+					strict = []catalogPricingLeaf{{Option: option, Name: leaf}}
+				case "invalid syntax":
+					previous["billing_setting.billing_expr"] = fmt.Sprintf(`{%q:"invalid("}`, name)
+					next["billing_setting.billing_expr"] = previous["billing_setting.billing_expr"]
+				}
+				_, err := stageProspectiveCatalogPricing(next, previous, dependencies, strict)
+				require.Error(t, err, mutation)
+			}
+		})
+	}
+}
 
 func TestCatalogStartupEnrollmentRequired(t *testing.T) {
 	require.NotEmpty(t, os.Getenv("TEST_POSTGRES_DSN"), "task PostgreSQL is required")

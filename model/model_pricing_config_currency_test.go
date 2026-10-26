@@ -80,8 +80,8 @@ export function parseTaskResult(){return {};}
 			if tc.alias {
 				require.NoError(t, DB.Create(&Model{ModelName: name, NameRule: NameRuleExact, BillingCurrency: "USD"}).Error)
 			}
-			// Recover a valid catalog before installing historical request inputs.
-			// Startup itself now also rejects these unsafe stored expressions.
+			// Recover before installing the persisted inputs for explicit saves.
+			// Historical boot compatibility is covered by the startup regression.
 			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
 			pricing := PricingValues{"billing_setting.billing_mode": "tiered_expr", "billing_setting.billing_expr": tc.expression}
 			if tc.ratio {

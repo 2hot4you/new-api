@@ -463,9 +463,27 @@ func validateModelPricing(name string, values, previous PricingValues, pluginExp
 // Explicit dependencies let staged managed validation reuse the ordinary rules
 // without observing a live registry, alias cache, DB or previous-value cache.
 type modelPricingValidationDependencies struct {
-	plugins           map[string]jsplugin.Meta
-	pluginExpressions map[string]any
-	resolveAlias      func(string) (TaskAliasTarget, bool)
+	plugins                    map[string]jsplugin.Meta
+	pluginExpressions          map[string]any
+	previousPluginExpressions  map[string]any
+	previousModelExpressions   map[string]any
+	retainHistoricalTaskQuotes bool
+	resolveAlias               func(string) (TaskAliasTarget, bool)
+}
+
+// Reconstruction may retain unsupported stored data, but never authorizes its
+// execution. Explicit pricing saves leave this policy disabled. Mode or local
+// override changes revoke retention even when expression bytes are unchanged.
+func (dependencies modelPricingValidationDependencies) retainsHistoricalTaskQuote(expression string, priorExpression any, values, previous PricingValues) bool {
+	if !dependencies.retainHistoricalTaskQuotes || priorExpression != expression ||
+		!reflect.DeepEqual(values["billing_setting.billing_mode"], previous["billing_setting.billing_mode"]) ||
+		!reflect.DeepEqual(values[billing_setting.PluginBillingExprOption], previous[billing_setting.PluginBillingExprOption]) {
+		return false
+	}
+	if _, err := billingexpr.CompileFromCache(expression); err != nil {
+		return false
+	}
+	return billingexpr.UsesFixedPricing(expression) || billingexpr.UnavailableTaskTokenVar(expression) != ""
 }
 
 func validateModelPricingWithDependencies(name string, values, previous PricingValues, dependencies modelPricingValidationDependencies) error {
@@ -484,6 +502,9 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 			expression, ok := value.(string)
 			if !ok || strings.TrimSpace(expression) == "" {
 				return fmt.Errorf("model %s: plugin %s: billing expression is required", name, key)
+			}
+			if dependencies.retainsHistoricalTaskQuote(expression, previousVariants[key], values, previous) {
+				continue
 			}
 			plugin, exists := dependencies.plugins[key]
 			declared := exists && slices.Contains(plugin.Models, name)
@@ -559,6 +580,9 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 				for _, plugin := range plugins {
 					_, overridden := variants[plugin.Key]
 					_, wasOverridden := previousVariants[plugin.Key]
+					if !overridden && dependencies.retainsHistoricalTaskQuote(expression, dependencies.previousModelExpressions[name], values, previous) {
+						continue
+					}
 					if !overridden {
 						if safetyErr := billing_setting.TaskExprSafetyError(expression); safetyErr != nil {
 							return taskPricingValidationError(name, plugin.Key, expression, fmt.Errorf("model %s: plugin %s: %w", name, plugin.Key, safetyErr))
@@ -575,14 +599,27 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 			} else if target, resolved := dependencies.resolveAlias(name); resolved {
 				if plugin, ok := dependencies.plugins[target.PluginKey]; ok {
 					override, overridden := variants[plugin.Key]
+					priorOverride := previousVariants[plugin.Key]
+					mappedKey := billing_setting.PluginBillingExprKey(plugin.Key, target.Declared)
 					if !overridden && target.Declared != name {
-						override, overridden = dependencies.pluginExpressions[billing_setting.PluginBillingExprKey(plugin.Key, target.Declared)]
+						override, overridden = dependencies.pluginExpressions[mappedKey]
+						priorOverride = dependencies.previousPluginExpressions[mappedKey]
 					}
 					if overridden {
 						selectedExpression, _ := override.(string)
+						if dependencies.retainsHistoricalTaskQuote(selectedExpression, priorOverride, values, previous) {
+							continue
+						}
 						if safetyErr := billing_setting.TaskExprSafetyError(selectedExpression); safetyErr != nil {
 							return taskPricingValidationError(name, plugin.Key, selectedExpression, fmt.Errorf("model %s: plugin %s: %w", name, plugin.Key, safetyErr))
 						}
+						continue
+					}
+					priorExpression := dependencies.previousModelExpressions[name]
+					if _, previouslyOverridden := dependencies.previousPluginExpressions[mappedKey]; previouslyOverridden {
+						priorExpression = nil
+					}
+					if dependencies.retainsHistoricalTaskQuote(expression, priorExpression, values, previous) {
 						continue
 					}
 					if safetyErr := billing_setting.TaskExprSafetyError(expression); safetyErr != nil {
