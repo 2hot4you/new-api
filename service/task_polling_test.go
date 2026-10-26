@@ -998,6 +998,46 @@ func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
 	assert.Equal(t, int64(1), countLogs(t))
 }
 
+// TASK_TIMEOUT_MINUTES defaults to 72 hours, the longest a vendor keeps a
+// task running (Ark can be configured to 72h, Vidu off-peak runs 48h).
+func TestSweepTimedOutTasksAtTheDefaultDeadline(t *testing.T) {
+	truncate(t)
+
+	const userID, initialQuota, taskQuota = 404, 10_000, 1_500
+	seedUser(t, userID, initialQuota)
+	running := makeTask(userID, 0, taskQuota, 0, BillingSourceWallet, 0)
+	running.TaskID = "running_for_60_hours"
+	running.Progress = "50%"
+	running.SubmitTime = time.Now().Add(-60 * time.Hour).Unix()
+	require.NoError(t, model.DB.Create(running).Error)
+	stuck := makeTask(userID, 0, taskQuota, 0, BillingSourceWallet, 0)
+	stuck.TaskID = "running_for_73_hours"
+	stuck.Progress = "50%"
+	stuck.SubmitTime = time.Now().Add(-73 * time.Hour).Unix()
+	require.NoError(t, model.DB.Create(stuck).Error)
+
+	previousTimeout := constant.TaskTimeoutMinutes
+	constant.TaskTimeoutMinutes = 4320
+	t.Cleanup(func() { constant.TaskTimeoutMinutes = previousTimeout })
+
+	sweepTimedOutTasks(context.Background())
+
+	var reloadedRunning, reloadedStuck model.Task
+	require.NoError(t, model.DB.First(&reloadedRunning, running.ID).Error)
+	require.NoError(t, model.DB.First(&reloadedStuck, stuck.ID).Error)
+	assert.NotEqualValues(t, model.TaskStatusFailure, reloadedRunning.Status)
+	assert.Equal(t, taskQuota, reloadedRunning.Quota)
+	assert.EqualValues(t, model.TaskStatusFailure, reloadedStuck.Status)
+	assert.Equal(t, "Task timed out", reloadedStuck.FailReason)
+	job := loadTaskBillingJobByTaskID(t, stuck.ID)
+	assert.Equal(t, model.TaskBillingOperationRefund, job.Operation)
+	assert.Equal(t, initialQuota, getUserQuota(t, userID), "the sweep only enqueues the durable refund")
+	summary, err := RunTaskBillingReconciliationOnce(context.Background(), "default-timeout-worker")
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Succeeded)
+	assert.Equal(t, initialQuota+taskQuota, getUserQuota(t, userID))
+}
+
 type scriptedPollingAdaptor struct {
 	statusCode int
 	body       []byte
@@ -1072,7 +1112,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 			statusCode:    http.StatusNotFound,
 			wantStatus:    model.TaskStatusFailure,
 			wantRefund:    true,
-			wantReason:    "Upstream task not found",
+			wantReason:    "upstream task not found (HTTP 404)",
 			wantUnchanged: false,
 		},
 		{
@@ -1090,7 +1130,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 			wantStatus:    model.TaskStatusFailure,
 			wantFailures:  3,
 			wantRefund:    true,
-			wantReason:    "Failed to query the upstream task status",
+			wantReason:    "poll failed: transient (HTTP 429)",
 		},
 		{
 			name:          "UNKNOWN increments",

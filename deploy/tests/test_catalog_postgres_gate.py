@@ -16,6 +16,55 @@ from urllib.parse import urlsplit, parse_qs
 ROOT = Path(__file__).resolve().parents[2]
 GROUPS = [
   {
+    "name": "rc47-persisted-task-quote-safety",
+    "pkg": "./model",
+    "tests": ["TestModelPricingRejectsUnchangedUnsafeTaskExpressions"],
+    "matrix": False
+  },
+  {
+    "name": "rc47-shared-routing-postgres",
+    "pkg": "./middleware",
+    "tests": ["TestRouteTaskPluginEndpointUsesSelectedChannel", "TestPrepareTaskPluginNativeRoutePassesMultipartToDecoder"],
+    "required_children": ["TestRouteTaskPluginEndpointUsesSelectedChannel/memory_cache=false/native_Seedance_wins_shared_video_selection", "TestRouteTaskPluginEndpointUsesSelectedChannel/memory_cache=true/native_Seedance_wins_shared_video_selection"],
+    "matrix": False
+  },
+  {
+    "name": "rc47-cache-billing-and-video-settlement",
+    "pkg": "./service",
+    "tests": ["TestBuildTieredTokenParams_ClaudeUnsplitCacheWrites", "TestBuildTieredTokenParams_UnpricedLongTTLCacheWrites", "TestBuildTieredTokenParams_Len_Claude", "TestImageCacheBilling", "TestSamePriceCacheReadsRemainInInput", "TestPostTextConsumeQuotaBillsOpenAI12hCacheWrites", "TestApplyResponsesUsageCopiesTokenDetails", "TestTryTieredSettleRecordsClampOnOverflow", "TestAttachQuotaSaturationNestsUnderAdminInfo", "TestSweepTimedOutTasksAtTheDefaultDeadline", "TestUpdateVideoSingleTaskPollClassification", "TestUpdateBatchTasksPollClassification"],
+    "matrix": False
+  },
+  {
+    "name": "rc47-stream-write-budget",
+    "pkg": "./relay/helper",
+    "tests": ["TestStreamWriteBudget", "TestSetEventStreamHeadersBoundsStreamWritesByBudget"],
+    "matrix": False
+  },
+  {
+    "name": "rc47-responses-completion-and-cache",
+    "pkg": "./relay/channel/openai",
+    "tests": ["TestOaiResponsesStreamHandlerCompletionLifecycle", "TestOaiResponsesHandlersKeepCacheWriteTTLSplit"],
+    "matrix": False
+  },
+  {
+    "name": "rc47-task-header-and-usage-safety",
+    "pkg": "./relay/channel/task/jsplugin",
+    "tests": ["TestSubmitContextExposesClientHeadersWithoutCredentials", "TestTaskAdaptorBoundsNativeUsageBeforeQuotaCalculation"],
+    "matrix": False
+  },
+  {
+    "name": "rc47-shared-quote-frozen-units",
+    "pkg": "./relay",
+    "tests": ["TestCatalogOrdinarySharedTaskQuoteUsesCapturedCandidates", "TestSharedEndpointBillingKeepsOrdinaryAndPluginPricesSeparate"],
+    "matrix": False
+  },
+  {
+    "name": "rc47-pricing-sync-source-currency",
+    "pkg": "./controller",
+    "tests": ["TestPricingSyncSourceCurrencyNormalization", "TestRatioConfigSourceCurrencySnapshot", "TestRatioConfigExportsEffectiveExpressions", "TestPricingSyncCompleteSourcesAndArrayFormats", "TestPricingSyncExpressionPriority"],
+    "matrix": False
+  },
+  {
     "name": "router-rc46-access-token-route-inventory",
     "pkg": "./router",
     "tests": [
@@ -831,7 +880,7 @@ def validate_regression_inventory(groups, required):
     if missing:
         raise ValueError("required CI regression missing from PostgreSQL acceptance: " + ", ".join(missing))
 
-def verify_events(events, required, matrix=False):
+def verify_events(events, required, matrix=False, required_children=()):
     passed = {e.get("Test") for e in events if e.get("Action") == "pass" and e.get("Test")}
     for event in events:
         if event.get("Action") in ("skip", "fail"):
@@ -854,6 +903,8 @@ def verify_events(events, required, matrix=False):
             raise ValueError("required PostgreSQL subtest did not pass: " + name)
     if not required or not passed:
         raise ValueError("empty selection cannot establish catalog acceptance")
+    if not set(required_children) <= passed:
+        raise ValueError("required routing cache-mode child did not pass")
     return len(passed)
 
 def run_gate(mode):
@@ -896,7 +947,7 @@ def run_gate(mode):
         (directory / (group["name"] + ".command.json")).write_text(json.dumps(command))
         try:
             events = [json.loads(line) for line in path.read_text().splitlines() if line.startswith("{")]
-            count = verify_events(events, group["tests"], group["matrix"])
+            count = verify_events(events, group["tests"], group["matrix"], group.get("required_children", ()))
             if result.returncode:
                 raise ValueError("go test returned " + str(result.returncode))
         except ValueError as error:
@@ -908,6 +959,13 @@ def run_gate(mode):
     return 0
 
 class CatalogGateTest(unittest.TestCase):
+    def test_shared_route_requires_both_cache_modes(self):
+        group = next(group for group in GROUPS if group['name'] == 'rc47-shared-routing-postgres')
+        events = [{'Action': 'pass', 'Test': name} for name in group['tests'] + group['required_children']]
+        self.assertGreater(verify_events(events, group['tests'], required_children=group['required_children']), 0)
+        for child in group['required_children']:
+            with self.assertRaisesRegex(ValueError, 'cache-mode child'):
+                verify_events([e for e in events if e['Test'] != child], group['tests'], required_children=group['required_children'])
     def test_pricing_conflict_regressions_are_required_in_nonmatrix_groups(self):
         groups = {group["name"]: group for group in GROUPS}
         for name, package, required in [

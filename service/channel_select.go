@@ -282,12 +282,32 @@ func pinnedTaskPluginIdentities(c *gin.Context, expected string) ([]int, []strin
 // The native StarAI and ByteDance Seedance channels support only the Seedance
 // 2.x models below. The Doubao plugin also exposes unrelated model IDs.
 func appendUnifiedNativeTaskChannelTypes(c *gin.Context, expected string, channelTypes []int) []int {
-	if c == nil || expected != "doubao" {
+	if c == nil {
 		return channelTypes
 	}
 	value, exists := c.Get(jsplugin.ContextKeyPinnedEndpoint)
 	pinned, ok := value.(jsplugin.PinnedEndpoint)
-	if !exists || !ok || pinned.Protocol != "openai_video" {
+	if !exists || !ok {
+		return channelTypes
+	}
+	return TaskPluginChannelTypesForEndpoint(pinned, expected, channelTypes)
+}
+
+// TaskPluginChannelTypesForEndpoint adds native Seedance drivers only for the
+// request-specific Doubao video binding. It is shared by initial routing and
+// final selected-plugin filtering, so both classify native channels alike.
+func TaskPluginChannelTypesForEndpoint(pinned jsplugin.PinnedEndpoint, expected string, channelTypes []int) []int {
+	if expected != "doubao" || pinned.Protocol != "openai_video" {
+		return channelTypes
+	}
+	doubaoCandidate := pinned.Plugin != nil && pinned.Plugin.Meta.Key == "doubao"
+	for _, candidate := range pinned.Candidates {
+		if candidate.Plugin != nil && candidate.Plugin.Meta.Key == "doubao" {
+			doubaoCandidate = true
+			break
+		}
+	}
+	if !doubaoCandidate {
 		return channelTypes
 	}
 	switch pinned.Model {

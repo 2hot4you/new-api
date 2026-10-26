@@ -461,8 +461,12 @@ describe('managed catalog sync', () => {
       if (url.endsWith('/status')) {
         return { data: { success: true, data: statusTarget } }
       }
-      const offset = Number(config?.params?.offset ?? 0)
-      const limit = Number(config?.params?.limit ?? 20)
+      const offset = Number(
+        (config?.params as Record<string, unknown> | undefined)?.offset ?? 0
+      )
+      const limit = Number(
+        (config?.params as Record<string, unknown> | undefined)?.limit ?? 20
+      )
       return {
         data: {
           success: true,

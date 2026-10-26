@@ -122,7 +122,7 @@ export const modelFormSchema = z
     description_en: z.string(),
     icon: z.string(),
     tags: z.array(z.string()),
-    vendor_id: z.number().int().positive().optional(),
+    vendor_id: z.number().int().nonnegative().optional(),
     billing_currency: z.enum(['USD', 'CNY']),
     endpoints: z.string(),
     name_rule: z.number().min(0).max(3),
@@ -283,7 +283,7 @@ export function transformModelToFormDefaults(model: Model): ModelFormValues {
     description_en: model.description_en ?? '',
     icon: model.icon ?? '',
     tags: parseTagsFromUtils(model.tags),
-    vendor_id: model.vendor_id,
+    vendor_id: model.vendor_id ?? 0,
     billing_currency: model.billing_currency ?? 'USD',
     endpoints: model.endpoints ?? '',
     name_rule: model.name_rule ?? 0,
@@ -386,3 +386,9 @@ export function validateJSON(value: string): boolean {
 export function validateEndpoints(endpoints: string): boolean {
   return validateJSON(endpoints)
 }
+
+export const MODEL_FORM_DEFAULT_VALUES = transformModelToFormDefaults({
+  model_name: '',
+  status: 1,
+  name_rule: 0,
+} as Model)

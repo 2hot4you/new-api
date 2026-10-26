@@ -273,7 +273,7 @@ func PreviewModelPricing(name string, draft PricingValues) (PricingValues, error
 	if err != nil {
 		return nil, err
 	}
-	if err := validateModelPricing(name, draft, modelPricingValues(values, name)); err != nil {
+	if err := validateModelPricing(name, draft, modelPricingValues(values, name), values[billing_setting.PluginBillingExprOption]); err != nil {
 		return nil, err
 	}
 	replaceModelPricing(values, name, draft)
@@ -285,7 +285,14 @@ func PreviewModelPricing(name string, draft PricingValues) (PricingValues, error
 }
 
 func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
-	values, _, _, err := readModelPricingMaps(DB)
+	return GetModelPricingSnapshotTx(DB, names)
+}
+
+// GetModelPricingSnapshotTx reads options and currency metadata from the same
+// caller-owned database snapshot. Callers exporting a catalog generation should
+// pass the transaction supplied by WithCatalogReadSnapshot.
+func GetModelPricingSnapshotTx(tx *gorm.DB, names []string) (*ModelPricingSnapshot, error) {
+	values, _, _, err := readModelPricingMaps(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -306,9 +313,9 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 		for name := range billing_setting.GetBuiltinBillingExprCopy() {
 			nameSet[name] = true
 		}
-		if DB.Migrator().HasTable(&Model{}) {
+		if tx.Migrator().HasTable(&Model{}) {
 			var metadataNames []string
-			if err := DB.Model(&Model{}).
+			if err := tx.Model(&Model{}).
 				Where("name_rule = ?", NameRuleExact).
 				Distinct("model_name").
 				Pluck("model_name", &metadataNames).Error; err != nil {
@@ -329,7 +336,7 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 	for name := range billing_setting.GetBuiltinBillingExprCopy() {
 		currencyNames = append(currencyNames, name)
 	}
-	currencies, err := LoadModelBillingCurrencies(DB, currencyNames, false)
+	currencies, err := LoadModelBillingCurrencies(tx, currencyNames, false)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +359,7 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 		}
 		plugins := generation.PluginsByModel(name)
 		configuredVariants, _ := configured[billing_setting.PluginBillingExprOption].(map[string]any)
-		if len(plugins) >= 2 || len(configuredVariants) > 0 {
+		if len(plugins) > 0 || len(configuredVariants) > 0 {
 			keys := make(map[string]bool, len(plugins)+len(configuredVariants))
 			for _, plugin := range plugins {
 				keys[plugin.Meta.Key] = true
@@ -421,7 +428,9 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 
 func ValidateModelPricing(name string, values PricingValues) error {
 	variants := make(map[string]any)
+	pluginExpressions := make(map[string]any)
 	for key, expression := range billing_setting.GetPluginBillingExprCopy() {
+		pluginExpressions[key] = expression
 		if plugin, model, ok := billing_setting.SplitPluginBillingExprKey(key); ok && model == name {
 			variants[plugin] = expression
 		}
@@ -430,28 +439,33 @@ func ValidateModelPricing(name string, values PricingValues) error {
 	if expression, ok := billing_setting.GetBillingExpr(name); ok {
 		previous["billing_setting.billing_expr"] = expression
 	}
-	return validateModelPricing(name, values, previous)
+	return validateModelPricing(name, values, previous, pluginExpressions)
 }
 
 // Writes pass the locked database snapshot here, so allowing an unchanged stale
 // override cannot bypass validation through an out-of-date process-local cache.
-func validateModelPricing(name string, values, previous PricingValues) error {
+func validateModelPricing(name string, values, previous PricingValues, pluginExpressions ...map[string]any) error {
 	generation := jsplugin.DefaultRegistry.Generation()
 	plugins := make(map[string]jsplugin.Meta)
 	for _, plugin := range generation.Plugins() {
 		plugins[plugin.Meta.Key] = plugin.Meta
 	}
-	return validateModelPricingWithDependencies(name, values, previous, modelPricingValidationDependencies{
+	dependencies := modelPricingValidationDependencies{
 		plugins:      plugins,
 		resolveAlias: func(name string) (TaskAliasTarget, bool) { return ResolveTaskModelAlias(generation, name) },
-	})
+	}
+	if len(pluginExpressions) > 0 {
+		dependencies.pluginExpressions = pluginExpressions[0]
+	}
+	return validateModelPricingWithDependencies(name, values, previous, dependencies)
 }
 
 // Explicit dependencies let staged managed validation reuse the ordinary rules
 // without observing a live registry, alias cache, DB or previous-value cache.
 type modelPricingValidationDependencies struct {
-	plugins      map[string]jsplugin.Meta
-	resolveAlias func(string) (TaskAliasTarget, bool)
+	plugins           map[string]jsplugin.Meta
+	pluginExpressions map[string]any
+	resolveAlias      func(string) (TaskAliasTarget, bool)
 }
 
 func validateModelPricingWithDependencies(name string, values, previous PricingValues, dependencies modelPricingValidationDependencies) error {
@@ -473,6 +487,16 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 			}
 			plugin, exists := dependencies.plugins[key]
 			declared := exists && slices.Contains(plugin.Models, name)
+			selected := declared
+			if !declared && exists {
+				target, resolved := dependencies.resolveAlias(name)
+				selected = resolved && target.PluginKey == key && slices.Contains(plugin.Models, target.Declared)
+			}
+			if selected {
+				if err := billing_setting.TaskExprSafetyError(expression); err != nil {
+					return taskPricingValidationError(name, key, expression, fmt.Errorf("model %s: plugin %s: %w", name, key, err))
+				}
+			}
 			providers := 0
 			for _, candidate := range dependencies.plugins {
 				if slices.Contains(candidate.Models, name) {
@@ -514,6 +538,11 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 			if _, err := billingexpr.CompileFromCache(expression); err != nil {
 				return fmt.Errorf("model %s: %w", name, err)
 			}
+			// A dormant expression is not the task's quote in ratio mode.
+			// Provider overrides are selected independently and checked above.
+			if values["billing_setting.billing_mode"] == billing_setting.BillingModeRatio {
+				continue
+			}
 			// An unchanged expression a sole provider has been charging with keeps
 			// its price after the plugin narrows its usage profile; relay checks
 			// shared models against each profile, so their prices must follow it.
@@ -530,6 +559,11 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 				for _, plugin := range plugins {
 					_, overridden := variants[plugin.Key]
 					_, wasOverridden := previousVariants[plugin.Key]
+					if !overridden {
+						if safetyErr := billing_setting.TaskExprSafetyError(expression); safetyErr != nil {
+							return taskPricingValidationError(name, plugin.Key, expression, fmt.Errorf("model %s: plugin %s: %w", name, plugin.Key, safetyErr))
+						}
+					}
 					if overridden || (unchanged && !wasOverridden && len(plugins) == 1) {
 						continue
 					}
@@ -540,6 +574,20 @@ func validateModelPricingWithDependencies(name string, values, previous PricingV
 				}
 			} else if target, resolved := dependencies.resolveAlias(name); resolved {
 				if plugin, ok := dependencies.plugins[target.PluginKey]; ok {
+					override, overridden := variants[plugin.Key]
+					if !overridden && target.Declared != name {
+						override, overridden = dependencies.pluginExpressions[billing_setting.PluginBillingExprKey(plugin.Key, target.Declared)]
+					}
+					if overridden {
+						selectedExpression, _ := override.(string)
+						if safetyErr := billing_setting.TaskExprSafetyError(selectedExpression); safetyErr != nil {
+							return taskPricingValidationError(name, plugin.Key, selectedExpression, fmt.Errorf("model %s: plugin %s: %w", name, plugin.Key, safetyErr))
+						}
+						continue
+					}
+					if safetyErr := billing_setting.TaskExprSafetyError(expression); safetyErr != nil {
+						return taskPricingValidationError(name, plugin.Key, expression, fmt.Errorf("model %s: plugin %s: %w", name, plugin.Key, safetyErr))
+					}
 					shared := false
 					for key, candidate := range dependencies.plugins {
 						if key != plugin.Key && slices.Contains(candidate.Models, target.Declared) {
@@ -610,6 +658,21 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 	}
 	return savePreparedModelPricing(nil, func(draft *modelPricingSaveDraft) error {
 		defaults := defaultPricingMaps()
+		// Cross-model task selection must see the complete batch: an alias may
+		// select an override added, reset or removed by a later model change.
+		prospective := cloneModelPricingMaps(draft.values)
+		for _, change := range changes {
+			pricing := change.Pricing
+			if change.Reset {
+				pricing = modelPricingValues(defaults, change.ModelName)
+			}
+			if change.Remove {
+				pricing = nil
+			}
+			replaceModelPricing(prospective, change.ModelName, pricing)
+		}
+		validation := draft.validation
+		validation.pluginExpressions = prospective[billing_setting.PluginBillingExprOption]
 		for _, change := range changes {
 			currentCurrency := draft.previous.currencies[change.ModelName]
 			if change.Remove {
@@ -653,7 +716,7 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 			if change.Reset {
 				pricing = modelPricingValues(defaults, change.ModelName)
 			}
-			if err := validateModelPricingWithDependencies(change.ModelName, pricing, previous, draft.validation); err != nil {
+			if err := validateModelPricingWithDependencies(change.ModelName, pricing, previous, validation); err != nil {
 				return err
 			}
 			replaceModelPricing(draft.values, change.ModelName, pricing)
@@ -824,7 +887,7 @@ func savePreparedModelPricing(extraOptions map[string]string, prepare func(*mode
 		}
 		initial := cloneModelPricingMaps(values)
 		draft := modelPricingSaveDraft{previous: previous, values: values, currencies: make(map[string]string), explicit: make(map[string]bool),
-			validation: modelPricingValidationDependencies{plugins: dependencies.Plugins, resolveAlias: func(name string) (TaskAliasTarget, bool) {
+			validation: modelPricingValidationDependencies{plugins: dependencies.Plugins, pluginExpressions: values[billing_setting.PluginBillingExprOption], resolveAlias: func(name string) (TaskAliasTarget, bool) {
 				target, exists := dependencies.Aliases[jsplugin.ASCIIFold(name)]
 				return target, exists
 			}}}

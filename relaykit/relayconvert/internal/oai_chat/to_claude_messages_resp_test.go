@@ -1,6 +1,7 @@
 package oaichat
 
 import (
+	"math"
 	"testing"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -410,13 +411,25 @@ func TestStreamResponseOpenAI2ClaudeGeminiBillingUsageOnStartAndDelta(t *testing
 }
 
 func TestNormalizeCacheCreationSplit(t *testing.T) {
-	cache5m, cache1h := NormalizeCacheCreationSplit(10, 3, 2)
-	assert.Equal(t, 8, cache5m)
-	assert.Equal(t, 2, cache1h)
-
-	cache5m, cache1h = NormalizeCacheCreationSplit(3, 5, 1)
-	assert.Equal(t, 5, cache5m)
-	assert.Equal(t, 1, cache1h)
+	for _, tc := range []struct {
+		name               string
+		total, five, hour  int
+		wantFive, wantHour int
+	}{
+		{name: "partial split", total: 10, five: 3, hour: 2, wantFive: 8, wantHour: 2},
+		{name: "overreported split", total: 3, five: 5, hour: 1, wantFive: 5, wantHour: 1},
+		{name: "unsplit cache", total: 10, wantFive: 10},
+		{name: "maximum total", total: math.MaxInt, five: math.MaxInt - 2, hour: 1, wantFive: math.MaxInt - 1, wantHour: 1},
+		{name: "overflowing reported split", total: 0, five: math.MaxInt, hour: math.MaxInt, wantFive: math.MaxInt, wantHour: math.MaxInt},
+		{name: "negative reported split", total: 10, five: -5, hour: 2, wantFive: 8, wantHour: 2},
+		{name: "negative total", total: -1, wantFive: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			five, hour := NormalizeCacheCreationSplit(tc.total, tc.five, tc.hour)
+			assert.Equal(t, tc.wantFive, five)
+			assert.Equal(t, tc.wantHour, hour)
+		})
+	}
 }
 
 func ptr[T any](value T) *T {

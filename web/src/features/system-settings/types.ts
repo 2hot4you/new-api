@@ -503,7 +503,9 @@ export type DifferencesMap = Record<
   Partial<Record<RatioType, RatioDifference>>
 >
 
-export type PricingSyncValues = Partial<Record<RatioType, number | string>>
+export type PricingSyncValues = Partial<Record<RatioType, number | string>> & {
+  source_currency?: string
+}
 export type PricingSyncModels = Record<
   string,
   { current: PricingSyncValues; upstreams: Record<string, PricingSyncValues> }
@@ -523,6 +525,7 @@ export type UpstreamConfig = {
 }
 
 export type FetchUpstreamRatiosRequest = {
+  include_unchanged?: boolean
   upstreams: UpstreamConfig[]
   timeout: number
 }

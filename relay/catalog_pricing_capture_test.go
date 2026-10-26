@@ -255,6 +255,101 @@ func TestCatalogRequestExpressionMoneyOverlap(t *testing.T) {
 	assert.Equal(t, state.Revision, state.RuntimeRevision)
 }
 
+func TestCatalogOrdinarySharedTaskQuoteUsesCapturedCandidates(t *testing.T) {
+	catalogPricingPostgres(t, map[string]string{
+		"billing_setting.billing_mode":          `{"shared-quote":"tiered_expr"}`,
+		"billing_setting.billing_expr":          `{"shared-quote":"tier(\"base\", p * 2)"}`,
+		billing_setting.PluginBillingExprOption: `{}`,
+	})
+	plugins := map[string]*jsplugin.LoadedPlugin{
+		"provider-a": {Meta: jsplugin.Meta{Key: "provider-a"}},
+		"provider-b": {Meta: jsplugin.Meta{Key: "provider-b"}},
+	}
+	request := func(keys ...string) (*gin.Context, *relaycommon.RelayInfo) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+		candidates := make([]jsplugin.ProtocolBinding, 0, len(keys))
+		for _, key := range keys {
+			candidates = append(candidates, jsplugin.ProtocolBinding{Plugin: plugins[key], Model: "shared-quote"})
+		}
+		c.Set(jsplugin.ContextKeyRelayEndpoint, jsplugin.PinnedEndpoint{Model: "shared-quote", MappedModel: "shared-quote", Candidates: candidates})
+		return c, &relaycommon.RelayInfo{OriginModelName: "shared-quote", UsingGroup: "default", UserGroup: "default"}
+	}
+	set := func(expr, overrides string) {
+		t.Helper()
+		var providerExpr map[string]string
+		err := common.UnmarshalJsonStr(overrides, &providerExpr)
+		require.NoError(t, err)
+		billing_setting.PublishBillingSetting(billing_setting.BillingSetting{
+			BillingMode: map[string]string{"shared-quote": billing_setting.BillingModeTieredExpr},
+			BillingExpr: map[string]string{"shared-quote": expr}, PluginBillingExpr: providerExpr,
+		})
+	}
+
+	c, info := request("provider-a", "provider-b")
+	require.NoError(t, helper.CaptureRequestPricing(c, info))
+	set(`tier("base", p * 2)`, `{"provider-a::shared-quote":"u(\"seconds\")","provider-b::shared-quote":"u(\"seconds\")"}`)
+	_, err := helper.ModelPriceHelper(c, info, 100, &kittypes.TokenCountMeta{})
+	require.ErrorContains(t, err, "provider-a", "a quote inherited at capture remains unsafe after overrides are added")
+	assert.Nil(t, info.TieredBillingSnapshot)
+
+	for _, tc := range []struct {
+		name, expression, overrides string
+		candidates                  []string
+		blocked                     bool
+	}{
+		{"one applicable inherited", `tier("base", p * 2)`, `{"provider-a::shared-quote":"u(\"seconds\")"}`, []string{"provider-a", "provider-b"}, true},
+		{"inherited constant is task USD", `tier("base", 2)`, `{}`, []string{"provider-a"}, true},
+		{"mixed fixed and token branches fail closed", `len > 0 ? tier("request", fixed(0.1)) : tier("base", 2)`, `{}`, []string{"provider-a"}, true},
+		{"all applicable overridden", `tier("base", p * 2)`, `{"provider-a::shared-quote":"u(\"seconds\")","provider-b::shared-quote":"u(\"seconds\")"}`, []string{"provider-a", "provider-b"}, false},
+		{"unrelated provider cannot veto selected", `tier("base", p * 2)`, `{"provider-a::shared-quote":"u(\"seconds\")"}`, []string{"provider-a"}, false},
+		{"fixed image count remains ordinary", `tier("image", fixed(0.1)) * image_count`, `{}`, []string{"provider-a", "provider-b"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			set(tc.expression, tc.overrides)
+			c, info := request(tc.candidates...)
+			if strings.Contains(tc.expression, "image_count") {
+				n := uint(2)
+				info.Request = &dto.ImageRequest{Model: "shared-quote", N: &n}
+			}
+			require.NoError(t, helper.CaptureRequestPricing(c, info))
+			if tc.name == "all applicable overridden" {
+				set(tc.expression, `{}`)
+			}
+			_, err := helper.ModelPriceHelper(c, info, 100, &kittypes.TokenCountMeta{})
+			if tc.blocked {
+				plugin := "provider-b"
+				if tc.name == "inherited constant is task USD" || tc.name == "mixed fixed and token branches fail closed" {
+					plugin = "provider-a"
+				}
+				require.ErrorContains(t, err, plugin)
+				assert.Nil(t, info.TieredBillingSnapshot)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, info.TieredBillingSnapshot)
+			}
+		})
+	}
+	set(`tier("base", u("seconds"))`, `{}`)
+	c, info = request()
+	require.NoError(t, helper.CaptureRequestPricing(c, info))
+	_, err = helper.ModelPriceHelper(c, info, 100, &kittypes.TokenCountMeta{})
+	require.ErrorContains(t, err, "task", "ordinary pricing must reject usage facts even without task candidates")
+	set(`false ? tier("task", u("seconds")) : tier("base", p * 2)`, `{}`)
+	c, info = request()
+	require.NoError(t, helper.CaptureRequestPricing(c, info))
+	_, err = helper.ModelPriceHelper(c, info, 100, &kittypes.TokenCountMeta{})
+	require.ErrorContains(t, err, "task", "unselected branches cannot hide task usage from the ordinary endpoint")
+
+	set(`tier("base", p * 2)`, `{"provider-a::shared-quote":"u(\"seconds\")"}`)
+	c, info = request("provider-a", "provider-b")
+	require.NoError(t, helper.CaptureTaskPricing(c, info, "provider-a"))
+	task, ok := info.PricingSelection.Task()
+	require.True(t, ok)
+	assert.Equal(t, "provider-a", task.PluginKey)
+	assert.Equal(t, `u("seconds")`, task.Expression, "an unrelated provider cannot veto the selected task override")
+}
+
 func TestCatalogRequestToolSettlementRemainsSelected(t *testing.T) {
 	db := catalogPricingPostgres(t, map[string]string{
 		"ModelPrice":                   `{"capture-model":0.1}`,

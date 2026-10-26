@@ -88,6 +88,9 @@ if [[ "${1:-}" == "inspect" && "$*" == *".State.Health"* ]]; then
 fi
 
 if [[ "$*" == "compose --env-file .deploy.env pull" ]]; then
+  if [[ ${MOCK_EXPIRE_AFTER_PULL:-false} == true ]]; then
+    printf '2026-10-27 00\n' > "$MOCK_CLOCK_FILE"
+  fi
   count=0
   if [[ -f "$MOCK_PULL_COUNT_FILE" ]]; then
     count=$(<"$MOCK_PULL_COUNT_FILE")
@@ -133,7 +136,13 @@ MOCK
 exit 0
 MOCK
 
-  chmod +x "$fixture/bin/docker" "$fixture/bin/curl" "$fixture/bin/flock" "$fixture/bin/sleep"
+  cat >"$fixture/bin/date" <<'MOCK'
+#!/usr/bin/env bash
+if [[ -f "$MOCK_CLOCK_FILE" ]]; then cat "$MOCK_CLOCK_FILE"; exit; fi
+printf '2026-10-26 20\n'
+MOCK
+
+  chmod +x "$fixture/bin/docker" "$fixture/bin/curl" "$fixture/bin/flock" "$fixture/bin/sleep" "$fixture/bin/date"
 }
 
 write_runtime_env() {
@@ -181,12 +190,15 @@ run_deploy() {
   local fixture=$1
   shift
   PATH="$fixture/bin:$PATH" \
+    IXIAOZU_MAINTENANCE_APPROVED=true \
+    IXIAOZU_MAINTENANCE_DATE=2026-10-26 \
     MOLII_DEPLOY_ROOT="$fixture/molii" \
     CLAUDEYE_DEPLOY_ROOT="$fixture/claudeye" \
     IXIAOZU_DEPLOY_ROOT="$fixture/ixiaozu" \
     HEALTH_ATTEMPTS=1 \
     HEALTH_INTERVAL_SECONDS=0 \
     MOCK_LOG="$fixture/mock.log" \
+    MOCK_CLOCK_FILE="$fixture/beijing-clock" \
     MOCK_HEALTH_COUNT_FILE="$fixture/health-count" \
     MOCK_PULL_COUNT_FILE="$fixture/pull-count" \
     MOCK_PUBLIC_COUNT_FILE="$fixture/public-count" \
@@ -208,6 +220,26 @@ test_rejects_unknown_environment() {
     fail 'unknown environment returns nonzero'
   fi
   assert_contains "$output" 'unsupported environment' 'unknown environment explains the failure'
+  rm -rf "$fixture"
+}
+
+test_expired_window_stops_after_pull() {
+  local fixture output status log
+  fixture=$(new_fixture)
+  set +e
+  output=$(MOCK_EXPIRE_AFTER_PULL=true run_deploy "$fixture" production-ixiaozu ghcr.io/example/new-api:fixture https://aigc.ixiaozu.cn/api/status 2>&1)
+  status=$?
+  set -e
+  assert_equals "$status" 1 'expired maintenance window fails the release'
+  log=$(<"$fixture/mock.log")
+  assert_contains "$log" 'compose --env-file .deploy.env pull' 'approved window permits the initial pull'
+  assert_not_contains "$log" 'up -d' 'expired window prevents container replacement and rollback'
+  assert_not_contains "$log" 'https://' 'expired window prevents further health requests'
+  if [[ ! -e "$fixture/ixiaozu/production/.deploy-result" ]]; then
+    pass 'expired window does not write a deployment result on the server'
+  else
+    fail 'expired window wrote a deployment result on the server'
+  fi
   rm -rf "$fixture"
 }
 
@@ -650,6 +682,7 @@ test_app_version_fits_setup_schema() {
 
 printf 'TAP version 13\n'
 test_rejects_unknown_environment
+test_expired_window_stops_after_pull
 test_maps_all_deployment_targets
 test_rejects_mismatched_health_url
 test_requires_runtime_secrets

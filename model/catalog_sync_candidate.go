@@ -124,7 +124,7 @@ func stageProspectiveCatalogPricing(options, previous map[string]string, depende
 		}
 		delete(prior[leaf.Option], leaf.Name)
 	}
-	validation := modelPricingValidationDependencies{plugins: dependencies.Plugins, resolveAlias: func(name string) (TaskAliasTarget, bool) {
+	validation := modelPricingValidationDependencies{plugins: dependencies.Plugins, pluginExpressions: next[billing_setting.PluginBillingExprOption], resolveAlias: func(name string) (TaskAliasTarget, bool) {
 		target, ok := dependencies.Aliases[jsplugin.ASCIIFold(name)]
 		return target, ok
 	}}

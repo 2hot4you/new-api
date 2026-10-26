@@ -9,6 +9,20 @@ archive_sha256=${4:-}
 site_origin=${5:-}
 site_marker=${6:-}
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# Repository tests use the shared helper; servers receive it beside this script.
+maintenance_helper="$script_dir/maintenance-window.sh"
+if [[ ! -f "$maintenance_helper" && -f "$script_dir/../../deploy/maintenance-window.sh" ]]; then
+  maintenance_helper="$script_dir/../../deploy/maintenance-window.sh"
+fi
+source "$maintenance_helper"
+check_maintenance_window "$environment"
+
+guarded() {
+  check_maintenance_window "$environment" || return 1
+  "$@"
+}
+
 public_root=${DOCS_DEPLOY_ROOT:-/opt/1panel/www/sites}
 molii_private_root=${MOLII_PRIVATE_ROOT:-/opt/molii}
 ixiaozu_private_root=${IXIAOZU_PRIVATE_ROOT:-/opt/ixiaozu}
@@ -33,20 +47,21 @@ fail() {
 }
 
 cleanup() {
+  check_maintenance_window "$environment" || return 1
   if [[ -n "$staging_dir" && -d "$staging_dir" ]]; then
-    rm -rf -- "$staging_dir"
+    guarded rm -rf -- "$staging_dir" || return 1
   fi
   if [[ -n "$next_snapshot_dir" && -d "$next_snapshot_dir" ]]; then
-    rm -rf -- "$next_snapshot_dir"
+    guarded rm -rf -- "$next_snapshot_dir" || return 1
   fi
   if [[ -n "$headers_file" && -f "$headers_file" ]]; then
-    rm -f -- "$headers_file"
+    guarded rm -f -- "$headers_file" || return 1
   fi
   if [[ -n "$health_body_file" && -f "$health_body_file" ]]; then
-    rm -f -- "$health_body_file"
+    guarded rm -f -- "$health_body_file" || return 1
   fi
   if ((archive_owned == 1)) && [[ -f "$archive_path" ]]; then
-    rm -f -- "$archive_path"
+    guarded rm -f -- "$archive_path" || return 1
   fi
 }
 
@@ -54,6 +69,7 @@ restore_snapshot() {
   if ((rollback_ready == 0)); then
     return
   fi
+  check_maintenance_window "$environment" || return 1
 
   log 'deployment failed; restoring previous documentation snapshot'
   if ! rsync --archive --delete --delay-updates "$snapshot_dir/" "$public_dir/"; then
@@ -144,6 +160,7 @@ for command_name in sha256sum tar rsync curl mktemp "$flock_bin"; do
 done
 
 state_dir="$environment_root/data/docs-deploy"
+check_maintenance_window "$environment"
 staging_dir="$state_dir/staging-$release_id"
 snapshot_dir="$state_dir/previous"
 next_snapshot_dir="$state_dir/snapshot-$release_id"
@@ -154,7 +171,7 @@ exec 9>"$state_dir/deploy.lock"
 if ! "$flock_bin" -n 9; then
   fail 'another documentation deployment is in progress'
 fi
-health_body_file=$(mktemp "$state_dir/health-body-$release_id.XXXXXX")
+health_body_file=$(guarded mktemp "$state_dir/health-body-$release_id.XXXXXX")
 
 actual_sha256=$(sha256sum "$archive_path" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
 expected_sha256=$(printf '%s' "$archive_sha256" | tr '[:upper:]' '[:lower:]')
@@ -187,9 +204,9 @@ while IFS= read -r entry_detail; do
   fi
 done <<<"$archive_details"
 
-rm -rf -- "$staging_dir" "$next_snapshot_dir"
-mkdir -p "$staging_dir" "$next_snapshot_dir"
-tar --no-same-owner --no-same-permissions -xzf "$archive_path" -C "$staging_dir"
+guarded rm -rf -- "$staging_dir" "$next_snapshot_dir"
+guarded mkdir -p "$staging_dir" "$next_snapshot_dir"
+guarded tar --no-same-owner --no-same-permissions -xzf "$archive_path" -C "$staging_dir"
 
 if [[ ! -f "$staging_dir/quick-start/index.html" ]]; then
   fail 'documentation artifact is missing quick-start/index.html'
@@ -201,20 +218,22 @@ if ! grep -Fq -- "$site_marker" "$staging_dir/quick-start/index.html"; then
   fail 'quick-start page does not contain the expected site marker'
 fi
 
-rsync --archive --delete --delay-updates "$public_dir/" "$next_snapshot_dir/"
-rm -rf -- "$snapshot_dir"
-mv "$next_snapshot_dir" "$snapshot_dir"
+guarded rsync --archive --delete --delay-updates "$public_dir/" "$next_snapshot_dir/"
+guarded rm -rf -- "$snapshot_dir"
+guarded mv "$next_snapshot_dir" "$snapshot_dir"
 rollback_ready=1
 
-rsync --archive --delete --delay-updates "$staging_dir/" "$public_dir/"
+check_maintenance_window "$environment"
+guarded rsync --archive --delete --delay-updates "$staging_dir/" "$public_dir/"
 
 check_redirect() {
   local path=$1
   local status location expected_path expected_absolute
   expected_path='/docs/quick-start'
   expected_absolute="$site_origin$expected_path"
+  check_maintenance_window "$environment" || return 1
   : >"$headers_file"
-  status=$(curl --silent --show-error --max-time 15 \
+  status=$(guarded curl --silent --show-error --max-time 15 \
     --output /dev/null --dump-header "$headers_file" --write-out '%{http_code}' \
     "$site_origin$path")
   location=$(awk 'tolower($0) ~ /^location:/ { sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit }' "$headers_file")
@@ -226,7 +245,7 @@ check_redirect() {
 
 check_redirect '/docs'
 check_redirect '/docs/'
-if ! curl --fail --silent --show-error --max-time 15 \
+if ! guarded curl --fail --silent --show-error --max-time 15 \
   --output "$health_body_file" "$site_origin/docs/quick-start/"; then
   fail 'public quick-start request failed'
 fi
@@ -234,7 +253,7 @@ if ! grep -Fq -- "$site_marker" "$health_body_file"; then
   fail 'public quick-start health check failed'
 fi
 
-rm -f -- "$headers_file"
+guarded rm -f -- "$headers_file"
 cleanup
 trap - ERR INT TERM
 log "release $release_id deployed to $environment"

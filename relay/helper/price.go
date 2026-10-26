@@ -32,9 +32,6 @@ func modelPriceNotConfiguredError(c *gin.Context, modelName string, userId int) 
 	return errors.New(i18n.T(c, key, map[string]any{"Model": modelName}))
 }
 
-// https://docs.claude.com/en/docs/build-with-claude/prompt-caching#1-hour-cache-duration
-const claudeCacheCreation1hMultiplier = 6 / 3.75
-
 // HandleGroupRatio checks for "auto_group" in the context and updates the group ratio and relayInfo.UsingGroup if present
 func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hosttypes.GroupRatioInfo {
 	groupRatioInfo := hosttypes.GroupRatioInfo{
@@ -98,6 +95,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	var cacheCreationRatio float64
 	var cacheCreationRatio5m float64
 	var cacheCreationRatio1h float64
+	var cacheCreationRatio12h float64
 	var audioRatio float64
 	var audioCompletionRatio float64
 	var freeModel bool
@@ -124,7 +122,8 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		cacheCreationRatio = selected.CacheCreationRatio
 		cacheCreationRatio5m = cacheCreationRatio
 		// 固定1h和5min缓存写入价格的比例
-		cacheCreationRatio1h = cacheCreationRatio * claudeCacheCreation1hMultiplier
+		cacheCreationRatio1h = cacheCreationRatio * hosttypes.ClaudeCacheCreation1hMultiplier
+		cacheCreationRatio12h = cacheCreationRatio * hosttypes.OpenAICacheCreation12hMultiplier
 		imageRatio = selected.ImageRatio
 		audioRatio = selected.AudioRatio
 		audioCompletionRatio = selected.AudioCompletionRatio
@@ -166,20 +165,21 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	}
 
 	priceData := hosttypes.PriceData{
-		FreeModel:            freeModel,
-		ModelPrice:           modelPrice,
-		ModelRatio:           modelRatio,
-		CompletionRatio:      completionRatio,
-		GroupRatioInfo:       groupRatioInfo,
-		UsePrice:             usePrice,
-		CacheRatio:           cacheRatio,
-		ImageRatio:           imageRatio,
-		AudioRatio:           audioRatio,
-		AudioCompletionRatio: audioCompletionRatio,
-		CacheCreationRatio:   cacheCreationRatio,
-		CacheCreation5mRatio: cacheCreationRatio5m,
-		CacheCreation1hRatio: cacheCreationRatio1h,
-		QuotaToPreConsume:    preConsumedQuota,
+		FreeModel:             freeModel,
+		ModelPrice:            modelPrice,
+		ModelRatio:            modelRatio,
+		CompletionRatio:       completionRatio,
+		GroupRatioInfo:        groupRatioInfo,
+		UsePrice:              usePrice,
+		CacheRatio:            cacheRatio,
+		ImageRatio:            imageRatio,
+		AudioRatio:            audioRatio,
+		AudioCompletionRatio:  audioCompletionRatio,
+		CacheCreationRatio:    cacheCreationRatio,
+		CacheCreation5mRatio:  cacheCreationRatio5m,
+		CacheCreation1hRatio:  cacheCreationRatio1h,
+		CacheCreation12hRatio: cacheCreationRatio12h,
+		QuotaToPreConsume:     preConsumedQuota,
 	}
 	if usePrice {
 		for name, ratio := range meta.BillingRatios {
@@ -361,7 +361,17 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", billingModelName)
 	}
 	exprHash := billingexpr.ExprHashString(exprStr)
-	if info.RelayFormat == types.RelayFormatOpenAIRealtime && billingexpr.UsesFixedPricingByHash(exprStr, exprHash) {
+	usedVars := billingexpr.UsedVarsByHash(exprStr, exprHash)
+	if usedVars["u"] {
+		return hosttypes.PriceData{}, errors.New(i18n.T(c, i18n.MsgRelayTaskUsagePriceUnsupported, map[string]any{"Model": billingModelName}))
+	}
+	fixedPricing := billingexpr.UsesFixedPricingByHash(exprStr, exprHash)
+	if selected.SharedTaskPlugin != "" && !billingexpr.OnlyFixedPricingByHash(exprStr, exprHash) {
+		// A task expression returns USD, while an ordinary token expression
+		// returns USD per million tokens. Both cannot inherit one quote.
+		return hosttypes.PriceData{}, errors.New(i18n.T(c, i18n.MsgRelaySharedTaskPriceNeedsOverride, map[string]any{"Model": billingModelName, "Plugin": selected.SharedTaskPlugin}))
+	}
+	if info.RelayFormat == types.RelayFormatOpenAIRealtime && fixedPricing {
 		return hosttypes.PriceData{}, fmt.Errorf("fixed pricing is not supported for Realtime requests")
 	}
 
@@ -374,7 +384,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}
-	if billingexpr.UsedVarsByHash(exprStr, exprHash)["image_count"] {
+	if usedVars["image_count"] {
 		requestInput, err = ResolveImageBillingRequestInput(c, info, requestInput)
 		if err != nil {
 			return hosttypes.PriceData{}, err

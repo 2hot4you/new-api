@@ -60,7 +60,10 @@ func TestCatalogSyncGrokFixedPricingConflict(t *testing.T) {
 		})
 	}
 	data.Before = draft
-	require.NoError(t, stage(data), "unchanged single-provider price keeps the existing preservation allowance")
+	err = stage(data)
+	var unchangedConflict *ModelPricingValidationConflict
+	require.ErrorAs(t, err, &unchangedConflict, "unchanged prices cannot preserve unsupported fixed task pricing")
+	assert.Equal(t, "task_fixed_pricing_unsupported", unchangedConflict.Reason)
 
 	dependencies := modelPricingValidationDependencies{plugins: map[string]jsplugin.Meta{"xai": plugin.Meta}, resolveAlias: func(string) (TaskAliasTarget, bool) { return TaskAliasTarget{PluginKey: "xai", Declared: name}, true }}
 	for _, name := range []string{name, "grok-alias"} {
@@ -70,7 +73,7 @@ func TestCatalogSyncGrokFixedPricingConflict(t *testing.T) {
 		assert.Equal(t, name, conflict.Model)
 		assert.Equal(t, "xai", conflict.Provider)
 		if name == "grok-alias" {
-			assert.EqualError(t, err, "model grok-alias: fixed pricing is not supported for task usage expressions")
+			assert.EqualError(t, err, "model grok-alias: plugin xai: fixed pricing is not supported for task usage expressions")
 		}
 	}
 	for _, expression := range []string{`tier("request", fixed(1)) [`, `u("not_declared_secret")`, `1 / u("seconds")`} {

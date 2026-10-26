@@ -12,3 +12,9 @@
 ## 同步生成网关超时
 
 - 同步图像生成可能超过一分钟；核对网关等候响应头超时与应用处理时间，客户端等待参数不能延长网关超时。按图片路径设置独立读取等待，并保留更长下载路径的超时与日志规则；使用不计费的延迟响应测试验证。
+
+## Shared ordinary and task pricing
+
+- Task expressions evaluate usage facts in currency per request; ordinary token variables are not populated there. Reject unavailable token variables and fixed ordinary pricing from the original AST before reservation, even for unchanged stored quotes and unreachable branches. Legitimate task token pricing uses a declared `u("tokens")` fact and an explicit million-token conversion.
+- Keep unit safety separate from schema compatibility: an unchanged sole-provider usage expression may retain the documented narrowed-schema exception, but cannot bypass unit safety. Dormant ratio-mode expressions and ordinary quotes shadowed by valid source/mapped task overrides must remain editable.
+- Cross-model alias validation must use the complete candidate override map, including additions, removals and resets, before per-row validation. Never let batch order decide validity, retain removed old overrides, or consult a later live map during prospective catalog validation.

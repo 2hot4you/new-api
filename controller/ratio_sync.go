@@ -26,6 +26,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const (
@@ -72,6 +73,7 @@ var pricingSyncFields = []string{
 	"model_price",
 	billing_setting.BillingModeField,
 	billing_setting.BillingExprField,
+	"source_currency",
 }
 
 var numericPricingSyncFields = map[string]bool{
@@ -131,12 +133,46 @@ func normalizeSyncValue(field string, value any) any {
 	return value
 }
 
-func getLocalPricingSyncData() map[string]any {
-	data := billing_setting.GetPricingSyncData(map[string]any(ratio_setting.GetExposedData()))
-	data["image_ratio"] = ratio_setting.GetImageRatioCopy()
-	data["audio_ratio"] = ratio_setting.GetAudioRatioCopy()
-	data["audio_completion_ratio"] = ratio_setting.GetAudioCompletionRatioCopy()
-	return data
+// Read option values and their denomination together. Runtime builtin maps alone
+// cannot distinguish an administrator CNY expression from the USD default.
+func getLocalPricingSyncData(ctx context.Context) (map[string]any, error) {
+	data := make(map[string]any)
+	err := model.WithCatalogReadSnapshot(ctx, func(tx *gorm.DB) error {
+		snapshot, err := model.GetModelPricingSnapshotTx(tx, nil)
+		if err != nil {
+			return err
+		}
+		fields := map[string]string{
+			"ModelRatio": "model_ratio", "CompletionRatio": "completion_ratio", "CacheRatio": "cache_ratio", "CreateCacheRatio": "create_cache_ratio",
+			"ImageRatio": "image_ratio", "AudioRatio": "audio_ratio", "AudioCompletionRatio": "audio_completion_ratio", "ModelPrice": "model_price",
+			"billing_setting.billing_mode": billing_setting.BillingModeField, "billing_setting.billing_expr": billing_setting.BillingExprField,
+		}
+		for _, field := range pricingSyncFields {
+			data[field] = make(map[string]any)
+		}
+		for _, entry := range snapshot.Entries {
+			for option, field := range fields {
+				if value, exists := entry.Effective[option]; exists {
+					valueMap(data[field])[entry.ModelName] = value
+				}
+			}
+			if entry.Effective["billing_setting.billing_mode"] != billing_setting.BillingModeTieredExpr {
+				valueMap(data["source_currency"])[entry.ModelName] = "USD"
+				continue
+			}
+			_, configured := entry.Configured["billing_setting.billing_expr"]
+			if !configured {
+				// Effective already rejects a missing compiled expression for CNY metadata.
+				if _, quoted := entry.Effective["billing_setting.billing_expr"]; quoted {
+					valueMap(data["source_currency"])[entry.ModelName] = "USD"
+				}
+			} else if entry.HasMetadata && (entry.BillingCurrency == "USD" || entry.BillingCurrency == "CNY") {
+				valueMap(data["source_currency"])[entry.ModelName] = entry.BillingCurrency
+			}
+		}
+		return nil
+	})
+	return data, err
 }
 
 // effectivePricingSyncData follows the billing engine's mode precedence. An
@@ -149,6 +185,9 @@ func effectivePricingSyncData(data map[string]any) map[string]any {
 		entries := make(map[string]any)
 		for name, raw := range valueMap(data[field]) {
 			value := normalizeSyncValue(field, raw)
+			if field == "source_currency" && value != "USD" && value != "CNY" {
+				continue
+			}
 			if numericPricingSyncFields[field] {
 				number, ok := value.(float64)
 				if !ok || math.IsNaN(number) || math.IsInf(number, 0) || number < 0 {
@@ -179,6 +218,7 @@ func effectivePricingSyncData(data map[string]any) map[string]any {
 		}
 		delete(expressions, name)
 		modes[name] = billing_setting.BillingModeRatio
+		valueMap(result["source_currency"])[name] = "USD"
 		_, fixed := valueMap(result["model_price"])[name]
 		_, token := valueMap(result["model_ratio"])[name]
 		if !fixed && !token {
@@ -209,7 +249,10 @@ func modelPricingSyncValues(data map[string]any, name string) map[string]any {
 }
 
 func FetchUpstreamRatios(c *gin.Context) {
-	var req dto.UpstreamRequest
+	var req struct {
+		dto.UpstreamRequest
+		IncludeUnchanged bool `json:"include_unchanged"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.SysError(common.LogText("failed to bind upstream request: %s", err.Error()))
 		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid request parameter format"))
@@ -460,6 +503,8 @@ func FetchUpstreamRatios(c *gin.Context) {
 				AudioCompletionRatio *float64 `json:"audio_completion_ratio"`
 				BillingMode          string   `json:"billing_mode"`
 				BillingExpr          string   `json:"billing_expr"`
+				BillingCurrency      string   `json:"billing_currency"`
+				SourceCurrency       string   `json:"source_currency"`
 			}
 			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
 				logger.LogWarn(c.Request.Context(), common.LogText("unrecognized data format from %s: %s", chItem.Name, err.Error()))
@@ -477,6 +522,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			modelPriceMap := make(map[string]float64)
 			billingModeMap := make(map[string]string)
 			billingExprMap := make(map[string]string)
+			sourceCurrencyMap := make(map[string]string)
 
 			for _, item := range pricingItems {
 				if item.ModelName == "" {
@@ -485,6 +531,13 @@ func FetchUpstreamRatios(c *gin.Context) {
 				if item.BillingMode == billing_setting.BillingModeTieredExpr {
 					billingModeMap[item.ModelName] = billing_setting.BillingModeTieredExpr
 					billingExprMap[item.ModelName] = item.BillingExpr
+					currency := item.SourceCurrency
+					if currency == "" {
+						currency = item.BillingCurrency
+					}
+					if currency == "USD" || currency == "CNY" {
+						sourceCurrencyMap[item.ModelName] = currency
+					}
 					continue
 				}
 				if item.QuotaType == 1 {
@@ -517,6 +570,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			}
 
 			converted := make(map[string]any)
+			converted["source_currency"] = valueMap(sourceCurrencyMap)
 
 			if len(modelRatioMap) > 0 {
 				ratioAny := make(map[string]any, len(modelRatioMap))
@@ -570,7 +624,12 @@ func FetchUpstreamRatios(c *gin.Context) {
 	wg.Wait()
 	close(ch)
 
-	localData := effectivePricingSyncData(getLocalPricingSyncData())
+	localPricing, err := getLocalPricingSyncData(c.Request.Context())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	localData := effectivePricingSyncData(localPricing)
 
 	var testResults []dto.TestResult
 	var successfulChannels []struct {
@@ -602,10 +661,29 @@ func FetchUpstreamRatios(c *gin.Context) {
 		Current   map[string]any            `json:"current"`
 		Upstreams map[string]map[string]any `json:"upstreams"`
 	}
-	prices := make(map[string]modelSyncPrices, len(differences))
-	for name, fields := range differences {
+	models := make(map[string]struct{}, len(differences))
+	for name := range differences {
+		models[name] = struct{}{}
+	}
+	if req.IncludeUnchanged {
+		for _, channel := range successfulChannels {
+			for _, field := range pricingSyncFields {
+				for name := range valueMap(channel.data[field]) {
+					models[name] = struct{}{}
+				}
+			}
+		}
+	}
+	prices := make(map[string]modelSyncPrices, len(models))
+	for name := range models {
 		row := modelSyncPrices{Current: modelPricingSyncValues(localData, name), Upstreams: make(map[string]map[string]any)}
-		_, expressionPriority := fields[billing_setting.BillingExprField]
+		expressionPriority := valueMap(localData[billing_setting.BillingModeField])[name] == billing_setting.BillingModeTieredExpr
+		for _, channel := range successfulChannels {
+			if valueMap(channel.data[billing_setting.BillingModeField])[name] == billing_setting.BillingModeTieredExpr {
+				expressionPriority = true
+				break
+			}
+		}
 		for _, channel := range successfulChannels {
 			candidate := modelPricingSyncValues(channel.data, name)
 			if expressionPriority && candidate[billing_setting.BillingModeField] != billing_setting.BillingModeTieredExpr {
@@ -618,7 +696,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 				row.Upstreams[channel.name] = candidate
 			}
 		}
-		prices[name] = row
+		if len(row.Upstreams) > 0 {
+			prices[name] = row
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

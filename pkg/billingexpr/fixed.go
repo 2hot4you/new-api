@@ -19,6 +19,54 @@ func UsesFixedPricingByHash(expression, hash string) bool {
 	return err == nil && entry.fixedPricing
 }
 
+// OnlyFixedPricingByHash reports whether every possible pricing leaf has a
+// request price. An ordinary endpoint shared with a task provider may use
+// such a quote without confusing token $/1M with task USD amounts.
+func OnlyFixedPricingByHash(expression, hash string) bool {
+	entry, err := compileEntryFromCacheByHash(expression, hash)
+	return err == nil && entry.onlyFixedPricing
+}
+
+// UnavailableTaskTokenVar reports a token-usage variable from the original
+// expression tree. Task billing supplies Usage facts, but no TokenParams, so
+// even an unselected token branch must not be charged as zero.
+func UnavailableTaskTokenVar(expression string) string {
+	entry, err := compileEntryFromCacheByHash(expression, ExprHashString(expression))
+	if err != nil {
+		return ""
+	}
+	return entry.unavailableTaskTokenVar
+}
+
+func allPricingLeavesFixed(node ast.Node) bool {
+	switch part := node.(type) {
+	case *ast.ConditionalNode:
+		return allPricingLeavesFixed(part.Exp1) && allPricingLeavesFixed(part.Exp2)
+	case *ast.BinaryNode:
+		if part.Operator != "*" {
+			return false
+		}
+		if isRequestPriceMultiplier(part.Right) {
+			return allPricingLeavesFixed(part.Left)
+		}
+		if isRequestPriceMultiplier(part.Left) {
+			return allPricingLeavesFixed(part.Right)
+		}
+	case *ast.CallNode:
+		callee, ok := part.Callee.(*ast.IdentifierNode)
+		if !ok || callee.Value != "tier" || len(part.Arguments) != 2 {
+			return false
+		}
+		price, ok := part.Arguments[1].(*ast.CallNode)
+		if !ok || len(price.Arguments) != 1 {
+			return false
+		}
+		function, ok := price.Callee.(*ast.IdentifierNode)
+		return ok && function.Value == "fixed"
+	}
+	return false
+}
+
 func containsPricingMarker(node ast.Node) bool {
 	return ast.Find(node, func(part ast.Node) bool {
 		identifier, ok := part.(*ast.IdentifierNode)

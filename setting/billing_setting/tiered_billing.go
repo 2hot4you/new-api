@@ -194,10 +194,7 @@ func ResolveTaskBillingExpr(pluginKey, model, mappedModel string) (string, bool)
 // TaskExprCompatible checks the schema contract even for usage references in
 // branches that the current request would not evaluate.
 func TaskExprCompatible(expression string, schema map[string]jsplugin.UsageFieldSchema) bool {
-	if strings.TrimSpace(expression) == "" {
-		return false
-	}
-	if _, err := billingexpr.CompileFromCache(expression); err != nil {
+	if err := TaskExprSafetyError(expression); err != nil {
 		return false
 	}
 	for key := range billingexpr.UsedUsageKeys(expression) {
@@ -205,7 +202,26 @@ func TaskExprCompatible(expression string, schema map[string]jsplugin.UsageField
 			return false
 		}
 	}
-	return !billingexpr.UsesFixedPricing(expression)
+	return true
+}
+
+// TaskExprSafetyError applies to every selected task expression, including
+// historical single-plugin quotes whose usage schema was later narrowed.
+// Schema-key validation is separate so that legacy compatibility is retained.
+func TaskExprSafetyError(expression string) error {
+	if strings.TrimSpace(expression) == "" {
+		return fmt.Errorf("task usage expression is empty")
+	}
+	if _, err := billingexpr.CompileFromCache(expression); err != nil {
+		return err
+	}
+	if billingexpr.UsesFixedPricing(expression) {
+		return fmt.Errorf("fixed pricing is not supported for task usage expressions")
+	}
+	if name := billingexpr.UnavailableTaskTokenVar(expression); name != "" {
+		return fmt.Errorf("token variable %q is not available for task usage expressions", name)
+	}
+	return nil
 }
 
 func GetBuiltinBillingExprCopy() map[string]string {
@@ -279,6 +295,8 @@ func smokeTestExpr(exprStr string) error {
 		{P: 1000000, C: 1000000, Len: 1000000},
 		{P: 300, C: 100, Len: 1000, CR: 100, Img: 400, ImgCR: 200},
 		{P: 800, C: 50, Len: 1000, AI: 200, AO: 50},
+		{CC12h: 1},
+		{CC12h: math.MaxInt32},
 		{Len: math.MaxInt32, ImgCR: math.MaxInt32},
 	}
 
@@ -300,11 +318,8 @@ func smokeTestExpr(exprStr string) error {
 // declared by its plugin. Literal u() keys must be declared; dynamic calls are
 // still exercised by the generated runtime vectors when possible.
 func SmokeTestTaskExpr(exprStr string, schema map[string]jsplugin.UsageFieldSchema) error {
-	if _, err := billingexpr.CompileFromCache(exprStr); err != nil {
+	if err := TaskExprSafetyError(exprStr); err != nil {
 		return err
-	}
-	if billingexpr.UsesFixedPricing(exprStr) {
-		return fmt.Errorf("fixed pricing is not supported for task usage expressions")
 	}
 	for key := range billingexpr.UsedUsageKeys(exprStr) {
 		if _, declared := schema[key]; !declared {

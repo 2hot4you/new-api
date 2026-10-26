@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+	"github.com/QuantumNous/new-api/model"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -45,6 +47,8 @@ func TestPricingSyncExpressionPriority(t *testing.T) {
 }
 
 func TestRatioConfigExportsEffectiveExpressions(t *testing.T) {
+	db := modelManagementDB(t, "postgres", "")
+	require.NoError(t, db.Create(&model.Model{ModelName: "sync-export", NameRule: model.NameRuleExact, BillingCurrency: "CNY"}).Error)
 	before := config.GlobalConfig.ExportAllConfigs()
 	expose := ratio_setting.IsExposeRatioEnabled()
 	t.Cleanup(func() {
@@ -52,6 +56,8 @@ func TestRatioConfigExportsEffectiveExpressions(t *testing.T) {
 		ratio_setting.SetExposeRatioEnabled(expose)
 	})
 	config.UpdateConfigFromMap(config.GlobalConfig.Get("billing_setting"), map[string]string{"billing_mode": `{"sync-export":"tiered_expr"}`, "billing_expr": `{"sync-export":"tier(\"base\", p * 2)"}`})
+	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", "billing_setting.billing_mode").Update("value", `{"sync-export":"tiered_expr"}`).Error)
+	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", "billing_setting.billing_expr").Update("value", `{"sync-export":"tier(\"base\", p * 2)"}`).Error)
 	ratio_setting.SetExposeRatioEnabled(true)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -68,6 +74,7 @@ func TestRatioConfigExportsEffectiveExpressions(t *testing.T) {
 }
 
 func TestPricingSyncCompleteSourcesAndArrayFormats(t *testing.T) {
+	db := modelManagementDB(t, "postgres", "")
 	before := config.GlobalConfig.ExportAllConfigs()
 	oldRatios, oldCompletion := ratio_setting.ModelRatio2JSONString(), ratio_setting.CompletionRatio2JSONString()
 	t.Cleanup(func() {
@@ -81,6 +88,9 @@ func TestPricingSyncCompleteSourcesAndArrayFormats(t *testing.T) {
 	expressions, err := common.Marshal(map[string]string{"sync-already": expression})
 	require.NoError(t, err)
 	config.UpdateConfigFromMap(config.GlobalConfig.Get("billing_setting"), map[string]string{"billing_mode": `{"sync-already":"tiered_expr"}`, "billing_expr": string(expressions)})
+	for key, value := range map[string]string{"ModelRatio": `{"sync-token":1}`, "CompletionRatio": `{"sync-token":2}`, "billing_setting.billing_mode": `{"sync-already":"tiered_expr"}`, "billing_setting.billing_expr": string(expressions)} {
+		require.NoError(t, db.Model(&model.Option{}).Where("key = ?", key).Update("value", value).Error)
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var data any
 		if r.URL.Path == "/ratio_config" {
@@ -91,12 +101,13 @@ func TestPricingSyncCompleteSourcesAndArrayFormats(t *testing.T) {
 				"model_price":      map[string]float64{"sync-expression": 4},
 				"completion_ratio": map[string]float64{"sync-token": 4},
 				"cache_ratio":      map[string]float64{"sync-token": 0},
+				"source_currency":  map[string]string{"sync-expression": "CNY"},
 			}
 		} else {
 			data = []map[string]any{
 				{"model_name": "sync-already", "model_ratio": 5, "completion_ratio": 3},
 				{"model_name": "sync-expression", "model_ratio": 2, "model_price": 1},
-				{"model_name": "sync-array-expression", "billing_mode": "tiered_expr", "billing_expr": expression, "quota_type": 1, "model_price": 0},
+				{"model_name": "sync-array-expression", "billing_mode": "tiered_expr", "billing_expr": expression, "billing_currency": "CNY", "quota_type": 1, "model_price": 0},
 				{"model_name": "sync-unpriced"},
 				{"model_name": "sync-invalid-expression", "billing_mode": "tiered_expr", "billing_expr": "", "model_ratio": 0},
 				{"model_name": "sync-free", "model_ratio": 0, "completion_ratio": 0},
@@ -132,11 +143,77 @@ func TestPricingSyncCompleteSourcesAndArrayFormats(t *testing.T) {
 	assert.NotContains(t, response.Data.Differences, "sync-already")
 	assert.NotContains(t, response.Data.Differences, "sync-unpriced")
 	assert.NotContains(t, response.Data.Differences, "sync-invalid-expression")
-	assert.Equal(t, map[string]any{"billing_mode": "tiered_expr", "billing_expr": expression}, response.Data.Prices["sync-expression"].Upstreams["Expressions(1)"])
+	assert.Equal(t, map[string]any{"billing_mode": "tiered_expr", "billing_expr": expression, "source_currency": "CNY"}, response.Data.Prices["sync-expression"].Upstreams["Expressions(1)"])
 	assert.NotContains(t, response.Data.Prices["sync-expression"].Upstreams, "Legacy(2)")
-	assert.Equal(t, map[string]any{"billing_mode": "tiered_expr", "billing_expr": expression}, response.Data.Prices["sync-array-expression"].Upstreams["Legacy(2)"])
+	assert.Equal(t, map[string]any{"billing_mode": "tiered_expr", "billing_expr": expression, "source_currency": "CNY"}, response.Data.Prices["sync-array-expression"].Upstreams["Legacy(2)"])
 	assert.Equal(t, float64(1), response.Data.Prices["sync-token"].Upstreams["Expressions(1)"]["model_ratio"], "unchanged base prices are included for a complete price preview")
 	assert.Equal(t, float64(4), response.Data.Prices["sync-token"].Upstreams["Expressions(1)"]["completion_ratio"])
 	assert.Equal(t, float64(0), response.Data.Prices["sync-token"].Upstreams["Expressions(1)"]["cache_ratio"])
 	assert.Equal(t, float64(0), response.Data.Prices["sync-free"].Upstreams["Legacy(2)"]["model_ratio"])
+	assert.NotContains(t, response.Data.Prices, "sync-already")
+	body["include_unchanged"] = true
+	recorder = modelManagementRequest(t, FetchUpstreamRatios, http.MethodPost, "/api/ratio_sync/fetch", body, &response)
+	require.True(t, response.Success, recorder.Body.String())
+	assert.Equal(t, map[string]any{"billing_mode": "tiered_expr", "billing_expr": expression}, response.Data.Prices["sync-already"].Upstreams["Expressions(1)"])
+	assert.NotContains(t, response.Data.Prices["sync-already"].Upstreams, "Legacy(2)")
+	assert.NotContains(t, response.Data.Prices, "sync-unpriced")
+	assert.NotContains(t, response.Data.Prices, "sync-invalid-expression")
+	assert.NotContains(t, response.Data.Differences, "sync-already")
+}
+
+func TestPricingSyncSourceCurrencyNormalization(t *testing.T) {
+	expression := `tier("base", p * 7 + c * 14)`
+	for _, currency := range []string{"USD", "CNY", "EUR", ""} {
+		t.Run(currency, func(t *testing.T) {
+			data := effectivePricingSyncData(map[string]any{
+				"billing_mode":    map[string]string{"expr": "tiered_expr"},
+				"billing_expr":    map[string]string{"expr": expression},
+				"source_currency": map[string]string{"expr": currency, "legacy": "CNY"},
+				"model_ratio":     map[string]float64{"legacy": 1},
+			})
+			quote := modelPricingSyncValues(data, "expr")
+			if currency == "USD" || currency == "CNY" {
+				require.Equal(t, currency, quote["source_currency"])
+			} else {
+				require.NotContains(t, quote, "source_currency")
+			}
+			require.Equal(t, "USD", modelPricingSyncValues(data, "legacy")["source_currency"])
+		})
+	}
+	local := map[string]any{"billing_mode": map[string]string{"m": "tiered_expr"}, "billing_expr": map[string]string{"m": expression}, "source_currency": map[string]string{"m": "CNY"}}
+	source := map[string]any{"billing_mode": map[string]string{"m": "tiered_expr"}, "billing_expr": map[string]string{"m": expression}, "source_currency": map[string]string{"m": "USD"}}
+	diff := buildDifferences(local, []struct {
+		name string
+		data map[string]any
+	}{{"source", source}})
+	require.Equal(t, "CNY", diff["m"]["source_currency"].Current)
+	require.Equal(t, "USD", diff["m"]["source_currency"].Upstreams["source"])
+}
+
+func TestRatioConfigSourceCurrencySnapshot(t *testing.T) {
+	db := modelManagementDB(t, "postgres", "")
+	builtin := "gpt-6-astra"
+	expression, exists := billing_setting.GetBuiltinBillingExpr(builtin)
+	require.True(t, exists)
+	require.NoError(t, db.Create(&model.Model{ModelName: builtin, NameRule: model.NameRuleExact, BillingCurrency: "CNY"}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "sync-cny", NameRule: model.NameRuleExact, BillingCurrency: "CNY"}).Error)
+	modes, err := common.Marshal(map[string]string{builtin: "tiered_expr", "sync-cny": "tiered_expr", "sync-orphan": "tiered_expr"})
+	require.NoError(t, err)
+	expressions, err := common.Marshal(map[string]string{builtin: expression, "sync-cny": `tier("base", p * 7 + c * 14)`, "sync-orphan": `tier("base", p * 7)`})
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", "billing_setting.billing_mode").Update("value", string(modes)).Error)
+	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", "billing_setting.billing_expr").Update("value", string(expressions)).Error)
+	data, err := getLocalPricingSyncData(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "CNY", modelPricingSyncValues(effectivePricingSyncData(data), builtin)["source_currency"], "configured expression numerically equal to builtin retains metadata denomination")
+	require.Equal(t, "CNY", modelPricingSyncValues(effectivePricingSyncData(data), "sync-cny")["source_currency"])
+	require.NotContains(t, modelPricingSyncValues(effectivePricingSyncData(data), "sync-orphan"), "source_currency")
+	require.Equal(t, "USD", modelPricingSyncValues(effectivePricingSyncData(data), "gpt-image-2")["source_currency"], "actual compiled fallback remains USD")
+	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", "billing_setting.billing_expr").Update("value", `{"sync-cny":"tier(\"base\", p * 7 + c * 14)"}`).Error)
+	data, err = getLocalPricingSyncData(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, modelPricingSyncValues(effectivePricingSyncData(data), builtin), "mode-only CNY must not export a compiled USD fallback")
+	require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", "sync-cny").Update("billing_currency", "EUR").Error)
+	_, err = getLocalPricingSyncData(context.Background())
+	require.Error(t, err, "invalid persisted currency must fail closed")
 }

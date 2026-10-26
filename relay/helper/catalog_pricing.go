@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -32,9 +33,11 @@ func captureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo, taskPlug
 	if info == nil || c == nil || c.Request == nil {
 		return fmt.Errorf("request pricing requires a request context")
 	}
+	value, _ := c.Get(jsplugin.ContextKeyRelayEndpoint)
+	endpoint, hasEndpoint := value.(jsplugin.PinnedEndpoint)
 	names := make([]string, 0)
 	seen := make(map[string]bool)
-	for _, identity := range []string{info.GetOriginModelName(), info.GetBillingModelName(), info.GetUpstreamModelName()} {
+	for _, identity := range []string{info.GetOriginModelName(), info.GetBillingModelName(), info.GetUpstreamModelName(), endpoint.Model, endpoint.MappedModel} {
 		if identity == "" {
 			continue
 		}
@@ -113,6 +116,32 @@ func captureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo, taskPlug
 		}
 		if _, ok := values[billingName]; !ok {
 			return fmt.Errorf("billing identity %q was not guarded", billingName)
+		}
+		if hasEndpoint {
+			quote := values[billingName]
+			for _, candidate := range endpoint.Candidates {
+				if candidate.Plugin == nil || candidate.Plugin.Meta.Key == "" {
+					return fmt.Errorf("shared task candidate lacks a plugin identity")
+				}
+				pluginKey := candidate.Plugin.Meta.Key
+				if _, overridden := billing_setting.GetPluginBillingExpr(pluginKey, endpoint.Model); overridden {
+					continue
+				}
+				if endpoint.MappedModel != "" {
+					if _, overridden := billing_setting.GetPluginBillingExpr(pluginKey, endpoint.MappedModel); overridden {
+						continue
+					}
+				}
+				taskBillingModel := endpoint.Model
+				if billing_setting.GetBillingMode(taskBillingModel) != billing_setting.BillingModeTieredExpr {
+					taskBillingModel = endpoint.MappedModel
+				}
+				if taskBillingModel == billingName {
+					quote.SharedTaskPlugin = pluginKey
+					break
+				}
+			}
+			values[billingName] = quote
 		}
 		// Compiled defaults are USD quotes. A CNY model needs an explicit
 		// administrator quote; do not reinterpret or rewrite its metadata.

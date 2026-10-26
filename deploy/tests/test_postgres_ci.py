@@ -170,6 +170,19 @@ FAILED_REGRESSIONS = [
     "TestModelPriceHelperNativeGeminiNoThinkingDoesNotAliasBillingModel",
     "TestInputPreConsumeMultiplierLegacyAndRequestPrices"
 ]
+# Upgrade regressions are mandatory even if a future edit drops their group.
+RC47_REGRESSIONS = [
+    'TestModelPricingRejectsUnchangedUnsafeTaskExpressions', 'TestRouteTaskPluginEndpointUsesSelectedChannel',
+    'TestPrepareTaskPluginNativeRoutePassesMultipartToDecoder', 'TestPostTextConsumeQuotaBillsOpenAI12hCacheWrites',
+    'TestBuildTieredTokenParams_ClaudeUnsplitCacheWrites', 'TestBuildTieredTokenParams_UnpricedLongTTLCacheWrites',
+    'TestApplyResponsesUsageCopiesTokenDetails', 'TestTryTieredSettleRecordsClampOnOverflow',
+    'TestSweepTimedOutTasksAtTheDefaultDeadline', 'TestUpdateVideoSingleTaskPollClassification', 'TestUpdateBatchTasksPollClassification',
+    'TestStreamWriteBudget', 'TestSetEventStreamHeadersBoundsStreamWritesByBudget',
+    'TestOaiResponsesStreamHandlerCompletionLifecycle', 'TestOaiResponsesHandlersKeepCacheWriteTTLSplit',
+    'TestSubmitContextExposesClientHeadersWithoutCredentials', 'TestTaskAdaptorBoundsNativeUsageBeforeQuotaCalculation',
+    'TestCatalogOrdinarySharedTaskQuoteUsesCapturedCandidates', 'TestSharedEndpointBillingKeepsOrdinaryAndPluginPricesSeparate',
+    'TestPricingSyncSourceCurrencyNormalization', 'TestRatioConfigSourceCurrencySnapshot',
+]
 # These are excluded from complete-suite execution. Only tests explicitly in
 # catalog.GROUPS run; some packages have no entries in that inventory.
 LEGACY_DATABASE_PACKAGES = [
@@ -212,7 +225,7 @@ def run_ci(mode):
     catalog.validate_dsn(os.environ.get("TEST_POSTGRES_DSN", ""))
     if not os.environ.get("TEST_REDIS_DSN"):
         raise ValueError("TEST_REDIS_DSN is required for the complete common suite")
-    catalog.validate_regression_inventory(catalog.GROUPS, FAILED_REGRESSIONS)
+    catalog.validate_regression_inventory(catalog.GROUPS, FAILED_REGRESSIONS + RC47_REGRESSIONS)
     env = dict(os.environ, GOWORK="off", GOFLAGS="", CATALOG_SYNC_POSTGRES_ONLY="1")
     directory = Path(tempfile.mkdtemp(prefix="postgres-ci-" + mode + "-"))
     print("PostgreSQL CI evidence: " + str(directory), flush=True)
@@ -244,7 +257,7 @@ def run_ci(mode):
 
 class PostgresCITest(unittest.TestCase):
     def test_failed_business_regressions_cannot_disappear(self):
-        catalog.validate_regression_inventory(catalog.GROUPS, FAILED_REGRESSIONS)
+        catalog.validate_regression_inventory(catalog.GROUPS, FAILED_REGRESSIONS + RC47_REGRESSIONS)
         with self.assertRaisesRegex(ValueError, "required CI regression"):
             catalog.validate_regression_inventory([], FAILED_REGRESSIONS)
 

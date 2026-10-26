@@ -44,6 +44,8 @@ import {
 import {
   buildEstimatorTokens,
   evalExprLocally,
+  generateExprFromVisualConfig,
+  tryParseVisualConfig,
   type ExtraTokenValues,
 } from '../tier-expr'
 
@@ -51,6 +53,7 @@ const extras: ExtraTokenValues = {
   cacheReadTokens: 100,
   cacheCreateTokens: 0,
   cacheCreate1hTokens: 0,
+  cacheCreate12hTokens: 0,
   imageTokens: 0,
   imageOutputTokens: 0,
   imageCacheTokens: 0,
@@ -58,17 +61,308 @@ const extras: ExtraTokenValues = {
   audioOutputTokens: 0,
 }
 
+test('parses a 12-hour cache write price and regenerates the expression unchanged', () => {
+  const source =
+    'tier("base", p * 10 + c * 40 + cr * 1 + cc * 12.5 + cc12h * 25)'
+  const config = tryParseVisualConfig(source)
+  assert(config)
+  expect(config.tiers[0]).toMatchObject({
+    cache_create_unit_cost: 12.5,
+    cache_create_12h_unit_cost: 25,
+  })
+  expect(generateExprFromVisualConfig(config)).toBe(source)
+})
+
+test('estimates explicitly priced long-lived writes and the priced cc fallback', () => {
+  const source =
+    'len <= 2000 ? tier("short", p * 10 + c * 40 + cr * 1 + cc * 12.5 + cc12h * 25) : tier("long", p * 20 + c * 80 + cr * 2 + cc * 25 + cc12h * 50)'
+  const tokens = {
+    ...extras,
+    cacheCreateTokens: 200,
+    cacheCreate12hTokens: 300,
+  }
+  expect(buildEstimatorTokens(1000, 100, tokens, source)).toMatchObject({
+    len: 1600,
+    cc: 200,
+    cc12h: 300,
+  })
+  expect(evalExprLocally(source, 1000, 100, tokens)).toEqual({
+    cost: 24100,
+    matchedTier: 'short',
+    error: null,
+  })
+  expect(
+    evalExprLocally(source, 1000, 100, { ...tokens, cacheCreate12hTokens: 950 })
+  ).toMatchObject({ cost: 80700, matchedTier: 'long' })
+
+  const ccOnly = 'tier("base", p * 10 + c * 50 + cr * 1 + cc * 12.5)'
+  const twelveHours = { ...tokens, cacheCreate12hTokens: 1000 }
+  const oneHour = {
+    ...extras,
+    cacheCreateTokens: 200,
+    cacheCreate1hTokens: 1000,
+  }
+  expect(evalExprLocally(ccOnly, 1000, 100, twelveHours).cost).toBe(42600)
+  expect(
+    evalExprLocally(
+      'tier("base", p * 10 + c * 50 + cr * 1 + cc * 12.5 + cc12h * 25)',
+      1000,
+      100,
+      twelveHours
+    ).cost
+  ).toBe(42600)
+  expect(evalExprLocally(ccOnly, 1000, 100, oneHour).cost).toBe(37600)
+  expect(
+    evalExprLocally(
+      'tier("base", p * 10 + c * 50 + cr * 1 + cc * 12.5 + cc1h * 20)',
+      1000,
+      100,
+      oneHour
+    ).cost
+  ).toBe(37600)
+})
+
+// Literal vectors match service TestBuildTieredTokenParams_UnpricedLongTTLCacheWrites.
+// Estimator inputs are disjoint category counts; backend OpenAI prompt_tokens
+// contains their raw sum, while Anthropic input_tokens contains text only.
+test.each([
+  {
+    name: '12h fallback into input',
+    expression: 'tier("base", p * 10 + cr * 1)',
+    prompt: 1000,
+    extras: { cacheReadTokens: 0, cacheCreate12hTokens: 1000 },
+    p: 3000,
+    cc: 0,
+    cc1h: 0,
+    cc12h: 0,
+    len: 2000,
+    cost: 30000,
+  },
+  {
+    name: 'OpenAI separate write prices',
+    expression: 'tier("base", p * 10 + cr * 1 + cc * 12.5 + cc12h * 25)',
+    prompt: 1000,
+    extras: {
+      cacheReadTokens: 4000,
+      cacheCreateTokens: 3000,
+      cacheCreate12hTokens: 4000,
+    },
+    p: 1000,
+    cc: 3000,
+    cc1h: 0,
+    cc12h: 4000,
+    len: 12000,
+    cost: 151500,
+  },
+  {
+    name: 'OpenAI 12h folds into cc',
+    expression: 'tier("base", p * 10 + cr * 1 + cc * 12.5)',
+    prompt: 1000,
+    extras: {
+      cacheReadTokens: 4000,
+      cacheCreateTokens: 3000,
+      cacheCreate12hTokens: 4000,
+    },
+    p: 1000,
+    cc: 11000,
+    cc1h: 0,
+    cc12h: 0,
+    len: 12000,
+    cost: 151500,
+  },
+  {
+    name: 'OpenAI short writes join input beside priced 12h',
+    expression: 'tier("base", p * 10 + cr * 1 + cc12h * 25)',
+    prompt: 1000,
+    extras: {
+      cacheReadTokens: 4000,
+      cacheCreateTokens: 3000,
+      cacheCreate12hTokens: 4000,
+    },
+    p: 4000,
+    cc: 0,
+    cc1h: 0,
+    cc12h: 4000,
+    len: 12000,
+    cost: 144000,
+  },
+  {
+    name: 'OpenAI unpriced writes fold into input',
+    expression: 'tier("base", p * 10 + cr * 1)',
+    prompt: 1000,
+    extras: {
+      cacheReadTokens: 4000,
+      cacheCreateTokens: 3000,
+      cacheCreate12hTokens: 4000,
+    },
+    p: 12000,
+    cc: 0,
+    cc1h: 0,
+    cc12h: 0,
+    len: 12000,
+    cost: 124000,
+  },
+  {
+    name: 'OpenAI all omitted cache lanes join input without weighting len',
+    expression: 'len <= 12000 ? tier("base", p * 10) : tier("long", p * 20)',
+    prompt: 1000,
+    extras: {
+      cacheReadTokens: 4000,
+      cacheCreateTokens: 3000,
+      cacheCreate12hTokens: 4000,
+    },
+    p: 16000,
+    cc: 0,
+    cc1h: 0,
+    cc12h: 0,
+    len: 12000,
+    cost: 160000,
+  },
+  {
+    name: 'OpenAI explicit free cc absorbs 12h fallback',
+    expression: 'tier("base", p * 10 + cr * 1 + cc * 0)',
+    prompt: 1000,
+    extras: {
+      cacheReadTokens: 4000,
+      cacheCreateTokens: 3000,
+      cacheCreate12hTokens: 4000,
+    },
+    p: 1000,
+    cc: 11000,
+    cc1h: 0,
+    cc12h: 0,
+    len: 12000,
+    cost: 14000,
+  },
+  {
+    name: 'OpenAI explicit free 12h leaves short writes in input',
+    expression: 'tier("base", p * 10 + cr * 1 + cc12h * 0)',
+    prompt: 1000,
+    extras: {
+      cacheReadTokens: 4000,
+      cacheCreateTokens: 3000,
+      cacheCreate12hTokens: 4000,
+    },
+    p: 4000,
+    cc: 0,
+    cc1h: 0,
+    cc12h: 4000,
+    len: 12000,
+    cost: 44000,
+  },
+  {
+    name: 'Claude 1h folds into cc',
+    expression: 'tier("base", p * 3 + c * 15 + cr * 0.3 + cc * 3.75)',
+    prompt: 100,
+    extras: { cacheReadTokens: 0, cacheCreate1hTokens: 10000 },
+    p: 100,
+    cc: 16000,
+    cc1h: 0,
+    cc12h: 0,
+    len: 10100,
+    cost: 60300,
+  },
+  {
+    name: 'Claude short writes join input beside priced 1h',
+    expression: 'tier("base", p * 3 + cc1h * 6)',
+    prompt: 100,
+    extras: {
+      cacheReadTokens: 0,
+      cacheCreateTokens: 2000,
+      cacheCreate1hTokens: 10000,
+    },
+    p: 2100,
+    cc: 0,
+    cc1h: 10000,
+    cc12h: 0,
+    len: 12100,
+    cost: 66300,
+  },
+  {
+    name: 'Claude unpriced 1h and short writes join input',
+    expression: 'tier("base", p * 3)',
+    prompt: 100,
+    extras: {
+      cacheReadTokens: 0,
+      cacheCreateTokens: 2000,
+      cacheCreate1hTokens: 10000,
+    },
+    p: 18100,
+    cc: 0,
+    cc1h: 0,
+    cc12h: 0,
+    len: 12100,
+    cost: 54300,
+  },
+  {
+    name: 'image cache partitions stay separate with priced writes',
+    expression:
+      'tier("base", p * 10 + cr * 1 + cc * 12.5 + cc12h * 25 + img * 8 + img_cr * 2)',
+    prompt: 7500,
+    extras: {
+      cacheReadTokens: 3500,
+      cacheCreateTokens: 3000,
+      cacheCreate12hTokens: 4000,
+      imageTokens: 1500,
+      imageCacheTokens: 500,
+    },
+    p: 7500,
+    cc: 3000,
+    cc1h: 0,
+    cc12h: 4000,
+    len: 20000,
+    cost: 229000,
+  },
+  {
+    name: 'weighted writes preserve image cache partitions and raw length',
+    expression: 'tier("base", p * 10 + cr * 1 + img * 8 + img_cr * 2)',
+    prompt: 7500,
+    extras: {
+      cacheReadTokens: 3500,
+      cacheCreateTokens: 3000,
+      cacheCreate12hTokens: 4000,
+      imageTokens: 1500,
+      imageCacheTokens: 500,
+    },
+    p: 18500,
+    cc: 0,
+    cc1h: 0,
+    cc12h: 0,
+    len: 20000,
+    cost: 201500,
+  },
+])('matches backend normalization: $name', (fixture) => {
+  const tokens = { ...extras, ...fixture.extras }
+  expect(
+    buildEstimatorTokens(fixture.prompt, 0, tokens, fixture.expression)
+  ).toMatchObject({
+    p: fixture.p,
+    cc: fixture.cc,
+    cc1h: fixture.cc1h,
+    cc12h: fixture.cc12h,
+    len: fixture.len,
+  })
+  expect(
+    evalExprLocally(fixture.expression, fixture.prompt, 0, tokens)
+  ).toEqual({ cost: fixture.cost, matchedTier: 'base', error: null })
+})
+
 test('evaluates and round-trips separate image cache prices including an explicit zero', () => {
   const source =
     'tier("standard", p * 5 + cr * 1.25 + img * 8 + img_cr * 2 + c * 30)'
   const document = parseVisualBillingDocument(source)
   expect(
-    buildEstimatorTokens(300, 100, {
-      ...extras,
-      cacheReadTokens: 100,
-      imageTokens: 400,
-      imageCacheTokens: 200,
-    }).len
+    buildEstimatorTokens(
+      300,
+      100,
+      {
+        ...extras,
+        cacheReadTokens: 100,
+        imageTokens: 400,
+        imageCacheTokens: 200,
+      },
+      source
+    ).len
   ).toBe(1000)
   assert(document)
   const regenerated = serializeVisualBillingDocument(document)
@@ -320,6 +614,72 @@ describe('local billing expression evaluation', () => {
 })
 
 describe('visual billing document', () => {
+  test('adding a condition to per-image pricing keeps image quantity outside the whole pricing tree', () => {
+    const document = parseVisualBillingDocument(
+      'image_count * tier("image", fixed(0.04))'
+    )
+    assert(document && document.root.kind === 'tier')
+    const original = document.root
+    document.root = {
+      id: 'priced-condition',
+      kind: 'branch',
+      condition: {
+        id: 'length',
+        kind: 'comparison',
+        probe: 'len',
+        timezone: '',
+        operator: '>=',
+        value: '100',
+      },
+      yes: {
+        ...original,
+        id: 'long',
+        origin: undefined,
+        label: 'long',
+        fixedPrice: '0.1',
+      },
+      no: original,
+    }
+    const result = serializeVisualBillingDocument(document)
+    assert(result.ok)
+    expect(
+      evaluateBillingExpression(result.source, {
+        imageCount: 3,
+        tokens: { len: 100 },
+      })
+    ).toMatchObject({ status: 'success', cost: 300000 })
+    expect(
+      evaluateBillingExpression(result.source, {
+        imageCount: 3,
+        tokens: { len: 0 },
+      })
+    ).toMatchObject({ status: 'success', cost: 120000 })
+  })
+  test.each([
+    'v1: (tier("image", fixed(0.04))) * image_count',
+    'image_count * tier("image", fixed(0.04))',
+  ])(
+    'editing a per-image price retains the quantity multiplier: %s',
+    (source) => {
+      const document = parseVisualBillingDocument(source)
+      assert(document)
+      expect(serializeVisualBillingDocument(document)).toEqual({
+        ok: true,
+        source,
+      })
+      assert(document.root.kind === 'tier')
+      document.root.fixedPrice = '0.05'
+      const updated = serializeVisualBillingDocument(document)
+      expect(updated).toEqual({
+        ok: true,
+        source: source.replace('0.04', '0.05'),
+      })
+      if (!updated.ok) return
+      expect(
+        evaluateBillingExpression(updated.source, { imageCount: 3 })
+      ).toMatchObject({ status: 'success', cost: 150000 })
+    }
+  )
   test.each([
     deepSeekExpression,
     `v1:  (hour('Asia/Shanghai') >= 9 ? tier('peak', cr * 0 + p * 3e0 + c * 9) : tier('off', c * 4.5 + p * 1.5))  `,

@@ -126,11 +126,16 @@ DEPLOY_SITE_DOMAIN 外，每个新站必须独立填写以下公开构建变量�
 仅用于测试，不作为上线配置。服务器运行配置、数据库数据与密钥均不进入 Actions。
 
 发布顺序：功能分支先经测试合 develop，仅部署开发站，由用户验收。之后经明确
-确认合 main。main 应用自动部署及应用 `all-production` 均包含四个生产环境：
-production-molii、production-ixiaozu、production-claudeye（上海）、
-production-model-claudeye（洛杉矶）。仍可手动选择单个环境发布。
+确认合 main。main 应用和文档自动部署、`all-production` 均仅包含三个生产环境：
+production-molii、production-claudeye（上海）、production-model-claudeye（洛杉矶）。
+`production-ixiaozu` 必须另获明确批准，单独在 main 手动选择该环境，设置
+`ixiaozu_maintenance_approved=true` 和当天北京时间日期 `ixiaozu_maintenance_date=YYYY-MM-DD`。
+仅北京时间20:00至23:59可执行；默认不批准，不继承前一天或批量发布的批准。
+目标解析、每次远程连接/上传重试、服务器部署入口及镜像拉取/替换前均检查窗口。
+窗口到期后停止后续操作，包括回滚，等待重新批准；不得通过运行配置永久开启批准。
 纯文档变更继续由独立文档工作流处理，不重启应用；其他应用变更按原有路径规则触发。
 develop 始终只自动部署 development，不发布任何生产站点。
+develop 推送会先备份并校验 PostgreSQL，再部署并验证重复启动；手动候选验收仍可独立选择这两项。
 生产工作流仅允许 main 上该次触发的固定 SHA，
 不接受候选分支 source_ref。验证、构建和部署使用同一解析后的 SHA。
 

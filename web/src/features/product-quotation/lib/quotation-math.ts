@@ -52,7 +52,7 @@ const MILLION_TOKEN_UNITS = new Set([
   'usd_per_million_tokens',
 ])
 const NUMBER_PATTERN = String.raw`(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?`
-const PRICE_VARIABLE_PATTERN = String.raw`(?:p|c|cr|cc|cc1h|img|img_o|ai|ao)`
+const PRICE_VARIABLE_PATTERN = String.raw`(?:p|c|cr|cc|cc1h|cc12h|img|img_o|ai|ao)`
 const PRICE_TERM_PATTERN = String.raw`${PRICE_VARIABLE_PATTERN}\s*\*\s*${NUMBER_PATTERN}`
 const TIER_BODY_PATTERN = String.raw`${PRICE_TERM_PATTERN}(?:\s*\+\s*${PRICE_TERM_PATTERN})*`
 const TIER_PATTERN = String.raw`tier\("[^"\r\n]*",\s*${TIER_BODY_PATTERN}\s*\)`

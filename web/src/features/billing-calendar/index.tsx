@@ -119,6 +119,7 @@ function PriceSummary(props: { prices: Record<string, number | undefined> }) {
     cr: 'Cache read',
     cc: 'Cache write',
     cc1h: 'Cache create (1h) price',
+    cc12h: 'Cache create (12h) price',
     img: 'Image input price',
     img_cr: 'Image cache input price',
     img_o: 'Image output price',
