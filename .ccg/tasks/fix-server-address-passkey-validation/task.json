@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "backend-settings",
   "currentPhase": "review",
-  "nextAction": "All focused SQLite/MySQL/PostgreSQL Passkey tests and focused PG race pass; two independent reviews have no blockers. Push the verified candidate to develop, then require full remote Verify and exact development deployment before main integration. Local broad audited acceptance continues; aigc remains excluded.",
+  "nextAction": "Do not promote failed candidate d40cf5c5c: full local PG TestCatalogMixedPasskeySave:79 failed. Minimal correction now always persists the new first-setup origin, omitting only unusable previous origin. New regression RED->GREEN and original PG mixed contracts unchanged/pass. Finish three-engine/race verification and independent follow-up reviews, push corrected source and update heartbeat aigc exact SHA/run. Main/aigc untouched.",
   "createdAt": "2026-11-02T00:00:00+08:00",
   "branch": "fix/server-address-passkey-validation"
 }

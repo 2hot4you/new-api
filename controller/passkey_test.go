@@ -648,6 +648,7 @@ func TestPasskeyServerAddressReplacesUnusableImplicitDefaults(t *testing.T) {
 			preview, err := model.UpdatePasskeyDomainOptions(map[string]string{"ServerAddress": address}, true, "")
 			require.NoError(t, err)
 			assert.Equal(t, "model.claudeye.com", preview.EffectiveRPID)
+			assert.Equal(t, address, preview.Origins)
 			assert.Empty(t, preview.LegacyRPIDs)
 			assert.False(t, preview.ConfirmationRequired)
 			after, err := model.AllOption()
@@ -662,10 +663,13 @@ func TestPasskeyServerAddressReplacesUnusableImplicitDefaults(t *testing.T) {
 			var stored model.Option
 			require.NoError(t, model.DB.Where(&model.Option{Key: "ServerAddress"}).First(&stored).Error)
 			assert.Equal(t, address, stored.Value)
+			var storedOrigins model.Option
+			require.NoError(t, model.DB.Where(&model.Option{Key: "passkey.origins"}).First(&storedOrigins).Error)
+			assert.Equal(t, address, storedOrigins.Value)
 			assert.Equal(t, address, system_setting.ServerAddress)
 			assert.Empty(t, settings.RPID)
 			assert.Empty(t, settings.LegacyRPIDs)
-			assert.Equal(t, test.origins, settings.Origins)
+			assert.Equal(t, address, settings.Origins)
 			assert.False(t, settings.AllowInsecureOrigin)
 			_, err = passkeysvc.BuildWebAuthn(httptest.NewRequest(http.MethodPost, address+"/api/user/passkey/register/begin", nil))
 			require.NoError(t, err, "the new HTTPS origin must be usable without retaining the insecure default")
@@ -687,6 +691,10 @@ func TestPasskeyServerAddressReplacesUnusableImplicitDefaults(t *testing.T) {
 			assert.Equal(t, "model.claudeye.com", status.Data.RPID)
 			require.NoError(t, model.UpdateOption("ServerAddress", address))
 			assert.Empty(t, settings.LegacyRPIDs)
+			assert.ErrorIs(t, model.UpdateOption("ServerAddress", "https://other.example.com"), system_setting.ErrPasskeyRPIDInvalid,
+				"a later address change must not silently expand the saved origin")
+			assert.Equal(t, address, system_setting.ServerAddress)
+			assert.Equal(t, address, settings.Origins)
 		})
 	}
 }

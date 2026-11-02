@@ -177,11 +177,15 @@ func updatePasskeyDomainOptionsGuarded(values map[string]string, preview bool, c
 			}
 			settings.Origins = strings.Join(origins, ",")
 			explicitOrigins = settings.Origins != ""
-		} else if retainPrevious && before[0] != serverAddress && (settings.Origins == "" || settings.Origins == "[]") {
+		} else if before[0] != serverAddress && (settings.Origins == "" || settings.Origins == "[]") {
 			// Retain the previously trusted implicit website as well as the new
 			// default, so retaining its RP ID does not leave its keys unusable.
 			origins := []string{}
-			for _, origin := range []string{previous.Origins, settings.WithDefaults(serverAddress).Origins} {
+			previousOrigin := ""
+			if retainPrevious {
+				previousOrigin = previous.Origins
+			}
+			for _, origin := range []string{previousOrigin, settings.WithDefaults(serverAddress).Origins} {
 				if origin != "" && !slices.Contains(origins, origin) {
 					origins = append(origins, origin)
 				}

@@ -24,19 +24,19 @@ No unrelated user edits, pricing changes, new dependencies, security bypass, SQL
 **Files:** model/passkey_option.go; existing controller/passkey_test.go. Extend existing model/catalog_sync_reload_test.go only if required for engine fixture reuse; at most one new test file, prefer none.
 **Interfaces:** unchanged UpdatePasskeyDomainOptions/UpdateOption and HTTP PUT /api/option/. No new public API.
 
-- [ ] Add regression TestServerAddressReplacesUnusableImplicitPasskeyDefaults for empty and `[]` origins, request through UpdateOption, new persisted ServerAddress and status; literal expected RP model.claudeye.com, no localhost legacy/origin. Test repeat save and preview no-write.
-- [ ] Add known/unknown credential removal-confirmation cases and explicit-invalid-origin preservation alongside existing passkey tests.
-- [ ] Run focused controller tests, observe the real expected invalid-domain failure before production edit.
-- [ ] In updatePasskeyDomainOptionsGuarded compute previous usability using existing RP/origin validation and apply it only to implicit origin auto-retention and legacy auto-retention. Do not relax explicit validation.
+- [x] Add regression TestPasskeyServerAddressReplacesUnusableImplicitDefaults for empty and `[]` origins, request through UpdateOption, new persisted ServerAddress and status; literal expected RP model.claudeye.com, no localhost legacy/origin. Test repeat save and preview no-write.
+- [x] Add known/unknown credential removal-confirmation cases and explicit-invalid-origin preservation alongside existing passkey tests.
+- [x] Run focused controller tests, observe the real expected invalid-domain failure before production edit.
+- [x] In updatePasskeyDomainOptionsGuarded compute previous usability using existing RP/origin validation and apply it only to implicit origin auto-retention and legacy auto-retention. Do not relax explicit validation.
 - [ ] Run focused tests, full controller and affected system-setting suites; real SQLite/MySQL/PostgreSQL matrix. Reuse safe owned disposable fixtures, never production DSNs.
-- [ ] Independent security and release-scope review, fix confirmed findings with RED→GREEN, inspect exact diff; commit only owned paths.
+- [x] Independent security and release-scope review, fix confirmed findings with RED→GREEN, inspect exact diff; commit only owned paths.
 
 ### Task 2: Development acceptance and main release
 
 **Files:** task checkpoint/verification/review only unless CI exposes a task-caused failure.
 **Interfaces:** existing deployment workflow, no gate modifications.
 
-- [ ] Fresh fetch; if develop unchanged push fix SHA to develop without force. Record Actions run and exact source.
+- [x] Fresh fetch; if develop unchanged push fix SHA to develop without force. Record Actions run and exact source.
 - [ ] Wait for full Verify and Release development success; verify public development version exact SHA and non-mutating route health. Preserve existing settings/prices.
 - [ ] Fresh fetch; review integration diff with main including existing rc47 and maintenance exclusions. Merge only accepted develop to main, no skip-ci, push and confirm automatic production targets exclude aigc.
 - [ ] Observe three production releases and exact status versions. Report aigc unchanged and separate dated maintenance approval requirement. Archive task locally when authorized release endpoint is achieved; do not push audit-only SHA to retrigger production.
