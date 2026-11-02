@@ -16,6 +16,16 @@ from urllib.parse import urlsplit, parse_qs
 ROOT = Path(__file__).resolve().parents[2]
 GROUPS = [
   {
+    "name": "controller-passkey-server-address",
+    "pkg": "./controller",
+    "tests": [
+      "TestPasskeyServerAddressReplacesUnusableImplicitDefaults",
+      "TestPasskeyServerAddressDefaultRemovalStillRequiresConfirmation",
+      "TestPasskeyServerAddressDoesNotRewriteExplicitInvalidTrust"
+    ],
+    "matrix": False
+  },
+  {
     "name": "rc47-persisted-task-quote-safety",
     "pkg": "./model",
     "tests": ["TestModelPricingRejectsUnchangedUnsafeTaskExpressions"],

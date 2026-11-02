@@ -630,6 +630,121 @@ func TestPasskeyDefaultsDoNotRestrictUnrelatedServerAddressSetup(t *testing.T) {
 	assert.Empty(t, settings.LegacyRPIDs)
 }
 
+func TestPasskeyServerAddressReplacesUnusableImplicitDefaults(t *testing.T) {
+	for _, test := range []struct {
+		origins string
+		enabled bool
+	}{{"", false}, {"[]", false}, {"", true}, {"[]", true}} {
+		t.Run(fmt.Sprintf("origins=%s/enabled=%t", test.origins, test.enabled), func(t *testing.T) {
+			_, identity := setupSecurityEnrollmentTest(t)
+			setupPasskeyDomainOptions(t)
+			settings := system_setting.GetPasskeySettings()
+			*settings = system_setting.PasskeySettings{Origins: test.origins, Enabled: test.enabled}
+			system_setting.ServerAddress = "http://localhost:3000"
+			require.NoError(t, model.DB.Create(&model.Option{Key: "passkey.origins", Value: test.origins}).Error)
+			before, err := model.AllOption()
+			require.NoError(t, err)
+			const address = "https://model.claudeye.com"
+			preview, err := model.UpdatePasskeyDomainOptions(map[string]string{"ServerAddress": address}, true, "")
+			require.NoError(t, err)
+			assert.Equal(t, "model.claudeye.com", preview.EffectiveRPID)
+			assert.Empty(t, preview.LegacyRPIDs)
+			assert.False(t, preview.ConfirmationRequired)
+			after, err := model.AllOption()
+			require.NoError(t, err)
+			assert.ElementsMatch(t, before, after)
+			assert.Equal(t, "http://localhost:3000", system_setting.ServerAddress)
+
+			response := securityEnrollmentRequest(http.MethodPut, "/api/option/", `{"key":"ServerAddress","value":"https://model.claudeye.com"}`, "", identity, UpdateOption)
+			var result securityEnrollmentResponse
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+			require.True(t, result.Success, response.Body.String())
+			var stored model.Option
+			require.NoError(t, model.DB.Where(&model.Option{Key: "ServerAddress"}).First(&stored).Error)
+			assert.Equal(t, address, stored.Value)
+			assert.Equal(t, address, system_setting.ServerAddress)
+			assert.Empty(t, settings.RPID)
+			assert.Empty(t, settings.LegacyRPIDs)
+			assert.Equal(t, test.origins, settings.Origins)
+			assert.False(t, settings.AllowInsecureOrigin)
+			_, err = passkeysvc.BuildWebAuthn(httptest.NewRequest(http.MethodPost, address+"/api/user/passkey/register/begin", nil))
+			require.NoError(t, err, "the new HTTPS origin must be usable without retaining the insecure default")
+
+			statusResponse := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(statusResponse)
+			context.Request = httptest.NewRequest(http.MethodGet, "/api/status", nil)
+			GetStatus(context)
+			var status struct {
+				Success bool `json:"success"`
+				Data    struct {
+					ServerAddress string `json:"server_address"`
+					RPID          string `json:"passkey_rp_id"`
+				} `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(statusResponse.Body.Bytes(), &status))
+			assert.True(t, status.Success)
+			assert.Equal(t, address, status.Data.ServerAddress)
+			assert.Equal(t, "model.claudeye.com", status.Data.RPID)
+			require.NoError(t, model.UpdateOption("ServerAddress", address))
+			assert.Empty(t, settings.LegacyRPIDs)
+		})
+	}
+}
+
+func TestPasskeyServerAddressDefaultRemovalStillRequiresConfirmation(t *testing.T) {
+	localhost, empty := "localhost", ""
+	for _, binding := range []*string{&localhost, &empty, nil} {
+		name := "null"
+		if binding != nil {
+			name = "binding=" + *binding
+		}
+		t.Run(name, func(t *testing.T) {
+			user, _ := setupSecurityEnrollmentTest(t)
+			setupPasskeyDomainOptions(t)
+			settings := system_setting.GetPasskeySettings()
+			*settings = system_setting.PasskeySettings{}
+			system_setting.ServerAddress = "http://localhost:3000"
+			require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, RPID: binding, CredentialID: "existing", PublicKey: "key"}).Error)
+			values := map[string]string{"ServerAddress": "https://model.claudeye.com"}
+			preview, err := model.UpdatePasskeyDomainOptions(values, true, "")
+			require.NoError(t, err)
+			assert.True(t, preview.ConfirmationRequired)
+			assert.Equal(t, []string{"localhost"}, preview.RemovedRPIDs)
+			if binding != nil && *binding != "" {
+				assert.EqualValues(t, 1, preview.AffectedCredentials)
+			} else {
+				assert.EqualValues(t, 1, preview.UnknownCredentials)
+			}
+			assert.ErrorIs(t, model.UpdateOption("ServerAddress", values["ServerAddress"]), model.ErrPasskeyDomainRemovalConfirmation)
+			assert.Equal(t, "http://localhost:3000", system_setting.ServerAddress)
+			options, err := model.AllOption()
+			require.NoError(t, err)
+			assert.Empty(t, options)
+			_, err = model.UpdatePasskeyDomainOptions(values, false, preview.RemovalConfirmation)
+			require.NoError(t, err)
+			assert.Equal(t, values["ServerAddress"], system_setting.ServerAddress)
+			var count int64
+			require.NoError(t, model.DB.Model(&model.PasskeyCredential{}).Count(&count).Error)
+			assert.EqualValues(t, 1, count)
+		})
+	}
+}
+
+func TestPasskeyServerAddressDoesNotRewriteExplicitInvalidTrust(t *testing.T) {
+	setupSecurityEnrollmentTest(t)
+	setupPasskeyDomainOptions(t)
+	settings := system_setting.GetPasskeySettings()
+	*settings = system_setting.PasskeySettings{RPID: "localhost:3000", Origins: "http://localhost:3000"}
+	system_setting.ServerAddress = "http://localhost:3000"
+	before := *settings
+	assert.ErrorIs(t, model.UpdateOption("ServerAddress", "https://model.claudeye.com"), system_setting.ErrPasskeyRPIDInvalid)
+	assert.Equal(t, before, *settings)
+	assert.Equal(t, "http://localhost:3000", system_setting.ServerAddress)
+	options, err := model.AllOption()
+	require.NoError(t, err)
+	assert.Empty(t, options)
+}
+
 func TestPasskeyRegistrationRejectsUnavailableRequestOrigin(t *testing.T) {
 	_, identity := setupSecurityEnrollmentTest(t)
 	settings := system_setting.GetPasskeySettings()

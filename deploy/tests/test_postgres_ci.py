@@ -65,6 +65,9 @@ FULL_PACKAGES = [
 # Top-level failures from run 38047800232. Removing any from mandatory execution
 # is a gate failure, even if all remaining tests pass.
 FAILED_REGRESSIONS = [
+    "TestPasskeyServerAddressReplacesUnusableImplicitDefaults",
+    "TestPasskeyServerAddressDefaultRemovalStillRequiresConfirmation",
+    "TestPasskeyServerAddressDoesNotRewriteExplicitInvalidTrust",
     "TestUpdateOptionAliasBillingExprUsesPluginSchema",
     "TestPreConsumePolicyDatabaseMatrix",
     "TestGetUserModelsExpandsAutoGroupsInConfiguredOrder",

@@ -1,0 +1,12 @@
+{
+  "id": "fix-server-address-passkey-validation",
+  "title": "Fix server address save blocked by unrelated passkey validation and promote after development acceptance",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend-settings",
+  "currentPhase": "review",
+  "nextAction": "All focused SQLite/MySQL/PostgreSQL Passkey tests and focused PG race pass; two independent reviews have no blockers. Push the verified candidate to develop, then require full remote Verify and exact development deployment before main integration. Local broad audited acceptance continues; aigc remains excluded.",
+  "createdAt": "2026-11-02T00:00:00+08:00",
+  "branch": "fix/server-address-passkey-validation"
+}
