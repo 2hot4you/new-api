@@ -140,7 +140,11 @@ case "$url" in
 esac
 MOCK
 
-  chmod +x "$fixture/bin/flock" "$fixture/bin/curl"
+  cat >"$fixture/bin/date" <<'MOCK'
+#!/usr/bin/env bash
+printf '2026-10-26 20\n'
+MOCK
+  chmod +x "$fixture/bin/flock" "$fixture/bin/curl" "$fixture/bin/date"
   printf '%s\n' "$fixture"
 }
 
@@ -175,6 +179,8 @@ run_deploy() {
   local fixture=$1
   shift
   PATH="$fixture/bin:$PATH" \
+    IXIAOZU_MAINTENANCE_APPROVED=true \
+    IXIAOZU_MAINTENANCE_DATE=2026-10-26 \
     DOCS_DEPLOY_ROOT="$fixture/public" \
     MOLII_PRIVATE_ROOT="$fixture/private/molii" \
     IXIAOZU_PRIVATE_ROOT="$fixture/private/ixiaozu" \

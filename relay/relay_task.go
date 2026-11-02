@@ -432,8 +432,8 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 	}
 	if selectedTask.UseExpression {
 		provider, supported := adaptor.(channel.TaskUsageFactsProvider)
-		if billingexpr.UsesFixedPricing(exprStr) {
-			return nil, service.TaskErrorWrapper(fmt.Errorf("fixed pricing is not supported for task usage expressions"), "model_price_error", http.StatusBadRequest, common.UpstreamAddresses(c)...)
+		if safetyErr := billing_setting.TaskExprSafetyError(exprStr); safetyErr != nil {
+			return nil, service.TaskErrorWrapper(safetyErr, "model_price_error", http.StatusBadRequest, common.UpstreamAddresses(c)...)
 		}
 		if !exists || !supported {
 			return nil, service.TaskErrorWrapper(fmt.Errorf("task model %s has no usage expression or meter", billingModelName), "model_price_error", http.StatusBadRequest, common.UpstreamAddresses(c)...)

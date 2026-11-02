@@ -132,10 +132,8 @@ func (m Meta) PreservesJSONOrder() bool {
 	return slices.Contains(m.RequiredCapabilities, CapabilityJSONOrder)
 }
 
-// AcceptsAutoDuration reports whether the plugin declared duration-auto@1:
-// request validation lets a duration of -1, the vendor's "the model picks the
-// length", through to its hooks. The plugin reserves the longest duration the
-// model can produce and settles the task on the usage the vendor reports.
+// AcceptsAutoDuration permits the vendor's -1 automatic duration on the
+// request only; usage facts remain finite and non-negative.
 func (m Meta) AcceptsAutoDuration() bool {
 	return slices.Contains(m.RequiredCapabilities, CapabilityDurationAuto)
 }

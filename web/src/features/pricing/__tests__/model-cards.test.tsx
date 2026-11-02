@@ -641,7 +641,8 @@ describe('model cards', () => {
     )
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2))
     const batches = request.mock.calls.map(
-      ([, config]) => config?.params?.recent_model
+      ([, config]) =>
+        (config?.params as Record<string, unknown> | undefined)?.recent_model
     )
     expect(batches).toEqual([
       models.slice(0, 50).map((model) => model.model_name),

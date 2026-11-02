@@ -12,3 +12,11 @@
 ## 同步生成网关超时
 
 - 同步图像生成可能超过一分钟；核对网关等候响应头超时与应用处理时间，客户端等待参数不能延长网关超时。按图片路径设置独立读取等待，并保留更长下载路径的超时与日志规则；使用不计费的延迟响应测试验证。
+
+## Shared ordinary and task pricing
+
+- Task expressions evaluate usage facts in currency per request; ordinary token variables are not populated there. Reject unavailable token variables and fixed ordinary pricing from the original AST before reservation, even for unchanged stored quotes and unreachable branches. Legitimate task token pricing uses a declared `u("tokens")` fact and an explicit million-token conversion.
+- Keep unit safety separate from schema compatibility: an unchanged sole-provider usage expression may retain the documented narrowed-schema exception, but cannot bypass unit safety at explicit saves or selected-request execution. Dormant ratio-mode expressions and ordinary quotes shadowed by valid source/mapped task overrides must remain editable.
+- Cross-model alias validation must use the complete candidate override map, including additions, removals and resets, before per-row validation. Never let batch order decide validity, retain removed old overrides, or consult a later live map during prospective catalog validation.
+- Committed catalog reconstruction is storage compatibility, not permission to execute a task. It may retain syntax-valid stored quote identities with unchanged mode/override evidence while task compatibility stays false. Compiled defaults are not stored provenance; direct price saves, changed/adopted quotes, mode activation and override removal remain strict. Never bypass the pre-funding execution guard.
+- Upgrade fixtures must seed historical quotes before option bootstrap and real startup completion, then test repeat startup, pending recovery, authoritative reload and unrelated writes. Recovering valid defaults before inserting historical data tests saving only; it cannot prove upgrade startup compatibility.

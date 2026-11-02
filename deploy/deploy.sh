@@ -13,6 +13,13 @@ readonly IXIAOZU_DEPLOY_ROOT=${IXIAOZU_DEPLOY_ROOT:-/opt/ixiaozu}
 readonly CLAUDEYE_DEPLOY_ROOT=${CLAUDEYE_DEPLOY_ROOT:-/opt/claudeye}
 readonly HEALTH_ATTEMPTS=${HEALTH_ATTEMPTS:-36}
 readonly HEALTH_INTERVAL_SECONDS=${HEALTH_INTERVAL_SECONDS:-5}
+source "$SCRIPT_DIR/maintenance-window.sh"
+check_maintenance_window "$ENVIRONMENT"
+
+guarded_docker() {
+  check_maintenance_window "$ENVIRONMENT" || return 1
+  docker "$@"
+}
 
 [[ -f "$RETRY_HELPER" ]] || {
   printf '[deploy] error: missing retry helper: %s\n' "$RETRY_HELPER" >&2
@@ -36,6 +43,7 @@ result_file=
 report_result() {
   printf 'DEPLOY_ROLLBACK_RESULT=%s\n' "$rollback_result"
   if [[ -n "$result_file" ]]; then
+    check_maintenance_window "$ENVIRONMENT" || return 1
     printf 'DEPLOY_ROLLBACK_RESULT=%s\n' "$rollback_result" >"$result_file" || true
   fi
 }
@@ -101,6 +109,7 @@ for command_name in docker curl flock; do
 done
 
 [[ -d "$DEPLOY_DIR" ]] || die "deployment directory does not exist: $DEPLOY_DIR"
+check_maintenance_window "$ENVIRONMENT"
 mkdir -p "$DEPLOY_DIR/certs"
 chmod 0750 "$DEPLOY_DIR/certs"
 cd "$DEPLOY_DIR"
@@ -123,12 +132,13 @@ exec 9>"$DEPLOY_DIR/.deploy.lock"
 flock -n 9 || die "another $ENVIRONMENT deployment is already running"
 result_file="$DEPLOY_DIR/.deploy-result"
 if [[ -n "${INFRA_BACKEND_NETWORK:-}" ]]; then
-  network_internal=$(docker network inspect --format '{{.Internal}}' "$INFRA_BACKEND_NETWORK" 2>/dev/null) \
+  network_internal=$(guarded_docker network inspect --format '{{.Internal}}' "$INFRA_BACKEND_NETWORK" 2>/dev/null) \
     || die 'required infrastructure backend network is unavailable'
   [[ "$network_internal" == true ]] || die 'infrastructure backend network must be internal'
 fi
 
 write_deploy_env() {
+  check_maintenance_window "$ENVIRONMENT" || return 1
   local image=$1
   local temporary_file="$DEPLOY_ENV.tmp"
   {
@@ -147,7 +157,7 @@ write_deploy_env() {
 }
 
 container_health() {
-  docker inspect \
+  guarded_docker inspect \
     --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
     "$CONTAINER_NAME" 2>/dev/null || true
 }
@@ -155,6 +165,7 @@ container_health() {
 wait_for_container() {
   local attempt status
   for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
+    check_maintenance_window "$ENVIRONMENT" || return 1
     status=$(container_health)
     if [[ "$status" == healthy ]]; then
       return 0
@@ -171,6 +182,7 @@ wait_for_container() {
 
 check_public_health() {
   local response
+  check_maintenance_window "$ENVIRONMENT" || return 1
   response=$(curl --silent --show-error --fail --max-time 15 "$EXPECTED_HEALTH_URL") || return 1
   grep -Eq '"success"[[:space:]]*:[[:space:]]*true' <<<"$response"
 }
@@ -186,7 +198,7 @@ retry_public_health() {
     retry_with_backoff 'public health check' check_public_health
 }
 
-previous_image=$(docker inspect --format '{{.Config.Image}}' "$CONTAINER_NAME" 2>/dev/null || true)
+previous_image=$(guarded_docker inspect --format '{{.Config.Image}}' "$CONTAINER_NAME" 2>/dev/null || true)
 
 rollback() {
   if [[ -z "$previous_image" || "$previous_image" == "$IMAGE_REFERENCE" ]]; then
@@ -197,7 +209,7 @@ rollback() {
   rollback_result=failed
   log "rolling back $ENVIRONMENT to $previous_image"
   write_deploy_env "$previous_image" || return 1
-  if ! docker compose --env-file "$DEPLOY_ENV" up -d; then
+  if ! guarded_docker compose --env-file "$DEPLOY_ENV" up -d; then
     log 'rollback Compose update failed'
     return 1
   fi
@@ -228,6 +240,7 @@ if [[ -f "$DEPLOY_ENV" ]]; then
   previous_deploy_env=$(cat "$DEPLOY_ENV")
 fi
 preflight_failure() {
+  check_maintenance_window "$ENVIRONMENT" || exit 1
   if [[ -n "$previous_deploy_env" ]]; then
     printf '%s\n' "$previous_deploy_env" >"$DEPLOY_ENV"
   else
@@ -239,15 +252,15 @@ preflight_failure() {
 log "deploying $IMAGE_REFERENCE to $ENVIRONMENT"
 write_deploy_env "$IMAGE_REFERENCE"
 
-docker compose --env-file "$DEPLOY_ENV" config --quiet || preflight_failure 'Compose validation failed'
+guarded_docker compose --env-file "$DEPLOY_ENV" config --quiet || preflight_failure 'Compose validation failed'
 RETRY_ATTEMPTS="${DEPLOY_PULL_ATTEMPTS:-5}" \
   RETRY_INITIAL_DELAY_SECONDS="${RETRY_INITIAL_DELAY_SECONDS:-3}" \
   RETRY_MAX_DELAY_SECONDS="${RETRY_MAX_DELAY_SECONDS:-30}" \
   retry_with_backoff \
     'image pull' \
-    docker compose --env-file "$DEPLOY_ENV" pull \
+    guarded_docker compose --env-file "$DEPLOY_ENV" pull \
   || preflight_failure 'image pull failed'
-docker compose --env-file "$DEPLOY_ENV" up -d || fail_release 'Compose update failed'
+guarded_docker compose --env-file "$DEPLOY_ENV" up -d || fail_release 'Compose update failed'
 wait_for_container || fail_release 'container health check failed'
 retry_public_health || fail_release "public health check failed: $EXPECTED_HEALTH_URL"
 

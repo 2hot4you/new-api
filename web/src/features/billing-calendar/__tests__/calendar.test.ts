@@ -241,3 +241,13 @@ describe('minute billing segments', () => {
     ).toEqual({ status: 'unsupported' })
   })
 })
+
+test('labels 12h cache creation in calendar exports', () => {
+  const ics = buildBillingCalendarIcs({
+    modelName: 'gpt-cache',
+    expression: 'tier("base", p * 2 + cc12h * 4)',
+    month: '2026-10',
+    calendar,
+  })
+  expect(ics).toContain('Cache create (12h): $4 / 1M token')
+})

@@ -1,5 +1,11 @@
 # PostgreSQL CI fixtures
 
+## Environment maintenance gates
+
+- Shared production matrices for applications and documentation must stay aligned. A site excluded from bulk release needs an explicit standalone target and dated approval, checked with the real required timezone before environment contact and again before server operations.
+- A runner-side gate cannot cover an SSH connection crossing the approval boundary. Bootstrap the trusted server gate before login or the first upload; do not depend on an older server helper. Use private temporary uploads and recheck before publishing them.
+- SSH's outer command is parsed by the remote login shell. Quote it portably with POSIX single quotes; Bash `%q` can emit ANSI-C quoting for multiline scripts and is suitable only inside an explicitly invoked Bash. Exercise the transport through a POSIX shell with quoted filenames and distinct runner/server clocks.
+
 ## Checkbox labels with localized actions
 
 - Base UI checkbox labels need both the visible localized action and unique model/source context in their accessible name. Reference both IDs explicitly with aria-labelledby, in selected and unselected states; do not assume one translation is a substring of another language's contextual label.

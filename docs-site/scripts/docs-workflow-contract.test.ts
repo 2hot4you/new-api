@@ -14,9 +14,9 @@ test('documentation deploys independently for main and develop', async () => {
 
   expect(workflow).toContain('main');
   expect(workflow).toContain('develop');
-  expect(workflow).toContain('"id":"development"');
-  expect(workflow).toContain('"id":"production-molii"');
-  expect(workflow).toContain('"id":"production-ixiaozu"');
+  expect(workflow).toContain('python3 deploy/resolve-targets.py');
+  expect(workflow).toContain('ixiaozu_maintenance_approved:');
+  expect(workflow).toContain('ixiaozu_maintenance_date:');
   expect(workflow).toContain('fail-fast: false');
   expect(workflow).toContain('target: ${{ fromJSON(needs.prepare.outputs.targets) }}');
   expect(workflow).toContain('name: ${{ matrix.target.environment }}');
@@ -144,12 +144,13 @@ test('documentation target selection isolates manual sites and rejects invalid r
   const workflow = Bun.YAML.parse(await Bun.file(docsWorkflowPath).text()) as any;
   const step = workflow.jobs.prepare.steps.find((item: any) => item.id === 'target');
   const cases = [
-    ['push', 'refs/heads/main', '', ['production-molii', 'production-ixiaozu', 'production-claudeye', 'production-model-claudeye']],
+    ['push', 'refs/heads/main', '', ['production-molii', 'production-claudeye', 'production-model-claudeye']],
     ['push', 'refs/heads/develop', '', ['development']],
-    ...['production-molii', 'production-ixiaozu', 'production-claudeye', 'production-model-claudeye'].map(
+    ...['production-molii', 'production-claudeye', 'production-model-claudeye'].map(
       (target) => ['workflow_dispatch', 'refs/heads/main', target, [target]],
     ),
-    ['workflow_dispatch', 'refs/heads/main', 'all-production', ['production-molii', 'production-ixiaozu', 'production-claudeye', 'production-model-claudeye']],
+    ['workflow_dispatch', 'refs/heads/main', 'production-ixiaozu', null],
+    ['workflow_dispatch', 'refs/heads/main', 'all-production', ['production-molii', 'production-claudeye', 'production-model-claudeye']],
     ['workflow_dispatch', 'refs/heads/develop', 'development', ['development']],
     ['workflow_dispatch', 'refs/heads/develop', 'production-claudeye', null],
     ['workflow_dispatch', 'refs/heads/main', 'development', null],
@@ -164,7 +165,8 @@ test('documentation target selection isolates manual sites and rejects invalid r
     try {
       const output = join(directory, 'output');
       const process = Bun.spawn(['bash', '-e', '-c', step.run], {
-        env: { ...Bun.env, EVENT_NAME: event, GITHUB_REF: ref, BRANCH_NAME: ref.split('/').at(-1), DEPLOY_TARGET: target, GITHUB_OUTPUT: output },
+        cwd: repositoryRoot,
+        env: { ...Bun.env, GITHUB_EVENT_NAME: event, GITHUB_REF: ref, GITHUB_SHA: 'a'.repeat(40), DEPLOY_TARGET: target, GITHUB_OUTPUT: output, IXIAOZU_MAINTENANCE_APPROVED: 'false', IXIAOZU_MAINTENANCE_DATE: '' },
         stdout: 'pipe', stderr: 'pipe',
       });
       const code = await process.exited;
@@ -173,7 +175,7 @@ test('documentation target selection isolates manual sites and rejects invalid r
         expect(await Bun.file(output).exists()).toBe(false);
       } else {
         expect(code).toBe(0);
-        const line = (await readFile(output, 'utf8')).trim();
+        const line = (await readFile(output, 'utf8')).split('\n').find((line) => line.startsWith('targets='))!;
         const entries = JSON.parse(line.slice('targets='.length));
         expect(entries.map((entry: any) => entry.id)).toEqual(expected);
         expect(entries.every((entry: any) => entry.environment === entry.id)).toBe(true);

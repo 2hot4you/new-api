@@ -28,19 +28,26 @@ import {
 } from '@/components/data-table'
 import { EmptyState } from '@/components/empty-state'
 import { LoadingState } from '@/components/loading-state'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
 import { isSeedanceManagedPricingModel } from '@/features/model-pricing/api'
+import type { PricingCurrency } from '@/features/model-pricing/currency'
 import { useDebounce } from '@/hooks/use-debounce'
 import { useMediaQuery } from '@/hooks/use-media-query'
 
 import type { DifferencesMap, PricingSyncModels } from '../types'
+import type {
+  PriceAdjustment,
+  AdjustedSyncPrice,
+} from './upstream-price-adjustment'
 import { SyncSourceHeader } from './upstream-price-cells'
 import { useUpstreamRatioSyncColumns } from './upstream-ratio-sync-columns'
 import {
@@ -58,6 +65,10 @@ export type PricingSyncRow = {
 }
 type UpstreamRatioSyncTableProps = {
   prices: PricingSyncModels
+  adjustments?: Record<string, PriceAdjustment>
+  adjustedPrices?: Record<string, AdjustedSyncPrice>
+  currency?: PricingCurrency | null
+  onAdjustPrices?: (models: string[], mode: PriceAdjustment) => void
   toolbar?: ReactNode
   differences: DifferencesMap
   selectedSources: PricingSourceSelections
@@ -70,15 +81,19 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
   const { t } = useTranslation()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [search, setSearch] = useState('')
+  const [showUnchanged, setShowUnchanged] = useState(false)
   const [kind, setKind] = useState('__all__')
   const debouncedSearch = useDebounce(search, 250)
   const rows = useMemo(
     () =>
       Object.entries(props.prices)
-        .filter(([, values]) =>
-          Object.values(values.upstreams).some(
-            (candidate) => !sameSyncPrice(values.current, candidate)
-          )
+        .filter(
+          ([model, values]) =>
+            showUnchanged ||
+            Boolean(props.selectedSources[model]) ||
+            Object.values(values.upstreams).some(
+              (candidate) => !sameSyncPrice(values.current, candidate)
+            )
         )
         .map(([model, prices]) => ({
           model,
@@ -86,7 +101,7 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
           differences: props.differences[model],
         }))
         .sort((a, b) => a.model.localeCompare(b.model)),
-    [props.prices, props.differences]
+    [props.prices, props.differences, props.selectedSources, showUnchanged]
   )
   const filteredRows = useMemo(
     () =>
@@ -105,9 +120,13 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
   const sourceNames = useMemo(
     () =>
       [
-        ...new Set(rows.flatMap((row) => Object.keys(row.prices.upstreams))),
+        ...new Set(
+          Object.values(props.prices).flatMap((row) =>
+            Object.keys(row.upstreams)
+          )
+        ),
       ].sort(),
-    [rows]
+    [props.prices]
   )
   const bulkStates = useMemo(
     () =>
@@ -118,7 +137,12 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
               (row) =>
                 !isSeedanceManagedPricingModel(row.model) &&
                 row.prices.upstreams[source] &&
-                !sameSyncPrice(row.prices.current, row.prices.upstreams[source])
+                (showUnchanged ||
+                  !sameSyncPrice(
+                    row.prices.current,
+                    row.prices.upstreams[source]
+                  ) ||
+                  props.selectedSources[row.model] === source)
             )
             .map((row) => ({ model: row.model, source }))
           return [
@@ -135,7 +159,7 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
           ]
         })
       ),
-    [filteredRows, sourceNames, props.selectedSources]
+    [filteredRows, sourceNames, props.selectedSources, showUnchanged]
   )
   const columns = useUpstreamRatioSyncColumns(sourceNames, isMobile)
   const { table } = useDataTable({
@@ -204,6 +228,11 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
       value={{
         bulkStates,
         selectedSources: props.selectedSources,
+        adjustments: props.adjustments ?? {},
+        adjustedPrices: props.adjustedPrices ?? {},
+        currency: props.currency ?? null,
+        onAdjustPrices: props.onAdjustPrices,
+        showUnchanged,
         isDisabled: props.isDisabled,
         onSelectPrices: props.onSelectPrices,
         onUnselectPrices: props.onUnselectPrices,
@@ -244,15 +273,28 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent alignItemWithTrigger={false}>
-              {types.map((type) => (
-                <SelectItem value={type.value} key={type.value}>
-                  {type.label}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {types.map((type) => (
+                  <SelectItem value={type.value} key={type.value}>
+                    {type.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
+          <label className='flex items-center gap-2 text-sm'>
+            <Checkbox
+              checked={showUnchanged}
+              disabled={props.isDisabled}
+              onCheckedChange={(checked) => {
+                setShowUnchanged(checked)
+                table.setPageIndex(0)
+              }}
+            />
+            {t('Show models with matching prices')}
+          </label>
           <span className='text-muted-foreground text-xs sm:ml-auto'>
-            USD / {t('1M token')}
+            {t('Source pricing currency')} / {t('1M token')}
           </span>
         </div>
         {content}

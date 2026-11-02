@@ -165,11 +165,14 @@ func TestApplyResponsesUsageCopiesTokenDetails(t *testing.T) {
 		OutputTokens: 7,
 		TotalTokens:  18,
 		InputTokensDetails: &dto.InputTokenDetails{
-			CachedTokens:         3,
-			CachedCreationTokens: 2,
-			TextTokens:           6,
-			AudioTokens:          4,
-			ImageTokens:          5,
+			CachedTokens:            3,
+			CachedTokensDetails:     &dto.CachedTokenDetails{ImageTokens: common.GetPointer(0)},
+			CachedCreationTokens:    2,
+			CacheWriteTokens:        2,
+			CacheWriteTokensDetails: &dto.CacheWriteTokenDetails{TTL30mTokens: 1, TTL12hTokens: 1},
+			TextTokens:              6,
+			AudioTokens:             4,
+			ImageTokens:             5,
 		},
 		OutputTokensDetails: &dto.OutputTokenDetails{
 			TextTokens:      1,
@@ -191,6 +194,11 @@ func TestApplyResponsesUsageCopiesTokenDetails(t *testing.T) {
 	assert.Equal(t, *src.InputTokensDetails, dst.PromptTokensDetails)
 	assert.Equal(t, src.InputTokensDetails, dst.InputTokensDetails)
 	assert.NotSame(t, src.InputTokensDetails, dst.InputTokensDetails)
+	src.InputTokensDetails.CacheWriteTokensDetails.TTL12hTokens = 2
+	*src.InputTokensDetails.CachedTokensDetails.ImageTokens = 7
+	assert.Equal(t, 1, dst.PromptTokensDetails.CacheWrite12hTokens())
+	require.NotNil(t, dst.InputTokensDetails.CachedTokensDetails.ImageTokens)
+	assert.Zero(t, *dst.InputTokensDetails.CachedTokensDetails.ImageTokens, "explicit zero remains detached")
 	assert.Equal(t, *src.OutputTokensDetails, dst.CompletionTokenDetails)
 	require.NotNil(t, dst.OutputTokensDetails)
 	assert.Equal(t, *src.OutputTokensDetails, *dst.OutputTokensDetails)

@@ -19,17 +19,51 @@ func TestSmokeTestTaskExprValidatesDeclaredUsageVectors(t *testing.T) {
 		"quality": {Enum: []string{"sd", "hd"}},
 	}
 
-	tests := []struct {
+	type taskExprCase struct {
 		name          string
 		schema        map[string]jsplugin.UsageFieldSchema
 		expression    string
 		expectedError string
-	}{
+	}
+	tests := []taskExprCase{
 		{
 			name:          "fixed prices are not task usage prices",
 			schema:        videoSchema,
 			expression:    `true ? tier("normal", u("seconds") * 0.4) : tier("fixed", fixed(0.01))`,
 			expectedError: "fixed pricing is not supported for task usage expressions",
+		},
+		{
+			name:          "ordinary token variables have no task meter",
+			schema:        videoSchema,
+			expression:    `tier("tokens", p * 2 + c * 10)`,
+			expectedError: `token variable`,
+		},
+		{
+			name:          "unselected token branch is still unsafe",
+			schema:        videoSchema,
+			expression:    `true ? tier("task", u("seconds")) : tier("tokens", cc12h * 2)`,
+			expectedError: `token variable "cc12h" is not available for task usage expressions`,
+		},
+		{
+			name:          "context length is not populated for tasks",
+			schema:        videoSchema,
+			expression:    `len > 0 ? 2 : 1`,
+			expectedError: `token variable "len" is not available for task usage expressions`,
+		},
+		{
+			name:       "constant task dollars are valid",
+			schema:     videoSchema,
+			expression: `tier("base", 0.1)`,
+		},
+		{
+			name:       "token usage facts remain valid",
+			schema:     map[string]jsplugin.UsageFieldSchema{"tokens": {Type: "number", Unit: "token"}},
+			expression: `tier("tokens", u("tokens") * 2 / 1000000)`,
+		},
+		{
+			name:       "request selectors remain valid",
+			schema:     videoSchema,
+			expression: `param("service_tier") == "fast" && header("x-mode") == "fast" ? 0.2 : 0.1`,
 		},
 		{
 			name:       "declared numeric and enum facts",
@@ -73,6 +107,14 @@ func TestSmokeTestTaskExprValidatesDeclaredUsageVectors(t *testing.T) {
 			expectedError: "result must be finite and non-negative",
 		},
 	}
+	for _, name := range []string{"p", "c", "len", "cr", "cc", "cc1h", "cc12h", "img", "img_cr", "img_o", "ai", "ao"} {
+		tests = append(tests, taskExprCase{
+			name:          "unselected token variable " + name,
+			schema:        videoSchema,
+			expression:    `true ? tier("task", u("seconds")) : tier("tokens", ` + name + ` * 2)`,
+			expectedError: fmt.Sprintf("token variable %q is not available for task usage expressions", name),
+		})
+	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -108,4 +150,16 @@ func TestSmokeTestExprRejectsTaskUsageWithoutSchema(t *testing.T) {
 	assert.ErrorContains(t, err, "no task plugin usage schema")
 
 	require.NoError(t, SmokeTestExpr(`tier("base", p * 2 + c * 8)`))
+}
+
+func TestSmokeTestExprValidatesLongTTLCacheWrites(t *testing.T) {
+	for _, expression := range []string{
+		`tier("base", p + cc12h * -1)`,
+		`cc12h == 2147483647 ? -1 : 0`,
+	} {
+		t.Run(expression, func(t *testing.T) {
+			require.ErrorContains(t, SmokeTestExpr(expression), "result must be finite and non-negative")
+		})
+	}
+	require.NoError(t, SmokeTestExpr(`tier("base", p + cc12h * 25)`))
 }

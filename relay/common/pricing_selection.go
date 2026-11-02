@@ -31,6 +31,10 @@ type ModelPricing struct {
 	AudioRatio           float64
 	AudioCompletionRatio float64
 	Money                billingmoney.Context
+	// SharedTaskPlugin identifies an applicable task provider that inherits
+	// this model's expression instead of having its own task-priced override.
+	// It is captured with the quote, never resolved during pre-consume.
+	SharedTaskPlugin string
 }
 
 // TaskPricing is the effective task expression decision, including a present

@@ -27,8 +27,10 @@ import { isSeedanceManagedPricingModel } from '@/features/model-pricing/api'
 import { cn } from '@/lib/utils'
 
 import type { PricingSyncValues } from '../types'
+import { PriceAdjustmentSelect } from './price-adjustment-select'
 import {
   getSyncPriceKind,
+  getSyncSourceCurrency,
   getSyncPriceLines,
   getSyncExpressionPricing,
   getUpstreamDisplayName,
@@ -43,13 +45,15 @@ export function SyncPriceCell(props: {
 }) {
   const { t } = useTranslation()
   const kind = getSyncPriceKind(props.values)
+  const currency = getSyncSourceCurrency(props.values)
   if (kind === 'unset') {
     return <span className='text-muted-foreground'>{t('Unset price')}</span>
   }
   if (kind === 'expression') {
     const parsed = getSyncExpressionPricing(
       String(props.values.billing_expr),
-      t
+      t,
+      currency ?? undefined
     )
     return (
       <div className='min-w-0 flex-1 space-y-1'>
@@ -64,7 +68,10 @@ export function SyncPriceCell(props: {
             aria-label={t('Copy billing expression')}
           />
         </div>
-        {parsed ? (
+        <span className='text-muted-foreground text-xs'>
+          {currency?.label ?? t('Source pricing currency unavailable')}
+        </span>
+        {parsed && currency ? (
           <div className='space-y-2'>
             {parsed.tiers.map((tier, index) => (
               // Tier labels and conditions may repeat; preserve occurrence identity.
@@ -95,7 +102,7 @@ export function SyncPriceCell(props: {
       </div>
     )
   }
-  const lines = getSyncPriceLines(props.values, t)
+  const lines = getSyncPriceLines(props.values, t, currency ?? undefined)
   if (kind === 'request') {
     return (
       <span className='whitespace-nowrap'>
@@ -206,19 +213,22 @@ export function SyncSourcePriceCell(props: {
       </div>
     )
   }
-  const same = sameSyncPrice(values, props.row.prices.current)
   const selected = context.selectedSources[model] === props.source
+  const mode = selected ? (context.adjustments[model] ?? 'keep') : 'keep'
+  const result = selected ? context.adjustedPrices[model] : undefined
+  const same = sameSyncPrice(values, props.row.prices.current)
+  const canSelect = !same || context.showUnchanged || selected
   const confident = Object.values(props.row.differences ?? {}).every(
     (diff) => diff?.confidence?.[props.source] !== false
   )
   return (
     <div
       className={cn(
-        'flex min-h-10 min-w-0 items-center gap-3 rounded-md px-2 py-1 -mx-2',
-        selected && 'bg-primary/8'
+        'flex min-h-10 min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-1 -mx-2',
+        context.selectedSources[model] === props.source && 'bg-primary/8'
       )}
     >
-      {same ? (
+      {!canSelect ? (
         <StatusBadge
           label={t('Same as Local')}
           variant='neutral'
@@ -259,7 +269,37 @@ export function SyncSourcePriceCell(props: {
           )}
         </div>
       )}
-      <SyncPriceCell values={values} compareTo={props.row.prices.current} />
+      <div className='flex min-w-0 flex-1 flex-wrap items-center gap-2'>
+        <div className='min-w-0'>
+          <SyncPriceCell
+            values={result?.values ?? values}
+            compareTo={props.row.prices.current}
+          />
+        </div>
+        {canSelect && context.onAdjustPrices && (
+          <PriceAdjustmentSelect
+            compact
+            value={mode}
+            currency={context.currency}
+            disabled={context.isDisabled}
+            label={t('Price adjustment for {{model}} from {{source}}', {
+              model,
+              source: getUpstreamDisplayName(props.source, t),
+            })}
+            onChange={(next) => {
+              if (!selected) {
+                context.onSelectPrices([{ model, source: props.source }])
+              }
+              context.onAdjustPrices?.([model], next)
+            }}
+          />
+        )}
+      </div>
+      {result?.error && (
+        <p role='alert' className='text-destructive w-full pl-7 text-xs'>
+          {t(result.error)}
+        </p>
+      )}
     </div>
   )
 }

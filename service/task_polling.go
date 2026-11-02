@@ -1066,10 +1066,7 @@ func recordPollFailure(ctx context.Context, adaptor TaskPollingAdaptor, task *mo
 		task.PrivateData.PollFailureClass = class
 	}
 	if class == pollClassUnrecognized || class == pollClassHookError {
-		// The redacted body is intentionally not persisted to Task.Data on these
-		// paths, so the WARN line is the only operator-visible copy of what the
-		// plugin could not interpret.
-		logger.LogWarn(ctx, fmt.Sprintf("task %s poll %s (failures=%d, http=%d): %s", task.TaskID, class, task.PrivateData.PollFailures, statusCode, detail))
+		logger.LogWarn(ctx, fmt.Sprintf("task %s poll %s (failures=%d, http=%d)", task.TaskID, class, task.PrivateData.PollFailures, statusCode))
 	}
 	// A retryable Molii query failure says nothing about the generation's
 	// terminal state. Keep its reservation until a terminal response, even

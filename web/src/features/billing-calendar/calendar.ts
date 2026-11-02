@@ -177,6 +177,7 @@ const icsPriceLabels: Record<string, string> = {
   cr: 'Cache read',
   cc: 'Cache write',
   cc1h: 'Cache create (1h)',
+  cc12h: 'Cache create (12h)',
   img: 'Image input',
   img_cr: 'Image cache input',
   img_o: 'Image output',

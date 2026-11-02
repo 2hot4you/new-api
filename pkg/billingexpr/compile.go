@@ -110,12 +110,14 @@ func usesRequestProbe(node ast.Node) bool {
 }
 
 type cachedEntry struct {
-	prog          *vm.Program
-	usedVars      map[string]bool
-	usedUsageKeys map[string]bool
-	requestRules  []RequestRuleTrace
-	version       int
-	fixedPricing  bool
+	prog                    *vm.Program
+	usedVars                map[string]bool
+	usedUsageKeys           map[string]bool
+	requestRules            []RequestRuleTrace
+	version                 int
+	fixedPricing            bool
+	onlyFixedPricing        bool
+	unavailableTaskTokenVar string
 }
 
 var (
@@ -132,6 +134,7 @@ var compileEnvPrototypeV1 = map[string]any{
 	"cr":          float64(0),
 	"cc":          float64(0),
 	"cc1h":        float64(0),
+	"cc12h":       float64(0),
 	"img":         float64(0),
 	"img_cr":      float64(0),
 	"img_o":       float64(0),
@@ -204,6 +207,20 @@ func compileEntryFromCacheByHash(exprStr, hash string) (*cachedEntry, error) {
 		identifier, ok := node.(*ast.IdentifierNode)
 		return ok && identifier.Value == "fixed"
 	}) != nil
+	tokenVar := ""
+	ast.Find(tree.Node, func(node ast.Node) bool {
+		identifier, ok := node.(*ast.IdentifierNode)
+		if !ok {
+			return false
+		}
+		switch identifier.Value {
+		case "p", "c", "len", "cr", "cc", "cc1h", "cc12h", "img", "img_cr", "img_o", "ai", "ao":
+			tokenVar = identifier.Value
+			return true
+		}
+		return false
+	})
+	onlyFixedPricing := fixedPricing && allPricingLeavesFixed(tree.Node)
 	if fixedPricing {
 		if err := validateFixedPricingTree(tree.Node); err != nil {
 			return nil, fmt.Errorf("expr compile error: %w", err)
@@ -219,12 +236,14 @@ func compileEntryFromCacheByHash(exprStr, hash string) (*cachedEntry, error) {
 	}
 
 	entry := &cachedEntry{
-		prog:          prog,
-		usedVars:      extractUsedVars(prog),
-		usedUsageKeys: extractUsedUsageKeys(prog),
-		requestRules:  patcher.requestRules,
-		version:       version,
-		fixedPricing:  fixedPricing,
+		prog:                    prog,
+		usedVars:                extractUsedVars(prog),
+		usedUsageKeys:           extractUsedUsageKeys(prog),
+		requestRules:            patcher.requestRules,
+		version:                 version,
+		fixedPricing:            fixedPricing,
+		onlyFixedPricing:        onlyFixedPricing,
+		unavailableTaskTokenVar: tokenVar,
 	}
 	cacheMu.Lock()
 	if len(cache) >= maxCacheSize {

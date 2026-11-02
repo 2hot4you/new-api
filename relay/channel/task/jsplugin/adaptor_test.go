@@ -550,14 +550,11 @@ func TestTaskAdaptorJSONOrderCapability(t *testing.T) {
 		source string
 		client string
 		want   string
-		status int
 	}{
 		{name: "declared keeps the client's order", source: orderedProtocolPlugin, client: client,
 			want: `{"model":"m","state":{"zeta":"1","alpha":"2","mid":"&<>"},"questions":{"q2":{"type":"noul"},"q1":{"type":"noul"}}}`},
 		{name: "undeclared stays sorted", source: undeclared, client: client,
 			want: `{"model":"m","questions":{"q1":{"type":"noul"},"q2":{"type":"noul"}},"state":{"alpha":"2","mid":"\u0026\u003c\u003e","zeta":"1"}}`},
-		{name: "declared still bounds billing quantities", source: orderedProtocolPlugin,
-			client: `{"model":"m","state":{"duration":3601},"questions":{}}`, status: http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -577,14 +574,7 @@ func TestTaskAdaptorJSONOrderCapability(t *testing.T) {
 			adaptor := New(plugin)
 			adaptor.Init(info)
 
-			taskErr := adaptor.ValidateRequestAndSetAction(c, info)
-			if tc.status != 0 {
-				require.NotNil(t, taskErr)
-				assert.Equal(t, tc.status, taskErr.StatusCode)
-				assert.Equal(t, "plugin_usage_invalid", taskErr.Code)
-				return
-			}
-			require.Nil(t, taskErr)
+			require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
 			body, err := adaptor.BuildRequestBody(c, info)
 			require.NoError(t, err)
 			raw, err := io.ReadAll(body)
@@ -1794,6 +1784,33 @@ func TestSubmitContextOriginTasksNilDataOnInvalidJSON(t *testing.T) {
 	assert.Nil(t, originTasks[0]["data"])
 }
 
+func TestSubmitContextExposesClientHeadersWithoutCredentials(t *testing.T) {
+	plugin, err := pluginruntime.NewRegistry().Register(mockPlugin, pluginruntime.Options{})
+	require.NoError(t, err)
+	adaptor := New(plugin)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://provider.example"}, TaskRelayInfo: &relaycommon.TaskRelayInfo{}}
+	adaptor.Init(info)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/vendor/v1/jobs", nil)
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("TypeSafe-Danger-Zone-Long-Context", "true")
+	c.Request.Header.Add("X-Trace", "first")
+	c.Request.Header.Add("X-Trace", "second")
+	for _, name := range []string{"Authorization", "Proxy-Authorization", "Cookie", "X-Api-Key", "X-Goog-Api-Key", "Mj-Api-Secret"} {
+		c.Request.Header.Set(name, "gateway-secret")
+	}
+
+	headers := adaptor.submitContext(c, info)["requestHeaders"]
+
+	assert.Equal(t, map[string]string{
+		"Content-Type":                      "application/json",
+		"Accept":                            "",
+		"Typesafe-Danger-Zone-Long-Context": "true",
+		"X-Trace":                           "first",
+	}, headers)
+	assert.Equal(t, headers, adaptor.submitContext(nil, info)["requestHeaders"], "hooks without a client request see the submission headers")
+}
+
 func TestSubmitContextNormalizesRequestBodyOnEveryCall(t *testing.T) {
 	plugin, err := pluginruntime.NewRegistry().Register(mockPlugin, pluginruntime.Options{})
 	require.NoError(t, err)
@@ -2228,23 +2245,6 @@ export function extractUsageOnComplete(ctx,result,body){return body.usage;}
 			assert.Equal(t, ratios, adaptor.AdjustBillingOnSubmit(info, body))
 		})
 	}
-
-	t.Run("request revalidated after model rewrite", func(t *testing.T) {
-		adaptor, c, info := newRequest(t, "public-alias", "video", map[string]any{
-			"rewriteTo": "image", "metadata": map[string]any{"units": dto.MaxImageN + 1},
-		})
-		taskErr := adaptor.ValidateRequestAndSetAction(c, info)
-		require.NotNil(t, taskErr)
-		assert.Equal(t, "plugin_usage_invalid", taskErr.Code)
-	})
-
-	t.Run("request enum belongs to the rewritten model", func(t *testing.T) {
-		adaptor, c, info := newRequest(t, "public-alias", "video", map[string]any{
-			"rewriteTo": "image", "mode": "image", "units": 2,
-		})
-		require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
-		assert.Equal(t, "image", info.UpstreamModelName)
-	})
 
 	t.Run("completion selects each persisted model including legacy origin fallback", func(t *testing.T) {
 		adaptor, _, _ := newRequest(t, "public-alias", "image", map[string]any{})

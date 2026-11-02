@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 
-import { describe, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import type { PricingModel } from '@/features/pricing/types'
 
@@ -666,4 +666,24 @@ describe('canonical quotation snapshot', () => {
     assert.equal(snapshot.quoteCurrency, 'CNY')
     assert.equal(snapshot.cnyPerUSD, 7)
   })
+})
+
+// A 12h write is an explicit billable dimension, including a free lane.
+test('quotes explicit 12h cache writes without marking the expression unsupported', () => {
+  const snapshot = buildSnapshot([
+    pricingModel({
+      billing_mode: 'tiered_expr',
+      billing_expr: 'tier("base", p * 2 + c * 4 + cc12h * 0)',
+    }),
+  ])
+  expect(snapshot.providers[0]?.models[0]?.dimensions).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        key: 'tier-0-cacheCreate12hPrice',
+        catalogAmount: 0,
+        quoteAmount: 0,
+        status: 'ready',
+      }),
+    ])
+  )
 })

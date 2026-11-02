@@ -5,6 +5,8 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 PROFILES = {
     'development': 'molii',
@@ -15,12 +17,12 @@ PROFILES = {
 }
 # Accepted production sites share the main push and all-production matrix.
 ALL_PRODUCTION = [
-    'production-molii', 'production-ixiaozu',
+    'production-molii',
     'production-claudeye', 'production-model-claudeye',
 ]
 
 
-def resolve(env):
+def resolve(env, *, now=None):
     event = env.get('GITHUB_EVENT_NAME', '')
     branch = env.get('GITHUB_REF', '')
     sha = env.get('GITHUB_SHA', '')
@@ -41,6 +43,13 @@ def resolve(env):
         raise ValueError('Unsupported deployment target')
     if (target != 'development') != production:
         raise ValueError('Production targets require main; development requires develop')
+    if target == 'production-ixiaozu':
+        current = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('Asia/Shanghai'))
+        if (event != 'workflow_dispatch'
+                or env.get('IXIAOZU_MAINTENANCE_APPROVED') != 'true'
+                or env.get('IXIAOZU_MAINTENANCE_DATE') != current.strftime('%Y-%m-%d')
+                or current.hour < 20):
+            raise ValueError('iXiaozu requires separate approval dated today and Beijing time 20:00–23:59')
     if production:
         if source and source != sha:
             raise ValueError('Production source must equal the triggering main commit SHA')

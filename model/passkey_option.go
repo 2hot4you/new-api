@@ -154,6 +154,12 @@ func updatePasskeyDomainOptionsGuarded(values map[string]string, preview bool, c
 			return err
 		}
 		previous := settings.WithDefaults(serverAddress)
+		oldRPID := previous.EffectiveRPID()
+		_, previousDomainError := system_setting.NormalizePasskeyRPID(oldRPID, previous.Origins)
+		// An unusable bootstrap default (such as HTTP localhost with insecure
+		// origins disabled) is not trusted configuration to materialize. Actual
+		// credentials still participate in the removal confirmation below.
+		retainPrevious := previousDomainError == nil && previous.ValidateRelyingPartyOrigins() == nil
 		before := [4]string{serverAddress, settings.RPID, settings.LegacyRPIDs, settings.Origins}
 		// Do not turn an automatically derived ServerAddress origin into an
 		// explicit Passkey constraint for otherwise unrelated deployments.
@@ -175,7 +181,11 @@ func updatePasskeyDomainOptionsGuarded(values map[string]string, preview bool, c
 			// Retain the previously trusted implicit website as well as the new
 			// default, so retaining its RP ID does not leave its keys unusable.
 			origins := []string{}
-			for _, origin := range []string{previous.Origins, settings.WithDefaults(serverAddress).Origins} {
+			previousOrigin := ""
+			if retainPrevious {
+				previousOrigin = previous.Origins
+			}
+			for _, origin := range []string{previousOrigin, settings.WithDefaults(serverAddress).Origins} {
 				if origin != "" && !slices.Contains(origins, origin) {
 					origins = append(origins, origin)
 				}
@@ -199,9 +209,8 @@ func updatePasskeyDomainOptionsGuarded(values map[string]string, preview bool, c
 		if err != nil {
 			return err
 		}
-		oldRPID, nextRPID := previous.EffectiveRPID(), effective.EffectiveRPID()
-		_, previousDomainError := system_setting.NormalizePasskeyRPID(oldRPID, previous.Origins)
-		if previousDomainError == nil && oldRPID != nextRPID && !slices.Contains(legacy, oldRPID) {
+		nextRPID := effective.EffectiveRPID()
+		if retainPrevious && oldRPID != nextRPID && !slices.Contains(legacy, oldRPID) {
 			legacy = append(legacy, oldRPID)
 		}
 		settings.LegacyRPIDs = strings.Join(legacy, ",")
