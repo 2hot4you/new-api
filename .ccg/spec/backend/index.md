@@ -20,3 +20,7 @@
 - Cross-model alias validation must use the complete candidate override map, including additions, removals and resets, before per-row validation. Never let batch order decide validity, retain removed old overrides, or consult a later live map during prospective catalog validation.
 - Committed catalog reconstruction is storage compatibility, not permission to execute a task. It may retain syntax-valid stored quote identities with unchanged mode/override evidence while task compatibility stays false. Compiled defaults are not stored provenance; direct price saves, changed/adopted quotes, mode activation and override removal remain strict. Never bypass the pre-funding execution guard.
 - Upgrade fixtures must seed historical quotes before option bootstrap and real startup completion, then test repeat startup, pending recovery, authoritative reload and unrelated writes. Recovering valid defaults before inserting historical data tests saving only; it cannot prove upgrade startup compatibility.
+
+## Server address and Passkey trust
+
+- When replacing unusable implicit bootstrap RP/origin defaults, filter only retention of the old trust; still materialize the newly requested origin as explicit configuration. Otherwise a later ServerAddress change can silently expand trust. Keep explicit historical validation and credential-removal confirmation intact, and test preview rollback, stored origins, repeat save and rejection of a second foreign-origin change through both controller and mixed catalog-save paths.
