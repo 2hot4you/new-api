@@ -1,0 +1,12 @@
+{
+  "id": "diagnose-model-claudeye-catalog-busy",
+  "title": "Trace model.claudeye.com catalog writer busy for gemini-4-argon",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "operations-readonly",
+  "currentPhase": "completed",
+  "nextAction": "Report confirmed request-side catalog read-lock rejection and likely periodic refresh overlap; no production change authorized.",
+  "createdAt": "2026-11-05",
+  "branch": "fix/server-address-passkey-validation"
+}
