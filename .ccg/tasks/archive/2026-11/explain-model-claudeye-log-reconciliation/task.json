@@ -1,0 +1,11 @@
+{
+  "id": "explain-model-claudeye-log-reconciliation",
+  "title": "Explain platform versus upstream log accounting and correlation",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "operations-readonly",
+  "currentPhase": "completed",
+  "nextAction": "General explanation supplied. A specific new mismatch requires matched platform and upstream records; do not infer a billing discrepancy.",
+  "createdAt": "2026-11-06"
+}
