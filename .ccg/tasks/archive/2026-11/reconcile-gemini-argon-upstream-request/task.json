@@ -1,0 +1,11 @@
+{
+  "id": "reconcile-gemini-argon-upstream-request",
+  "title": "Look up the supplied Gemini upstream request in model.claudeye.com",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "operations-readonly",
+  "currentPhase": "completed",
+  "nextAction": "Read-only lookup found no exact correspondence. Obtain client-side platform X-Oneapi-Request-Id for further correlation; no cause or billing discrepancy asserted.",
+  "createdAt": "2026-11-06"
+}
