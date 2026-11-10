@@ -1,0 +1,5 @@
+# 问题与证据边界
+
+用户问根因及官方new-api latest是否也有同样问题。须区分旧d922故障机制、当前本地0d07未修复审问题、官方latest release和默认分支，不能将官方未实现该定制状态机等同于绝无任何并发/计费问题。
+
+通过官方GitHub公开API和网页固定版本/完整SHA，再检查实际源码/完整tree；不沿用过时本地upstream ref或仅凭release note没有提到就说没有。定制机制用本地git历史追溯；不认定未知历史首触发。外部wrapper缺失，采用两路独立native核验既有fallback；本轮不改实现或生产。
