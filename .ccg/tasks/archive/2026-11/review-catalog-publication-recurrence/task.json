@@ -1,0 +1,16 @@
+{
+  "id": "review-catalog-publication-recurrence",
+  "title": "复审本地定价目录修复：pending及活性问题是否仍会复发",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "报告4项未修Important（2P1/2P2），不推广；等待用户另行授权本地修复，不自动修改实现或线上",
+  "createdAt": "2026-11-10T09:18:29Z",
+  "branch": "fix/catalog-publication-liveness",
+  "reviewBase": "bec3e330e657c8f783a918ff1f703f7410c75a69",
+  "reviewHead": "0d07bc76964937b6c9ca6ef58b0b7ca76ed59a5a",
+  "verdict": "not_ready_for_promotion",
+  "constraints": ["不推送、不合并、不部署", "不连接线上", "不修改实现或已有测试", "保留用户所有无关修改", "仅本次复审文档可写"]
+}
