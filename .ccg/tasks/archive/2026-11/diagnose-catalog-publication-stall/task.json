@@ -1,0 +1,16 @@
+{
+  "id": "diagnose-catalog-publication-stall",
+  "title": "定价目录发布卡住：d922 本地复现、修复与验收",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "本地修复、全部限定验收及双路独立审查完成；保留分支/工作树，等待用户决定后续，不推送或线上操作",
+  "createdAt": "2026-11-10T06:09:42Z",
+  "branch": "fix/catalog-publication-liveness",
+  "sourceSha": "d92203da2101ff90ebb45dcef83a4f9045232da5",
+  "implementationSha": "0d07bc76964937b6c9ca6ef58b0b7ca76ed59a5a",
+  "completedAt": "2026-11-10T09:14:18Z",
+  "constraints": ["不连接线上环境", "不修改生产数据库或配置", "不重启现有服务", "不推送、不发布", "仅使用本次创建的隔离本地测试数据库"]
+}
