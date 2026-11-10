@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,207 @@ func TestCatalogPublicationNoopReloadDoesNotRepublish(t *testing.T) {
 		assert.Equal(t, float64(2), ratio_setting.GetModelPriceMap()["liveness"])
 		return nil
 	}))
+}
+
+func catalogRetiredOptionsTestDB(t *testing.T, engine string, deadline, theme bool) *gorm.DB {
+	t.Helper()
+	db := catalogFenceTestDB(t, engine)
+	initializeOrdinaryCatalogTest(t, db)
+	policy, retireAt := CurrentRequestPolicy(), LegacyAccessTokenRetireAt()
+	passkey, server := *system_setting.GetPasskeySettings(), system_setting.ServerAddress
+	t.Cleanup(func() {
+		legacyAccessTokenRetireAt.Store(retireAt)
+		for key, value := range policy.Options {
+			require.NoError(t, updateOptionMap(key, value))
+		}
+		requestPolicySnapshot.Store(policy)
+		*system_setting.GetPasskeySettings(), system_setting.ServerAddress = passkey, server
+	})
+	if deadline {
+		require.NoError(t, EnsureLegacyAccessTokenRetireAt(1700000000))
+		require.NoError(t, EnsureLegacyAccessTokenRetireAt(1700000100), "repeat startup must retain the first deadline")
+		require.Equal(t, int64(1702592000), LegacyAccessTokenRetireAt())
+	}
+	if theme {
+		require.NoError(t, normalizeRetiredThemeOption())
+	}
+	require.NoError(t, db.Create(&Option{Key: "ModelPrice", Value: `{"liveness":2}`}).Error)
+	require.NoError(t, db.Create(&Option{Key: "RetryTimes", Value: "3"}).Error)
+	require.NoError(t, InitOptionMapBootstrap(context.Background()))
+	require.NoError(t, CompleteOptionMapInitialization(context.Background()))
+	return db
+}
+
+func TestCatalogPublicationRetiredOptionsKeepNoopReadOnly(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			for _, fixture := range []struct {
+				name     string
+				deadline bool
+				theme    bool
+			}{
+				{"none", false, false}, {"deadline", true, false},
+				{"theme", false, true}, {"both", true, true},
+			} {
+				t.Run(fixture.name, func(t *testing.T) {
+					db := catalogRetiredOptionsTestDB(t, engine, fixture.deadline, fixture.theme)
+					var before CatalogSyncState
+					require.NoError(t, db.First(&before, CatalogSyncStateID).Error)
+					var stored []Option
+					require.NoError(t, db.Order(commonKeyCol).Find(&stored).Error)
+					if fixture.deadline {
+						assert.Contains(t, stored, Option{Key: "LegacyAccessTokenRetireAt", Value: "1702592000"})
+					}
+					if fixture.theme {
+						assert.Contains(t, stored, Option{Key: "theme.frontend", Value: "default"})
+					}
+					stage := runtimeStageForTest(t, db)
+					stage.optionsOnly = true
+					var writes atomic.Int64
+					observeWrite := func(tx *gorm.DB) {
+						if tx.Statement.Table == "options" || tx.Statement.Table == "catalog_sync_states" {
+							writes.Add(1)
+						}
+					}
+					require.NoError(t, db.Callback().Create().Before("gorm:create").Register("retired-noop-create", observeWrite))
+					require.NoError(t, db.Callback().Update().Before("gorm:update").Register("retired-noop-update", observeWrite))
+					require.NoError(t, db.Callback().Delete().Before("gorm:delete").Register("retired-noop-delete", observeWrite))
+					t.Cleanup(func() {
+						db.Callback().Create().Remove("retired-noop-create")
+						db.Callback().Update().Remove("retired-noop-update")
+						db.Callback().Delete().Remove("retired-noop-delete")
+					})
+					for range 3 {
+						err := tryWithCatalogCaptureBarrier(context.Background(), func() error {
+							return loadOptionsFromDatabaseGuarded(context.Background(), stage)
+						})
+						assert.NoError(t, err, "persisted-but-unpublished startup metadata is not an effective option change")
+					}
+					assert.Zero(t, writes.Load(), "no-op preflight must not write any option or catalog state")
+					var after CatalogSyncState
+					require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
+					assert.Equal(t, before, after)
+					var actual []Option
+					require.NoError(t, db.Order(commonKeyCol).Find(&actual).Error)
+					assert.Equal(t, stored, actual, "server-managed metadata must remain stored verbatim")
+					common.OptionMapRWMutex.RLock()
+					assert.NotContains(t, common.OptionMap, "LegacyAccessTokenRetireAt")
+					assert.NotContains(t, common.OptionMap, "theme.frontend")
+					common.OptionMapRWMutex.RUnlock()
+					if fixture.deadline {
+						assert.Equal(t, int64(1702592000), LegacyAccessTokenRetireAt())
+					}
+					assert.NoError(t, WithCatalogPricingRead(context.Background(), "liveness", func() error {
+						assert.Equal(t, float64(2), ratio_setting.GetModelPriceMap()["liveness"])
+						return nil
+					}))
+				})
+			}
+			t.Run("effective-changes", func(t *testing.T) {
+				db := catalogRetiredOptionsTestDB(t, engine, true, true)
+				for _, change := range []string{"changed", "uncached", "near-match"} {
+					t.Run(change, func(t *testing.T) {
+						key, value := "RetryTimes", "4"
+						switch change {
+						case "changed":
+							require.NoError(t, db.Save(&Option{Key: key, Value: value}).Error)
+						case "uncached":
+							common.OptionMapRWMutex.Lock()
+							delete(common.OptionMap, key)
+							common.OptionMapRWMutex.Unlock()
+						case "near-match":
+							key, value = "theme.frontend.extra", "retained-effective-value"
+							require.NoError(t, db.Create(&Option{Key: key, Value: value}).Error)
+						}
+						stage := runtimeStageForTest(t, db)
+						stage.optionsOnly = true
+						before := CurrentRequestPolicy()
+						err := tryWithCatalogCaptureBarrier(context.Background(), func() error {
+							return loadOptionsFromDatabaseGuarded(context.Background(), stage)
+						})
+						require.ErrorIs(t, err, errCatalogOptionsNeedWriter, "effective changes must still require writer exclusion")
+						assert.Same(t, before, CurrentRequestPolicy(), "preflight must not partially publish policy")
+						require.NoError(t, loadOptionsFromDatabase())
+						common.OptionMapRWMutex.RLock()
+						assert.Equal(t, value, common.OptionMap[key])
+						common.OptionMapRWMutex.RUnlock()
+						assert.Equal(t, 4, CurrentRequestPolicy().RetryTimes)
+					})
+				}
+			})
+		})
+	}
+}
+
+func TestCatalogPublicationRetiredOptionsKeepReadersAvailable(t *testing.T) {
+	catalogRetiredOptionsTestDB(t, "postgres", true, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	catalogBarrier.RLock()
+	var release sync.Once
+	done, preflight := make(chan error, 1), make(chan error, 1)
+	joined := false
+	defer func() {
+		cancel()
+		release.Do(catalogBarrier.RUnlock)
+		if !joined {
+			<-done
+		}
+	}()
+	var writerCalls atomic.Int64
+	var firstPreflight sync.Once
+	go func() {
+		done <- recoverCatalogSyncRuntime(ctx, func(ctx context.Context, stage *catalogRuntimeStage) error {
+			if !stage.optionsOnly {
+				writerCalls.Add(1)
+			}
+			err := loadOptionsFromDatabaseGuarded(ctx, stage)
+			if stage.optionsOnly {
+				// A retried busy attempt must not strand cleanup on an unread
+				// second signal. The actual loader's locks are released here.
+				firstPreflight.Do(func() { preflight <- err })
+			}
+			return err
+		})
+	}()
+	var preflightErr error
+	select {
+	case preflightErr = <-preflight:
+	case <-ctx.Done():
+		t.Fatal("reload never reached the actual unchanged option preflight")
+	}
+	assert.NoError(t, preflightErr, "retained startup metadata must not request a catalog writer")
+	if errors.Is(preflightErr, errCatalogOptionsNeedWriter) {
+		// The held R makes the buggy escalation persist, rather than relying
+		// on sampling a brief intent window or scheduling a coincidental read.
+		require.Eventually(t, func() bool { return catalogWriterIntent.Load() > 0 }, time.Second, time.Millisecond)
+	}
+	assert.NoError(t, WithCatalogPricingRead(context.Background(), "liveness", func() error {
+		assert.Equal(t, float64(2), ratio_setting.GetModelPriceMap()["liveness"])
+		return nil
+	}), "a regular unchanged refresh must keep new pricing capture available")
+	if preflightErr != nil {
+		cancel() // bound the old-source RED without releasing the original R
+	}
+	select {
+	case err := <-done:
+		joined = true
+		if preflightErr == nil {
+			assert.NoError(t, err, "no-op recovery must finish while the original reader remains held")
+		}
+	case <-ctx.Done():
+		if preflightErr == nil {
+			t.Error("no-op recovery needed the original reader to release")
+		}
+	}
+	assert.Zero(t, writerCalls.Load())
+	release.Do(catalogBarrier.RUnlock)
+	if !joined {
+		<-done
+		joined = true
+	}
+	assert.Zero(t, catalogWriterIntent.Load(), "no writer admission reservation may leak after the reload")
+	assertRuntimeLocksReleased(t)
 }
 
 // Use the existing diagnostic sink only to rendezvous after the actual

@@ -325,6 +325,9 @@ func loadNonCatalogOptionsGuarded(ctx context.Context, stage *catalogRuntimeStag
 		// setters (including fallback policy) require exclusion from readers.
 		needsWriter := false
 		for _, option := range options {
+			if optionExcludedFromRuntime(option.Key) {
+				continue
+			}
 			if _, catalog := whitelist[option.Key]; catalog || catalogmanifest.IsPricingNamespace(option.Key) || option.Key == "USDExchangeRate" || option.Key == "TaskPluginEnabled" || option.Key == setting.TaskPluginDisabledFactoryKeysKey {
 				continue
 			}
@@ -594,9 +597,15 @@ func updateOptionMap(key string, value string) (err error) {
 	return updateOptionMapLocked(key, value)
 }
 
+// These persisted startup facts are deliberately not runtime options. Their
+// absence from OptionMap must not turn an unchanged reload into a writer.
+func optionExcludedFromRuntime(key string) bool {
+	return key == retiredThemeOptionKey || key == legacyAccessTokenRetireAtKey
+}
+
 // Caller owns OptionMapRWMutex, including authoritative install reservations.
 func updateOptionMapLocked(key string, value string) (err error) {
-	if key == retiredThemeOptionKey || key == legacyAccessTokenRetireAtKey {
+	if optionExcludedFromRuntime(key) {
 		delete(common.OptionMap, key)
 		return nil
 	}
