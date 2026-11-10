@@ -108,10 +108,14 @@ func (CatalogSyncText) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
 }
 
 type CatalogSyncState struct {
-	ID                 int    `gorm:"primaryKey;autoIncrement:false"`
-	Revision           int64  `gorm:"not null"`
-	CurrentDigest      string `gorm:"size:71;not null"`
-	RuntimeRevision    int64  `gorm:"not null"`
+	ID              int    `gorm:"primaryKey;autoIncrement:false"`
+	Revision        int64  `gorm:"not null"`
+	CurrentDigest   string `gorm:"size:71;not null"`
+	RuntimeRevision int64  `gorm:"not null"`
+	// RuntimeFingerprint binds the complete acknowledged input, including
+	// target-local FX/dependencies/routing not represented by CurrentDigest.
+	// Empty is an upgraded legacy row and never proves runtime readiness.
+	RuntimeFingerprint string `gorm:"size:71;not null;default:''"`
 	PublicationState   string `gorm:"size:32;not null"`
 	PendingOperationID string `gorm:"size:64;not null"`
 	SourceID           CatalogSyncText

@@ -285,24 +285,56 @@ func TestCatalogImagePendingRejectsBeforeMedia(t *testing.T) {
 	c, info, request := catalogImageRequest(t, db, `{"model":"grok-imagine-image","prompt":"cat"}`, "grok-imagine-image", "grok-imagine-image", constant.ChannelTypeMoliiGrokAIGC, false)
 	require.Nil(t, prepareSelectedImageBilling(c, info, request, request.GetTokenCountMeta(), 1))
 	savedSelection := info.PricingSelection
-	failure := errors.New("required image pricing projection failed")
-	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("image-pending", func(tx *gorm.DB) {
-		if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
+	failure := errors.New("image publication acknowledgement failed")
+	ackAttempted := false
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register("image-pending", func(tx *gorm.DB) {
+		values, ok := tx.Statement.Dest.(map[string]any)
+		if tx.Statement.Table == "catalog_sync_states" && ok && values["publication_state"] == "ready" {
+			ackAttempted = true
 			tx.AddError(failure)
 		}
 	}))
 	err := model.UpdateOptionsBulk(map[string]string{"ModelPrice": `{"grok-imagine-image":2}`, "molii_grok_price.image_standard_1k": "0.2"})
-	require.NoError(t, db.Callback().Query().Remove("image-pending"))
+	require.NoError(t, db.Callback().Update().Remove("image-pending"))
 	require.ErrorIs(t, err, failure)
+	require.True(t, ackAttempted, "the failure must occur at final ACK, after the business transaction commits")
+	var persisted model.Option
+	require.NoError(t, db.Where("key = ?", "ModelPrice").First(&persisted).Error)
+	assert.JSONEq(t, `{"grok-imagine-image":2}`, persisted.Value)
+	var state model.CatalogSyncState
+	require.NoError(t, db.First(&state, model.CatalogSyncStateID).Error)
+	assert.Equal(t, "committed_pending_publish", state.PublicationState)
+	assert.Greater(t, state.Revision, state.RuntimeRevision)
+	mediaLookups := make(chan struct{}, 1)
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("image-pending-media", func(tx *gorm.DB) {
+		if tx.Statement.Table == "molii_files" {
+			select {
+			case mediaLookups <- struct{}{}:
+			default:
+			}
+		}
+	}))
+	t.Cleanup(func() { require.NoError(t, db.Callback().Query().Remove("image-pending-media")) })
 	c2, blocked, request2 := catalogImageRequest(t, db, `{"model":"grok-imagine-image","prompt":"edit","image":{"file_id":"file_missing"}}`, "grok-imagine-image", "grok-imagine-image", constant.ChannelTypeMoliiGrokAIGC, true)
 	// Even a stale previous attempt selection cannot bypass the pending gate.
 	blocked.PricingSelection = savedSelection
 	apiErr := prepareSelectedImageBilling(c2, blocked, request2, request2.GetTokenCountMeta(), 1)
 	require.NotNil(t, apiErr)
 	require.ErrorIs(t, apiErr.Err, model.ErrCatalogPublicationPending)
+	assert.Equal(t, http.StatusServiceUnavailable, apiErr.StatusCode)
+	assert.Equal(t, types.ErrorCodeCatalogPricingUnavailable, apiErr.GetErrorCode())
+	assert.Equal(t, types.ErrorTypeNewAPIError, apiErr.GetErrorType())
+	assert.True(t, types.IsSkipRetryError(apiErr))
+	assert.Empty(t, mediaLookups, "pending selection must stop before file lookup or media fetch")
 	assert.Nil(t, blocked.PricingSelection)
 	assert.Nil(t, blocked.GrokImageBilling)
 	assert.Nil(t, blocked.Billing)
+	var blockedUser model.User
+	require.NoError(t, db.First(&blockedUser, blocked.UserId).Error)
+	assert.Equal(t, 2000000, blockedUser.Quota)
+	var consumed int64
+	require.NoError(t, db.Model(&model.Log{}).Where("user_id = ? AND type = ?", blocked.UserId, model.LogTypeConsume).Count(&consumed).Error)
+	assert.Zero(t, consumed)
 	catalogImageResponse(t, c, info, request)
 	assert.Same(t, savedSelection, info.PricingSelection)
 	assert.InDelta(t, 0.02, info.GrokImageBilling.OutputUnitPrice, 1e-12)
@@ -310,6 +342,7 @@ func TestCatalogImagePendingRejectsBeforeMedia(t *testing.T) {
 	apiErr = prepareSelectedImageBilling(c2, blocked, request2, request2.GetTokenCountMeta(), 1)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, types.ErrorCode("file_not_found"), apiErr.GetErrorCode(), "recovered capture now reaches actual media processing")
+	assert.Len(t, mediaLookups, 1, "the recovered control must reach the same real file lookup")
 	assert.Nil(t, blocked.GrokImageBilling)
 	assert.Nil(t, blocked.Billing)
 }

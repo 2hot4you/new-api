@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -25,6 +26,24 @@ var channelsIDM map[int]*Channel                     // all channels include dis
 var channel2advancedCustomConfig map[int]*kitdto.AdvancedCustomConfig
 var channelSyncLock sync.RWMutex
 
+// Periodic refresh follows successful catalog recovery, so alias/pricing views
+// already describe that epoch. Keep the channel capture-through-install read
+// barrier, use only read-only parsing, and bound both SQL and lock waits.
+func refreshPeriodicChannelCache(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if common.MemoryCacheEnabled {
+		err := retryCatalogRefresh(ctx, "channels", func(ctx context.Context) error {
+			return withCatalogBarrierContext(ctx, false, func() error { return refreshChannelCache(DB.WithContext(ctx), true) })
+		})
+		if err != nil {
+			return errors.Join(ctx.Err(), err)
+		}
+	}
+	_, err := reconcileEnabledModelMetadata(ctx, true)
+	return errors.Join(ctx.Err(), err)
+}
+
 func reconcileCatalogAfterChannelRefresh() {
 	summary, err := ReconcileEnabledModelMetadata()
 	if err != nil {
@@ -40,6 +59,13 @@ func reconcileCatalogAfterChannelRefresh() {
 }
 
 func InitChannelCache() {
+	// Public callers may have committed routing changes outside publication.
+	// Recover the complete epoch before installing any unrelated cache views;
+	// the recovery coordinator bounds retries without replaying their writes.
+	if err := RecoverCatalogSyncRuntime(catalogSyncContext(context.Background(), "channel_refresh")); err != nil {
+		common.SysError("catalog refresh source=channel_refresh phase=recovery result=failed; channel cache refresh aborted")
+		return
+	}
 	if !common.MemoryCacheEnabled {
 		reconcileCatalogAfterChannelRefresh()
 		InvalidatePricingCache()
@@ -63,12 +89,42 @@ func InitChannelCache() {
 // context-bound root after real commit/pin release. They never repair channels
 // or reconcile metadata, and cache contention must prevent acknowledgement.
 func refreshChannelCache(db *gorm.DB, lifecycle bool) error {
-	newChannelId2channel := make(map[int]*Channel)
-	newChannel2advancedCustomConfig := make(map[int]*kitdto.AdvancedCustomConfig)
 	var channels []*Channel
 	if err := db.Find(&channels).Error; err != nil {
 		return fmt.Errorf("load cached channels: %w", err)
 	}
+	var abilities []Ability
+	if err := db.Find(&abilities).Error; err != nil {
+		return fmt.Errorf("load cached abilities: %w", err)
+	}
+	projection, err := buildChannelCacheProjection(db, channels, abilities, lifecycle)
+	if err != nil {
+		return err
+	}
+	if lifecycle {
+		if err := db.Statement.Context.Err(); err != nil {
+			return err
+		}
+		if !channelSyncLock.TryLock() {
+			return ErrCatalogWriterBusy
+		}
+	} else {
+		channelSyncLock.Lock()
+	}
+	defer channelSyncLock.Unlock()
+	projection.install()
+	return nil
+}
+
+type channelCacheProjection struct {
+	groups   map[string]map[string][]int
+	channels map[int]*Channel
+	advanced map[int]*kitdto.AdvancedCustomConfig
+}
+
+func buildChannelCacheProjection(db *gorm.DB, channels []*Channel, abilities []Ability, lifecycle bool) (*channelCacheProjection, error) {
+	newChannelId2channel := make(map[int]*Channel)
+	newChannel2advancedCustomConfig := make(map[int]*kitdto.AdvancedCustomConfig)
 	for _, channel := range channels {
 		newChannelId2channel[channel.Id] = channel
 		if channel.Type == constant.ChannelTypeAdvancedCustom {
@@ -77,7 +133,7 @@ func refreshChannelCache(db *gorm.DB, lifecycle bool) error {
 				var err error
 				settings, err = channel.parseOtherSettings()
 				if err != nil {
-					return fmt.Errorf("decode advanced custom channel settings: channel_id=%d: %w", channel.Id, err)
+					return nil, fmt.Errorf("decode advanced custom channel settings: channel_id=%d: %w", channel.Id, err)
 				}
 			} else {
 				settings = channel.getOtherSettings(db)
@@ -86,10 +142,6 @@ func refreshChannelCache(db *gorm.DB, lifecycle bool) error {
 				newChannel2advancedCustomConfig[channel.Id] = config
 			}
 		}
-	}
-	var abilities []*Ability
-	if err := db.Find(&abilities).Error; err != nil {
-		return fmt.Errorf("load cached abilities: %w", err)
 	}
 	groups := make(map[string]bool)
 	for _, ability := range abilities {
@@ -128,20 +180,15 @@ func refreshChannelCache(db *gorm.DB, lifecycle bool) error {
 		}
 	}
 
-	if lifecycle {
-		if err := db.Statement.Context.Err(); err != nil {
-			return err
-		}
-		if !channelSyncLock.TryLock() {
-			return ErrCatalogWriterBusy
-		}
-	} else {
-		channelSyncLock.Lock()
-	}
-	defer channelSyncLock.Unlock()
-	group2model2channels = newGroup2model2channels
+	return &channelCacheProjection{newGroup2model2channels, newChannelId2channel, newChannel2advancedCustomConfig}, nil
+}
+
+// Caller owns channelSyncLock. Preserve live polling progress at the actual
+// installation boundary, never the earlier database-capture time.
+func (projection *channelCacheProjection) install() {
+	group2model2channels = projection.groups
 	//channelsIDM = newChannelId2channel
-	for i, channel := range newChannelId2channel {
+	for i, channel := range projection.channels {
 		if channel.ChannelInfo.IsMultiKey {
 			channel.Keys = channel.GetKeys()
 			if channel.ChannelInfo.MultiKeyMode == constant.MultiKeyModePolling {
@@ -154,13 +201,12 @@ func refreshChannelCache(db *gorm.DB, lifecycle bool) error {
 			}
 		}
 	}
-	channelsIDM = newChannelId2channel
-	channel2advancedCustomConfig = newChannel2advancedCustomConfig
+	channelsIDM = projection.channels
+	channel2advancedCustomConfig = projection.advanced
 	// Lock ordering: InvalidatePricingCache acquires updatePricingLock, and
 	// GetPricing (holding updatePricingLock) nests channelSyncLock.RLock via
 	// loadPricingAdvancedCustomConfigs. channelSyncLock MUST be released before
 	// invalidating the pricing cache, otherwise the reversed order deadlocks.
-	return nil
 }
 
 func SyncChannelCache(frequency int) {

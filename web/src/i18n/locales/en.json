@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Pricing service is temporarily unavailable. Please try again later.": "Pricing service is temporarily unavailable. Please try again later.",
     "Access tokens are shown only once": "Access tokens are shown only once",
     "Enter threshold": "Enter threshold",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.",

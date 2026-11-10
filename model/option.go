@@ -234,7 +234,7 @@ func InitOptionMapBootstrap(ctx context.Context) error {
 // CompleteOptionMapInitialization reconstructs and acknowledges the committed
 // catalog only after actual plugin and instance prerequisites are initialized.
 func CompleteOptionMapInitialization(ctx context.Context) error {
-	return recoverCatalogSyncRuntime(ctx, loadOptionsFromDatabaseGuarded)
+	return recoverCatalogSyncRuntime(catalogSyncContext(ctx, "startup"), loadOptionsFromDatabaseGuarded)
 }
 
 // Authoritative reload retains the same-revision durable publication gate
@@ -244,20 +244,38 @@ func CompleteOptionMapInitialization(ctx context.Context) error {
 func loadOptionsFromDatabase() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return recoverCatalogSyncRuntime(ctx, loadOptionsFromDatabaseGuarded)
+	return recoverCatalogSyncRuntime(catalogSyncContext(ctx, "options"), loadOptionsFromDatabaseGuarded)
 }
 
 func loadOptionsFromDatabaseGuarded(ctx context.Context, stage *catalogRuntimeStage) error {
 	return loadNonCatalogOptionsGuarded(ctx, stage)
 }
 
+// An unchanged catalog may share its read boundary only with a side-effect-free
+// noncatalog reload. The caller must release that read guard before retrying
+// real option changes under the catalog writer and a fresh complete proof.
+var errCatalogOptionsNeedWriter = errors.New("catalog option changes require writer")
+
 // A nil stage is reserved for startup bootstrap. Live authoritative reloads
 // must supply their captured stage and prove exact catalog/FX input freshness.
 func loadNonCatalogOptionsGuarded(ctx context.Context, stage *catalogRuntimeStage) error {
-	requestPolicyOptionMutex.Lock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// A lifecycle caller may own the catalog writer and all install locks.
+	// Never block on ordinary option writers here: release the whole attempt
+	// before the recovery coordinator performs its cancellable backoff.
+	if !requestPolicyOptionMutex.TryLock() {
+		return &catalogLockError{name: "request_policy_options"}
+	}
 	defer requestPolicyOptionMutex.Unlock()
-	passkeyOptionMutex.Lock()
+	if !passkeyOptionMutex.TryLock() {
+		return &catalogLockError{name: "passkey_options"}
+	}
 	defer passkeyOptionMutex.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var options []*Option
 	if err := DB.WithContext(ctx).Find(&options).Error; err != nil {
 		return err
@@ -269,12 +287,77 @@ func loadNonCatalogOptionsGuarded(ctx context.Context, stage *catalogRuntimeStag
 			catalogOptions[option.Key] = option.Value
 		}
 	}
-	if stage != nil && !maps.Equal(catalogOptions, stage.input.options) {
-		return ErrCatalogSyncPlanStale
+	if stage != nil {
+		actual, _, err := canonicalCatalogRuntimeOptions(catalogOptions)
+		if err != nil {
+			return errors.Join(ErrCatalogSyncPlanStale, err)
+		}
+		expected, _, err := canonicalCatalogRuntimeOptions(stage.input.options)
+		if err != nil {
+			return errors.Join(ErrCatalogSyncPlanStale, err)
+		}
+		if !maps.Equal(actual, expected) {
+			return ErrCatalogSyncPlanStale
+		}
+		var facts catalogValidationData
+		if err := common.UnmarshalJsonStr(stage.input.dependencies.canonical, &facts); err != nil {
+			return errors.Join(ErrCatalogSyncPlanStale, err)
+		}
+		switches := make(map[string]string)
+		for _, option := range options {
+			if option.Key == "TaskPluginEnabled" || option.Key == setting.TaskPluginDisabledFactoryKeysKey {
+				switches[option.Key] = option.Value
+			}
+		}
+		if !maps.Equal(switches, facts.Switches) {
+			return ErrCatalogSyncPlanStale
+		}
+	}
+	if stage != nil && stage.optionsOnly {
+		// Preflight the entire batch before even safe raw-FX display updates.
+		// Normalization is pure, but persisting its result and noncatalog
+		// setters (including fallback policy) require exclusion from readers.
+		needsWriter := false
+		for _, option := range options {
+			if _, catalog := whitelist[option.Key]; catalog || catalogmanifest.IsPricingNamespace(option.Key) || option.Key == "USDExchangeRate" || option.Key == "TaskPluginEnabled" || option.Key == setting.TaskPluginDisabledFactoryKeysKey {
+				continue
+			}
+			value, err := normalizeOptionValue(option.Key, option.Value)
+			if err != nil {
+				return fmt.Errorf("normalize option %s: %w", option.Key, err)
+			}
+			common.OptionMapRWMutex.RLock()
+			current, exists := common.OptionMap[option.Key]
+			common.OptionMapRWMutex.RUnlock()
+			if value != option.Value || !exists || current != value {
+				needsWriter = true
+			}
+		}
+		if needsWriter {
+			return errCatalogOptionsNeedWriter
+		}
+		if rawFX, exists := catalogOptions["USDExchangeRate"]; exists {
+			// Only raw display is mutable here. Typed FX already belongs to
+			// this proven epoch; even a same-value plain assignment can race.
+			common.OptionMapRWMutex.Lock()
+			if common.OptionMap == nil {
+				common.OptionMap = make(map[string]string)
+			}
+			common.OptionMap["USDExchangeRate"] = rawFX
+			common.OptionMapRWMutex.Unlock()
+		}
+		// Never enter a setter after the preflight: an unrelated ordinary
+		// option writer could change the raw map between these two phases.
+		return nil
 	}
 	passkeyOptions := make(map[string]string)
 	for _, option := range options {
 		if _, catalog := whitelist[option.Key]; catalog || catalogmanifest.IsPricingNamespace(option.Key) {
+			continue
+		}
+		if stage != nil && (option.Key == "TaskPluginEnabled" || option.Key == setting.TaskPluginDisabledFactoryKeysKey) {
+			// Effective registry switches were already proved against this stage.
+			// Never republish registry configuration in an unchanged read guard.
 			continue
 		}
 		if option.Key == "USDExchangeRate" {
@@ -437,13 +520,10 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
-	if hasCatalogOptions(normalizedValues) {
+	if needsCatalogOptionBarrier(normalizedValues) {
 		return withOrdinaryCatalogMutation(DB, normalizedValues, func(prepared *catalogOrdinaryMutation) error {
 			return updateOptionsBulkGuarded(normalizedValues, prepared)
 		})
-	}
-	if needsCatalogOptionBarrier(normalizedValues) {
-		return WithCatalogWriteBarrier(func() error { return updateOptionsBulkGuarded(normalizedValues, nil) })
 	}
 	return updateOptionsBulkGuarded(normalizedValues, nil)
 }

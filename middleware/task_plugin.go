@@ -1353,6 +1353,17 @@ func RespondTaskPluginError(c *gin.Context, taskErr *dto.TaskError) bool {
 		return false
 	}
 	sanitized := sanitizedTaskPluginError(taskErr.StatusCode, taskErr.Message)
+	// Preserve only this verified local category. Untrusted upstream codes,
+	// messages, and data still follow the generic sanitized error contract.
+	catalogUnavailable := errors.Is(taskErr.Error, model.ErrCatalogWriterBusy) || errors.Is(taskErr.Error, model.ErrCatalogPublicationPending)
+	if taskErr.LocalError && taskErr.StatusCode == http.StatusServiceUnavailable &&
+		taskErr.Code == string(types.ErrorCodeCatalogPricingUnavailable) && catalogUnavailable {
+		sanitized = dto.TaskPluginError{
+			Code:       string(types.ErrorCodeCatalogPricingUnavailable),
+			Message:    "Pricing service is temporarily unavailable. Please try again later.",
+			HTTPStatus: http.StatusServiceUnavailable,
+		}
+	}
 	requestID := c.GetString(common.RequestIdKey)
 	hasRenderer, err := pinned.Plugin.Engine.HasCallablePath(c.Request.Context(), "native", "error")
 	requestValue, exists := c.Get(pluginruntime.ContextKeyRouteRequest)

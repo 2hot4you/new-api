@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Pricing service is temporarily unavailable. Please try again later.": "定价服务暂不可用，请稍后重试。",
     "Generate and manage your API access token": "创建和管理 API 访问令牌",
     "After restore": "恢复后",
     "Restore saved value for entire item": "整个条目恢复为已保存的值",

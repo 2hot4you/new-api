@@ -262,6 +262,23 @@ func catalogCandidateModelMaps(options map[string]string) (map[string]map[string
 func (candidate *catalogPricingCandidate) publishGuarded() {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	candidate.publishLocked()
+}
+
+// Full runtime installation supplies already captured/validated FX. Keep its
+// typed value and exact raw/default representation in the same OptionMap batch
+// as pricing; direct candidate publication intentionally retains its old scope.
+func (candidate *catalogPricingCandidate) publishWithMoneyGuarded(exchangeRate float64, rawFX string) {
+	common.OptionMapRWMutex.Lock()
+	defer common.OptionMapRWMutex.Unlock()
+	candidate.publishLocked()
+	operation_setting.USDExchangeRate = exchangeRate
+	common.OptionMap["USDExchangeRate"] = rawFX
+}
+
+// Caller owns both the catalog writer and OptionMapRWMutex. This exchange has
+// no parsing, SQL, compiler, validation, callbacks or newly fallible steps.
+func (candidate *catalogPricingCandidate) publishLocked() {
 	ratio_setting.PublishPricingMaps(candidate.ratios)
 	billing_setting.PublishBillingSetting(candidate.billing)
 	ratio_setting.PublishMoliiGrokPriceSetting(candidate.grok)

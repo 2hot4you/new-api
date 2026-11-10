@@ -16,6 +16,88 @@ from urllib.parse import urlsplit, parse_qs
 ROOT = Path(__file__).resolve().parents[2]
 GROUPS = [
   {
+    "name": "catalog-publication-liveness",
+    "pkg": "./model",
+    "tests": [
+      "TestCatalogPublicationNoopReloadDoesNotRepublish",
+      "TestCatalogPublicationNoopReloadKeepsSelectionsDuringCapture",
+      "TestCatalogPublicationRecoveryReaderDeadline",
+      "TestCatalogPublicationRecoveryReaderCancellation",
+      "TestCatalogPublicationInvalidSameRevisionDriftGatesReads",
+      "TestCatalogPublicationPreinstallConflictKeepsProjection",
+      "TestCatalogPublicationProcesses",
+      "TestCatalogPublicationOptionLockCancellation",
+      "TestCatalogPublicationUnknownCaptureWithReaderFailsClosed",
+      "TestCatalogPublicationSchedulerRecoversCommittedReconciliation",
+      "TestCatalogPublicationSchedulerUnderReadTraffic",
+      "TestCatalogRefreshMixedPasskeyFXPublishesMoney",
+      "TestCatalogRefreshUnchangedReconciliationDoesNotRepublish",
+      "TestCatalogRefreshReconciliationCacheBindsCompletedOperation",
+      "TestCatalogRefreshOrdinaryNoopRejectsUnacknowledgedInput",
+      "TestCatalogRefreshCanonicalRawNoopDoesNotRepublish",
+      "TestCatalogRefreshCanonicalFingerprintPreservesInvalidityAndPrecision",
+      "TestCatalogRefreshPublicRecoveryPublishesCompleteMoneyEpoch",
+      "TestCatalogRefreshChangedPolicyRequiresWriter",
+      "TestCatalogPublicRefreshPublishesCommittedRouting",
+      "TestCatalogPublicRefreshUnchangedKeepsAcknowledgedEpoch",
+      "TestCatalogPublicRefreshRecoveryFailureStaysClosed",
+      "TestCatalogRefreshRetryReleasesReader",
+      "TestCatalogRefreshOperationalChannelStatsDoNotInvalidateEpoch",
+      "TestCatalogRefreshSchedulerCancelsChannelSQL",
+      "TestCatalogRefreshReconcileCancelsWriterWait",
+      "TestCatalogRefreshReconcileNeverReplaysCommittedSQL",
+      "TestCatalogRefreshAllInstallLocksKeepOldProjection",
+      "TestCatalogRefreshMediaProjectionUsesCandidate"
+    ],
+    "required_children": [
+      "TestCatalogPublicationProcesses/noop",
+      "TestCatalogPublicationProcesses/fx",
+      "TestCatalogPublicationProcesses/interleave",
+      "TestCatalogPublicationOptionLockCancellation/request-policy",
+      "TestCatalogPublicationOptionLockCancellation/passkey",
+      "TestCatalogRefreshPublicRecoveryPublishesCompleteMoneyEpoch/explicit-raw",
+      "TestCatalogRefreshPublicRecoveryPublishesCompleteMoneyEpoch/effective-default",
+      "TestCatalogPublicRefreshPublishesCommittedRouting/priority/memory=true",
+      "TestCatalogPublicRefreshPublishesCommittedRouting/priority/memory=false",
+      "TestCatalogPublicRefreshPublishesCommittedRouting/mapping/memory=true",
+      "TestCatalogPublicRefreshPublishesCommittedRouting/mapping/memory=false",
+      "TestCatalogPublicRefreshUnchangedKeepsAcknowledgedEpoch/memory=true",
+      "TestCatalogPublicRefreshUnchangedKeepsAcknowledgedEpoch/memory=false",
+      "TestCatalogPublicRefreshRecoveryFailureStaysClosed/memory=true",
+      "TestCatalogPublicRefreshRecoveryFailureStaysClosed/memory=false",
+      "TestCatalogPublicationInvalidSameRevisionDriftGatesReads/price",
+      "TestCatalogPublicationInvalidSameRevisionDriftGatesReads/currency",
+      "TestCatalogPublicationInvalidSameRevisionDriftGatesReads/fx"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "catalog-publication-fingerprint-migration",
+    "pkg": "./model",
+    "tests": ["TestCatalogPublicationFingerprintMigration"],
+    "matrix": True
+  },
+  {
+    "name": "catalog-publication-request-contracts",
+    "pkg": "./controller",
+    "tests": [
+      "TestCatalogPricingUnavailableChannelTest",
+      "TestCatalogPricingErrorClassification",
+      "TestCatalogPricingUnavailableImageSelection",
+      "TestCatalogPricingUnavailableTransportBilling",
+      "TestCatalogPricingUnavailableRelayResponse",
+      "TestCatalogPricingUnavailableTaskSelection",
+      "TestCatalogPublicationLLMBillingAcrossRefresh"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "catalog-publication-native-error-contract",
+    "pkg": "./middleware",
+    "tests": ["TestRespondTaskPluginCatalogErrorRequiresLocalSentinel"],
+    "matrix": False
+  },
+  {
     "name": "controller-passkey-server-address",
     "pkg": "./controller",
     "tests": [

@@ -73,9 +73,60 @@ func acquireMarketplaceOrderLock(tx *gorm.DB) error {
 }
 
 func withMarketplaceOrderTransaction(db *gorm.DB, operation func(tx *gorm.DB) error) error {
-	return withOrdinaryCatalogMutation(db, nil, func(prepared *catalogOrdinaryMutation) error {
-		return commitOrdinaryCatalogMutationGuarded(context.Background(), db, prepared, operation, nil)
+	_, err := withMarketplaceOrderTransactionEpoch(db, operation)
+	return err
+}
+
+func withMarketplaceOrderTransactionEpoch(db *gorm.DB, operation func(*gorm.DB) error) (*catalogReconcileEpoch, error) {
+	var epoch *catalogReconcileEpoch
+	err := withOrdinaryCatalogMutation(db, nil, func(prepared *catalogOrdinaryMutation) error {
+		if err := commitOrdinaryCatalogMutationGuarded(context.Background(), db, prepared, operation, nil); err != nil {
+			return err
+		}
+		epoch = acknowledgedMarketplaceEpoch(db, prepared)
+		return nil
 	})
+	return epoch, err
+}
+
+// Called before the operation's common writer is released. Never sample a
+// later publisher's epoch and attribute it to this operation. A successful SQL
+// no-op alone does not prove that its whole postimage has been acknowledged.
+func acknowledgedMarketplaceEpoch(db *gorm.DB, prepared *catalogOrdinaryMutation) *catalogReconcileEpoch {
+	if !catalogRuntime.ready || catalogRuntime.db != db || catalogRuntimeInvalid.Load() == db || catalogRuntime.input == nil || !prepared.stage.input.same(*catalogRuntime.input) {
+		return nil
+	}
+	return &catalogReconcileEpoch{db: db, fingerprint: prepared.stage.input.fingerprint}
+}
+
+// Periodic reconciliation can abandon lock/preparation waits on shutdown. Its
+// SQL closure is invoked at most once; publication failure is left for recovery.
+func withMarketplaceOrderTransactionContext(ctx context.Context, db *gorm.DB, operation func(*gorm.DB) error) error {
+	_, err := withMarketplaceOrderTransactionContextEpoch(ctx, db, operation)
+	return err
+}
+
+func withMarketplaceOrderTransactionContextEpoch(ctx context.Context, db *gorm.DB, operation func(*gorm.DB) error) (*catalogReconcileEpoch, error) {
+	var epoch *catalogReconcileEpoch
+	err := retryCatalogRefreshUntil(ctx, "channel_reconcile", func(ctx context.Context) (bool, error) {
+		previous, err := captureOrdinaryCatalogMutation(ctx, db)
+		if err != nil {
+			return true, err
+		}
+		prepared, err := stageOrdinaryCatalogMutation(previous, nil)
+		if err != nil {
+			return true, err
+		}
+		err = TryWithCatalogWriteBarrier(ctx, func() error {
+			if err := commitOrdinaryCatalogMutationGuarded(ctx, db, prepared, operation, nil); err != nil {
+				return err
+			}
+			epoch = acknowledgedMarketplaceEpoch(db, prepared)
+			return nil
+		})
+		return !prepared.wrote, err
+	})
+	return epoch, err
 }
 
 func initializeModelDisplayOrders(tx *gorm.DB) error {

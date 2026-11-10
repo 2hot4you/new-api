@@ -73,7 +73,6 @@ func initializeChannelCacheAtStartup() {
 		model.InitChannelCache()
 	}()
 
-	go model.SyncChannelCache(common.SyncFrequency)
 }
 
 func main() {
@@ -117,7 +116,13 @@ func main() {
 	model.GetPricing()
 
 	// 热更新配置
-	go model.SyncOptions(common.SyncFrequency)
+	catalogSyncCtx, stopCatalogSync := context.WithCancel(context.Background())
+	defer stopCatalogSync()
+	catalogSyncDone := make(chan struct{})
+	go func() {
+		defer close(catalogSyncDone)
+		model.SyncCatalogCaches(catalogSyncCtx, common.SyncFrequency)
+	}()
 	go controller.SyncTaskPlugins()
 
 	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
@@ -235,6 +240,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	common.SysLog(common.LogText("received signal: %v, shutting down...", sig))
+	stopCatalogSync()
 
 	// SSE streams may run for minutes; give them time to finish before forced exit
 	shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second
@@ -242,6 +248,11 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		common.SysError(common.LogText("server forced to shutdown: %v", err))
+	}
+	select {
+	case <-catalogSyncDone:
+	case <-ctx.Done():
+		common.SysError("catalog refresh did not stop within shutdown deadline")
 	}
 	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
 	if common.DataExportEnabled {

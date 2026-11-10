@@ -125,21 +125,37 @@ func TestCatalogTaskPendingRejectsBeforeUsageHook(t *testing.T) {
 	require.Nil(t, taskErr)
 	old := info.PricingSelection
 	called = 0
-	failure := errors.New("task pricing projection failed")
-	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("task-pending", func(tx *gorm.DB) {
-		if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
+	failure := errors.New("task pricing publication acknowledgement failed")
+	ackAttempted := false
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register("task-pending", func(tx *gorm.DB) {
+		values, ok := tx.Statement.Dest.(map[string]any)
+		if tx.Statement.Table == "catalog_sync_states" && ok && values["publication_state"] == "ready" {
+			ackAttempted = true
 			tx.AddError(failure)
 		}
 	}))
 	err = model.UpdateOptionsBulk(map[string]string{"ModelPrice": `{"declared-model":3}`})
-	require.NoError(t, db.Callback().Query().Remove("task-pending"))
+	require.NoError(t, db.Callback().Update().Remove("task-pending"))
 	require.ErrorIs(t, err, failure)
+	require.True(t, ackAttempted, "fail final publication ACK, not pre-commit staging")
+	var persisted model.Option
+	require.NoError(t, db.Where("key = ?", "ModelPrice").First(&persisted).Error)
+	assert.JSONEq(t, `{"declared-model":3}`, persisted.Value)
+	var state model.CatalogSyncState
+	require.NoError(t, db.First(&state, model.CatalogSyncStateID).Error)
+	assert.Equal(t, "committed_pending_publish", state.PublicationState)
+	assert.Greater(t, state.Revision, state.RuntimeRevision)
 	_, taskErr = EstimateTaskSubmit(c, info)
 	require.NotNil(t, taskErr)
 	assert.ErrorIs(t, taskErr.Error, model.ErrCatalogPublicationPending)
+	assert.Equal(t, 503, taskErr.StatusCode)
+	assert.Equal(t, "catalog_pricing_unavailable", taskErr.Code)
+	assert.True(t, taskErr.LocalError)
+	assert.True(t, taskErr.NoRetry)
 	assert.Nil(t, info.PricingSelection)
 	assert.Nil(t, info.TieredBillingSnapshot)
 	assert.Nil(t, info.GrokVideoBilling)
+	assert.Nil(t, info.Billing)
 	assert.Zero(t, called)
 	previous, _ := old.Model("declared-model")
 	assert.Equal(t, 1.0, previous.Price)

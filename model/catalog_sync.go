@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math/rand/v2"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"gorm.io/gorm"
@@ -14,6 +16,56 @@ var catalogBarrier sync.RWMutex
 
 var ErrCatalogWriterBusy = errors.New("catalog writer is busy")
 
+// A cancellable acquisition only: fn runs exactly once after acquisition and
+// its error is never replayed. No lock is held during the jittered backoff.
+func withCatalogBarrierContext(ctx context.Context, write bool, fn func() error) error {
+	delay := 20 * time.Millisecond
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var acquired bool
+		if write {
+			acquired = catalogBarrier.TryLock()
+		} else {
+			acquired = catalogBarrier.TryRLock()
+		}
+		if acquired {
+			if write {
+				defer catalogBarrier.Unlock()
+			} else {
+				defer catalogBarrier.RUnlock()
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return fn()
+		}
+		timer := time.NewTimer(delay/2 + time.Duration(rand.Int64N(int64(delay/2)+1)))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return errors.Join(ctx.Err(), &catalogLockError{name: "catalog_wait"})
+		case <-timer.C:
+		}
+		delay = min(delay*2, 500*time.Millisecond)
+	}
+}
+
+// Capture keeps the existing channel capture-through-install exclusion while
+// allowing request selections. The reference transaction provides the SQL and
+// registry proof; no process-global projection is changed in this callback.
+func tryWithCatalogCaptureBarrier(ctx context.Context, capture func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !catalogBarrier.TryRLock() {
+		return &catalogLockError{name: "catalog_read"}
+	}
+	defer catalogBarrier.RUnlock()
+	return capture()
+}
+
 // TryWithCatalogWriteBarrier is the sensitive entrypoint's bounded acquisition
 // boundary. Ordinary writers retain their existing blocking API and lock order.
 func TryWithCatalogWriteBarrier(ctx context.Context, write func() error) error {
@@ -21,7 +73,7 @@ func TryWithCatalogWriteBarrier(ctx context.Context, write func() error) error {
 		return err
 	}
 	if !catalogBarrier.TryLock() {
-		return ErrCatalogWriterBusy
+		return &catalogLockError{name: "catalog_write"}
 	}
 	defer catalogBarrier.Unlock()
 	if err := ctx.Err(); err != nil {

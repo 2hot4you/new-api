@@ -112,13 +112,11 @@ func UpdatePasskeyDomainOptions(values map[string]string, preview bool, confirma
 		return err
 	}
 	var err error
-	if hasCatalogOptions(values) {
+	if needsCatalogOptionBarrier(values) {
 		// Compile only detached catalog facts, before the common writer and
 		// passkey locks. The final transaction still computes the confirmation
 		// from fresh domain rows and credential counts, never from this capture.
 		err = withOrdinaryCatalogMutation(DB, values, commit)
-	} else if needsCatalogOptionBarrier(values) {
-		err = WithCatalogWriteBarrier(func() error { return commit(nil) })
 	} else {
 		err = commit(nil)
 	}

@@ -433,7 +433,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest)),
+			newAPIError: helper.ModelPricingError(err),
 		}
 	}
 
@@ -1062,6 +1062,12 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	}
 
 	summary.Tested++
+	// Local publication contention says nothing about this upstream's health
+	// or latency, even when the catalog wait exceeds the disable threshold.
+	if helper.IsCatalogPricingUnavailable(result.newAPIError) {
+		summary.Failed++
+		return summary
+	}
 
 	shouldBanChannel := false
 	newAPIError := result.newAPIError

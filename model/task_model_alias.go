@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -75,22 +74,6 @@ func rebuildTaskAliasView() {
 	taskAliasRebuildMu.Lock()
 	defer taskAliasRebuildMu.Unlock()
 	taskAliasViewPtr.Store(buildTaskAliasView(jsplugin.DefaultRegistry.Generation()))
-}
-
-// The publisher owns the common writer and has ended SQL/pin lifetimes. Use
-// the same builder mutex so a previously started rebuild cannot overwrite the
-// freshly bound alias postimage. Contention must leave the revision pending.
-func publishCatalogTaskAliasView(stage *catalogRuntimeStage) error {
-	if !taskAliasRebuildMu.TryLock() {
-		return ErrCatalogWriterBusy
-	}
-	defer taskAliasRebuildMu.Unlock()
-	taskAliasViewPtr.Store(&taskAliasView{
-		generation: stage.input.generation.Number,
-		expiresAt:  time.Now().Add(taskAliasViewTTL),
-		byFold:     maps.Clone(stage.aliases),
-	})
-	return nil
 }
 
 type taskAliasDraft struct {
