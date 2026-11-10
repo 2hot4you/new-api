@@ -25,6 +25,10 @@ GROUPS = [
       "TestCatalogPublicationRecoveryReaderCancellation",
       "TestCatalogPublicationInvalidSameRevisionDriftGatesReads",
       "TestCatalogPublicationPreinstallConflictKeepsProjection",
+      "TestCatalogPublicationOptionMapReservationCancellation",
+      "TestCatalogPublicationCanceledWriterPreservesOtherIntent",
+      "TestCatalogPublicationPendingWriterBarsNewReaders",
+      "TestCatalogPublicationObservationChangesDuringProofs",
       "TestCatalogPublicationProcesses",
       "TestCatalogPublicationOptionLockCancellation",
       "TestCatalogPublicationUnknownCaptureWithReaderFailsClosed",
@@ -70,6 +74,16 @@ GROUPS = [
       "TestCatalogPublicationInvalidSameRevisionDriftGatesReads/fx"
     ],
     "matrix": False
+  },
+  {
+    "name": "catalog-recovery-gap-matrix",
+    "pkg": "./model",
+    "tests": [
+      "TestCatalogPublicationStaleExpectedRevisionKeepsHealthyEpoch",
+      "TestCatalogPublicationUpstreamObservationsKeepEpoch",
+      "TestCatalogPublicationRoutingSettingsRemainBound"
+    ],
+    "matrix": True
   },
   {
     "name": "catalog-publication-fingerprint-migration",
@@ -485,7 +499,7 @@ GROUPS = [
   {
     "name": "controller-pure-regressions",
     "pkg": "./controller",
-    "tests": ["TestSecurityEnrollmentOperationContext", "TestSecurityEnrollmentPublicErrorsDiscardWrappedDetails", "TestMoliiImagineSyncRequestsNeverRetryOrSwitchChannel", "TestOrdinarySyncChannelRetainsRetryBehavior", "TestPrepareImageRequestBillingRejectsMappingBeforeEstimateOrPreconsume", "TestControllerPostgresDSNGuard"],
+    "tests": ["TestSecurityEnrollmentOperationContext", "TestSecurityEnrollmentPublicErrorsDiscardWrappedDetails", "TestMoliiImagineSyncRequestsNeverRetryOrSwitchChannel", "TestOrdinarySyncChannelRetainsRetryBehavior", "TestPrepareImageRequestBillingRejectsMappingBeforeEstimateOrPreconsume", "TestControllerPostgresDSNGuard", "TestGetStatusReleasesOptionMapBeforeResponseIO", "TestGetStatusMarshalFailureReleasesOptionMapBeforeResponseHandling", "TestGetStatusReturnsEffectiveOIDCDisplayName", "TestGetStatusDoesNotExposePasskeyOrigins", "TestGetStatusAdvertisesDefaultDashboard"],
     "matrix": False
   },
   {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingmoney"
 	"github.com/QuantumNous/new-api/pkg/catalogmanifest"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -54,13 +55,14 @@ type catalogRuntimeInput struct {
 }
 
 type catalogRuntimeStage struct {
-	input         catalogRuntimeInput
-	candidate     *catalogPricingCandidate
-	aliases       map[string]TaskAliasTarget
-	compatibility map[string]bool
-	projection    *catalogPricingProjection
-	channelCache  *channelCacheProjection
-	optionsOnly   bool // complete unchanged epoch: publish no pricing/FX/registry globals
+	input           catalogRuntimeInput
+	candidate       *catalogPricingCandidate
+	aliases         map[string]TaskAliasTarget
+	compatibility   map[string]bool
+	projection      *catalogPricingProjection
+	channelCache    *channelCacheProjection
+	optionsOnly     bool // complete unchanged epoch: publish no pricing/FX/registry globals
+	optionMapLocked bool // install reservation owns OptionMap across the entire batch
 }
 
 // An ordinary mutation has no managed plan, backup or operation. Preparation
@@ -349,6 +351,22 @@ func captureCatalogRuntimeTx(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin
 		routingChannels[i].UsedQuota, routingChannels[i].Balance, routingChannels[i].BalanceUpdatedTime = 0, 0, 0
 		routingChannels[i].ResponseTime, routingChannels[i].TestTime = 0, 0
 		routingChannels[i].ChannelInfo.MultiKeyPollingIndex = 0
+		routingChannels[i].OtherSettings, err = catalogRoutingOtherSettings(channel.OtherSettings)
+		if err != nil {
+			if channel.Type == constant.ChannelTypeAdvancedCustom {
+				if _, decodeErr := channel.parseOtherSettings(); decodeErr != nil {
+					// Preserve the existing advanced-channel validation boundary:
+					// bind malformed raw identity, then the mandatory lifecycle
+					// projection rejects it before any install/ACK, even disabled
+					// or without memory caching. Never repair the original channel.
+					// Ambiguity accepted by the typed decoder still fails below.
+					routingChannels[i].OtherSettings = channel.OtherSettings
+					continue
+				}
+				return input, fmt.Errorf("decode advanced custom channel settings: channel_id=%d: %w", channel.Id, err)
+			}
+			return input, err
+		}
 	}
 	routing, err := common.Marshal([]any{routingChannels, input.abilities})
 	if err != nil {
@@ -406,6 +424,32 @@ func captureCatalogRuntimeTx(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin
 
 func (input catalogRuntimeInput) same(other catalogRuntimeInput) bool {
 	return input.state == other.state && input.routing == other.routing && input.digest == other.digest && input.dependencies == other.dependencies && input.generation == other.generation && input.fingerprint == other.fingerprint && input.operation.ID == other.operation.ID && input.operation.PlanID == other.operation.PlanID && input.operation.CreatedAt == other.operation.CreatedAt && input.operation.State == other.operation.State && input.operation.Revision == other.operation.Revision && input.operation.Backup == other.operation.Backup && input.operation.History == other.operation.History && input.operation.Result == other.operation.Result
+}
+
+// Normalize only routing identity, never the original channel or persisted JSON.
+// RawMessage and CanonicalJSON retain unknown fields and exact decimal values.
+func catalogRoutingOtherSettings(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" || strings.TrimSpace(raw) == "null" {
+		return "", nil
+	}
+	if !catalogReferenceJSONUnambiguous(raw) {
+		return "", errors.New("channel settings contain invalid or ambiguous JSON")
+	}
+	var fields map[string]common.RawMessage
+	if err := common.UnmarshalJsonStr(raw, &fields); err != nil || fields == nil {
+		return "", errors.New("channel settings must be a JSON object")
+	}
+	delete(fields, "upstream_model_update_last_check_time")
+	delete(fields, "upstream_model_update_last_detected_models")
+	delete(fields, "upstream_model_update_last_removed_models")
+	if len(fields) == 0 {
+		return "", nil
+	}
+	encoded, err := common.Marshal(fields)
+	if err != nil {
+		return "", err
+	}
+	return catalogmanifest.CanonicalJSON(string(encoded))
 }
 
 // Preserve exact accepted raw storage/display values separately from semantic
@@ -547,10 +591,13 @@ func publishCatalogSyncRevision(ctx context.Context, revision int64, publishOpti
 	var captureErr error
 	var unchanged bool
 	var transitioned bool
+	// Exact identity, not errors.Is: cleanup/rollback errors joined to this
+	// known pre-capture target conflict must still invalidate local selection.
+	obsoleteTarget := fmt.Errorf("catalog expected revision is obsolete: %w", ErrCatalogSyncPlanStale)
 	err := tryWithCatalogCaptureBarrier(ctx, func() (captureResult error) {
 		activeDB := DB
 		defer func() {
-			if captureResult != nil || captureErr != nil {
+			if (captureResult != nil && captureResult != obsoleteTarget) || captureErr != nil {
 				catalogRuntimeInvalid.Store(activeDB)
 			}
 		}()
@@ -561,6 +608,9 @@ func publishCatalogSyncRevision(ctx context.Context, revision int64, publishOpti
 			input.state = *state
 			if state.PublicationState != "ready" && state.PublicationState != "committed_pending_publish" {
 				return ErrCatalogPublicationPending
+			}
+			if state.Revision > revision && state.RuntimeRevision <= state.Revision {
+				return obsoleteTarget
 			}
 			if state.Revision != revision || state.RuntimeRevision > revision {
 				return ErrCatalogSyncPlanStale
@@ -638,7 +688,7 @@ func publishCatalogSyncRevision(ctx context.Context, revision int64, publishOpti
 			// No loader side effects have happened. End R before reserving W,
 			// then repeat the complete freshness proof and load the current batch.
 			// Contention returns to the coordinator with no locks held.
-			err = TryWithCatalogWriteBarrier(ctx, func() error { return loadOptions(false) })
+			err = withCatalogRecoveryWriter(ctx, func() error { return loadOptions(false) })
 		}
 		if errors.Is(err, ErrCatalogSyncPlanStale) {
 			// End the first read guard before a fresh gate transaction. Close
@@ -660,7 +710,7 @@ func publishCatalogSyncRevision(ctx context.Context, revision int64, publishOpti
 	if err != nil {
 		return err
 	}
-	err = TryWithCatalogWriteBarrier(ctx, func() error { return publishCatalogRuntimeAndOptionsGuarded(ctx, stage, publishOptions) })
+	err = withCatalogRecoveryWriter(ctx, func() error { return publishCatalogRuntimeAndOptionsGuarded(ctx, stage, publishOptions) })
 	recordCatalogSyncPhase(ctx, "complete", &stage.input, err)
 	return err
 }
@@ -730,6 +780,8 @@ func publishCatalogRuntimeAndOptionsGuarded(ctx context.Context, stage *catalogR
 		return err
 	}
 	defer release()
+	stage.optionMapLocked = true
+	defer func() { stage.optionMapLocked = false }()
 	// All locks are reserved before this final authoritative proof. A failed
 	// proof leaves every old projection intact and releases every reservation.
 	if err := catalogReferenceTransaction(ctx, DB, jsplugin.DefaultRegistry, func(tx *gorm.DB, state *CatalogSyncState, pin *jsplugin.GenerationPin) error {
@@ -756,7 +808,7 @@ func publishCatalogRuntimeAndOptionsGuarded(ctx context.Context, stage *catalogR
 	if !configuredFX {
 		rawFX = strconv.FormatFloat(stage.input.exchangeRate, 'g', -1, 64)
 	}
-	stage.candidate.publishWithMoneyGuarded(stage.input.exchangeRate, rawFX)
+	stage.candidate.publishWithMoneyLocked(stage.input.exchangeRate, rawFX)
 	if common.MemoryCacheEnabled {
 		stage.channelCache.install()
 	}
@@ -852,7 +904,7 @@ func WithCatalogPricingReads(ctx context.Context, modelNames []string, capture f
 		}
 		identities[name] = true
 	}
-	if !catalogBarrier.TryRLock() {
+	if !tryCatalogReadLock() {
 		return ErrCatalogWriterBusy
 	}
 	defer catalogBarrier.RUnlock()

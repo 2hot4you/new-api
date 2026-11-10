@@ -225,6 +225,19 @@ RC47_REGRESSIONS = [
     'TestCatalogOrdinarySharedTaskQuoteUsesCapturedCandidates', 'TestSharedEndpointBillingKeepsOrdinaryAndPluginPricesSeparate',
     'TestPricingSyncSourceCurrencyNormalization', 'TestRatioConfigSourceCurrencySnapshot',
 ]
+# Recovery progress/cancellation and no-change publication must stay mandatory.
+RECOVERY_GAP_REGRESSIONS = [
+    'TestCatalogPublicationOptionMapReservationCancellation',
+    'TestCatalogPublicationCanceledWriterPreservesOtherIntent',
+    'TestCatalogPublicationPendingWriterBarsNewReaders',
+    'TestCatalogPublicationStaleExpectedRevisionKeepsHealthyEpoch',
+    'TestCatalogPublicationUpstreamObservationsKeepEpoch',
+    'TestCatalogPublicationObservationChangesDuringProofs',
+    'TestCatalogPublicationRoutingSettingsRemainBound',
+    'TestGetStatusReleasesOptionMapBeforeResponseIO',
+    'TestGetStatusMarshalFailureReleasesOptionMapBeforeResponseHandling',
+    'TestCatalogPublicationLLMBillingAcrossRefresh',
+]
 # These are excluded from complete-suite execution. Only tests explicitly in
 # catalog.GROUPS run; some packages have no entries in that inventory.
 LEGACY_DATABASE_PACKAGES = [
@@ -267,7 +280,7 @@ def run_ci(mode):
     catalog.validate_dsn(os.environ.get("TEST_POSTGRES_DSN", ""))
     if not os.environ.get("TEST_REDIS_DSN"):
         raise ValueError("TEST_REDIS_DSN is required for the complete common suite")
-    catalog.validate_regression_inventory(catalog.GROUPS, FAILED_REGRESSIONS + RC47_REGRESSIONS)
+    catalog.validate_regression_inventory(catalog.GROUPS, FAILED_REGRESSIONS + RC47_REGRESSIONS + RECOVERY_GAP_REGRESSIONS)
     env = dict(os.environ, GOWORK="off", GOFLAGS="", CATALOG_SYNC_POSTGRES_ONLY="1")
     directory = Path(tempfile.mkdtemp(prefix="postgres-ci-" + mode + "-"))
     print("PostgreSQL CI evidence: " + str(directory), flush=True)
@@ -299,9 +312,15 @@ def run_ci(mode):
 
 class PostgresCITest(unittest.TestCase):
     def test_failed_business_regressions_cannot_disappear(self):
-        catalog.validate_regression_inventory(catalog.GROUPS, FAILED_REGRESSIONS + RC47_REGRESSIONS)
+        catalog.validate_regression_inventory(catalog.GROUPS, FAILED_REGRESSIONS + RC47_REGRESSIONS + RECOVERY_GAP_REGRESSIONS)
         with self.assertRaisesRegex(ValueError, "required CI regression"):
             catalog.validate_regression_inventory([], FAILED_REGRESSIONS)
+
+    def test_recovery_gap_regressions_cannot_disappear(self):
+        for name in RECOVERY_GAP_REGRESSIONS:
+            groups = [{**group, "tests": [test for test in group["tests"] if test != name]} for group in catalog.GROUPS]
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "required CI regression"):
+                catalog.validate_regression_inventory(groups, RECOVERY_GAP_REGRESSIONS)
 
     def test_full_suites_reject_legacy_database_packages_and_wildcards(self):
         for package in ("./model", "./service", "./relay/helper", "./...", ".", "./middleware"):

@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"strings"
@@ -425,4 +426,339 @@ func TestCatalogPublicationPreinstallConflictKeepsProjection(t *testing.T) {
 	assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "liveness", func() error { return nil }), ErrCatalogPublicationPending)
 	require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
 	assert.Equal(t, float64(9), ratio_setting.GetModelPriceMap()["liveness"])
+}
+
+func TestCatalogPublicationOptionMapReservationCancellation(t *testing.T) {
+	for _, scenario := range []string{"publication", "loader", "options-only"} {
+		t.Run(scenario, func(t *testing.T) {
+			db := catalogReloadTestDB(t)
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"liveness":2}`, "USDExchangeRate": "7", "RetryTimes": "3"}))
+			prices, pricing, vendors := maps.Clone(ratio_setting.GetModelPriceMap()), GetPricing(), GetVendors()
+			common.OptionMapRWMutex.RLock()
+			raw := maps.Clone(common.OptionMap)
+			common.OptionMapRWMutex.RUnlock()
+			if scenario != "options-only" {
+				require.NoError(t, db.Save(&Option{Key: "ModelPrice", Value: `{"liveness":9}`}).Error)
+				require.NoError(t, db.Save(&Option{Key: "USDExchangeRate", Value: "14"}).Error)
+			}
+			common.OptionMapRWMutex.RLock()
+			var release sync.Once
+			defer release.Do(common.OptionMapRWMutex.RUnlock)
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				if scenario == "publication" {
+					done <- RecoverCatalogSyncRuntime(ctx)
+				} else {
+					done <- recoverCatalogSyncRuntime(ctx, loadOptionsFromDatabaseGuarded)
+				}
+			}()
+			select {
+			case err := <-done:
+				assert.ErrorIs(t, err, context.DeadlineExceeded)
+			case <-time.After(time.Second):
+				release.Do(common.OptionMapRWMutex.RUnlock)
+				<-done
+				t.Error("OptionMap contention ignored cancellation and retained publication locks")
+			}
+			release.Do(common.OptionMapRWMutex.RUnlock)
+			assert.Equal(t, prices, ratio_setting.GetModelPriceMap())
+			assert.Equal(t, pricing, GetPricing())
+			assert.Equal(t, vendors, GetVendors())
+			common.OptionMapRWMutex.RLock()
+			assert.Equal(t, raw, common.OptionMap, "cancellation must precede every raw/typed option exchange")
+			common.OptionMapRWMutex.RUnlock()
+			assertRuntimeLocksReleased(t)
+			for name, lock := range map[string]interface {
+				TryLock() bool
+				Unlock()
+			}{
+				"option_map": &common.OptionMapRWMutex, "policy": &requestPolicyOptionMutex, "passkey": &passkeyOptionMutex,
+				"channels": &channelSyncLock, "aliases": &taskAliasRebuildMu, "groups": &modelEnableGroupsLock,
+			} {
+				if assert.True(t, lock.TryLock(), "%s reservation leaked", name) {
+					lock.Unlock()
+				}
+			}
+			require.NoError(t, recoverCatalogSyncRuntime(context.Background(), loadOptionsFromDatabaseGuarded))
+		})
+	}
+}
+
+func TestCatalogPublicationCanceledWriterPreservesOtherIntent(t *testing.T) {
+	catalogBarrier.RLock()
+	var release sync.Once
+	defer release.Do(catalogBarrier.RUnlock)
+	first, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
+	second, cancelSecond := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelSecond()
+	firstDone, secondDone := make(chan error, 1), make(chan error, 1)
+	var calls atomic.Int64
+	go func() { firstDone <- withCatalogRecoveryWriter(first, func() error { calls.Add(100); return nil }) }()
+	go func() { secondDone <- withCatalogRecoveryWriter(second, func() error { calls.Add(1); return nil }) }()
+	// Rendezvous only: observable assertions below protect the admission and
+	// exactly-once callback contracts when one of two pending writers cancels.
+	require.Eventually(t, func() bool { return catalogWriterIntent.Load() == 2 }, time.Second, time.Millisecond)
+	cancelFirst()
+	require.ErrorIs(t, <-firstDone, context.Canceled)
+	assert.ErrorIs(t, tryWithCatalogCaptureBarrier(context.Background(), func() error { t.Error("cancellation erased another writer's reservation"); return nil }), ErrCatalogWriterBusy)
+	release.Do(catalogBarrier.RUnlock)
+	require.NoError(t, <-secondDone)
+	assert.Equal(t, int64(1), calls.Load())
+	require.NoError(t, WithCatalogReadBarrier(func() error { return nil }))
+}
+
+func TestCatalogPublicationPendingWriterBarsNewReaders(t *testing.T) {
+	db := catalogLivenessPending(t)
+	catalogBarrier.RLock()
+	var release sync.Once
+	defer release.Do(catalogBarrier.RUnlock)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- RecoverCatalogSyncRuntime(ctx) }()
+	// Individual readers finish, but the original reader overlaps every new
+	// arrival. Recovery must close admission rather than require a vacant instant.
+	denied := assert.Eventually(t, func() bool {
+		return errors.Is(tryWithCatalogCaptureBarrier(context.Background(), func() error { return nil }), ErrCatalogWriterBusy)
+	}, time.Second, time.Millisecond, "pending recovery must bar new readers while waiting for existing readers")
+	var blockingRead chan float64
+	if denied {
+		assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "liveness", func() error { t.Error("new pricing reader admitted"); return nil }), ErrCatalogWriterBusy)
+		_, err := ExportManagedCatalog(context.Background(), "liveness")
+		assert.ErrorIs(t, err, ErrCatalogWriterBusy)
+		readCtx, stop := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		assert.ErrorIs(t, WithCatalogReadSnapshot(readCtx, func(*gorm.DB) error { t.Error("context reader bypassed writer admission"); return nil }), context.DeadlineExceeded)
+		stop()
+		blockingRead = make(chan float64, 1)
+		go func() {
+			_ = WithCatalogReadBarrier(func() error {
+				blockingRead <- ratio_setting.GetModelPriceMap()["liveness"]
+				return nil
+			})
+		}()
+	}
+	release.Do(catalogBarrier.RUnlock)
+	require.NoError(t, <-done)
+	if blockingRead != nil {
+		assert.Equal(t, float64(9), <-blockingRead, "blocking readers wait until the pending writer publishes")
+	}
+	var ready CatalogSyncState
+	require.NoError(t, db.First(&ready, CatalogSyncStateID).Error)
+	assert.Equal(t, "ready", ready.PublicationState)
+	assert.Equal(t, ready.Revision, ready.RuntimeRevision)
+	require.NoError(t, WithCatalogReadBarrier(func() error {
+		assert.Equal(t, float64(9), ratio_setting.GetModelPriceMap()["liveness"])
+		return nil
+	}))
+	assertRuntimeLocksReleased(t)
+}
+
+func TestCatalogPublicationStaleExpectedRevisionKeepsHealthyEpoch(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			initializeOrdinaryCatalogTest(t, db)
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			var old CatalogSyncState
+			require.NoError(t, db.First(&old, CatalogSyncStateID).Error)
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"liveness":9}`}))
+			var healthy CatalogSyncState
+			require.NoError(t, db.First(&healthy, CatalogSyncStateID).Error)
+			require.Greater(t, healthy.Revision, old.Revision)
+			require.Equal(t, healthy.Revision, healthy.RuntimeRevision)
+			require.ErrorIs(t, PublishCatalogSyncRevision(context.Background(), old.Revision), ErrCatalogSyncPlanStale)
+			assert.NotSame(t, DB, catalogRuntimeInvalid.Load(), "an obsolete target is not failed authoritative capture")
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "liveness", func() error {
+				assert.Equal(t, float64(9), ratio_setting.GetModelPriceMap()["liveness"])
+				return nil
+			}))
+			var after CatalogSyncState
+			require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
+			assert.Equal(t, healthy, after)
+			catalogRuntimeInvalid.Store(DB)
+			require.ErrorIs(t, PublishCatalogSyncRevision(context.Background(), old.Revision), ErrCatalogSyncPlanStale)
+			assert.Same(t, DB, catalogRuntimeInvalid.Load(), "stale targets cannot clear preexisting invalidation either")
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			captureFailure := errors.New("authoritative capture cleanup unavailable")
+			require.NoError(t, db.Callback().Query().After("gorm:query").Register("stale-target-joined-failure", func(tx *gorm.DB) {
+				if tx.Statement.Table == "catalog_sync_states" && tx.Statement.ConnPool != db.Statement.ConnPool {
+					tx.AddError(errors.Join(ErrCatalogSyncPlanStale, captureFailure))
+				}
+			}))
+			err := PublishCatalogSyncRevision(context.Background(), old.Revision)
+			require.NoError(t, db.Callback().Query().Remove("stale-target-joined-failure"))
+			require.ErrorIs(t, err, captureFailure)
+			require.ErrorIs(t, err, ErrCatalogSyncPlanStale)
+			assert.Same(t, DB, catalogRuntimeInvalid.Load(), "stale sentinel cannot whitelist an unknown capture/cleanup failure")
+			require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "liveness", func() error { t.Error("joined capture failure admitted pricing"); return nil }), ErrCatalogPublicationPending)
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+		})
+	}
+}
+
+func TestCatalogPublicationUpstreamObservationsKeepEpoch(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			initializeOrdinaryCatalogTest(t, db)
+			channel := Channel{Key: "observation-local-only", Models: "liveness", Group: "default", Status: common.ChannelStatusEnabled}
+			require.NoError(t, db.Create(&channel).Error)
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			var before CatalogSyncState
+			require.NoError(t, db.First(&before, CatalogSyncStateID).Error)
+			pendingWrites := 0
+			require.NoError(t, db.Callback().Update().Before("gorm:update").Register("liveness-observation-pending", func(tx *gorm.DB) {
+				if values, ok := tx.Statement.Dest.(map[string]any); ok && tx.Statement.Table == "catalog_sync_states" && values["publication_state"] == "committed_pending_publish" {
+					pendingWrites++
+				}
+			}))
+			defer db.Callback().Update().Remove("liveness-observation-pending")
+			for _, raw := range []string{`{"upstream_model_update_last_check_time":100}`, `{"upstream_model_update_last_check_time":101,"upstream_model_update_last_detected_models":["new"],"upstream_model_update_last_removed_models":["old"]}`, `null`, `{}`} {
+				require.NoError(t, db.Model(&Channel{}).Where("id = ?", channel.Id).Update("settings", raw).Error)
+				require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+				var after CatalogSyncState
+				require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
+				assert.Equal(t, before, after, "pure observations must not change the acknowledged epoch: %s", raw)
+				var stored Channel
+				require.NoError(t, db.First(&stored, channel.Id).Error)
+				assert.Equal(t, raw, stored.OtherSettings, "routing normalization must not rewrite stored observations")
+			}
+			assert.Zero(t, pendingWrites)
+		})
+	}
+}
+
+func TestCatalogPublicationObservationChangesDuringProofs(t *testing.T) {
+	db := catalogReloadTestDB(t)
+	channel := Channel{Key: "observation-local", Models: "liveness", Group: "default", Status: common.ChannelStatusEnabled}
+	require.NoError(t, db.Create(&channel).Error)
+	require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"liveness":2}`}))
+	require.NoError(t, db.Save(&Option{Key: "ModelPrice", Value: `{"liveness":9}`}).Error)
+	updatePricingLock.Lock()
+	err := PublishCatalogSyncRevision(context.Background(), catalogRuntime.revision)
+	updatePricingLock.Unlock()
+	require.ErrorIs(t, err, ErrCatalogWriterBusy)
+	stage := runtimeStageForTest(t, db)
+	proofs := 0
+	var lastRaw string
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("observation-during-proofs", func(tx *gorm.DB) {
+		if _, routing := tx.Statement.Dest.(*[]*Channel); tx.Statement.Table != "channels" || !routing {
+			return
+		}
+		proofs++
+		lastRaw = fmt.Sprintf(`{"upstream_model_update_last_check_time":%d,"upstream_model_update_last_detected_models":["new"],"upstream_model_update_last_removed_models":["old"]}`, proofs)
+		// Same real SQL transaction, immediately before each final capture.
+		tx.AddError(tx.Session(&gorm.Session{NewDB: true}).Model(&Channel{}).Where("id = ?", channel.Id).Update("settings", lastRaw).Error)
+	}))
+	err = TryWithCatalogWriteBarrier(context.Background(), func() error { return publishCatalogRuntimeGuarded(context.Background(), stage) })
+	require.NoError(t, db.Callback().Query().Remove("observation-during-proofs"))
+	require.NoError(t, err)
+	assert.Equal(t, 3, proofs, "exercise recheck, preinstall and real ACK captures")
+	var actual Channel
+	require.NoError(t, db.First(&actual, channel.Id).Error)
+	assert.Equal(t, lastRaw, actual.OtherSettings)
+	assert.Empty(t, stage.input.channels[0].OtherSettings, "routing normalization must not mutate the captured original")
+	require.NoError(t, WithCatalogPricingRead(context.Background(), "liveness", func() error {
+		assert.Equal(t, float64(9), ratio_setting.GetModelPriceMap()["liveness"])
+		return nil
+	}))
+}
+
+func TestCatalogPublicationRoutingSettingsRemainBound(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(engine, func(t *testing.T) {
+			db := catalogFenceTestDB(t, engine)
+			initializeOrdinaryCatalogTest(t, db)
+			testCatalogPublicationRoutingSettingsRemainBound(t, db)
+		})
+	}
+}
+
+func testCatalogPublicationRoutingSettingsRemainBound(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	channel := Channel{Key: "routing-local", Models: "liveness", Group: "default", Status: common.ChannelStatusEnabled}
+	require.NoError(t, db.Create(&channel).Error)
+	require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+	for _, raw := range []string{
+		`{"claude_beta_query":true}`,
+		`{"upstream_model_update_ignored_models":["ignored"]}`,
+		`{"unknown":{"precise":9007199254740992}}`,
+		`{"unknown":{"precise":9007199254740993}}`,
+	} {
+		var before CatalogSyncState
+		require.NoError(t, db.First(&before, CatalogSyncStateID).Error)
+		require.NoError(t, db.Model(&Channel{}).Where("id = ?", channel.Id).Update("settings", raw).Error)
+		require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+		var after CatalogSyncState
+		require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
+		assert.NotEqual(t, before.RuntimeFingerprint, after.RuntimeFingerprint, "real settings remain bound: %s", raw)
+		assert.Equal(t, raw, catalogRuntime.input.channels[0].OtherSettings)
+	}
+	var before CatalogSyncState
+	require.NoError(t, db.First(&before, CatalogSyncStateID).Error)
+	// Canonically equivalent unknown high-precision data keeps the epoch.
+	require.NoError(t, db.Model(&Channel{}).Where("id = ?", channel.Id).Update("settings", ` {"unknown": {"precise":9007199254740993.0},"upstream_model_update_last_check_time":5} `).Error)
+	require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+	var after CatalogSyncState
+	require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
+	assert.Equal(t, before, after)
+	require.NoError(t, db.Model(&Channel{}).Where("id = ?", channel.Id).Update("models", "changed-model").Error)
+	require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+	require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
+	assert.NotEqual(t, before.RuntimeFingerprint, after.RuntimeFingerprint)
+	for _, raw := range []string{`{"broken":`, `[]`, `true`, `{"unknown":1,"unknown":2}`, `{"unknown":{"same":1,"same":2}}`} {
+		require.NoError(t, db.Model(&Channel{}).Where("id = ?", channel.Id).Update("settings", raw).Error)
+		require.Error(t, RecoverCatalogSyncRuntime(context.Background()), "invalid or ambiguous settings cannot ACK: %s", raw)
+		var pending CatalogSyncState
+		require.NoError(t, db.First(&pending, CatalogSyncStateID).Error)
+		assert.Equal(t, "committed_pending_publish", pending.PublicationState)
+		assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "liveness", func() error { t.Error("invalid settings admitted pricing"); return nil }), ErrCatalogPublicationPending)
+	}
+	for _, fixture := range []struct {
+		name   string
+		status int
+		raw    string
+	}{
+		{"enabled-malformed", common.ChannelStatusEnabled, `{"advanced_custom":`},
+		{"disabled-malformed", common.ChannelStatusManuallyDisabled, `{"advanced_custom":`},
+		{"enabled-typed-invalid", common.ChannelStatusEnabled, `{"advanced_custom":false}`},
+		{"disabled-typed-invalid", common.ChannelStatusManuallyDisabled, `{"advanced_custom":false}`},
+		{"disabled-ambiguous", common.ChannelStatusManuallyDisabled, `{"unknown":1,"unknown":2}`},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", channel.Id).Updates(map[string]any{
+				"type": constant.ChannelTypeAdvancedCustom, "status": fixture.status, "settings": "{}",
+			}).Error)
+			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
+			var ready CatalogSyncState
+			require.NoError(t, db.First(&ready, CatalogSyncStateID).Error)
+			require.NoError(t, db.Model(&Channel{}).Where("id = ?", channel.Id).Update("settings", fixture.raw).Error)
+			var before Channel
+			require.NoError(t, db.First(&before, channel.Id).Error)
+			writes := 0
+			require.NoError(t, db.Callback().Update().Before("gorm:update").Register("routing-advanced-no-repair", func(tx *gorm.DB) {
+				if tx.Statement.Table == "channels" {
+					writes++
+				}
+			}))
+			err := RecoverCatalogSyncRuntime(context.Background())
+			require.NoError(t, db.Callback().Update().Remove("routing-advanced-no-repair"))
+			require.ErrorContains(t, err, "decode advanced custom channel settings")
+			assert.NotContains(t, err.Error(), before.Key, "errors must not disclose channel credentials")
+			assert.NotContains(t, err.Error(), fixture.raw, "errors must not disclose the raw settings document")
+			var after Channel
+			require.NoError(t, db.First(&after, channel.Id).Error)
+			assert.Equal(t, before, after, "failed recovery must preserve the complete stored channel row")
+			assert.Zero(t, writes, "lifecycle validation must never repair channels")
+			var pending CatalogSyncState
+			require.NoError(t, db.First(&pending, CatalogSyncStateID).Error)
+			assert.Equal(t, "committed_pending_publish", pending.PublicationState)
+			assert.Equal(t, ready.RuntimeRevision, pending.RuntimeRevision)
+			assert.Equal(t, ready.RuntimeFingerprint, pending.RuntimeFingerprint, "invalid advanced settings cannot ACK a new fingerprint")
+			assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "liveness", func() error { t.Error("invalid advanced settings admitted pricing"); return nil }), ErrCatalogPublicationPending)
+		})
+	}
 }

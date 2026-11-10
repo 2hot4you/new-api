@@ -35,18 +35,24 @@ func TestCatalogRefreshChangedPolicyRequiresWriter(t *testing.T) {
 	require.NoError(t, WithCatalogPricingReads(context.Background(), []string{"policy-missing-a", "policy-missing-b"}, func() error {
 		_, firstAllowed, _ := ratio_setting.GetModelRatio("policy-missing-a")
 		require.False(t, firstAllowed)
-		ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		done := make(chan error, 1)
 		go func() { done <- recoverCatalogSyncRuntime(ctx, loadOptionsFromDatabaseGuarded) }()
 		select {
 		case <-loaderEntered:
+		case err := <-done:
+			t.Fatalf("reload ended before capturing the changed policy: %v", err)
 		case <-time.After(5 * time.Second):
 			t.Fatal("real option loader did not capture the changed persisted policy")
 		}
-		// Keep this genuine pricing capture open through the reload's bounded
-		// writer wait. No setter may change fallback admissibility inside it.
-		assert.ErrorIs(t, <-done, context.DeadlineExceeded)
+		// The five-second budget is only a watchdog. Rendezvous at the actual
+		// writer wait so SQL/fixture speed cannot consume the tested interval.
+		require.Eventually(t, func() bool { return catalogWriterIntent.Load() > 0 }, time.Second, time.Millisecond)
+		cancel()
+		// Keep this genuine pricing capture open through cancellation of W.
+		// No setter may change fallback admissibility inside this reader.
+		assert.ErrorIs(t, <-done, context.Canceled)
 		_, secondAllowed, _ := ratio_setting.GetModelRatio("policy-missing-b")
 		assert.Equal(t, firstAllowed, secondAllowed, "one pricing capture must retain one fallback policy")
 		return nil
@@ -486,7 +492,7 @@ func TestCatalogRefreshRetryReleasesReader(t *testing.T) {
 }
 
 func TestCatalogRefreshAllInstallLocksKeepOldProjection(t *testing.T) {
-	for _, site := range []string{"pricing", "endpoints", "channels", "aliases", "groups"} {
+	for _, site := range []string{"pricing", "endpoints", "channels", "aliases", "groups", "option_map"} {
 		t.Run(site, func(t *testing.T) {
 			db := catalogReloadTestDB(t)
 			require.NoError(t, UpdateOptionsBulk(map[string]string{"ModelPrice": `{"whole":2}`}))
@@ -502,6 +508,7 @@ func TestCatalogRefreshAllInstallLocksKeepOldProjection(t *testing.T) {
 			}{
 				"pricing": &updatePricingLock, "endpoints": &modelSupportEndpointsLock,
 				"channels": &channelSyncLock, "aliases": &taskAliasRebuildMu, "groups": &modelEnableGroupsLock,
+				"option_map": &common.OptionMapRWMutex,
 			}
 			lock := locks[site]
 			lock.Lock()

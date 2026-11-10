@@ -150,6 +150,7 @@ func acquireCatalogInstallLocks(ctx context.Context) (func(), error) {
 		{"channels", &channelSyncLock},
 		{"aliases", &taskAliasRebuildMu},
 		{"groups", &modelEnableGroupsLock},
+		{"option_map", &common.OptionMapRWMutex},
 	}
 	acquired := 0
 	release := func() {

@@ -273,6 +273,12 @@ func loadNonCatalogOptionsGuarded(ctx context.Context, stage *catalogRuntimeStag
 		return &catalogLockError{name: "passkey_options"}
 	}
 	defer passkeyOptionMutex.Unlock()
+	if stage == nil || !stage.optionMapLocked {
+		if !common.OptionMapRWMutex.TryLock() {
+			return &catalogLockError{name: "option_map"}
+		}
+		defer common.OptionMapRWMutex.Unlock()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -326,9 +332,7 @@ func loadNonCatalogOptionsGuarded(ctx context.Context, stage *catalogRuntimeStag
 			if err != nil {
 				return fmt.Errorf("normalize option %s: %w", option.Key, err)
 			}
-			common.OptionMapRWMutex.RLock()
 			current, exists := common.OptionMap[option.Key]
-			common.OptionMapRWMutex.RUnlock()
 			if value != option.Value || !exists || current != value {
 				needsWriter = true
 			}
@@ -339,12 +343,10 @@ func loadNonCatalogOptionsGuarded(ctx context.Context, stage *catalogRuntimeStag
 		if rawFX, exists := catalogOptions["USDExchangeRate"]; exists {
 			// Only raw display is mutable here. Typed FX already belongs to
 			// this proven epoch; even a same-value plain assignment can race.
-			common.OptionMapRWMutex.Lock()
 			if common.OptionMap == nil {
 				common.OptionMap = make(map[string]string)
 			}
 			common.OptionMap["USDExchangeRate"] = rawFX
-			common.OptionMapRWMutex.Unlock()
 		}
 		// Never enter a setter after the preflight: an unrelated ordinary
 		// option writer could change the raw map between these two phases.
@@ -363,7 +365,7 @@ func loadNonCatalogOptionsGuarded(ctx context.Context, stage *catalogRuntimeStag
 		if option.Key == "USDExchangeRate" {
 			// FX remains target-local, outside the price candidate whitelist.
 			// Publish only the value bound by capture and both fresh rechecks.
-			if err := updateOptionMap(option.Key, catalogOptions[option.Key]); err != nil {
+			if err := updateOptionMapLocked(option.Key, catalogOptions[option.Key]); err != nil {
 				return err
 			}
 			continue
@@ -383,13 +385,13 @@ func loadNonCatalogOptionsGuarded(ctx context.Context, stage *catalogRuntimeStag
 			passkeyOptions[option.Key] = value
 			continue
 		}
-		err = updateOptionMap(option.Key, value)
+		err = updateOptionMapLocked(option.Key, value)
 		if err != nil {
 			return fmt.Errorf("publish option %s: %w", option.Key, err)
 		}
 	}
-	applyPasskeyDomainOptions(passkeyOptions)
-	return refreshRequestPolicySnapshot()
+	applyPasskeyDomainOptionsLocked(passkeyOptions)
+	return refreshRequestPolicySnapshotLocked()
 }
 
 func SyncOptions(frequency int) {
@@ -587,14 +589,17 @@ func updateOptionsBulkGuarded(normalizedValues map[string]string, prepared *cata
 }
 
 func updateOptionMap(key string, value string) (err error) {
-	if key == retiredThemeOptionKey || key == legacyAccessTokenRetireAtKey {
-		common.OptionMapRWMutex.Lock()
-		delete(common.OptionMap, key)
-		common.OptionMapRWMutex.Unlock()
-		return nil
-	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	return updateOptionMapLocked(key, value)
+}
+
+// Caller owns OptionMapRWMutex, including authoritative install reservations.
+func updateOptionMapLocked(key string, value string) (err error) {
+	if key == retiredThemeOptionKey || key == legacyAccessTokenRetireAtKey {
+		delete(common.OptionMap, key)
+		return nil
+	}
 	if common.OptionMap == nil {
 		common.OptionMap = make(map[string]string)
 	}

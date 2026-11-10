@@ -271,6 +271,11 @@ func (candidate *catalogPricingCandidate) publishGuarded() {
 func (candidate *catalogPricingCandidate) publishWithMoneyGuarded(exchangeRate float64, rawFX string) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	candidate.publishWithMoneyLocked(exchangeRate, rawFX)
+}
+
+// Caller owns the catalog writer and the complete OptionMap install reservation.
+func (candidate *catalogPricingCandidate) publishWithMoneyLocked(exchangeRate float64, rawFX string) {
 	candidate.publishLocked()
 	operation_setting.USDExchangeRate = exchangeRate
 	common.OptionMap["USDExchangeRate"] = rawFX

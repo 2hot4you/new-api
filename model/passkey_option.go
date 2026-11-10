@@ -335,6 +335,11 @@ func updatePasskeyDomainOptionsGuarded(values map[string]string, preview bool, c
 func applyPasskeyDomainOptions(values map[string]string) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	applyPasskeyDomainOptionsLocked(values)
+}
+
+// Caller owns OptionMapRWMutex; trust validation remains at the existing caller.
+func applyPasskeyDomainOptionsLocked(values map[string]string) {
 	if common.OptionMap == nil {
 		common.OptionMap = make(map[string]string)
 	}

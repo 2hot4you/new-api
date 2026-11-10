@@ -204,13 +204,18 @@ func BuildRequestPolicy(options map[string]string) (*RequestPolicySnapshot, erro
 
 func refreshRequestPolicySnapshot() error {
 	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return refreshRequestPolicySnapshotLocked()
+}
+
+// Caller owns OptionMapRWMutex for the full authoritative option batch.
+func refreshRequestPolicySnapshotLocked() error {
 	options := make(map[string]string)
 	for key, value := range common.OptionMap {
 		if IsRequestPolicyOption(key) {
 			options[key] = value
 		}
 	}
-	common.OptionMapRWMutex.RUnlock()
 	snapshot, err := BuildRequestPolicy(options)
 	if err == nil {
 		requestPolicySnapshot.Store(snapshot)

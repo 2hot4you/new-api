@@ -27,7 +27,7 @@ func ExportManagedCatalog(ctx context.Context, sourceID string) (catalogmanifest
 	if err := ctx.Err(); err != nil {
 		return catalogmanifest.Snapshot{}, err
 	}
-	if !catalogBarrier.TryRLock() {
+	if !tryCatalogReadLock() {
 		return catalogmanifest.Snapshot{}, ErrCatalogWriterBusy
 	}
 	var snapshot catalogmanifest.Snapshot
