@@ -1,0 +1,16 @@
+{
+  "id": "fix-catalog-recovery-four-gaps",
+  "title": "本地修复定价恢复4项复发缺口并补回归/独立复审",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "保留本地分支和证据，等待用户后续方向；不推送、不合并、不部署",
+  "createdAt": "2026-11-10T09:49:50Z",
+  "branch": "fix/catalog-publication-liveness",
+  "baseSha": "0feb59bccea539140a570fa2859c1a529c104714",
+  "localCodeCommit": "6df1ec3760d5f583034c6c6df103d0afd457429e",
+  "completedAt": "2026-11-10T11:29:43Z",
+  "constraints": ["不推送、不合并、不部署", "不连接任何线上环境", "不修改生产数据库/配置或重启", "仅本次隔离本地数据库", "保留所有用户无关修改"]
+}
