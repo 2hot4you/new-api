@@ -1,0 +1,27 @@
+#!/bin/sh
+# Root-owned OpenSSH forced command for the dedicated application release key.
+set -eu
+export LC_ALL=C
+
+reject() {
+    printf '%s\n' 'Unsupported deployment command' >&2
+    exit 64
+}
+
+[ "$#" -eq 0 ] || reject
+command_text=${SSH_ORIGINAL_COMMAND-}
+[ "${#command_text}" -le 256 ] || reject
+case "$command_text" in
+    *[!a-z0-9./@:\ -]*) reject ;;
+    preflight) ;;
+    release\ *)
+        image_re='ghcr[.]io/2hot4you/new-api@sha256:[0-9a-f]{64}'
+        printf '%s\n' "$command_text" |
+            /usr/bin/grep -Eq "^release $image_re $image_re [0-9a-f]{40}$" || reject
+        ;;
+    *) reject ;;
+esac
+
+# The fixed, isolated root entrypoint independently validates the exact protocol.
+# Keep the complete command as one literal argument; never evaluate it as shell.
+exec /usr/bin/sudo -n -- /usr/local/sbin/model-claudeye-tencent.py "$command_text" </dev/null

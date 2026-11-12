@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math/rand/v2"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"gorm.io/gorm"
@@ -12,7 +15,80 @@ import (
 
 var catalogBarrier sync.RWMutex
 
+// TryLock cannot enqueue a writer in RWMutex. Reserve admission only while a
+// real writer is acquiring/holding W, never during its own R capture or staging.
+var catalogWriterIntent atomic.Int64
+
+func tryCatalogReadLock() bool {
+	if catalogWriterIntent.Load() != 0 || !catalogBarrier.TryRLock() {
+		return false
+	}
+	if catalogWriterIntent.Load() != 0 {
+		catalogBarrier.RUnlock()
+		return false
+	}
+	return true
+}
+
+func withCatalogRecoveryWriter(ctx context.Context, write func() error) error {
+	return withCatalogBarrierContext(ctx, true, write)
+}
+
 var ErrCatalogWriterBusy = errors.New("catalog writer is busy")
+
+// A cancellable acquisition only: fn runs exactly once after acquisition and
+// its error is never replayed. No lock is held during the jittered backoff.
+func withCatalogBarrierContext(ctx context.Context, write bool, fn func() error) error {
+	if write {
+		catalogWriterIntent.Add(1)
+		defer catalogWriterIntent.Add(-1)
+	}
+	delay := 20 * time.Millisecond
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var acquired bool
+		if write {
+			acquired = catalogBarrier.TryLock()
+		} else {
+			acquired = tryCatalogReadLock()
+		}
+		if acquired {
+			if write {
+				defer catalogBarrier.Unlock()
+			} else {
+				defer catalogBarrier.RUnlock()
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return fn()
+		}
+		timer := time.NewTimer(delay/2 + time.Duration(rand.Int64N(int64(delay/2)+1)))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return errors.Join(ctx.Err(), &catalogLockError{name: "catalog_wait"})
+		case <-timer.C:
+		}
+		delay = min(delay*2, 500*time.Millisecond)
+	}
+}
+
+// Capture keeps the existing channel capture-through-install exclusion while
+// allowing request selections. The reference transaction provides the SQL and
+// registry proof; no process-global projection is changed in this callback.
+func tryWithCatalogCaptureBarrier(ctx context.Context, capture func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !tryCatalogReadLock() {
+		return &catalogLockError{name: "catalog_read"}
+	}
+	defer catalogBarrier.RUnlock()
+	return capture()
+}
 
 // TryWithCatalogWriteBarrier is the sensitive entrypoint's bounded acquisition
 // boundary. Ordinary writers retain their existing blocking API and lock order.
@@ -21,7 +97,7 @@ func TryWithCatalogWriteBarrier(ctx context.Context, write func() error) error {
 		return err
 	}
 	if !catalogBarrier.TryLock() {
-		return ErrCatalogWriterBusy
+		return &catalogLockError{name: "catalog_write"}
 	}
 	defer catalogBarrier.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -39,14 +115,12 @@ func WithCatalogWriteBarrier(write func() error) error {
 // Copy immutable billing inputs inside this callback; do not hold the guard
 // through billing evaluation, plugin execution, or upstream requests.
 func WithCatalogReadBarrier(read func() error) error {
-	catalogBarrier.RLock()
-	defer catalogBarrier.RUnlock()
-	return read()
+	return withCatalogBarrierContext(context.Background(), false, read)
 }
 
 // PostgreSQL READ COMMITTED is insufficient for multi-query source exports.
 func WithCatalogReadSnapshot(ctx context.Context, read func(*gorm.DB) error) error {
-	return WithCatalogReadBarrier(func() error {
+	return withCatalogBarrierContext(ctx, false, func() error {
 		options := &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead}
 		if DB.Dialector.Name() == "sqlite" {
 			options = nil

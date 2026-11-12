@@ -1,0 +1,12 @@
+{
+  "id": "inspect-model-claudeye-timeouts",
+  "title": "Inspect LLM gateway and application timeouts on model.claudeye.com",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "operations-readonly",
+  "currentPhase": "completed",
+  "nextAction": "2026-11-04 16:21 verified LA production d922 read-only: LLM root location has no proxy timeout override at location/server/http, hence Nginx default read inactivity60s. App timeout env unset: total RELAY_TIMEOUT0, response-header1800s, stream scanner idle300s. Report only LLM scope, distinguish idle from total and avoid claiming heartbeat enabled. Archive local audit only; no production writes or paid calls.",
+  "createdAt": "2026-11-04T00:00:00+08:00",
+  "branch": "fix/server-address-passkey-validation"
+}

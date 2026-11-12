@@ -2250,8 +2250,10 @@ func TestCatalogSyncStoreOptionWritersAndNoop(t *testing.T) {
 				if tx.Statement.Table != "options" {
 					return
 				}
-				if catalogBarrier.TryRLock() {
-					catalogBarrier.RUnlock()
+				// A capture may hold R rather than W now. An exclusive writer
+				// must still be excluded from every authoritative option read.
+				if catalogBarrier.TryLock() {
+					catalogBarrier.Unlock()
 					t.Error("option writer/reload read without catalog barrier")
 				}
 			}))
@@ -2261,16 +2263,31 @@ func TestCatalogSyncStoreOptionWritersAndNoop(t *testing.T) {
 			require.NoError(t, db.First(&before, CatalogSyncStateID).Error)
 			assert.Equal(t, int64(1), before.Revision)
 			require.NoError(t, UpdateOption("molii_grok_price.image_standard_1k", "0.125"))
-			loadOptionsFromDatabase()
+			require.NoError(t, loadOptionsFromDatabase())
+			var noOp CatalogSyncState
+			require.NoError(t, db.First(&noOp, CatalogSyncStateID).Error)
+			assert.Equal(t, before, noOp, "identical price save and authoritative reload preserve the entire published epoch")
 			require.NoError(t, UpdateOption("USDExchangeRate", "7.25"))
+			var afterFX CatalogSyncState
+			require.NoError(t, db.First(&afterFX, CatalogSyncStateID).Error)
+			assert.Equal(t, before.Revision+1, afterFX.Revision, "a real FX change publishes a complete new epoch")
+			assert.Equal(t, afterFX.Revision, afterFX.RuntimeRevision)
+			assert.Equal(t, "ready", afterFX.PublicationState)
+			assert.Equal(t, before.CurrentDigest, afterFX.CurrentDigest, "FX is outside the source-managed price digest")
+			assert.NotEqual(t, before.RuntimeFingerprint, afterFX.RuntimeFingerprint)
+			assert.Equal(t, 7.25, operation_setting.USDExchangeRate)
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "grok-imagine-image", func() error {
+				money, _, err := ResolvePublishedCatalogMoneyContext("grok-imagine-image")
+				if err != nil {
+					return err
+				}
+				assert.Equal(t, 7.25, money.CNYPerUSD, "request money must use the newly published frozen FX")
+				return nil
+			}))
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"molii_grok_price.image_standard_1k": "0.25", "ServerAddress": "https://catalog.example.com"}))
 			var after CatalogSyncState
 			require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
-			assert.Equal(t, before.Revision, after.Revision)
-			assert.Equal(t, before.CurrentDigest, after.CurrentDigest)
-			assert.Equal(t, 7.25, operation_setting.USDExchangeRate)
-			require.NoError(t, UpdateOptionsBulk(map[string]string{"molii_grok_price.image_standard_1k": "0.25", "ServerAddress": "https://catalog.example.com"}))
-			require.NoError(t, db.First(&after, CatalogSyncStateID).Error)
-			assert.Equal(t, before.Revision+1, after.Revision, "mixed passkey/catalog options keep the common transaction")
+			assert.Equal(t, afterFX.Revision+1, after.Revision, "mixed passkey/catalog options keep the common transaction")
 			// Existing anchor counter activity from a no-op reorder is not a revision.
 			require.NoError(t, ReorderModels(nil))
 			var reordered CatalogSyncState

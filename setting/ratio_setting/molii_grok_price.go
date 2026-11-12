@@ -198,13 +198,18 @@ func (prices MoliiGrokPriceSetting) VideoPrices(model, resolution string) (outpu
 // GetMoliiGrokCatalogPricing returns the configured direct price table for a
 // Grok Imagine model. All values are CNY-denominated source prices.
 func GetMoliiGrokCatalogPricing(model string) (*MoliiGrokCatalogPricing, bool) {
+	return GetMoliiGrokPriceSettingCopy().CatalogPricing(model)
+}
+
+// CatalogPricing derives the public table from one immutable price snapshot.
+func (setting MoliiGrokPriceSetting) CatalogPricing(model string) (*MoliiGrokCatalogPricing, bool) {
 	switch model {
 	case "grok-imagine-image", "grok-imagine-image-quality":
-		oneK, input, ok := GetMoliiGrokImagePrices(model, "1k")
+		oneK, input, ok := setting.ImagePricesForQuality(model, "1k", "")
 		if !ok {
 			return nil, false
 		}
-		twoK, _, ok := GetMoliiGrokImagePrices(model, "2k")
+		twoK, _, ok := setting.ImagePricesForQuality(model, "2k", "")
 		if !ok {
 			return nil, false
 		}
@@ -217,7 +222,7 @@ func GetMoliiGrokCatalogPricing(model string) (*MoliiGrokCatalogPricing, bool) {
 		var input float64
 		for _, quality := range []string{"low", "medium"} {
 			for _, resolution := range []string{"1k", "2k"} {
-				output, inputPrice, ok := GetMoliiGrokImagePricesForQuality(model, resolution, quality)
+				output, inputPrice, ok := setting.ImagePricesForQuality(model, resolution, quality)
 				if !ok {
 					return nil, false
 				}
@@ -237,7 +242,7 @@ func GetMoliiGrokCatalogPricing(model string) (*MoliiGrokCatalogPricing, bool) {
 		prices := make(map[string]float64, len(resolutions))
 		var imageInput, videoInput float64
 		for _, resolution := range resolutions {
-			output, imagePrice, videoPrice, ok := GetMoliiGrokVideoPrices(model, resolution)
+			output, imagePrice, videoPrice, ok := setting.VideoPrices(model, resolution)
 			if !ok {
 				return nil, false
 			}

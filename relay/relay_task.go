@@ -422,6 +422,12 @@ func prepareTaskBilling(c *gin.Context, info *relaycommon.RelayInfo) (*preparedT
 		pluginKey = pinnedPlugin.Plugin.Meta.Key
 	}
 	if err := helper.CaptureTaskPricing(c, info, pluginKey); err != nil {
+		if helper.IsCatalogPricingUnavailable(err) {
+			apiErr := helper.ModelPricingError(err)
+			taskErr := service.TaskErrorWrapperLocal(apiErr, string(apiErr.GetErrorCode()), apiErr.StatusCode)
+			taskErr.NoRetry = true
+			return nil, taskErr
+		}
 		return nil, service.TaskErrorWrapper(err, "model_price_error", http.StatusBadRequest)
 	}
 	selectedTask, _ := info.PricingSelection.Task()

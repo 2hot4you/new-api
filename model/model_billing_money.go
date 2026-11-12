@@ -15,6 +15,22 @@ type ModelBillingCurrency struct {
 	HasMetadata     bool
 }
 
+// ResolvePublishedCatalogMoneyContext is valid only inside a catalog pricing
+// read callback. It reads no database or mutable FX setting: currency and FX
+// belong to the same immutable input as the selected published prices.
+func ResolvePublishedCatalogMoneyContext(modelName string) (billingmoney.Context, bool, error) {
+	input := catalogRuntime.input
+	if input == nil || catalogRuntime.db != DB || !catalogRuntime.ready || catalogRuntimeInvalid.Load() == DB {
+		return billingmoney.Context{}, false, ErrCatalogPublicationPending
+	}
+	resolved, exists := input.currencies[modelName]
+	if !exists {
+		resolved.BillingCurrency = billingmoney.CurrencyUSD
+	}
+	money, err := billingmoney.NewContext(string(resolved.BillingCurrency), input.exchangeRate)
+	return money, resolved.HasMetadata, err
+}
+
 func ResolveBillingMoneyContext(db *gorm.DB, modelName string) (billingmoney.Context, bool, error) {
 	if db == nil {
 		ctx, err := billingmoney.NewContext(string(billingmoney.CurrencyUSD), operation_setting.USDExchangeRate)

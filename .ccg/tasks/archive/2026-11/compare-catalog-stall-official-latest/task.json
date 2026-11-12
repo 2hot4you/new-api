@@ -1,0 +1,13 @@
+{
+  "id": "compare-catalog-stall-official-latest",
+  "title": "解释目录停滞原因并核对官方latest源码",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "报告根因与官方rc49/镜像latest对照；不自动修实现或升级，等待用户方向",
+  "createdAt": "2026-11-10T09:38:01Z",
+  "branch": "fix/catalog-publication-liveness",
+  "constraints": ["只读外部官方公开源码", "不连接生产", "不修改应用实现", "不推送、不合并、不部署", "保留用户所有无关修改"]
+}

@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Pricing service is temporarily unavailable. Please try again later.": "Сервис расчёта стоимости временно недоступен. Повторите попытку позже.",
     "Generate and manage your API access token": "Создание и управление токеном доступа API",
     "After restore": "После восстановления",
     "Restore saved value for entire item": "Восстановить сохранённое значение для всего элемента",

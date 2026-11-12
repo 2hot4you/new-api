@@ -405,19 +405,35 @@ func TestCatalogRequestPendingAndFrozenSelection(t *testing.T) {
 	assert.Zero(t, selected.Price)
 	assert.False(t, selected.HasExpression)
 	assert.Empty(t, selected.Expression)
-	failure := errors.New("required pricing projection failed")
-	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("request-pending", func(tx *gorm.DB) {
-		if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
+	failure := errors.New("request pricing publication acknowledgement failed")
+	ackAttempted := false
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register("request-pending", func(tx *gorm.DB) {
+		values, ok := tx.Statement.Dest.(map[string]any)
+		if tx.Statement.Table == "catalog_sync_states" && ok && values["publication_state"] == "ready" {
+			ackAttempted = true
 			tx.AddError(failure)
 		}
 	}))
 	err = model.UpdateOptionsBulk(map[string]string{"ModelPrice": `{"capture-pending":8}`})
-	require.NoError(t, db.Callback().Query().Remove("request-pending"))
+	require.NoError(t, db.Callback().Update().Remove("request-pending"))
 	require.ErrorIs(t, err, failure)
+	require.True(t, ackAttempted, "fail final publication ACK, not pre-commit staging")
+	var persisted model.Option
+	require.NoError(t, db.Where("key = ?", "ModelPrice").First(&persisted).Error)
+	assert.JSONEq(t, `{"capture-pending":8}`, persisted.Value)
+	var state model.CatalogSyncState
+	require.NoError(t, db.First(&state, model.CatalogSyncStateID).Error)
+	assert.Equal(t, "committed_pending_publish", state.PublicationState)
+	assert.Greater(t, state.Revision, state.RuntimeRevision)
 	newInfo := &relaycommon.RelayInfo{OriginModelName: "capture-pending", UsingGroup: "default", UserGroup: "default"}
 	_, err = helper.ModelPriceHelper(c, newInfo, 10, &kittypes.TokenCountMeta{})
 	require.ErrorIs(t, err, model.ErrCatalogPublicationPending)
+	apiErr := helper.ModelPricingError(err)
+	assert.Equal(t, 503, apiErr.StatusCode)
+	assert.Equal(t, kittypes.ErrorCodeCatalogPricingUnavailable, apiErr.GetErrorCode())
+	assert.True(t, kittypes.IsSkipRetryError(apiErr))
 	assert.Nil(t, newInfo.PricingSelection)
+	assert.Nil(t, newInfo.Billing)
 	_, err = helper.ModelPriceHelper(c, info, 10, &kittypes.TokenCountMeta{})
 	require.NoError(t, err, "already selected request remains usable during pending")
 	assert.Zero(t, info.PriceData.ModelPrice)

@@ -1,0 +1,15 @@
+{
+  "id": "fix-catalog-noop-retired-options",
+  "title": "保留遗留配置键不再触发无变化目录刷新写锁",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "review",
+  "nextAction": "三库RED→GREEN及聚焦race通过；冻结本地源跑完整normal/race和双路代码复审，未通过前不推dev；main/prod保持hold",
+  "createdAt": "2026-11-10T15:51:33Z",
+  "branch": "fix/catalog-publication-liveness",
+  "baseSha": "5fb202b8a07d1bce378b54130052f855de19e57a",
+  "mainBaseline": "d92203da2101ff90ebb45dcef83a4f9045232da5",
+  "constraints": ["本轮main和所有生产环境先不动", "不联系Aigc", "不删改线上遗留配置/数据库/价格，不重启线上服务", "不削弱真实改价及真实非目录变更写锁/失败关闭保护", "先RED再GREEN、真实三库、并发回归和双路审查", "保留用户草稿及无关修改", "仅验收后正常推送develop，不强推、不重复触发、不主动付费生成"]
+}

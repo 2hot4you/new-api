@@ -38,7 +38,8 @@ func ClassifyRelayOutcome(ctx context.Context, info *relaycommon.RelayInfo, apiE
 		return OutcomeIgnored
 	}
 	if stream.Response == relaycommon.ResponseOutcomeFailed {
-		return classifyFailure(false, stream.ErrorCode, stream.ErrorType, stream.ErrorStatus)
+		localCatalog := stream.ErrorType == string(types.ErrorTypeNewAPIError) && stream.ErrorCode == string(types.ErrorCodeCatalogPricingUnavailable)
+		return classifyFailure(localCatalog, stream.ErrorCode, stream.ErrorType, stream.ErrorStatus)
 	}
 	if apiErr != nil {
 		root := rootAPIError(apiErr)
@@ -80,6 +81,11 @@ func ClassifyRelayOutcome(ctx context.Context, info *relaycommon.RelayInfo, apiE
 // invalid request.
 func rootAPIError(apiErr *types.NewAPIError) *types.NewAPIError {
 	for {
+		// A catalog gate can correct an earlier generic price wrapper. Its
+		// explicit local category, not that stale inner code, is authoritative.
+		if apiErr.GetErrorType() == types.ErrorTypeNewAPIError && apiErr.GetErrorCode() == types.ErrorCodeCatalogPricingUnavailable {
+			return apiErr
+		}
 		var inner *types.NewAPIError
 		if !errors.As(apiErr.Unwrap(), &inner) || inner == apiErr {
 			return apiErr
@@ -97,7 +103,8 @@ func classifyFailure(local bool, code, errorType string, status int) Outcome {
 		switch types.ErrorCode(code) {
 		case types.ErrorCodeInvalidRequest, types.ErrorCodeSensitiveWordsDetected, types.ErrorCodeReadRequestBodyFailed,
 			types.ErrorCodeConvertRequestFailed, types.ErrorCodeAccessDenied, types.ErrorCodeBadRequestBody,
-			types.ErrorCodeInsufficientUserQuota, types.ErrorCodePreConsumeTokenQuotaFailed, types.ErrorCodePromptBlocked:
+			types.ErrorCodeInsufficientUserQuota, types.ErrorCodePreConsumeTokenQuotaFailed, types.ErrorCodePromptBlocked,
+			types.ErrorCodeCatalogPricingUnavailable:
 			return OutcomeIgnored
 		}
 		return OutcomeFailure

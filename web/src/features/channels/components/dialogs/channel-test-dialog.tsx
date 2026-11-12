@@ -201,6 +201,7 @@ const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
 ])
 
 const MODEL_PRICE_ERROR_CODE = 'model_price_error'
+const CATALOG_PRICING_UNAVAILABLE_CODE = 'catalog_pricing_unavailable'
 const FAILURE_SUMMARY_MAX_LENGTH = 96
 const BATCH_TEST_CONCURRENCY = 5
 const BATCH_TEST_DELAY_MS = 100
@@ -242,25 +243,23 @@ function truncateFailureSummary(summary: string) {
 function getFailureStatusDisplay({
   errorText,
   fallbackSummary,
-  isModelPriceError,
-  modelPriceSummary,
+  pricingSummary,
 }: {
   errorText?: string
   fallbackSummary: string
-  isModelPriceError: boolean
-  modelPriceSummary: string
+  pricingSummary?: string
 }): FailureStatusDisplay {
   const rawError = errorText?.trim()
 
-  if (!rawError) {
-    return { summary: fallbackSummary }
+  if (pricingSummary) {
+    return {
+      summary: pricingSummary,
+      details: rawError === pricingSummary ? undefined : rawError,
+    }
   }
 
-  if (isModelPriceError) {
-    return {
-      summary: modelPriceSummary,
-      details: rawError === modelPriceSummary ? undefined : rawError,
-    }
+  if (!rawError) {
+    return { summary: fallbackSummary }
   }
 
   const firstLine = getFirstErrorLine(rawError) ?? rawError
@@ -1234,14 +1233,20 @@ function FailureResultContent({
   const { t } = useTranslation()
   const errorText = result.error?.trim()
   const isModelPriceError = result.errorCode === MODEL_PRICE_ERROR_CODE
-  const modelPriceSummary = t(
-    'Model price is not configured. Please complete model pricing in settings.'
-  )
+  let pricingSummary: string | undefined
+  if (isModelPriceError) {
+    pricingSummary = t(
+      'Model price is not configured. Please complete model pricing in settings.'
+    )
+  } else if (result.errorCode === CATALOG_PRICING_UNAVAILABLE_CODE) {
+    pricingSummary = t(
+      'Pricing service is temporarily unavailable. Please try again later.'
+    )
+  }
   const { summary, details } = getFailureStatusDisplay({
     errorText,
     fallbackSummary: t('Test failed'),
-    isModelPriceError,
-    modelPriceSummary,
+    pricingSummary,
   })
 
   return (

@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Pricing service is temporarily unavailable. Please try again later.": "料金サービスは一時的に利用できません。しばらくしてから再試行してください。",
     "Generate and manage your API access token": "API アクセストークンの作成と管理",
     "After restore": "復元後",
     "Restore saved value for entire item": "項目全体を保存済みの値に復元",

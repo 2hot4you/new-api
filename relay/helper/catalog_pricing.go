@@ -107,7 +107,7 @@ func captureRequestPricing(c *gin.Context, info *relaycommon.RelayInfo, taskPlug
 			value.ImageRatio, _ = ratio_setting.GetImageRatio(name)
 			value.AudioRatio = ratio_setting.GetAudioRatio(name)
 			value.AudioCompletionRatio = ratio_setting.GetAudioCompletionRatio(name)
-			money, _, err := model.ResolveBillingMoneyContext(model.DB.WithContext(c.Request.Context()), name)
+			money, _, err := model.ResolvePublishedCatalogMoneyContext(name)
 			if err != nil {
 				return fmt.Errorf("model %s billing currency resolution failed: %w", name, err)
 			}

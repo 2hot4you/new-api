@@ -1,0 +1,15 @@
+# LLM timeout inspection2026-11-04
+
+Scope: user clarified LLM models, not image/video. S/read-only facts check; no production changes, fixes, deployments, paid requests, or Aigc/Shanghai host contact. Existing isolated worktree reused; unrelated dirty files preserved.
+
+Verified DNS A for model.claudeye.com against existing known_hosts, logged in only to LA using existing claudeye-la-deploy key, strict host-key verification/IdentitiesOnly/no agent. Identity claudeye-deploy, hostname bwg-us-claudeye. Public/local status healthy production-model-claudeye-d92203da2101. Actual app container is model-claudeye-production, not Shanghai's name; initial wrong-name inspect returned no object, then corrected based on docker ps. No credentials printed.
+
+OpenResty nginx -T: main http, model server and its root proxy location have no proxy_read_timeout override. root.conf location ^~ / proxies to127.0.0.1:3000; no special LLM location. Image-only locations do not match LLM routes. Global keepalive_timeout1200 is connection reuse, not a request generation timeout. Root config mtime2026-11-02 09:08:20Z matches live worker start time; main config older. Initial docker top omitted PID column and was corrected with pid,lstart,args. No reload performed.
+
+Official Nginx module documentation https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout confirms default60s, measured between successive upstream reads, not total response duration. This is the gateway setting for ordinary LLM REST paths including chat completions/responses/messages absent another upstream/client constraint.
+
+Application container Config.Env exact allowlist: RELAY_TIMEOUT, RELAY_RESPONSE_HEADER_TIMEOUT, STREAMING_TIMEOUT, RELAY_IDLE_CONN_TIMEOUT all unset. Source for common/init.go, service/http_client.go, service/image_result_proxy.go and relay/helper/stream_scanner.go matches deployed d922 (git diff --quiet exit0). Defaults: RelayTimeout0 -> no global outbound client total timeout; response header1800s ->30min; stream scanner300s ->5min without scanned upstream lines, reset per scanner.Scan; pooled idle connection90s unrelated to active request deadline. main http.Server has no ReadTimeout/WriteTimeout assignment.
+
+General ping can depend on saved management setting and per-request DisablePing. A narrowly allowlisted read-only SELECT for two ping keys against the infra container's default database returned relation options does not exist (wrong database), so no saved heartbeat value was inferred and no further database queries made. Do not claim live heartbeat enablement. Regardless, gateway60s is no-data gap, not mandatory termination of an actively streaming response; heartbeat/data can keep it active. No synthetic delayed/billable LLM request executed; answer is effective config/source inspection, not end-to-end latency measurement or per-provider timeout audit.
+
+No new library/API/convention introduced; existing backend/gateway timeout spec already covers layered timeout interpretation. No code/spec edits or dual-model review required for this S/low-risk factual inspection. Local task-only archive commit, never push/deploy.

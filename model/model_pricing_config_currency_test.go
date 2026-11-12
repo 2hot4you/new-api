@@ -80,8 +80,8 @@ export function parseTaskResult(){return {};}
 			if tc.alias {
 				require.NoError(t, DB.Create(&Model{ModelName: name, NameRule: NameRuleExact, BillingCurrency: "USD"}).Error)
 			}
-			// Recover before installing the persisted inputs for explicit saves.
-			// Historical boot compatibility is covered by the startup regression.
+			// Initialize real plugin/model prerequisites before installing the
+			// explicit-save inputs. Invalid drafts remain at the save boundary.
 			require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
 			pricing := PricingValues{"billing_setting.billing_mode": "tiered_expr", "billing_setting.billing_expr": tc.expression}
 			if tc.ratio {
@@ -101,6 +101,13 @@ export function parseTaskResult(){return {};}
 				require.NoError(t, err)
 				require.NoError(t, DB.Save(&Option{Key: key, Value: string(encoded)}).Error)
 				storedOptions[key] = string(encoded)
+			}
+			if tc.wantError == "" && !tc.addOverride {
+				// Successful unchanged saves require the actual stored quote to
+				// have been published, not merely a previous plugin/model epoch.
+				// Keep unsafe rejection inputs and prospective new overrides on
+				// their original explicit-validation paths below.
+				require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
 			}
 			before, err := GetModelPricingSnapshot([]string{modelName})
 			require.NoError(t, err)

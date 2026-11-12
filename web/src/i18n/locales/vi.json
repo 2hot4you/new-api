@@ -1,5 +1,6 @@
 {
   "translation": {
+    "Pricing service is temporarily unavailable. Please try again later.": "Dịch vụ định giá tạm thời không khả dụng. Vui lòng thử lại sau.",
     "Access tokens are shown only once": "Mã truy cập chỉ được hiển thị một lần",
     "Enter threshold": "Nhập ngưỡng",
     "For security, existing access tokens cannot be displayed. Regenerate only when you need a new token.": "Vì bảo mật, mã truy cập hiện có không thể hiển thị lại. Chỉ tạo lại khi bạn cần mã mới.",

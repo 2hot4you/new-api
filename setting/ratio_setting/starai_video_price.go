@@ -312,7 +312,11 @@ func (prices StarAIVideoPriceSetting) VideoPrice(model, resolution string, hasVi
 // GetStarAIVideoPricing returns the configured pricing matrix used by both the
 // public model catalog and the task billing path.
 func GetStarAIVideoPricing(model string) (*StarAIVideoPricing, bool) {
-	prices := GetStarAIVideoPriceSettingCopy()
+	return GetStarAIVideoPriceSettingCopy().CatalogPricing(model)
+}
+
+// CatalogPricing derives the public table from one immutable price snapshot.
+func (prices StarAIVideoPriceSetting) CatalogPricing(model string) (*StarAIVideoPricing, bool) {
 	pricing := &StarAIVideoPricing{
 		Unit:        "cny_per_million_tokens",
 		FPS:         24,

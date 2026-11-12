@@ -221,19 +221,32 @@ func catalogStartupCommitPending(t *testing.T) {
 	plan, err := model.CreateCatalogSyncPlan(context.Background(), source, actor, time.Now())
 	require.NoError(t, err)
 	injected := errors.New("startup fixture required rebuild failure")
-	require.NoError(t, model.DB.Callback().Query().Before("gorm:query").Register("boot-rebuild-failure", func(tx *gorm.DB) {
-		if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == model.DB.Statement.ConnPool {
+	ackAttempted := false
+	require.NoError(t, model.DB.Callback().Update().Before("gorm:update").Register("boot-rebuild-failure", func(tx *gorm.DB) {
+		values, ok := tx.Statement.Dest.(map[string]any)
+		if tx.Statement.Table == "catalog_sync_states" && ok && values["publication_state"] == "ready" {
+			ackAttempted = true
 			tx.AddError(injected)
 		}
 	}))
 	result, err := model.ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "boot-operation", actor)
 	require.ErrorIs(t, err, injected)
-	require.NoError(t, model.DB.Callback().Query().Remove("boot-rebuild-failure"))
+	require.NoError(t, model.DB.Callback().Update().Remove("boot-rebuild-failure"))
+	require.True(t, ackAttempted, "the managed business commit must reach the final ready ACK before the injected failure")
 	assert.Equal(t, "committed_pending_publish", result.State)
 	var state model.CatalogSyncState
 	require.NoError(t, model.DB.First(&state, model.CatalogSyncStateID).Error)
 	assert.Equal(t, "boot-operation", state.PendingOperationID)
 	assert.Equal(t, "committed_pending_publish", state.PublicationState)
+	assert.Greater(t, state.Revision, state.RuntimeRevision)
+	var operation model.CatalogSyncOperation
+	require.NoError(t, model.DB.First(&operation, "id = ?", "boot-operation").Error)
+	assert.Equal(t, "committed_pending_publish", operation.State, "the failed ACK transaction must roll back its operation-success update")
+	var committedPrice model.Option
+	require.NoError(t, model.DB.Where("key = ?", "ModelPrice").First(&committedPrice).Error)
+	var prices map[string]float64
+	require.NoError(t, common.UnmarshalJsonStr(committedPrice.Value, &prices))
+	assert.Equal(t, 7.0, prices["boot-model"], "the new quote must already be durably committed while publication remains pending")
 	require.NoError(t, model.InitOptionMapBootstrap(context.Background()))
 	var afterBootstrap model.CatalogSyncState
 	require.NoError(t, model.DB.First(&afterBootstrap, model.CatalogSyncStateID).Error)
@@ -254,7 +267,7 @@ func TestInitializeChannelCacheAtStartupAcceptsMultipleStarAIChannelsWithMemoryC
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.Option{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.Option{}, &model.TaskPlugin{}, &model.Task{}, &model.Midjourney{}, &model.SystemTask{}))
 	require.NoError(t, model.MigrateCatalogSync(db))
 	model.DB = db
 	for _, name := range []string{"first", "second"} {
@@ -303,7 +316,7 @@ func TestInitializeChannelCacheAtStartupCreatesLocalMetadataDraftWithoutMemoryCa
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.Option{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.Option{}, &model.TaskPlugin{}, &model.Task{}, &model.Midjourney{}, &model.SystemTask{}))
 	require.NoError(t, model.MigrateCatalogSync(db))
 	channel := model.Channel{Status: common.ChannelStatusEnabled, Name: "catalog", Key: "test", Models: "glm-5.2", Group: "default"}
 	require.NoError(t, db.Create(&channel).Error)

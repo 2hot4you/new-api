@@ -1,0 +1,12 @@
+{
+  "id": "fix-server-address-passkey-validation",
+  "title": "Fix server address save blocked by unrelated passkey validation and promote after development acceptance",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend-settings",
+  "currentPhase": "completed",
+  "nextAction": "2026-11-03 11:28 accepted: app41452078936 attempt3 exact d922/push all jobs success, actual Claudeye125707468319 deployment success03:27:48Z; full main Verify and other two Releases success. Same-source docs41452078994 all success; all three public sites success=true with exact target-d92203da2101. Remote main d922/develop b49 unchanged. Archive locally, no audit push, delete only automationaigc. User must re-save ServerAddress manually; no production setting changed and Aigc never contacted in this batch.",
+  "createdAt": "2026-11-02T00:00:00+08:00",
+  "branch": "fix/server-address-passkey-validation"
+}

@@ -257,24 +257,26 @@ func TestCatalogAliasRemovalPublicationBoundary(t *testing.T) {
 		}
 	}))
 	defer db.Callback().Update().Remove("alias-state-boundary")
-	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("alias-rebuild-boundary", func(tx *gorm.DB) {
-		if tx.Statement.Table != "vendors" || tx.Statement.ConnPool != db.Statement.ConnPool || acks != 0 {
-			return
-		}
-		rebuilds++
-		assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), alias.ModelName, func() error { t.Error("reader escaped rebuild"); return nil }), ErrCatalogWriterBusy)
-		done := make(chan struct{})
-		go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(done) }()
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-			t.Error("registry pin retained during rebuild")
-		}
-	}))
+	updatePricingLock.Lock()
 	result, err := DeleteModelMetadata([]int{alias.Id}, true, false)
-	require.NoError(t, db.Callback().Query().Remove("alias-rebuild-boundary"))
-	require.NoError(t, err)
-	assert.Equal(t, ModelDeleteResult{DeletedCount: 1, UpdatedChannels: 1}, result)
+	updatePricingLock.Unlock()
+	require.ErrorIs(t, err, ErrCatalogWriterBusy)
+	assert.Equal(t, ModelDeleteResult{}, result)
+	stage := runtimeStageForTest(t, db)
+	done := make(chan struct{})
+	go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("registry pin retained after detached capture")
+	}
+	require.NoError(t, TryWithCatalogWriteBarrier(context.Background(), func() error {
+		return publishCatalogRuntimeAndOptionsGuarded(context.Background(), stage, func(context.Context, *catalogRuntimeStage) error {
+			rebuilds++
+			assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), alias.ModelName, func() error { t.Error("reader escaped installation"); return nil }), ErrCatalogWriterBusy)
+			return nil
+		})
+	}))
 	assert.Equal(t, 1, deletes)
 	assert.Equal(t, 1, pending)
 	assert.Equal(t, 1, acks)
@@ -561,36 +563,31 @@ func TestCatalogAliasRemovalMemorySQLCancellation(t *testing.T) {
 		t.Run(table, func(t *testing.T) {
 			db, _, _ := catalogAliasRemovalFixture(t)
 			enableCatalogAliasMemoryCache(t)
+			// A real committed change, not a healthy no-op refresh, must stay
+			// pending if capture of its routing projection is canceled.
+			updatePricingLock.Lock()
+			err := UpdateOptionsBulk(map[string]string{"ModelPrice": `{"sql-pending":1}`})
+			updatePricingLock.Unlock()
+			require.ErrorIs(t, err, ErrCatalogWriterBusy)
+			blocker := db.Begin()
+			require.NoError(t, blocker.Exec("LOCK TABLE "+table+" IN ACCESS EXCLUSIVE MODE").Error)
+			defer blocker.Rollback()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			started := make(chan *gorm.DB, 1)
 			observed := make(chan error, 1)
-			var armed atomic.Bool
-			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("alias-memory-sql-block", func(tx *gorm.DB) {
-				if tx.Statement.Table != table || tx.Statement.ConnPool != db.Statement.ConnPool || !armed.CompareAndSwap(false, true) {
-					return
-				}
-				blocker := db.Begin()
-				tx.AddError(blocker.Exec("LOCK TABLE " + table + " IN ACCESS EXCLUSIVE MODE").Error)
-				tx.Statement.Settings.Store("alias-memory-observed", true)
-				started <- blocker
-			}))
-			require.NoError(t, db.Callback().Query().After("gorm:query").Register("alias-memory-sql-result", func(tx *gorm.DB) {
-				if _, ok := tx.Statement.Settings.Load("alias-memory-observed"); ok {
+			// The reference transaction fences every source before querying.
+			// Block that actual driver operation before capture; trying to take
+			// an exclusive lock from inside a fenced query would self-deadlock.
+			require.NoError(t, db.Callback().Raw().After("gorm:raw").Register("alias-memory-sql-result", func(tx *gorm.DB) {
+				statement := tx.Statement.SQL.String()
+				if strings.HasPrefix(statement, "LOCK TABLE ") && strings.Contains(statement, `"`+table+`"`) {
+					assert.ErrorIs(t, tx.Statement.Context.Err(), context.Canceled)
 					observed <- tx.Error
 				}
 			}))
+			defer db.Callback().Raw().Remove("alias-memory-sql-result")
 			finished := make(chan error, 1)
 			go func() { finished <- RecoverCatalogSyncRuntime(ctx) }()
-			var blocker *gorm.DB
-			select {
-			case blocker = <-started:
-			case err := <-finished:
-				t.Fatalf("recovery missed required SQL: %v", err)
-			case <-time.After(5 * time.Second):
-				t.Fatal("cache SQL not reached")
-			}
-			defer blocker.Rollback()
 			catalogWaitForDBLock(t, db, "postgres", finished)
 			cancel()
 			select {
@@ -598,12 +595,11 @@ func TestCatalogAliasRemovalMemorySQLCancellation(t *testing.T) {
 				require.ErrorIs(t, err, context.Canceled)
 			case <-time.After(2 * time.Second):
 				_ = blocker.Rollback().Error
-				t.Fatal("actual cache query did not honor publisher cancellation")
+				t.Fatal("actual routing capture fence did not honor publisher cancellation")
 			}
 			require.ErrorIs(t, <-finished, context.Canceled)
 			require.NoError(t, blocker.Rollback().Error)
-			require.NoError(t, db.Callback().Query().Remove("alias-memory-sql-block"))
-			require.NoError(t, db.Callback().Query().Remove("alias-memory-sql-result"))
+			require.NoError(t, db.Callback().Raw().Remove("alias-memory-sql-result"))
 			var pending CatalogSyncState
 			require.NoError(t, db.First(&pending, CatalogSyncStateID).Error)
 			assert.Equal(t, "committed_pending_publish", pending.PublicationState)

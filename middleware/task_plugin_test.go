@@ -3,9 +3,12 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +26,9 @@ import (
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
 	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -1665,6 +1671,50 @@ func TestSanitizedTaskPluginErrorIgnoresDetailOn5xx(t *testing.T) {
 	assert.Equal(t, "Task request failed", got.Message)
 }
 
+func TestRespondTaskPluginCatalogErrorRequiresLocalSentinel(t *testing.T) {
+	plugin := compileTaskRoutePlugin(t, genericTaskPluginSource+`
+export const native={error:function(ctx,error){return error;}};
+`)
+	for _, tc := range []struct {
+		name          string
+		code          string
+		local         bool
+		status        int
+		cause         error
+		wantCode      string
+		wantRetryable bool
+	}{
+		{"wrapped local writer", "catalog_pricing_unavailable", true, 503, fmt.Errorf("selection: %w", model.ErrCatalogWriterBusy), "catalog_pricing_unavailable", false},
+		{"upstream lookalike", "catalog_pricing_unavailable", false, 503, model.ErrCatalogPublicationPending, "server_error", true},
+		{"message-only lookalike", "catalog_pricing_unavailable", true, 503, errors.New(model.ErrCatalogPublicationPending.Error()), "server_error", true},
+		{"untyped local sentinel", "other_error", true, 503, model.ErrCatalogPublicationPending, "server_error", true},
+		{"mismatched status", "catalog_pricing_unavailable", true, 502, model.ErrCatalogPublicationPending, "server_error", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/vendor/failure", nil)
+			c.Set(jsplugin.ContextKeyPinnedRoute, jsplugin.PinnedRoute{Plugin: plugin})
+			c.Set(jsplugin.ContextKeyRouteRequest, jsplugin.RouteRequestContext{Path: "/vendor/failure", Method: http.MethodPost})
+			require.True(t, RespondTaskPluginError(c, &dto.TaskError{
+				Code: tc.code, Message: "https://user:password@upstream.invalid?token=secret", StatusCode: tc.status,
+				LocalError: tc.local, Error: tc.cause, Data: map[string]any{"authorization": "Bearer private-credential"},
+			}))
+			assert.Equal(t, tc.status, recorder.Code)
+			var body dto.TaskPluginError
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
+			assert.Equal(t, tc.wantCode, body.Code)
+			assert.Equal(t, tc.wantRetryable, body.Retryable)
+			if tc.wantRetryable {
+				assert.Equal(t, "Task request failed", body.Message)
+			}
+			assert.NotContains(t, recorder.Body.String(), "password")
+			assert.NotContains(t, recorder.Body.String(), "secret")
+			assert.NotContains(t, recorder.Body.String(), "private-credential")
+		})
+	}
+}
+
 func TestTaskPluginErrorFallbackMessageIncludesRequestID(t *testing.T) {
 	plugin := compileTaskRoutePlugin(t, genericTaskPluginSource)
 	recorder := httptest.NewRecorder()
@@ -2141,10 +2191,30 @@ func TestPrepareTaskPluginEndpointIgnoresUnselectedCandidateOriginIntent(t *test
 func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 	require.NoError(t, appI18n.Init())
 	previousDB, previousMain, previousLog := model.DB, common.MainDatabaseType(), common.LogDatabaseType()
+	previousRegistry := jsplugin.DefaultRegistry
+	common.OptionMapRWMutex.RLock()
+	previousOptions := maps.Clone(common.OptionMap)
+	common.OptionMapRWMutex.RUnlock()
+	previousConfig := config.GlobalConfig.ExportAllConfigs()
+	previousRate := operation_setting.USDExchangeRate
+	restoreRatios := []struct {
+		value   string
+		restore func(string) error
+	}{
+		{ratio_setting.ModelPrice2JSONString(), ratio_setting.UpdateModelPriceByJSONString},
+		{ratio_setting.ModelRatio2JSONString(), ratio_setting.UpdateModelRatioByJSONString},
+		{ratio_setting.CompletionRatio2JSONString(), ratio_setting.UpdateCompletionRatioByJSONString},
+		{ratio_setting.CacheRatio2JSONString(), ratio_setting.UpdateCacheRatioByJSONString},
+		{ratio_setting.CreateCacheRatio2JSONString(), ratio_setting.UpdateCreateCacheRatioByJSONString},
+		{ratio_setting.ImageRatio2JSONString(), ratio_setting.UpdateImageRatioByJSONString},
+		{ratio_setting.AudioRatio2JSONString(), ratio_setting.UpdateAudioRatioByJSONString},
+		{ratio_setting.AudioCompletionRatio2JSONString(), ratio_setting.UpdateAudioCompletionRatioByJSONString},
+		{ratio_setting.GroupRatio2JSONString(), ratio_setting.UpdateGroupRatioByJSONString},
+	}
 	previousMaster := common.IsMasterNode
 	previousCache, previousRedis := common.MemoryCacheEnabled, common.RedisEnabled
 	database := isolatedAuthPostgres(t)
-	require.NoError(t, database.AutoMigrate(&model.Option{}, &model.Channel{}, &model.Ability{}, &model.Task{}))
+	require.NoError(t, database.AutoMigrate(&model.Option{}, &model.Channel{}, &model.Ability{}, &model.Task{}, &model.Model{}, &model.Vendor{}, &model.TaskPlugin{}, &model.Midjourney{}, &model.SystemTask{}))
 	ownedDSN := database.Dialector.(*postgres.Dialector).Config.DSN
 	t.Setenv("SQL_DSN", ownedDSN)
 	common.IsMasterNode = false
@@ -2153,18 +2223,53 @@ func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 	database = model.DB
 	t.Cleanup(func() {
 		common.MemoryCacheEnabled = true
+		for _, table := range []any{&model.Ability{}, &model.Channel{}, &model.TaskPlugin{}} {
+			require.NoError(t, database.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(table).Error)
+		}
+		require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
 		model.InitChannelCache()
 		pool, err := database.DB()
 		require.NoError(t, err)
 		require.NoError(t, pool.Close())
 		model.DB = previousDB
+		jsplugin.DefaultRegistry = previousRegistry
 		common.SetDatabaseTypes(previousMain, previousLog)
 		common.IsMasterNode = previousMaster
 		common.MemoryCacheEnabled, common.RedisEnabled = previousCache, previousRedis
 		if previousDB != nil {
 			model.InitChannelCache()
 		}
+		for _, ratio := range restoreRatios {
+			require.NoError(t, ratio.restore(ratio.value))
+		}
+		require.NoError(t, config.GlobalConfig.LoadFromDB(previousConfig))
+		operation_setting.USDExchangeRate = previousRate
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousOptions
+		common.OptionMapRWMutex.Unlock()
 	})
+	// InitDB deliberately skips migrations as a non-master. Public refresh now
+	// requires the same complete catalog prerequisites as real InitResources.
+	require.NoError(t, model.MigrateCatalogSync(database))
+	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+	for _, factory := range previousRegistry.Snapshot().Factory {
+		source, err := builtinplugins.Source(factory.Key)
+		require.NoError(t, err)
+		_, err = jsplugin.DefaultRegistry.RegisterFactory(source, jsplugin.Options{Key: factory.Key})
+		require.NoError(t, err)
+	}
+	require.NoError(t, model.InitOptionMapBootstrap(context.Background()))
+	require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+	registerPlugin := func(t *testing.T, source string) {
+		t.Helper()
+		plugin, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+		require.NoError(t, err)
+		require.NoError(t, database.Create(&model.TaskPlugin{Key: plugin.Meta.Key, APIVersion: plugin.Meta.APIVersion, Version: plugin.Meta.Version, Source: model.LongText(source), SourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))), Active: true, Enabled: true}).Error)
+		t.Cleanup(func() {
+			require.NoError(t, jsplugin.DefaultRegistry.Unregister(plugin.Meta.Key))
+			require.NoError(t, database.Where("key = ?", plugin.Meta.Key).Delete(&model.TaskPlugin{}).Error)
+		})
+	}
 	var version string
 	require.NoError(t, database.Raw("SELECT version()").Scan(&version).Error)
 	t.Logf("database version: %s", version)
@@ -2244,9 +2349,7 @@ func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 						source = taskResponsesPluginSource(key, 0, `["channel-route-model"]`, `["sync"]`, `renderFinal: function() { return {}; },`, decode)
 					}
 					if !tc.legacy && !tc.nativeSeedance {
-						_, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
-						require.NoError(t, err)
-						t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(key)) })
+						registerPlugin(t, source)
 					}
 					ordinary := &model.Channel{Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "ordinary", Key: "ordinary-key", Group: "route-test", Models: modelName, Priority: common.GetPointer(tc.ordinaryPriority + 1)}
 					if tc.ordinaryType != 0 {
@@ -2290,9 +2393,7 @@ func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 						if tc.shared {
 							const alternateKey = "channel-route-ztest"
 							alternateSource := taskProtocolPluginSource(alternateKey, "1.0.0", `["channel-route-model"]`, path, `return {model: ctx.model, requestBody: {normalized: true}};`)
-							_, err := jsplugin.DefaultRegistry.Register(alternateSource, jsplugin.Options{})
-							require.NoError(t, err)
-							t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(alternateKey)) })
+							registerPlugin(t, alternateSource)
 							alternate.SetSetting(relaykitdto.ChannelSettings{TaskPluginKey: alternateKey})
 						}
 						channels = append(channels, alternate)

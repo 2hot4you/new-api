@@ -43,13 +43,14 @@ const (
 	ErrorCodeViolationFeeGrokCSAM   ErrorCode = "violation_fee.grok.csam"
 
 	// new api error
-	ErrorCodeCountTokenFailed   ErrorCode = "count_token_failed"
-	ErrorCodeModelPriceError    ErrorCode = "model_price_error"
-	ErrorCodeInvalidApiType     ErrorCode = "invalid_api_type"
-	ErrorCodeJsonMarshalFailed  ErrorCode = "json_marshal_failed"
-	ErrorCodeDoRequestFailed    ErrorCode = "do_request_failed"
-	ErrorCodeGetChannelFailed   ErrorCode = "get_channel_failed"
-	ErrorCodeGenRelayInfoFailed ErrorCode = "gen_relay_info_failed"
+	ErrorCodeCountTokenFailed          ErrorCode = "count_token_failed"
+	ErrorCodeModelPriceError           ErrorCode = "model_price_error"
+	ErrorCodeCatalogPricingUnavailable ErrorCode = "catalog_pricing_unavailable"
+	ErrorCodeInvalidApiType            ErrorCode = "invalid_api_type"
+	ErrorCodeJsonMarshalFailed         ErrorCode = "json_marshal_failed"
+	ErrorCodeDoRequestFailed           ErrorCode = "do_request_failed"
+	ErrorCodeGetChannelFailed          ErrorCode = "get_channel_failed"
+	ErrorCodeGenRelayInfoFailed        ErrorCode = "gen_relay_info_failed"
 
 	// channel error
 	ErrorCodeChannelNoAvailableKey        ErrorCode = "channel:no_available_key"
@@ -235,6 +236,11 @@ func (e *NewAPIError) ToClaudeError(upstreamURLs ...string) ClaudeError {
 			Message: e.Error(),
 			Type:    string(e.errorType),
 		}
+	}
+	if e.errorCode == ErrorCodeCatalogPricingUnavailable {
+		// Claude's envelope has no code field. Preserve this local category
+		// through its existing type field without changing other error types.
+		result.Type = string(ErrorCodeCatalogPricingUnavailable)
 	}
 	if e.errorCode != ErrorCodeCountTokenFailed {
 		result.Message = kitutil.MaskSensitiveInfo(result.Message, upstreamURLs...)

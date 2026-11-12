@@ -428,15 +428,21 @@ func TestCatalogStartupFinalAckEligibility(t *testing.T) {
 	db, actor := catalogStartupInstanceFixture(t)
 	plan, err := CreateCatalogSyncPlan(context.Background(), catalogSyncTestSource(t), actor, time.Now())
 	require.NoError(t, err)
-	observed := false
-	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("new-node-before-ack", func(tx *gorm.DB) {
-		if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
-			observed = true
-			tx.AddError(UpsertSystemInstance("new-node", nil, time.Now().Unix(), time.Now().Unix()))
-		}
-	}))
+	updatePricingLock.Lock()
 	_, err = ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "ack-eligibility", actor)
-	require.NoError(t, db.Callback().Query().Remove("new-node-before-ack"))
+	updatePricingLock.Unlock()
+	require.ErrorIs(t, err, ErrCatalogWriterBusy)
+	stage := runtimeStageForTest(t, db)
+	observed := false
+	err = TryWithCatalogWriteBarrier(context.Background(), func() error {
+		return publishCatalogRuntimeAndOptionsGuarded(context.Background(), stage, func(context.Context, *catalogRuntimeStage) error {
+			// This existing publication seam runs after the final preinstall
+			// reference/pin release but before installation and the real ACK.
+			// The late instance must therefore be caught by the ACK transaction.
+			observed = true
+			return UpsertSystemInstance("new-node", nil, time.Now().Unix(), time.Now().Unix())
+		})
+	})
 	require.True(t, observed)
 	require.ErrorIs(t, err, ErrCatalogInstanceIneligible)
 	var operation CatalogSyncOperation

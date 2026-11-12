@@ -395,29 +395,33 @@ func TestCatalogRuntimeModelPricingFailureRecovery(t *testing.T) {
 			assert.Equal(t, pending.Revision, ready.Revision)
 			assert.Equal(t, ready.Revision, ready.RuntimeRevision)
 			require.ErrorIs(t, UpdateModelPricing([]ModelPricingChange{change}), ErrModelPricingConflict)
-			rebuilt := false
-			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("pricing-save-boundary", func(tx *gorm.DB) {
-				if tx.Statement.Table != "vendors" || tx.Statement.ConnPool != db.Statement.ConnPool {
-					return
-				}
-				rebuilt = true
-				assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "boundary", func() error { t.Error("new currency with old expression escaped"); return nil }), ErrCatalogWriterBusy)
-				published := make(chan struct{})
-				go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(published) }()
-				select {
-				case <-published:
-				case <-time.After(3 * time.Second):
-					t.Error("save retained registry pin across rebuild")
-				}
-			}))
 			snapshot, err = GetModelPricingSnapshot([]string{"boundary"})
 			require.NoError(t, err)
 			change.ExpectedVersion, change.BillingCurrency = snapshot.Entries[0].Version, "USD"
 			change.Pricing["billing_setting.billing_expr"] = "p * 9"
+			updatePricingLock.Lock()
 			err = UpdateModelPricing([]ModelPricingChange{change})
-			require.NoError(t, db.Callback().Query().Remove("pricing-save-boundary"))
-			require.NoError(t, err)
-			assert.True(t, rebuilt)
+			updatePricingLock.Unlock()
+			require.ErrorIs(t, err, ErrCatalogWriterBusy)
+			stage := runtimeStageForTest(t, db)
+			// Capture returns before detached building/publication. A registry
+			// writer proves its real transaction and pin have both ended.
+			published := make(chan struct{})
+			go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(published) }()
+			select {
+			case <-published:
+			case <-time.After(3 * time.Second):
+				t.Fatal("save capture retained registry pin")
+			}
+			rebuilt := false
+			require.NoError(t, TryWithCatalogWriteBarrier(context.Background(), func() error {
+				return publishCatalogRuntimeAndOptionsGuarded(context.Background(), stage, func(context.Context, *catalogRuntimeStage) error {
+					rebuilt = true
+					assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "boundary", func() error { t.Error("new currency with old expression escaped"); return nil }), ErrCatalogWriterBusy)
+					return nil
+				})
+			}))
+			require.True(t, rebuilt, "actual installation boundary was not reached")
 			require.NoError(t, WithCatalogPricingRead(context.Background(), "boundary", func() error {
 				money, _, err := ResolveBillingMoneyContext(db, "boundary")
 				require.NoError(t, err)
@@ -878,28 +882,30 @@ func TestCatalogRuntimeOrdinaryCurrencyBoundary(t *testing.T) {
 				"billing_setting.billing_mode": `{"currency-model":"tiered_expr"}`,
 				"billing_setting.billing_expr": `{"currency-model":"p * 3"}`,
 			}))
+			prepared, err := prepareOrdinaryCatalogMutation(context.Background(), db, nil)
+			require.NoError(t, err)
 			rebuilt := false
-			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("ordinary-currency-boundary", func(tx *gorm.DB) {
-				if tx.Statement.Table != "vendors" || tx.Statement.ConnPool != db.Statement.ConnPool {
-					return
-				}
-				rebuilt = true
-				assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), entry.ModelName, func() error {
-					t.Error("selection escaped between currency commit and runtime acknowledgement")
-					return nil
-				}), ErrCatalogWriterBusy)
-				assert.ErrorIs(t, TryWithCatalogWriteBarrier(context.Background(), func() error { return nil }), ErrCatalogWriterBusy)
-				published := make(chan struct{})
-				go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(published) }()
-				select {
-				case <-published:
-				case <-time.After(3 * time.Second):
-					t.Error("registry pin retained during ordinary required rebuild")
-				}
-			}))
 			entry.BillingCurrency = "CNY"
-			err := entry.Update()
-			require.NoError(t, db.Callback().Query().Remove("ordinary-currency-boundary"))
+			err = WithCatalogWriteBarrier(func() error {
+				return commitOrdinaryCatalogMutationGuarded(context.Background(), db, prepared, func(tx *gorm.DB) error {
+					return tx.Model(&Model{}).Where("id = ?", entry.Id).Update("billing_currency", entry.BillingCurrency).Error
+				}, func() error {
+					rebuilt = true
+					assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), entry.ModelName, func() error {
+						t.Error("selection escaped between currency commit and runtime acknowledgement")
+						return nil
+					}), ErrCatalogWriterBusy)
+					assert.ErrorIs(t, TryWithCatalogWriteBarrier(context.Background(), func() error { return nil }), ErrCatalogWriterBusy)
+					published := make(chan struct{})
+					go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(published) }()
+					select {
+					case <-published:
+					case <-time.After(3 * time.Second):
+						t.Error("registry pin retained after actual ordinary commit")
+					}
+					return nil
+				})
+			})
 			require.NoError(t, err)
 			require.True(t, rebuilt)
 			require.NoError(t, WithCatalogPricingRead(context.Background(), entry.ModelName, func() error {
@@ -987,28 +993,32 @@ func TestCatalogRuntimeManagedFailures(t *testing.T) {
 					actor := catalogBusinessActor(t, db)
 					plan, err := CreateCatalogSyncPlan(context.Background(), catalogBusinessPriceSource(t, db), actor, time.Now())
 					require.NoError(t, err)
+					updatePricingLock.Lock()
+					result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "managed-failure", actor)
+					updatePricingLock.Unlock()
+					require.ErrorIs(t, err, ErrCatalogWriterBusy)
+					stage := runtimeStageForTest(t, db)
 					injected := errors.New("managed publication unavailable")
-					rebuilt := false
+					// The real committed operation is pending. Detached staging has
+					// returned its pin; publication must recheck any later generation.
+					published := make(chan struct{})
+					go func() { jsplugin.DefaultRegistry.SetEnabled(phase != "plugin-drift"); close(published) }()
+					select {
+					case <-published:
+					case <-time.After(3 * time.Second):
+						t.Fatal("capture pin survived into detached publication")
+					}
+					assertRuntimePending(t, db, result)
+					rechecked := false
 					require.NoError(t, db.Callback().Query().Before("gorm:query").Register("managed-rebuild", func(tx *gorm.DB) {
-						if tx.Statement.Table != "vendors" || tx.Statement.ConnPool != db.Statement.ConnPool {
+						if tx.Statement.Table == "catalog_sync_states" && tx.Statement.ConnPool != db.Statement.ConnPool {
+							rechecked = true
+						}
+						if tx.Statement.Table != "vendors" || tx.Statement.ConnPool == db.Statement.ConnPool {
 							return
 						}
-						rebuilt = true
 						assert.ErrorIs(t, TryWithCatalogWriteBarrier(context.Background(), func() error { return nil }), ErrCatalogWriterBusy)
 						assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "managed-model", func() error { return nil }), ErrCatalogWriterBusy)
-						var state CatalogSyncState
-						require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
-						assert.Equal(t, "committed_pending_publish", state.PublicationState)
-						assert.Equal(t, int64(1), state.Revision)
-						// A writer acquisition proves the committing registry pin was
-						// released, not merely that another reader pin is available.
-						published := make(chan struct{})
-						go func() { jsplugin.DefaultRegistry.SetEnabled(phase != "plugin-drift"); close(published) }()
-						select {
-						case <-published:
-						case <-time.After(3 * time.Second):
-							t.Fatal("actual mutation pin survived into required rebuild")
-						}
 						if phase == "rebuild" {
 							tx.AddError(injected)
 						}
@@ -1020,11 +1030,13 @@ func TestCatalogRuntimeManagedFailures(t *testing.T) {
 							}
 						}
 					}))
-					result, err := ApplyCatalogSyncPlan(context.Background(), plan.ID, plan.Digest, "managed-failure", actor)
+					err = TryWithCatalogWriteBarrier(context.Background(), func() error {
+						return publishCatalogRuntimeGuarded(context.Background(), stage)
+					})
 					require.NoError(t, db.Callback().Query().Remove("managed-rebuild"))
 					require.NoError(t, db.Callback().Update().Remove("managed-ack"))
 					require.Error(t, err)
-					require.True(t, rebuilt)
+					require.True(t, rechecked, "required real reference recheck was not reached")
 					if phase != "plugin-drift" {
 						require.ErrorIs(t, err, injected)
 					}
@@ -1313,7 +1325,7 @@ func TestCatalogRuntimeFailureRecovery(t *testing.T) {
 			require.NoError(t, db.Where(map[string]any{"key": "tool_price_setting.prices"}).Delete(&Option{}).Error)
 			injected := errors.New("required rebuild unavailable")
 			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("runtime-cache-failure", func(tx *gorm.DB) {
-				if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
+				if tx.Statement.Table == "vendors" && tx.Statement.ConnPool != db.Statement.ConnPool {
 					tx.AddError(injected)
 				}
 			}))
@@ -1491,7 +1503,7 @@ func TestCatalogRuntimeResetAndHistoricalOrphan(t *testing.T) {
 	common.OptionMap["USDExchangeRate"] = "7.25"
 	common.OptionMap["SiteName"] = "target-only"
 	common.OptionMapRWMutex.Unlock()
-	for key, raw := range map[string]string{"ModelPrice": `{"historical-orphan":0,"remove":9}`, "ModelRatio": `{}`, "tool_price_setting.prices": `{"web_search":0}`, "starai_video_price.standard_720p": "13.25"} {
+	for key, raw := range map[string]string{"ModelPrice": `{"historical-orphan":0,"remove":9}`, "ModelRatio": `{}`, "tool_price_setting.prices": `{"web_search":0}`, "starai_video_price.standard_720p": "13.25", "USDExchangeRate": "7.25"} {
 		require.NoError(t, db.Create(&Option{Key: key, Value: raw}).Error)
 	}
 	require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
@@ -1510,6 +1522,13 @@ func TestCatalogRuntimeResetAndHistoricalOrphan(t *testing.T) {
 	options := maps.Clone(common.OptionMap)
 	common.OptionMapRWMutex.RUnlock()
 	assert.Equal(t, "7.25", options["USDExchangeRate"])
+	require.NoError(t, WithCatalogPricingRead(context.Background(), "historical-orphan", func() error {
+		money, hasMetadata, err := ResolvePublishedCatalogMoneyContext("historical-orphan")
+		assert.False(t, hasMetadata, "retained orphan pricing must not invent model metadata")
+		assert.Equal(t, 7.25, money.CNYPerUSD, "recovery freezes the actual target-local stored FX")
+		assert.Equal(t, 7.25, operation_setting.USDExchangeRate)
+		return err
+	}))
 	assert.Equal(t, "target-only", options["SiteName"])
 	assert.NotEqual(t, "13.25", options["starai_video_price.standard_720p"])
 	var saved []Option
@@ -1584,10 +1603,15 @@ func TestCatalogRuntimeAdvancedCacheContention(t *testing.T) {
 					entered := make(chan struct{})
 					var once sync.Once
 					require.NoError(t, db.Callback().Query().After("gorm:query").Register("runtime-advanced-entered", func(tx *gorm.DB) {
-						// The required channel-cache rebuild now precedes pricing;
-						// observe its actual final query before the cache TryLock.
-						if tx.Statement.Table == "abilities" && tx.Statement.ConnPool == db.Statement.ConnPool {
-							once.Do(func() { close(entered) })
+						// Derived caches consume the fenced capture now; observe the
+						// real transaction query rather than a removed root rebuild.
+						if tx.Statement.Table == "abilities" && tx.Statement.ConnPool != db.Statement.ConnPool {
+							once.Do(func() {
+								if cancelAtRebuild {
+									cancel()
+								}
+								close(entered)
+							})
 						}
 					}))
 					defer db.Callback().Query().Remove("runtime-advanced-entered")
@@ -1600,9 +1624,6 @@ func TestCatalogRuntimeAdvancedCacheContention(t *testing.T) {
 					case <-entered:
 					case <-time.After(5 * time.Second):
 						t.Fatal("publisher did not reach actual advanced-channel rebuild")
-					}
-					if cancelAtRebuild {
-						cancel()
 					}
 					var err error
 					select {
@@ -1690,14 +1711,14 @@ func TestCatalogRuntimeRebuildSQLContext(t *testing.T) {
 					seen := false
 					var queryErr error
 					before := func(tx *gorm.DB) {
-						if tx.Statement.Table == table && tx.Statement.ConnPool == db.Statement.ConnPool {
+						if tx.Statement.Table == table && tx.Statement.ConnPool != db.Statement.ConnPool {
 							seen = true
-							assert.Equal(t, "publisher", tx.Statement.Context.Value(contextKey{}), "actual rebuild SQL lost publisher context")
+							assert.Equal(t, "publisher", tx.Statement.Context.Value(contextKey{}), "actual capture SQL lost publisher context")
 							cancel() // The real driver query must observe cancellation; no injected SQL error.
 						}
 					}
 					after := func(tx *gorm.DB) {
-						if tx.Statement.Table == table && tx.Statement.ConnPool == db.Statement.ConnPool {
+						if tx.Statement.Table == table && tx.Statement.ConnPool != db.Statement.ConnPool {
 							queryErr = tx.Error
 						}
 					}
@@ -1775,30 +1796,30 @@ func TestCatalogRuntimeRecheckAfterRebuild(t *testing.T) {
 	preserveCatalogCandidate(t)
 	db := catalogFenceTestDB(t, "sqlite")
 	result := runtimePendingOperation(t, db)
-	entered, release := make(chan struct{}), make(chan struct{})
-	var once sync.Once
-	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("runtime-rebuild-pause", func(tx *gorm.DB) {
-		if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
-			once.Do(func() { close(entered); <-release })
-		}
-	}))
-	defer db.Callback().Query().Remove("runtime-rebuild-pause")
-	done := make(chan error, 1)
-	go func() { done <- PublishCatalogSyncRevision(context.Background(), result.Revision) }()
-	select {
-	case <-entered:
-	case err := <-done:
-		t.Fatalf("publication ended before rebuild: %v", err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("publication did not reach rebuild")
-	}
-	require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "managed-model", func() error { return nil }), ErrCatalogWriterBusy)
-	// Registry publication must be possible here: no SQL fence or registry pin
-	// may survive into typed publication/rebuild. Ack must reject the new epoch.
-	_, err := jsplugin.DefaultRegistry.RegisterFactory(pricingUsagePluginSource("1.0.0", `{seconds:{type:"number",unit:"second"}}`), jsplugin.Options{})
+	stage := runtimeStageForTest(t, db)
+	var err error
+	stage.channelCache, err = buildChannelCacheProjection(nil, stage.input.channels, stage.input.abilities, true)
 	require.NoError(t, err)
-	close(release)
-	require.ErrorIs(t, <-done, ErrCatalogSyncPlanStale)
+	require.NoError(t, updatePricingWithCatalogStage(nil, stage), "build the actual detached projection before dependency drift")
+	assertRuntimeLocksReleased(t)
+	require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "managed-model", func() error { return nil }), ErrCatalogPublicationPending)
+	// There is no root rebuild SQL anymore. Exercise the existing detached
+	// capture/publish seam directly: a real registry writer must be able to
+	// publish after staging, and the final proof must reject that stale stage.
+	changed := make(chan error, 1)
+	go func() {
+		_, err := jsplugin.DefaultRegistry.RegisterFactory(pricingUsagePluginSource("1.0.0", `{seconds:{type:"number",unit:"second"}}`), jsplugin.Options{})
+		changed <- err
+	}()
+	select {
+	case err := <-changed:
+		require.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("detached staging retained registry pin")
+	}
+	require.ErrorIs(t, TryWithCatalogWriteBarrier(context.Background(), func() error {
+		return publishCatalogRuntimeGuarded(context.Background(), stage)
+	}), ErrCatalogSyncPlanStale)
 	assertRuntimePending(t, db, result)
 	require.NoError(t, RecoverCatalogSyncRuntime(context.Background()))
 }
@@ -1888,7 +1909,7 @@ func TestCatalogRuntimeGroupIndexContention(t *testing.T) {
 					entered := make(chan struct{})
 					var once sync.Once
 					require.NoError(t, db.Callback().Query().After("gorm:query").Register("runtime-group-entered", func(tx *gorm.DB) {
-						if tx.Statement.Table == "vendors" && tx.Statement.ConnPool == db.Statement.ConnPool {
+						if tx.Statement.Table == "vendors" && tx.Statement.ConnPool != db.Statement.ConnPool {
 							once.Do(func() {
 								if canceled {
 									cancel()

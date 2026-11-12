@@ -16,6 +16,113 @@ from urllib.parse import urlsplit, parse_qs
 ROOT = Path(__file__).resolve().parents[2]
 GROUPS = [
   {
+    "name": "catalog-publication-liveness",
+    "pkg": "./model",
+    "tests": [
+      "TestCatalogPublicationNoopReloadDoesNotRepublish",
+      "TestCatalogPublicationNoopReloadKeepsSelectionsDuringCapture",
+      "TestCatalogPublicationRetiredOptionsKeepReadersAvailable",
+      "TestCatalogPublicationRecoveryReaderDeadline",
+      "TestCatalogPublicationRecoveryReaderCancellation",
+      "TestCatalogPublicationInvalidSameRevisionDriftGatesReads",
+      "TestCatalogPublicationPreinstallConflictKeepsProjection",
+      "TestCatalogPublicationOptionMapReservationCancellation",
+      "TestCatalogPublicationCanceledWriterPreservesOtherIntent",
+      "TestCatalogPublicationPendingWriterBarsNewReaders",
+      "TestCatalogPublicationObservationChangesDuringProofs",
+      "TestCatalogPublicationProcesses",
+      "TestCatalogPublicationOptionLockCancellation",
+      "TestCatalogPublicationUnknownCaptureWithReaderFailsClosed",
+      "TestCatalogPublicationSchedulerRecoversCommittedReconciliation",
+      "TestCatalogPublicationSchedulerUnderReadTraffic",
+      "TestCatalogRefreshMixedPasskeyFXPublishesMoney",
+      "TestCatalogRefreshUnchangedReconciliationDoesNotRepublish",
+      "TestCatalogRefreshReconciliationCacheBindsCompletedOperation",
+      "TestCatalogRefreshOrdinaryNoopRejectsUnacknowledgedInput",
+      "TestCatalogRefreshCanonicalRawNoopDoesNotRepublish",
+      "TestCatalogRefreshCanonicalFingerprintPreservesInvalidityAndPrecision",
+      "TestCatalogRefreshPublicRecoveryPublishesCompleteMoneyEpoch",
+      "TestCatalogRefreshChangedPolicyRequiresWriter",
+      "TestCatalogPublicRefreshPublishesCommittedRouting",
+      "TestCatalogPublicRefreshUnchangedKeepsAcknowledgedEpoch",
+      "TestCatalogPublicRefreshRecoveryFailureStaysClosed",
+      "TestCatalogRefreshRetryReleasesReader",
+      "TestCatalogRefreshOperationalChannelStatsDoNotInvalidateEpoch",
+      "TestCatalogRefreshSchedulerCancelsChannelSQL",
+      "TestCatalogRefreshReconcileCancelsWriterWait",
+      "TestCatalogRefreshReconcileNeverReplaysCommittedSQL",
+      "TestCatalogRefreshAllInstallLocksKeepOldProjection",
+      "TestCatalogRefreshMediaProjectionUsesCandidate"
+    ],
+    "required_children": [
+      "TestCatalogPublicationProcesses/noop",
+      "TestCatalogPublicationProcesses/fx",
+      "TestCatalogPublicationProcesses/interleave",
+      "TestCatalogPublicationOptionLockCancellation/request-policy",
+      "TestCatalogPublicationOptionLockCancellation/passkey",
+      "TestCatalogRefreshPublicRecoveryPublishesCompleteMoneyEpoch/explicit-raw",
+      "TestCatalogRefreshPublicRecoveryPublishesCompleteMoneyEpoch/effective-default",
+      "TestCatalogPublicRefreshPublishesCommittedRouting/priority/memory=true",
+      "TestCatalogPublicRefreshPublishesCommittedRouting/priority/memory=false",
+      "TestCatalogPublicRefreshPublishesCommittedRouting/mapping/memory=true",
+      "TestCatalogPublicRefreshPublishesCommittedRouting/mapping/memory=false",
+      "TestCatalogPublicRefreshUnchangedKeepsAcknowledgedEpoch/memory=true",
+      "TestCatalogPublicRefreshUnchangedKeepsAcknowledgedEpoch/memory=false",
+      "TestCatalogPublicRefreshRecoveryFailureStaysClosed/memory=true",
+      "TestCatalogPublicRefreshRecoveryFailureStaysClosed/memory=false",
+      "TestCatalogPublicationInvalidSameRevisionDriftGatesReads/price",
+      "TestCatalogPublicationInvalidSameRevisionDriftGatesReads/currency",
+      "TestCatalogPublicationInvalidSameRevisionDriftGatesReads/fx"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "catalog-recovery-gap-matrix",
+    "pkg": "./model",
+    "tests": [
+      "TestCatalogPublicationStaleExpectedRevisionKeepsHealthyEpoch",
+      "TestCatalogPublicationUpstreamObservationsKeepEpoch",
+      "TestCatalogPublicationRoutingSettingsRemainBound",
+      "TestCatalogPublicationRetiredOptionsKeepNoopReadOnly"
+    ],
+    "required_children": [
+      "TestCatalogPublicationRetiredOptionsKeepNoopReadOnly/postgres/none",
+      "TestCatalogPublicationRetiredOptionsKeepNoopReadOnly/postgres/deadline",
+      "TestCatalogPublicationRetiredOptionsKeepNoopReadOnly/postgres/theme",
+      "TestCatalogPublicationRetiredOptionsKeepNoopReadOnly/postgres/both",
+      "TestCatalogPublicationRetiredOptionsKeepNoopReadOnly/postgres/effective-changes/changed",
+      "TestCatalogPublicationRetiredOptionsKeepNoopReadOnly/postgres/effective-changes/uncached",
+      "TestCatalogPublicationRetiredOptionsKeepNoopReadOnly/postgres/effective-changes/near-match"
+    ],
+    "matrix": True
+  },
+  {
+    "name": "catalog-publication-fingerprint-migration",
+    "pkg": "./model",
+    "tests": ["TestCatalogPublicationFingerprintMigration"],
+    "matrix": True
+  },
+  {
+    "name": "catalog-publication-request-contracts",
+    "pkg": "./controller",
+    "tests": [
+      "TestCatalogPricingUnavailableChannelTest",
+      "TestCatalogPricingErrorClassification",
+      "TestCatalogPricingUnavailableImageSelection",
+      "TestCatalogPricingUnavailableTransportBilling",
+      "TestCatalogPricingUnavailableRelayResponse",
+      "TestCatalogPricingUnavailableTaskSelection",
+      "TestCatalogPublicationLLMBillingAcrossRefresh"
+    ],
+    "matrix": False
+  },
+  {
+    "name": "catalog-publication-native-error-contract",
+    "pkg": "./middleware",
+    "tests": ["TestRespondTaskPluginCatalogErrorRequiresLocalSentinel"],
+    "matrix": False
+  },
+  {
     "name": "controller-passkey-server-address",
     "pkg": "./controller",
     "tests": [
@@ -403,7 +510,7 @@ GROUPS = [
   {
     "name": "controller-pure-regressions",
     "pkg": "./controller",
-    "tests": ["TestSecurityEnrollmentOperationContext", "TestSecurityEnrollmentPublicErrorsDiscardWrappedDetails", "TestMoliiImagineSyncRequestsNeverRetryOrSwitchChannel", "TestOrdinarySyncChannelRetainsRetryBehavior", "TestPrepareImageRequestBillingRejectsMappingBeforeEstimateOrPreconsume", "TestControllerPostgresDSNGuard"],
+    "tests": ["TestSecurityEnrollmentOperationContext", "TestSecurityEnrollmentPublicErrorsDiscardWrappedDetails", "TestMoliiImagineSyncRequestsNeverRetryOrSwitchChannel", "TestOrdinarySyncChannelRetainsRetryBehavior", "TestPrepareImageRequestBillingRejectsMappingBeforeEstimateOrPreconsume", "TestControllerPostgresDSNGuard", "TestGetStatusReleasesOptionMapBeforeResponseIO", "TestGetStatusMarshalFailureReleasesOptionMapBeforeResponseHandling", "TestGetStatusReturnsEffectiveOIDCDisplayName", "TestGetStatusDoesNotExposePasskeyOrigins", "TestGetStatusAdvertisesDefaultDashboard"],
     "matrix": False
   },
   {
@@ -970,6 +1077,26 @@ def run_gate(mode):
     return 0
 
 class CatalogGateTest(unittest.TestCase):
+    def test_retired_option_noop_requires_every_postgres_case(self):
+        names = ["TestCatalogPublicationRetiredOptionsKeepNoopReadOnly",
+                 "TestCatalogPublicationRetiredOptionsKeepReadersAvailable"]
+        try:
+            validate_regression_inventory(GROUPS, names)
+        except ValueError as error:
+            self.fail(str(error))
+        group = next(group for group in GROUPS if group['name'] == 'catalog-recovery-gap-matrix')
+        children = [names[0] + '/postgres/' + case for case in
+                    ('none', 'deadline', 'theme', 'both',
+                     'effective-changes/changed', 'effective-changes/uncached', 'effective-changes/near-match')]
+        events = [{'Action': 'pass', 'Test': name} for name in
+                  group['tests'] + [name + '/postgres' for name in group['tests']] + children]
+        self.assertGreater(verify_events(events, group['tests'], group['matrix'],
+                                         group.get('required_children', ())), 0)
+        for child in children:
+            with self.subTest(child=child), self.assertRaises(ValueError):
+                verify_events([event for event in events if event['Test'] != child],
+                              group['tests'], group['matrix'], group.get('required_children', ()))
+
     def test_shared_route_requires_both_cache_modes(self):
         group = next(group for group in GROUPS if group['name'] == 'rc47-shared-routing-postgres')
         events = [{'Action': 'pass', 'Test': name} for name in group['tests'] + group['required_children']]

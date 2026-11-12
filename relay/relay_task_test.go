@@ -320,6 +320,21 @@ export function extractUsage(){return {tokens:1000000};}
 	plugin, err := registry.Register(source, pluginruntime.Options{})
 	require.NoError(t, err)
 	publishRelayTaskPluginRegistry(t, registry, map[string]string{plugin.Meta.Key: source})
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") == "1" {
+		// Currency and FX are now part of the published catalog epoch, not
+		// fetched from mutable globals after the request's version proof.
+		// Persist this valid fixture before recovery; assertions below retain
+		// the original CNY/7 conversion and frozen-settlement contract.
+		for key, value := range map[string]string{
+			"billing_setting.billing_mode":    `{"declared-model":"tiered_expr"}`,
+			"billing_setting.billing_expr":    `{"declared-model":"tier(\"base\", u(\"tokens\") * 46 / 1000000)"}`,
+			"group_ratio_setting.group_ratio": `{"default":1}`,
+			"USDExchangeRate":                 "7",
+		} {
+			require.NoError(t, model.DB.Save(&model.Option{Key: key, Value: value}).Error)
+		}
+		require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+	}
 	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Generation: registry.Generation(), Plugin: plugin})
 	c.Set("task_plugin_key", plugin.Meta.Key)
 	c.Set("group", "default")

@@ -91,7 +91,7 @@ func TestCatalogReloadConcurrentOrdinary(t *testing.T) {
 		t.Run(writer, func(t *testing.T) {
 			db := catalogReloadTestDB(t)
 			require.NoError(t, db.Create(&Model{ModelName: "concurrent", NameRule: NameRuleExact, BillingCurrency: "USD"}).Error)
-			require.NoError(t, UpdateOptionsBulk(map[string]string{"billing_setting.billing_mode": `{"concurrent":"tiered_expr"}`, "billing_setting.billing_expr": `{"concurrent":"p * 2"}`}))
+			require.NoError(t, UpdateOptionsBulk(map[string]string{"billing_setting.billing_mode": `{"concurrent":"tiered_expr"}`, "billing_setting.billing_expr": `{"concurrent":"p * 2"}`, "USDExchangeRate": "7.25"}))
 			snapshot, err := GetModelPricingSnapshot([]string{"concurrent"})
 			require.NoError(t, err)
 			finished := make(chan error, 1)
@@ -102,8 +102,17 @@ func TestCatalogReloadConcurrentOrdinary(t *testing.T) {
 				}
 				var state CatalogSyncState
 				tx.AddError(db.First(&state, CatalogSyncStateID).Error)
-				assert.Equal(t, "committed_pending_publish", state.PublicationState)
-				assert.ErrorIs(t, WithCatalogPricingRead(context.Background(), "concurrent", func() error { t.Error("reload selection escaped"); return nil }), ErrCatalogWriterBusy)
+				assert.Equal(t, "ready", state.PublicationState, "unchanged reload must not close the shared gate")
+				assert.NoError(t, WithCatalogPricingRead(context.Background(), "concurrent", func() error {
+					expression, configured := billing_setting.GetBillingExpr("concurrent")
+					assert.True(t, configured)
+					assert.Equal(t, "p * 2", expression, "unchanged refresh must keep the complete old price selectable")
+					money, found, err := ResolvePublishedCatalogMoneyContext("concurrent")
+					assert.True(t, found)
+					assert.Equal(t, "USD", string(money.SourceCurrency))
+					assert.Equal(t, 7.25, money.CNYPerUSD, "the old price must retain its own published currency and FX")
+					return err
+				}))
 				pinReleased := make(chan struct{})
 				go func() { jsplugin.DefaultRegistry.SetEnabled(true); close(pinReleased) }()
 				select {
@@ -172,6 +181,9 @@ func TestCatalogReloadSQLCancellation(t *testing.T) {
 			const key = "group_ratio_setting.group_metadata"
 			const legacy = `[{"name":"vip","icon":"DeepSeek.Color","recommendation":4}]`
 			require.NoError(t, db.Create(&Option{Key: key, Value: legacy}).Error)
+			// Exercise a real changed catalog, not the healthy no-op path. A
+			// canceled required option load must retain its durable drift gate.
+			require.NoError(t, db.Save(&Option{Key: "ModelPrice", Value: `{"changed":3}`}).Error)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			type blockedSQL struct {
@@ -308,16 +320,29 @@ func TestCatalogReloadErrorsAndFreshOptions(t *testing.T) {
 	assert.Equal(t, after, noOp)
 	// A callback query error is visible and must not acknowledge success.
 	failure := errors.New("reload option query unavailable")
-	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("reload-query-error", func(tx *gorm.DB) {
-		if tx.Statement.Table == "options" && tx.Statement.ConnPool == db.Statement.ConnPool {
-			tx.AddError(failure)
+	for _, changed := range []bool{false, true} {
+		if changed {
+			require.NoError(t, db.Save(&Option{Key: "ModelPrice", Value: `{"kept":4}`}).Error)
 		}
-	}))
-	err := loadOptionsFromDatabase()
-	require.NoError(t, db.Callback().Query().Remove("reload-query-error"))
-	require.ErrorIs(t, err, failure)
-	require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "kept", func() error { t.Error("query failure escaped"); return nil }), ErrCatalogPublicationPending)
-	require.NoError(t, loadOptionsFromDatabase())
+		require.NoError(t, db.Callback().Query().Before("gorm:query").Register("reload-query-error", func(tx *gorm.DB) {
+			if tx.Statement.Table == "options" && tx.Statement.ConnPool == db.Statement.ConnPool {
+				tx.AddError(failure)
+			}
+		}))
+		err := loadOptionsFromDatabase()
+		require.NoError(t, db.Callback().Query().Remove("reload-query-error"))
+		require.ErrorIs(t, err, failure)
+		var state CatalogSyncState
+		require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+		if changed {
+			require.Equal(t, "committed_pending_publish", state.PublicationState)
+			require.ErrorIs(t, WithCatalogPricingRead(context.Background(), "kept", func() error { t.Error("changed-catalog query failure escaped"); return nil }), ErrCatalogPublicationPending)
+		} else {
+			assert.Equal(t, noOp, state, "unrelated noncatalog query failure cannot close a proven healthy catalog")
+			require.NoError(t, WithCatalogPricingRead(context.Background(), "kept", func() error { return nil }))
+		}
+		require.NoError(t, loadOptionsFromDatabase())
+	}
 	require.NoError(t, db.Save(&Option{Key: "group_ratio_setting.group_metadata", Value: `[{"name":""}]`}).Error)
 	require.Error(t, loadOptionsFromDatabase(), "normalization failure must be returned, not skipped")
 	require.NoError(t, db.Save(&Option{Key: "group_ratio_setting.group_metadata", Value: `[]`}).Error)
@@ -341,7 +366,12 @@ func TestCatalogReloadRejectsObsoleteOptionsAndFX(t *testing.T) {
 				}
 				tx.AddError(db.Save(&Option{Key: drift, Value: value}).Error)
 			}))
-			err := loadOptionsFromDatabase()
+			var state CatalogSyncState
+			require.NoError(t, db.First(&state, CatalogSyncStateID).Error)
+			// The public recovery entry point now retries stale captures. Use
+			// its existing one-shot seam to prove the obsolete attempt itself
+			// cannot publish, then recover the authoritative new values below.
+			err := publishCatalogSyncRevision(context.Background(), state.Revision, loadOptionsFromDatabaseGuarded)
 			require.NoError(t, db.Callback().Query().Remove("reload-obsolete"))
 			require.True(t, changed)
 			require.ErrorIs(t, err, ErrCatalogSyncPlanStale)

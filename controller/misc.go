@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/render"
 )
 
 func TestStatus(c *gin.Context) {
@@ -43,7 +44,6 @@ func GetStatus(c *gin.Context) {
 	cs := console_setting.GetConsoleSetting()
 	passkeySetting := system_setting.PasskeySettingsSnapshot()
 	common.OptionMapRWMutex.RLock()
-	defer common.OptionMapRWMutex.RUnlock()
 
 	legalSetting := system_setting.GetLegalSettings()
 
@@ -168,11 +168,23 @@ func GetStatus(c *gin.Context) {
 		data["custom_oauth_providers"] = providersInfo
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	// Freeze the complete response, including nested settings, before allowing
+	// option publication. Slow response I/O must not retain the shared lock.
+	payload, err := common.Marshal(gin.H{
 		"success": true,
 		"message": "",
 		"data":    data,
 	})
+	common.OptionMapRWMutex.RUnlock()
+	if err != nil {
+		// Preserve Gin JSON's status, content type and error handling on failure.
+		c.Status(http.StatusOK)
+		render.JSON{}.WriteContentType(c.Writer)
+		_ = c.Error(err)
+		c.Abort()
+		return
+	}
+	c.JSON(http.StatusOK, common.RawMessage(payload))
 	return
 }
 

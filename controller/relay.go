@@ -191,7 +191,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if !isImageRequest {
 		priceData, priceErr := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 		if priceErr != nil {
-			newAPIError = types.NewError(priceErr, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+			newAPIError = helper.ModelPricingError(priceErr)
 			return
 		}
 		if priceData.FreeModel {
@@ -269,6 +269,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 
+		if helper.IsCatalogPricingUnavailable(newAPIError) {
+			newAPIError = helper.ModelPricingError(newAPIError)
+		}
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
 
@@ -313,7 +316,7 @@ func prepareSelectedImageBilling(c *gin.Context, relayInfo *relaycommon.RelayInf
 	// Select direct rates, their anchor, currency and base pricing together,
 	// before any estimator body/media work. ModelPriceHelper reuses this value.
 	if err := helper.CaptureRequestPricing(c, relayInfo); err != nil {
-		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+		return helper.ModelPricingError(err)
 	}
 	var ratios map[string]float64
 	if estimator, ok := adaptor.(channel.ImageBillingEstimator); ok {
@@ -333,7 +336,7 @@ func prepareSelectedImageBilling(c *gin.Context, relayInfo *relaycommon.RelayInf
 	meta.BillingRatios = ratios
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
-		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+		return helper.ModelPricingError(err)
 	}
 	if priceData.FreeModel {
 		return nil
@@ -429,10 +432,16 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
+	if helper.IsCatalogPricingUnavailable(err) {
+		return
+	}
 	service.ProcessChannelError(c, channelError, err, relayInfo)
 }
 
 func shouldRetry(c *gin.Context, apiErr *types.NewAPIError, retryTimes int) bool {
+	if helper.IsCatalogPricingUnavailable(apiErr) {
+		return false
+	}
 	if isMoliiImagineChannelType(common.GetContextKeyInt(c, constant.ContextKeyChannelType)) {
 		return false
 	}
@@ -1045,6 +1054,9 @@ func taskSubmissionAPIError(taskErr *taskdto.TaskError) *types.NewAPIError {
 	if err == nil {
 		err = errors.New(taskErr.Message)
 	}
+	if helper.IsCatalogPricingUnavailable(err) {
+		return helper.ModelPricingError(err)
+	}
 	return types.NewOpenAIError(err, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode)
 }
 
@@ -1056,6 +1068,8 @@ func decideTaskRetry(c *gin.Context, taskErr *taskdto.TaskError, retryTimes int)
 	switch {
 	case taskErr == nil:
 		stop.Reason = "request_completed"
+	case helper.IsCatalogPricingUnavailable(taskErr.Error):
+		stop.Reason = "local_rejection"
 	case taskErr.NoRetry:
 		stop.Reason = "task_accepted"
 	case service.ShouldSkipRetryAfterChannelAffinityFailure(c):

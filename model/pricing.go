@@ -306,16 +306,40 @@ func updatePricing() {
 // and alias inputs plus precompiled compatibility decisions; nil retains the
 // ordinary refresh behavior until the writer integration phase.
 func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) error {
-	//modelRatios := common.GetModelRatios()
-	enableAbilities, err := getAllEnableAbilityWithChannels(db)
-	if err != nil {
-		return fmt.Errorf("load pricing abilities: %w", err)
-	}
-	// 预加载模型元数据与供应商一次，避免循环查询
+	var enableAbilities []AbilityWithChannel
 	var allMeta []Model
-	if err := db.Find(&allMeta).Error; err != nil {
-		return fmt.Errorf("load pricing metadata: %w", err)
+	var vendors []Vendor
+	prices := catalogProjectionPrices{}
+	if stage != nil {
+		prices.candidate = stage.candidate
+		allMeta, vendors = stage.input.metadata, stage.input.vendors
+		types := make(map[int]int)
+		for _, channel := range stage.input.channels {
+			types[channel.Id] = channel.Type
+		}
+		for _, ability := range stage.input.abilities {
+			if ability.Enabled {
+				enableAbilities = append(enableAbilities, AbilityWithChannel{Ability: ability, ChannelType: types[ability.ChannelId]})
+			}
+		}
+	} else {
+		var err error
+		enableAbilities, err = getAllEnableAbilityWithChannels(db)
+		if err != nil {
+			return fmt.Errorf("load pricing abilities: %w", err)
+		}
+		if err := db.Find(&allMeta).Error; err != nil {
+			return fmt.Errorf("load pricing metadata: %w", err)
+		}
+		if err := db.Find(&vendors).Error; err != nil {
+			return fmt.Errorf("load pricing vendors: %w", err)
+		}
 	}
+	// All assignments below are detached, including ordinary refresh failures.
+	var pricingMap []Pricing
+	var vendorsList []PricingVendor
+	var supportedEndpointMap map[string]common.EndpointInfo
+	var modelSupportEndpointTypes map[string][]constant.EndpointType
 	names := make([]string, 0, len(enableAbilities))
 	for _, ability := range enableAbilities {
 		names = append(names, ability.Model)
@@ -339,10 +363,6 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 	}
 
 	// 预加载供应商
-	var vendors []Vendor
-	if err := db.Find(&vendors).Error; err != nil {
-		return fmt.Errorf("load pricing vendors: %w", err)
-	}
 	vendorMap := make(map[int]*Vendor)
 	for i := range vendors {
 		vendorMap[vendors[i].Id] = &vendors[i]
@@ -361,9 +381,15 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 
 	//这里使用切片而不是Set，因为一个模型可能支持多个端点类型，并且第一个端点是优先使用端点
 	modelSupportEndpointsStr := make(map[string][]string)
-	advancedCustomConfigs, err := loadPricingAdvancedCustomConfigs(db, enableAbilities, stage != nil)
-	if err != nil {
-		return err
+	var advancedCustomConfigs map[int]*dto.AdvancedCustomConfig
+	if stage != nil {
+		advancedCustomConfigs = stage.channelCache.advanced
+	} else {
+		var err error
+		advancedCustomConfigs, err = loadPricingAdvancedCustomConfigs(db, enableAbilities, false)
+		if err != nil {
+			return err
+		}
 	}
 
 	// 先根据已有能力填充原生端点
@@ -482,18 +508,18 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 			continue
 		}
 
-		modelPrice, hasModelPrice := ratio_setting.GetModelPrice(model, false)
-		modelRatio, hasModelRatio, _ := ratio_setting.GetModelRatio(model)
-		billingExpr, hasBillingExpr := billing_setting.GetBillingExpr(model)
+		modelPrice, hasModelPrice := prices.ratio("ModelPrice", model)
+		modelRatio, hasModelRatio := prices.ratio("ModelRatio", model)
+		billingExpr, hasBillingExpr := prices.expression(model)
 		hasBillingExpr = hasBillingExpr && strings.TrimSpace(billingExpr) != ""
-		builtinUnavailable := billingCurrencies[model] == "CNY" && billing_setting.IsBuiltinBillingExprFallback(model)
+		builtinUnavailable := billingCurrencies[model] == "CNY" && prices.builtin(model)
 		if builtinUnavailable {
 			hasBillingExpr = false
 			if !hasTaskPlugin {
 				continue
 			}
 		}
-		if (!IsModelPricingConfigured(model) && !hasTaskPlugin) || len(groups.Items()) == 0 || len(modelSupportEndpointTypes[model]) == 0 {
+		if (!prices.configured(model) && !hasTaskPlugin) || len(groups.Items()) == 0 || len(modelSupportEndpointTypes[model]) == 0 {
 			continue
 		}
 
@@ -534,32 +560,30 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 			pricing.QuotaType = 1
 		} else if hasModelRatio || hasBillingExpr {
 			pricing.ModelRatio = modelRatio
-			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(model)
+			pricing.CompletionRatio = prices.completion(model)
 			pricing.QuotaType = 0
 		}
-		if cacheRatio, ok := ratio_setting.GetCacheRatio(model); ok {
+		if cacheRatio, ok := prices.ratio("CacheRatio", model); ok {
 			pricing.CacheRatio = &cacheRatio
 		}
-		if createCacheRatio, ok := ratio_setting.GetCreateCacheRatio(model); ok {
+		if createCacheRatio, ok := prices.ratio("CreateCacheRatio", model); ok {
 			pricing.CreateCacheRatio = &createCacheRatio
 		}
-		if imageRatio, ok := ratio_setting.GetImageRatio(model); ok {
+		if imageRatio, ok := prices.ratio("ImageRatio", model); ok {
 			pricing.ImageRatio = &imageRatio
 		}
-		if ratio_setting.ContainsAudioRatio(model) {
-			audioRatio := ratio_setting.GetAudioRatio(model)
+		if audioRatio, ok := prices.ratio("AudioRatio", model); ok {
 			pricing.AudioRatio = &audioRatio
 		}
-		if ratio_setting.ContainsAudioCompletionRatio(model) {
-			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
+		if audioCompletionRatio, ok := prices.ratio("AudioCompletionRatio", model); ok {
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
 		aliasTarget, aliasResolved := resolveAlias(model)
 		aliasExpression, aliasOverride := "", false
 		if aliasResolved && aliasTarget.Declared != "" {
-			aliasExpression, aliasOverride = billing_setting.GetPluginBillingExpr(aliasTarget.PluginKey, model)
+			aliasExpression, aliasOverride = prices.plugin(aliasTarget.PluginKey, model)
 			if !aliasOverride {
-				aliasExpression, aliasOverride = billing_setting.GetPluginBillingExpr(aliasTarget.PluginKey, aliasTarget.Declared)
+				aliasExpression, aliasOverride = prices.plugin(aliasTarget.PluginKey, aliasTarget.Declared)
 			}
 		}
 		if aliasOverride {
@@ -577,19 +601,19 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 			}
 			pricing.BillingMode = billing_setting.BillingModeTieredExpr
 			pricing.BillingExpr = aliasExpression
-		} else if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
+		} else if billingMode := prices.mode(model); billingMode == "tiered_expr" {
 			if hasBillingExpr {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = billingExpr
 			}
-		} else if aliasResolved && aliasTarget.Declared != "" && !hasModelPrice && !ratio_setting.HasConfiguredModelRatio(model) {
+		} else if aliasResolved && aliasTarget.Declared != "" && !hasModelPrice && !prices.configuredRatio(model) {
 			targetCurrency := billingCurrencies[aliasTarget.Declared]
 			if targetCurrency == "" {
 				targetCurrency = "USD"
 			}
-			tailUnavailable := targetCurrency == "CNY" && billing_setting.IsBuiltinBillingExprFallback(aliasTarget.Declared)
-			if tailMode := billing_setting.GetBillingMode(aliasTarget.Declared); tailMode == "tiered_expr" && !tailUnavailable {
-				if expr, ok := billing_setting.GetBillingExpr(aliasTarget.Declared); ok && strings.TrimSpace(expr) != "" {
+			tailUnavailable := targetCurrency == "CNY" && prices.builtin(aliasTarget.Declared)
+			if tailMode := prices.mode(aliasTarget.Declared); tailMode == "tiered_expr" && !tailUnavailable {
+				if expr, ok := prices.expression(aliasTarget.Declared); ok && strings.TrimSpace(expr) != "" {
 					pricing.BillingMode = tailMode
 					pricing.BillingExpr = expr
 					pricing.BillingCurrency = targetCurrency
@@ -612,7 +636,7 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 		providers := pluginGeneration.PluginsByModel(model)
 		hasProviderOverride := false
 		for _, provider := range providers {
-			if _, configured := billing_setting.GetPluginBillingExpr(provider.Meta.Key, model); configured {
+			if _, configured := prices.plugin(provider.Meta.Key, model); configured {
 				hasProviderOverride = true
 				break
 			}
@@ -623,12 +647,12 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 				if schema == nil {
 					schema = map[string]jsplugin.UsageFieldSchema{}
 				}
-				expression, hasExpression := billing_setting.ResolveTaskBillingExpr(provider.Meta.Key, model, "")
-				if _, overridden := billing_setting.GetPluginBillingExpr(provider.Meta.Key, model); builtinUnavailable && !overridden {
+				expression, hasExpression := prices.task(provider.Meta.Key, model)
+				if _, overridden := prices.plugin(provider.Meta.Key, model); builtinUnavailable && !overridden {
 					expression, hasExpression = "", false
 				}
 				mode := billing_setting.BillingModeRatio
-				if hasExpression || billing_setting.GetBillingMode(model) == billing_setting.BillingModeTieredExpr {
+				if hasExpression || prices.mode(model) == billing_setting.BillingModeTieredExpr {
 					mode = billing_setting.BillingModeTieredExpr
 				}
 				if mode == billing_setting.BillingModeTieredExpr {
@@ -647,10 +671,10 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 				})
 			}
 		}
-		if videoPricing, ok := ratio_setting.GetStarAIVideoPricing(model); ok {
+		if videoPricing, ok := prices.video(model); ok {
 			pricing.VideoPricing = videoPricing
 		}
-		if grokPricing, ok := ratio_setting.GetMoliiGrokCatalogPricing(model); ok {
+		if grokPricing, ok := prices.grok(model); ok {
 			pricing.MoliiGrokPricing = grokPricing
 		}
 		pricingMap = append(pricingMap, pricing)
@@ -677,27 +701,18 @@ func updatePricingWithCatalogStage(db *gorm.DB, stage *catalogRuntimeStage) erro
 	}
 
 	// 刷新缓存映射，供高并发快速查询
-	if stage != nil {
-		if err := db.Statement.Context.Err(); err != nil {
-			return err
-		}
-		// Keep lifecycle rebuild bounded while common/pricing/endpoint locks
-		// are held. A busy index leaves publication pending for retry.
-		if !modelEnableGroupsLock.TryLock() {
-			return ErrCatalogWriterBusy
-		}
-	} else {
-		modelEnableGroupsLock.Lock()
-	}
-	modelEnableGroups = make(map[string][]string)
-	modelQuotaTypeMap = make(map[string]int)
+	projection := &catalogPricingProjection{prices: pricingMap, vendors: vendorsList, endpoints: modelSupportEndpointTypes, supported: supportedEndpointMap, groups: make(map[string][]string), quota: make(map[string]int)}
 	for _, p := range pricingMap {
-		modelEnableGroups[p.ModelName] = p.EnableGroup
-		modelQuotaTypeMap[p.ModelName] = p.QuotaType
+		projection.groups[p.ModelName] = p.EnableGroup
+		projection.quota[p.ModelName] = p.QuotaType
 	}
+	if stage != nil {
+		stage.projection = projection
+		return nil
+	}
+	modelEnableGroupsLock.Lock()
+	projection.install()
 	modelEnableGroupsLock.Unlock()
-
-	lastGetPricingTime = time.Now()
 	return nil
 }
 

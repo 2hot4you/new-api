@@ -217,6 +217,19 @@ func TestModelPriceHelperTieredUsesFrozenBillingModelCurrency(t *testing.T) {
 		"billing_setting.billing_expr":    `{"cny-target":"tier(\"base\", p * 7)"}`,
 		"group_ratio_setting.group_ratio": `{"default":1.2}`,
 	}))
+	if os.Getenv("CATALOG_SYNC_POSTGRES_ONLY") == "1" {
+		// Seed the same authoritative money inputs that real startup publishes;
+		// direct global FX assignment is no longer a catalog publication.
+		for key, value := range map[string]string{
+			"billing_setting.billing_mode":    `{"cny-target":"tiered_expr"}`,
+			"billing_setting.billing_expr":    `{"cny-target":"tier(\"base\", p * 7)"}`,
+			"group_ratio_setting.group_ratio": `{"default":1.2}`,
+			"USDExchangeRate":                 "7",
+		} {
+			require.NoError(t, database.Save(&model.Option{Key: key, Value: value}).Error)
+		}
+		require.NoError(t, model.RecoverCatalogSyncRuntime(context.Background()))
+	}
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
