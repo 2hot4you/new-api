@@ -214,6 +214,34 @@ jobs:
           python3 -m unittest discover -s deploy/tests -p 'test_*.py'
           bash deploy/tests/deploy_test.sh
 
+  model_tencent_preflight:
+    name: Verify Tencent application target (read-only)
+    needs:
+      - prepare
+      - verify
+    if: ${{ contains(fromJSON(needs.prepare.outputs.targets).*.id, 'production-model-claudeye') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-model-claudeye
+    outputs:
+      previous_image: ${{ steps.preflight.outputs.previous_image }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Preflight Tencent application target
+        id: preflight
+        env:
+          MODEL_TENCENT_SSH_HOST: ${{ secrets.MODEL_TENCENT_SSH_HOST }}
+          MODEL_TENCENT_SSH_PORT: ${{ secrets.MODEL_TENCENT_SSH_PORT }}
+          MODEL_TENCENT_SSH_USER: ${{ secrets.MODEL_TENCENT_SSH_USER }}
+          MODEL_TENCENT_SSH_PRIVATE_KEY: ${{ secrets.MODEL_TENCENT_SSH_PRIVATE_KEY }}
+          MODEL_TENCENT_SSH_KNOWN_HOSTS: ${{ secrets.MODEL_TENCENT_SSH_KNOWN_HOSTS }}
+        run: bash deploy/model-claudeye-tencent-ci.sh preflight
+
   release:
     name: Release ${{ matrix.target.id }}
     concurrency:
@@ -222,6 +250,15 @@ jobs:
     needs:
       - prepare
       - verify
+      - model_tencent_preflight
+    # The skipped preflight is expected only for development and single-site
+    # releases that do not include the Tencent application.
+    if: >-
+      ${{ !cancelled() && needs.prepare.result == 'success' && needs.verify.result == 'success' &&
+          ((contains(fromJSON(needs.prepare.outputs.targets).*.id, 'production-model-claudeye') &&
+            needs.model_tencent_preflight.result == 'success' && needs.model_tencent_preflight.outputs.previous_image != '') ||
+           (!contains(fromJSON(needs.prepare.outputs.targets).*.id, 'production-model-claudeye') &&
+            needs.model_tencent_preflight.result == 'skipped')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -241,13 +278,6 @@ jobs:
       DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
       HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL }}
       SITE_DOMAIN: ${{ vars.DEPLOY_SITE_DOMAIN }}
-      SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
-      SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-      SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
-      SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-      SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
-      GHCR_TOKEN: ${{ github.token }}
-      GHCR_USERNAME: ${{ github.actor }}
       IXIAOZU_MAINTENANCE_APPROVED: ${{ inputs.ixiaozu_maintenance_approved }}
       IXIAOZU_MAINTENANCE_DATE: ${{ inputs.ixiaozu_maintenance_date }}
     steps:
@@ -273,7 +303,28 @@ jobs:
           [[ -z "$IXIAOZU_MAINTENANCE_APPROVED" || "$IXIAOZU_MAINTENANCE_APPROVED" == true || "$IXIAOZU_MAINTENANCE_APPROVED" == false ]] || exit 1
           source deploy/maintenance-window.sh
           check_maintenance_window "$DEPLOY_ENVIRONMENT"
-          for value_name in DEPLOY_DIR HEALTH_URL SITE_DOMAIN SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS VITE_SITE_PROFILE VITE_SITE_TITLE VITE_SITE_DESCRIPTION VITE_SITE_LOGO VITE_SITE_FAVICON VITE_SITE_APPLE_TOUCH_ICON VITE_SITE_BANNER_BRAND VITE_SITE_DEFAULT_FONT; do
+          for value_name in HEALTH_URL SITE_DOMAIN VITE_SITE_PROFILE VITE_SITE_TITLE VITE_SITE_DESCRIPTION VITE_SITE_LOGO VITE_SITE_FAVICON VITE_SITE_APPLE_TOUCH_ICON VITE_SITE_BANNER_BRAND VITE_SITE_DEFAULT_FONT; do
+            if [[ -z "${!value_name}" ]]; then
+              echo "::error::Required GitHub Environment value is empty: $value_name"
+              exit 1
+            fi
+          done
+          [[ "$HEALTH_URL" =~ ^https?://[a-zA-Z0-9./:_-]+$ ]] || { echo '::error::Unsafe health URL'; exit 1; }
+          if [[ "$VITE_SITE_PROFILE" != "$EXPECTED_PROFILE" ]]; then
+            echo "::error::VITE_SITE_PROFILE must be $EXPECTED_PROFILE for $DEPLOY_ENVIRONMENT"
+            exit 1
+          fi
+
+      - name: Validate legacy deployment environment
+        if: matrix.target.id != 'production-model-claudeye'
+        env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          for value_name in DEPLOY_DIR SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS; do
             if [[ -z "${!value_name}" ]]; then
               echo "::error::Required GitHub Environment value is empty: $value_name"
               exit 1
@@ -281,14 +332,9 @@ jobs:
           done
           # These values become remote command arguments; reject shell metacharacters.
           [[ "$DEPLOY_DIR" =~ ^/[a-zA-Z0-9_/-]+$ ]] || { echo '::error::Unsafe deployment directory'; exit 1; }
-          [[ "$HEALTH_URL" =~ ^https?://[a-zA-Z0-9./:_-]+$ ]] || { echo '::error::Unsafe health URL'; exit 1; }
           [[ "$SSH_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo '::error::Invalid SSH host'; exit 1; }
           [[ "$SSH_USER" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]] || { echo '::error::Invalid SSH user'; exit 1; }
           [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$SSH_PORT > 0 && 10#$SSH_PORT <= 65535 )) || { echo '::error::Invalid SSH port'; exit 1; }
-          if [[ "$VITE_SITE_PROFILE" != "$EXPECTED_PROFILE" ]]; then
-            echo "::error::VITE_SITE_PROFILE must be $EXPECTED_PROFILE for $DEPLOY_ENVIRONMENT"
-            exit 1
-          fi
 
       - name: Resolve application version
         id: app_version
@@ -309,6 +355,9 @@ jobs:
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USERNAME: ${{ github.actor }}
         run: |
           bash deploy/retry.sh 'runner GHCR login' \
             bash -c 'printf "%s" "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin'
@@ -340,6 +389,10 @@ jobs:
           sbom: true
 
       - name: Configure SSH
+        if: matrix.target.id != 'production-model-claudeye'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
         run: |
           umask 077
           install -m 700 -d "$HOME/.ssh"
@@ -349,6 +402,11 @@ jobs:
           chmod 600 "$HOME/.ssh/known_hosts"
 
       - name: Verify SSH connectivity
+        if: matrix.target.id != 'production-model-claudeye'
+        env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
         run: |
           bash deploy/retry.sh 'SSH connectivity' \
             bash deploy/guard-remote.sh ssh -p "$SSH_PORT" \
@@ -358,12 +416,23 @@ jobs:
               "$SSH_USER@$SSH_HOST" true
 
       - name: Authenticate server to GHCR
+        if: matrix.target.id != 'production-model-claudeye'
+        env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USERNAME: ${{ github.actor }}
         run: |
           bash deploy/retry.sh 'server GHCR login' \
             bash -c 'printf "%s" "$GHCR_TOKEN" | bash deploy/guard-remote.sh ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin'
 
       - name: Upload development backup helper
         if: matrix.target.id == 'development' && (github.event_name == 'push' || inputs.backup_postgres)
+        env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
         run: |
           bash deploy/retry.sh 'development backup helper upload' \
             scp -P "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=15 deploy/backup-postgres.sh \
@@ -372,13 +441,20 @@ jobs:
       - name: Back up development PostgreSQL
         if: matrix.target.id == 'development' && (github.event_name == 'push' || inputs.backup_postgres)
         env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
           BACKUP_NAME: new-api-before-${{ steps.app_version.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}.dump
         run: |
           ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
             "chmod 700 '$DEPLOY_DIR/backup-postgres.sh' && '$DEPLOY_DIR/backup-postgres.sh' '$DEPLOY_DIR' '$BACKUP_NAME'"
 
       - name: Upload deployment assets
+        if: matrix.target.id != 'production-model-claudeye'
         env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
           COMPOSE_FILE: ${{ matrix.target.compose_file }}
         run: |
           bash deploy/retry.sh 'deployment asset upload' \
@@ -390,7 +466,11 @@ jobs:
 
       - name: Deploy immutable image
         id: deploy
+        if: matrix.target.id != 'production-model-claudeye'
         env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
           IMAGE_REFERENCE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
         run: |
           umask 077
@@ -416,8 +496,25 @@ jobs:
           fi
           exit "$deploy_status"
 
+      - name: Deploy Tencent application
+        id: deploy_tencent
+        if: matrix.target.id == 'production-model-claudeye'
+        env:
+          MODEL_TENCENT_SSH_HOST: ${{ secrets.MODEL_TENCENT_SSH_HOST }}
+          MODEL_TENCENT_SSH_PORT: ${{ secrets.MODEL_TENCENT_SSH_PORT }}
+          MODEL_TENCENT_SSH_USER: ${{ secrets.MODEL_TENCENT_SSH_USER }}
+          MODEL_TENCENT_SSH_PRIVATE_KEY: ${{ secrets.MODEL_TENCENT_SSH_PRIVATE_KEY }}
+          MODEL_TENCENT_SSH_KNOWN_HOSTS: ${{ secrets.MODEL_TENCENT_SSH_KNOWN_HOSTS }}
+          PREVIOUS_IMAGE: ${{ needs.model_tencent_preflight.outputs.previous_image }}
+          IMAGE_REFERENCE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: bash deploy/model-claudeye-tencent-ci.sh release "$PREVIOUS_IMAGE" "$IMAGE_REFERENCE" "$SOURCE_SHA"
+
       - name: Verify repeated development startup
         if: matrix.target.id == 'development' && (github.event_name == 'push' || inputs.verify_repeated_startup)
+        env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
         run: |
           ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
             sh -s -- "$DEPLOY_DIR" "$HEALTH_URL" <<'REMOTE'
@@ -451,7 +548,7 @@ jobs:
         env:
           TARGET_ID: ${{ matrix.target.id }}
           TARGET_RESULT: ${{ job.status }}
-          ROLLBACK_RESULT: ${{ steps.deploy.outputs.rollback }}
+          ROLLBACK_RESULT: ${{ steps.deploy_tencent.outputs.rollback || steps.deploy.outputs.rollback }}
         run: |
           python3 - <<'PY'
           import json
@@ -488,7 +585,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DEPLOY_RESULT: ${{ job.status }}
           TARGET_ENVIRONMENT: ${{ matrix.target.id }}
-          ROLLBACK_RESULT: ${{ steps.deploy.outputs.rollback }}
+          ROLLBACK_RESULT: ${{ steps.deploy_tencent.outputs.rollback || steps.deploy.outputs.rollback }}
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo 'Telegram secrets are not configured; skipping notification.'
